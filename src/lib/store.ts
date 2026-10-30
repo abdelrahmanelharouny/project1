@@ -1,0 +1,53 @@
+'use client'
+
+import { create } from 'zustand'
+
+export type WorkspaceTab = 'overview' | 'farms' | 'observations' | 'passport'
+
+export interface SelectedField {
+  id: string
+  name: string
+  farmId: string
+}
+
+interface FieldShiftUiState {
+  activeTab: WorkspaceTab
+  selectedFarmId: string | null
+  selectedField: SelectedField | null
+  /** Farms & Fields dialog; Overview quick action opens it cross-tab. */
+  createFarmDialogOpen: boolean
+  setActiveTab: (tab: WorkspaceTab) => void
+  setSelectedFarmId: (farmId: string | null) => void
+  setSelectedField: (field: SelectedField | null) => void
+  renameSelectedField: (fieldId: string, name: string) => void
+  setCreateFarmDialogOpen: (open: boolean) => void
+  openCreateFarm: () => void
+  goToPassportFor: (field: SelectedField) => void
+  goToObservationsFor: (field: SelectedField) => void
+}
+
+export const useFieldShiftUi = create<FieldShiftUiState>((set) => ({
+  activeTab: 'overview',
+  selectedFarmId: null,
+  selectedField: null,
+  createFarmDialogOpen: false,
+  setActiveTab: (tab) => set({ activeTab: tab }),
+  setSelectedFarmId: (farmId) => set({ selectedFarmId: farmId }),
+  setSelectedField: (field) =>
+    set((state) => ({
+      selectedField: field,
+      // keep the farm selector in sync when a field of another farm is chosen
+      selectedFarmId: field ? field.farmId : state.selectedFarmId,
+    })),
+  renameSelectedField: (fieldId, name) =>
+    set((state) =>
+      state.selectedField && state.selectedField.id === fieldId
+        ? { selectedField: { ...state.selectedField, name } }
+        : {},
+    ),
+  setCreateFarmDialogOpen: (open) => set({ createFarmDialogOpen: open }),
+  openCreateFarm: () => set({ createFarmDialogOpen: true, activeTab: 'farms' }),
+  goToPassportFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'passport' }),
+  goToObservationsFor: (field) =>
+    set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'observations' }),
+}))

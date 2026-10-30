@@ -1,0 +1,110 @@
+"""Pytest fixtures: isolated test database (real PostgreSQL + PostGIS), API client.
+
+The test database is `fieldshift_test` on the local sandbox cluster. All env
+overrides happen BEFORE any app import so cached settings pick them up.
+"""
+
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+TEST_DB_URL = "postgresql+psycopg2://postgres@127.0.0.1:5433/fieldshift_test"
+os.environ["FIELDSHIFT_DATABASE_URL"] = TEST_DB_URL
+os.environ["FIELDSHIFT_ENVIRONMENT"] = "test"
+
+import psycopg2  # noqa: E402
+import pytest  # noqa: E402
+
+
+def _ensure_test_database() -> None:
+    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="postgres")
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM pg_database WHERE datname = 'fieldshift_test'")
+    if cur.fetchone() is None:
+        cur.execute("CREATE DATABASE fieldshift_test ENCODING 'UTF8'")
+    conn.close()
+    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="fieldshift_test")
+    conn.autocommit = True
+    conn.cursor().execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    conn.close()
+
+
+_ensure_test_database()
+
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+
+from app.core.database import SessionLocal, engine  # noqa: E402
+from app.db.models import Base  # noqa: E402
+from app.main import app  # noqa: E402
+
+Base.metadata.create_all(bind=engine)
+
+
+@pytest.fixture()
+def db():
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+
+
+@pytest.fixture()
+def client():
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture(autouse=True)
+def clean_tables():
+    yield
+    with engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(text(f'TRUNCATE TABLE "{table.name}" CASCADE'))
+
+
+@pytest.fixture()
+def auth_headers(client):
+    """Register a fresh user, return (headers, user_json)."""
+    import uuid
+
+    email = f"user-{uuid.uuid4().hex[:10]}@test.local"
+    resp = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "test-password-1", "display_name": "Test Farmer"},
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    return {"Authorization": f"Bearer {data['token']}"}, data
+
+
+@pytest.fixture()
+def farm_with_field(client, auth_headers):
+    """Register user + farm + one square field; return dict of ids/headers."""
+    headers, user = auth_headers
+    farm_resp = client.post(
+        "/api/v1/farms",
+        headers=headers,
+        json={"name": "Test Farm", "country_code": "EG", "timezone": "Africa/Cairo", "currency_code": "EGP"},
+    )
+    assert farm_resp.status_code == 201, farm_resp.text
+    farm = farm_resp.json()
+    field_resp = client.post(
+        f"/api/v1/farms/{farm['id']}/fields",
+        headers=headers,
+        json={
+            "name": "North Field",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[31.40, 31.10], [31.42, 31.10], [31.42, 31.12], [31.40, 31.12], [31.40, 31.10]]],
+            },
+        },
+    )
+    assert field_resp.status_code == 201, field_resp.text
+    field = field_resp.json()
+    return {"headers": headers, "user": user, "farm": farm, "field": field}

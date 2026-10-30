@@ -1,0 +1,2002 @@
+     1→---
+     2→title: "FieldShift"
+     3→subtitle: "Master Engineering Prompt — Product, Architecture, Data Platform & Implementation Specification"
+     4→date: "30 October 2026"
+     5→---
+     6→
+     7→## Document Contents
+     8→
+     9→- Part I — Execution Prompt for the Coding Agent
+    10→- Part II — Product Definition
+    11→- Part III — Technical Architecture
+    12→- Part IV — Data Platform
+    13→- Part V — Database Design
+    14→- Part VI — Agricultural Intelligence and Algorithms
+    15→- Part VII — Additional Innovative Features
+    16→- Part VIII — API Contracts
+    17→- Part IX — Frontend and Farmer Experience
+    18→- Part X — Security, Privacy, Reliability and Operations
+    19→- Part XI — Testing and Acceptance
+    20→- Part XII — Implementation Roadmap
+    21→- Part XIII — Required Repository Structure
+    22→- Part XIV — Required Documentation
+    23→- Part XV — Implementation Order and First Task
+    24→- Part XVI — Official Technical and Scientific References
+    25→
+    26→**Document type:** Product Requirements + Technical Architecture + Data Engineering Specification + Implementation Instructions  
+    27→**Target coding agent:** GLM (or another repository-aware coding agent)  
+    28→**Product scope:** Global-capable agricultural decision-support platform  
+    29→**Implementation strategy:** Full engineering project, delivered incrementally through verified milestones  
+    30→**Primary data constraint:** NASA data connectors are NOT available or required for the initial implementation. The system must work with alternative sources, farmer-provided data, imported files, and explicitly labelled synthetic fixtures. NASA support is a future adapter, not a current dependency.
+    31→
+    32→---
+    33→
+    34→# PART I — EXECUTION PROMPT FOR THE CODING AGENT
+    35→
+    36→## 1. Your Role
+    37→
+    38→You are acting as a principal software architect, senior Python backend engineer, geospatial data engineer, agricultural decision-support engineer, optimization engineer, frontend architect, QA engineer, and technical writer working as one disciplined engineering team.
+    39→
+    40→Your task is to implement **FieldShift**, a maintainable, testable, explainable, global-capable agricultural decision-support platform. You are not being asked to create a mock landing page, a static dashboard, a notebook-only prototype, or a collection of disconnected API calls. You must build a coherent software product with clear domain boundaries, reproducible analytical pipelines, traceable data, robust APIs, a useful farmer experience, and automated tests.
+    41→
+    42→You must work directly in the repository available in your environment. Before changing anything, inspect the existing repository, identify its current state, and preserve useful existing work. Do not assume that the repository is empty.
+    43→
+    44→## 2. Mission
+    45→
+    46→Build a system that helps farmers and agricultural advisors explore, compare, and improve crop-rotation strategies by combining:
+    47→
+    48→1. Environmental and climate information.
+    49→2. Soil measurements and soil-property estimates.
+    50→3. Crop characteristics and regional agronomic knowledge.
+    51→4. Farm history and management practices.
+    52→5. Farmer priorities, resource limits, market access, and equipment constraints.
+    53→6. Explainable optimization and scenario simulation.
+    54→
+    55→The product must help users understand not only **which rotation alternatives are possible**, but also:
+    56→
+    57→- why each alternative was generated;
+    58→- which hard constraints it satisfies or violates;
+    59→- what data and agronomic knowledge support it;
+    60→- what the trade-offs are between water, soil, economic return, resilience, and operational feasibility;
+    61→- what information is missing;
+    62→- where uncertainty is high;
+    63→- what must be reviewed by a local agronomist or the farmer before acting.
+    64→
+    65→FieldShift is a **decision-support system**, not an autonomous agronomist and not a guarantee of yield, water savings, soil improvement, or profit.
+    66→
+    67→## 3. Non-Negotiable Execution Rules
+    68→
+    69→Follow these rules throughout implementation:
+    70→
+    71→1. **Inspect before modifying.** Start with `pwd`, repository tree, git status, existing README, dependency manifests, tests, and current application entry points. Do not overwrite or delete existing work without understanding it.
+    72→2. **Implement in vertical slices.** Deliver a working end-to-end path early, then expand it. Do not create dozens of empty files and claim completion.
+    73→3. **Do not stop at architecture documents.** Documentation is required, but you must implement and test actual application code.
+    74→4. **Do not implement the entire product in one uncontrolled code dump.** Follow the milestones in this document. Finish one milestone with tests and a concise report before moving to the next.
+    75→5. **Use currently supported stable dependency versions.** Verify the current official documentation when selecting versions. Pin exact resolved versions in lock files. Do not invent package versions.
+    76→6. **Never fabricate scientific data, crop traits, crop calendars, crop coefficients, disease rules, or model accuracy.** Unknown values must remain unknown and carry a missing-data reason.
+    77→7. **Synthetic data must always be visibly labelled.** It must never be mixed with observed or externally sourced data without explicit provenance fields.
+    78→8. **NASA is future-only.** Do not block the project on NASA Earthdata credentials, NASA APIs, NASA data downloads, or NASA connectors. Create clean extension points so future NASA providers can be added without changing business logic. Do not spend the first implementation phase writing inactive NASA connector stubs beyond documented interfaces and adapter registration tests.
+    79→9. **Do not confuse data resolution with field-level truth.** Never upsample coarse raster data and claim that the resulting pixels have gained real spatial detail.
+    80→10. **Preserve source metadata.** Every environmental observation and derived feature must be traceable to its product, version, time range, spatial support, processing version, and quality state.
+    81→11. **Do not silently impute missing agricultural values.** If an input required for a calculation is missing, return a structured incomplete/not-evaluated result. Any optional imputation must be explicit, configurable, documented, and represented in provenance.
+    82→12. **Separate hard constraints from soft objectives.** A high weighted score must never compensate for violating a hard agronomic, legal, market, calendar, equipment, or water constraint.
+    83→13. **Do not claim an optimization solution is globally optimal unless the solver proves `OPTIMAL`.** Distinguish `OPTIMAL`, `FEASIBLE`, `INFEASIBLE`, `UNKNOWN`, timeout, and partial result states.
+    84→14. **Use deterministic tests.** Seed random generators and make synthetic scenario generation reproducible.
+    85→15. **Validate all geometry and units.** Invalid geometries, unsupported units, invalid time windows, and malformed source payloads must produce actionable errors.
+    86→16. **Keep business logic out of HTTP route handlers and UI components.** Use application services and domain modules.
+    87→17. **Protect tenant data.** Every farm/field query must be authorized against the requesting user’s organization or explicit membership.
+    88→18. **Add tests with every meaningful feature.** Do not postpone all testing until the end.
+    89→19. **Update documentation when behavior changes.** Keep API examples, schemas, architecture decisions, and setup instructions consistent with the implementation.
+    90→20. **Be honest in reports.** State what works, what is mocked, what is incomplete, and what has not been validated.
+    91→
+    92→If you find a conflict between this prompt and the current repository, inspect the code and document the conflict before deciding. Prefer small, reversible changes.
+    93→
+    94→## 4. Required First Response and Working Protocol
+    95→
+    96→Before coding, produce a short implementation assessment containing:
+    97→
+    98→- repository state and existing stack;
+    99→- current working features, if any;
+   100→- missing foundation components;
+   101→- conflicts with this specification;
+   102→- the first milestone you will implement;
+   103→- commands you intend to run for validation.
+   104→
+   105→Then begin implementation. Do not ask the user to restate requirements already present in this document. Ask a question only if a missing decision genuinely blocks safe implementation; otherwise use the defaults in this specification and record the assumption in an ADR.
+   106→
+   107→Maintain these project-control files:
+   108→
+   109→- `docs/implementation/IMPLEMENTATION_STATUS.md` — completed, in-progress, blocked, and next tasks;
+   110→- `docs/implementation/DECISIONS_AND_ASSUMPTIONS.md` — assumptions and decisions;
+   111→- `docs/implementation/KNOWN_LIMITATIONS.md` — known limitations, data coverage gaps, and unvalidated behavior;
+   112→- `docs/implementation/TEST_MATRIX.md` — test scenarios and latest outcomes.
+   113→
+   114→After every milestone:
+   115→
+   116→1. run formatting and linting;
+   117→2. run relevant unit and integration tests;
+   118→3. run database migrations from a clean database where possible;
+   119→4. run frontend build/type checking if frontend code changed;
+   120→5. report exact commands and results;
+   121→6. update the project-control files;
+   122→7. list the next concrete tasks.
+   123→
+   124→Do not report a test as passing unless it was actually run.
+   125→
+   126→---
+   127→
+   128→# PART II — PRODUCT DEFINITION
+   129→
+   130→## 5. Product Name and Positioning
+   131→
+   132→**Name:** FieldShift  
+   133→**Descriptor:** Adaptive Farm Intelligence & Crop-Rotation Decision Support  
+   134→**Product category:** Agricultural decision-support platform  
+   135→**Primary users:** Farmers, farm managers, agronomists, agricultural cooperatives, and agricultural research/advisory teams.
+   136→
+   137→### Product statement
+   138→
+   139→FieldShift helps farmers design, compare, stress-test, and learn from crop-rotation strategies using environmental observations, soil information, crop knowledge, farm records, and farmer-defined objectives. It provides transparent evidence and trade-offs while preserving farmer and agronomist authority over final decisions.
+   140→
+   141→## 6. Target Users and Their Needs
+   142→
+   143→### 6.1 Farmer
+   144→
+   145→Needs:
+   146→- a simple explanation of field conditions;
+   147→- practical rotation alternatives;
+   148→- visibility into water and operational constraints;
+   149→- a clear seasonal action calendar;
+   150→- offline recording when connectivity is poor;
+   151→- a way to record actual activities and outcomes;
+   152→- control over which personal and farm data are shared.
+   153→
+   154→The farmer should not need to understand NDVI, ET0, raster resolution, or optimization mathematics to use the main workflow.
+   155→
+   156→### 6.2 Agronomist / Agricultural Advisor
+   157→
+   158→Needs:
+   159→- source-level evidence and assumptions;
+   160→- crop and soil parameter inspection;
+   161→- rule review and override capabilities with audit history;
+   162→- missing-data and uncertainty diagnostics;
+   163→- comparison of alternative rotations;
+   164→- a way to add locally validated knowledge.
+   165→
+   166→### 6.3 Farm Manager / Cooperative Manager
+   167→
+   168→Needs:
+   169→- multiple fields and farms;
+   170→- resource and water allocation views;
+   171→- operational calendars;
+   172→- aggregated summaries with permissions;
+   173→- exportable reports.
+   174→
+   175→### 6.4 Research / Platform Administrator
+   176→
+   177→Needs:
+   178→- provider health and ingestion status;
+   179→- dataset and knowledge version management;
+   180→- quality and coverage monitoring;
+   181→- controlled access to aggregate, privacy-protected data;
+   182→- algorithm versioning and reproducibility.
+   183→
+   184→## 7. Primary User Journey
+   185→
+   186→The principal journey must work end to end:
+   187→
+   188→1. User registers and creates or joins an organization.
+   189→2. User creates a farm and selects country, administrative region, timezone, currency, preferred language, and unit system.
+   190→3. User creates a field by drawing a polygon, importing GeoJSON, or entering a supported geospatial file.
+   191→4. System validates geometry, calculates area using an appropriate geodesic/projected method, and stores a versioned boundary.
+   192→5. User enters soil test values or imports a soil report.
+   193→6. User selects current/previous crops and records management practices.
+   194→7. System obtains available environmental data from configured alternative providers or accepts user-uploaded data.
+   195→8. System creates a field data-readiness report that shows what is available, its coverage, age, resolution, and quality.
+   196→9. System computes only the environmental/agronomic features for which the required inputs exist.
+   197→10. User configures priorities and hard constraints.
+   198→11. System creates a baseline representing the existing rotation and candidate rotation alternatives.
+   199→12. User compares alternatives by water, soil, operational, economic, and resilience criteria.
+   200→13. User runs climate/water stress scenarios.
+   201→14. User saves a plan and receives a season-oriented checklist.
+   202→15. During the season, user records actual operations, observations, and issues.
+   203→16. After harvest, user records yield, costs, water use, and feedback.
+   204→17. System compares expected versus observed outcomes and makes future estimates more locally informed, without silently rewriting historical decisions.
+   205→
+   206→## 8. Scope and Non-Goals
+   207→
+   208→### In scope
+   209→
+   210→- Global-capable farm and field management.
+   211→- Geospatial field boundaries and environmental data extraction.
+   212→- Replaceable data providers.
+   213→- Alternative environmental datasets and user-uploaded files.
+   214→- Soil and crop knowledge catalogs.
+   215→- Crop history and farm management records.
+   216→- Data quality, lineage, uncertainty, and coverage reporting.
+   217→- Water budgeting.
+   218→- Soil-health indicator tracking.
+   219→- Crop rotation candidate generation and constrained optimization.
+   220→- Scenario analysis and stress testing.
+   221→- Pest/disease rotation warnings based on validated rules.
+   222→- Bare-soil-window and cover-crop planning.
+   223→- Explainable strategy comparison.
+   224→- Farmer journal, seasonal planning, offline capture, and synchronization.
+   225→- Agronomist review and approval workflow.
+   226→- Multi-language/unit support.
+   227→
+   228→### Explicit non-goals for the initial release
+   229→
+   230→- Autonomous crop disease diagnosis from a phone photo.
+   231→- Automated irrigation-valve control.
+   232→- Guaranteed yield or profit prediction.
+   233→- Guaranteed soil carbon sequestration estimates.
+   234→- Legal or subsidy advice.
+   235→- Fully validated crop recommendations for every country and crop.
+   236→- A general-purpose conversational AI that invents agronomic facts.
+   237→- Mandatory NASA integration.
+   238→- Training a new deep-learning model before a specific data-backed need exists.
+   239→
+   240→---
+   241→
+   242→# PART III — TECHNICAL ARCHITECTURE
+   243→
+   244→## 9. Architecture Decision: Modular Monolith
+   245→
+   246→Implement a **modular monolith** first. The modules must have clear boundaries, independent tests, and explicit contracts. Do not introduce microservices in the initial release.
+   247→
+   248→Recommended top-level layers:
+   249→
+   250→1. Presentation layer: React web/PWA.
+   251→2. API layer: FastAPI routes, authentication, authorization, request/response schemas.
+   252→3. Application layer: use cases and orchestration.
+   253→4. Domain layer: farms, crops, soil, water, rotations, scenarios, journal, knowledge.
+   254→5. Intelligence layer: feature calculations, optimization, simulation, explainability.
+   255→6. Data platform layer: provider adapters, ingestion, validation, normalization, provenance.
+   256→7. Infrastructure layer: PostgreSQL/PostGIS, object storage, Redis, background workers, logging.
+   257→
+   258→### Dependency direction
+   259→
+   260→- Presentation calls API contracts only.
+   261→- API calls application services.
+   262→- Application services coordinate domain services and repositories.
+   263→- Domain and intelligence modules must not import FastAPI request/response objects.
+   264→- Provider adapters must map external payloads into canonical DTOs; they must not return ORM entities.
+   265→- Repositories own persistence details.
+   266→- External provider SDKs must not leak into the domain layer.
+   267→
+   268→### Asynchronous work
+   269→
+   270→Use background jobs for large raster downloads, spatial extraction, long feature runs, optimization jobs, Monte Carlo simulations, report generation, and bulk imports.
+   271→
+   272→The API should return `202 Accepted` plus a job identifier for work that should not block an HTTP request. Job state must be persisted in the database; Redis is a queue/cache, not the source of truth for job history.
+   273→
+   274→## 10. Technology Stack
+   275→
+   276→Use the following stack unless the existing repository has a strong, documented reason to differ:
+   277→
+   278→### Backend
+   279→- Python 3.12 or a newer stable version supported by all selected scientific/geospatial dependencies.
+   280→- FastAPI.
+   281→- Pydantic v2.
+   282→- SQLAlchemy 2.x.
+   283→- Alembic.
+   284→- PostgreSQL with PostGIS.
+   285→- Pandas and/or Polars for tabular processing.
+   286→- NumPy and SciPy for numerical analysis.
+   287→- Xarray for multidimensional gridded/time-series data.
+   288→- GeoPandas, Shapely, Rasterio, and PyProj for geospatial processing.
+   289→- Pint for unit-aware conversions where appropriate.
+   290→- Google OR-Tools CP-SAT for constrained rotation optimization.
+   291→- Pytest for backend tests.
+   292→
+   293→### Frontend
+   294→- React with TypeScript.
+   295→- Vite unless the existing application uses another suitable framework.
+   296→- Tailwind CSS or the existing design system.
+   297→- MapLibre GL JS for interactive maps.
+   298→- Apache ECharts or an equivalent maintained charting library for analytical charts.
+   299→- TanStack Query or an equivalent server-state library.
+   300→- A lightweight client state store only where needed.
+   301→- PWA service worker and IndexedDB for offline workflows.
+   302→- Vitest and React Testing Library; Playwright for end-to-end tests.
+   303→
+   304→### Infrastructure
+   305→- Docker and Docker Compose for local development.
+   306→- PostgreSQL/PostGIS.
+   307→- Redis for background job brokering/caching when required.
+   308→- Celery or a similarly maintained task queue. Keep the queue interface replaceable.
+   309→- S3-compatible object storage; MinIO for local development.
+   310→- Structured application logging.
+   311→- OpenTelemetry-compatible tracing/metrics hooks where feasible.
+   312→
+   313→### Version discipline
+   314→
+   315→Do not hard-code arbitrary versions from this prompt. Check official documentation and package compatibility at implementation time, resolve dependencies, pin exact versions in lock files, and record the selected versions in `docs/architecture/technology-decisions.md`.
+   316→
+   317→---
+   318→
+   319→# PART IV — DATA PLATFORM
+   320→
+   321→## 11. Data Source Strategy
+   322→
+   323→The initial product must run without NASA. Implement alternative providers and imports now, while keeping the canonical data model provider-independent.
+   324→
+   325→### 11.1 Initial providers and source types
+   326→
+   327→#### A. Open-Meteo Historical Weather API
+   328→
+   329→Use for suitable historical climate variables such as air temperature, precipitation where provided by the selected model, humidity, wind, radiation, ET0 where supported, and soil variables only when the selected model/product exposes them.
+   330→
+   331→Implementation requirements:
+   332→- Explicitly select the model/product rather than relying blindly on a changing default.
+   333→- For multi-decadal climate trend analysis, prefer a consistent reanalysis product such as ERA5 or ERA5-Land over a seamlessly changing best-match series.
+   334→- Store model name, product/version, spatial resolution, temporal resolution, retrieval time, timezone basis, and variable metadata.
+   335→- Respect the provider's allowed request sizes, caching guidance, rate limits, attribution, and terms.
+   336→- Treat reanalysis as model-based gridded data, not a direct field sensor observation.
+   337→
+   338→Official documentation: https://open-meteo.com/en/docs/historical-weather-api
+   339→
+   340→#### B. CHIRPS v3
+   341→
+   342→Use as an alternative quasi-global rainfall dataset. It is land-focused and spans approximately 60 degrees north to 60 degrees south, with near-global longitude coverage and a 0.05-degree grid. The provider publishes preliminary and final products. Select and record which product was used.
+   343→
+   344→Implementation requirements:
+   345→- Prefer pentadal/monthly/annual products for climate summaries where appropriate.
+   346→- Use daily products carefully; do not use downscaled daily fields as unquestioned evidence for daily rainfall extremes.
+   347→- Do not claim global coverage outside its documented latitude/land coverage.
+   348→- Preserve native raster resolution and nodata masks.
+   349→- Record product version and preliminary/final status.
+   350→- Provide a bulk/file ingestion workflow and a spatial-subset extraction workflow.
+   351→
+   352→Official sources:
+   353→- https://www.chc.ucsb.edu/data/chirps3
+   354→- https://www.chc.ucsb.edu/data
+   355→
+   356→#### C. SoilGrids
+   357→
+   358→Use as an optional gridded soil-property source, never as a replacement for field laboratory analysis. It offers global soil-property predictions and uncertainty information, but the REST API may be unavailable or unstable.
+   359→
+   360→Implementation requirements:
+   361→- Do not depend on the SoilGrids REST API for core application availability.
+   362→- Prefer documented WCS spatial subsets or WebDAV-hosted data where operationally suitable.
+   363→- Record property, depth interval, quantile, units, prediction interval, source version, and spatial support.
+   364→- Treat values as model predictions with uncertainty, not measured field samples.
+   365→- Expose a provider-health state and graceful degradation.
+   366→
+   367→Official sources:
+   368→- https://docs.isric.org/globaldata/soilgrids/
+   369→- https://docs.isric.org/globaldata/soilgrids/wcs.html
+   370→- https://docs.isric.org/globaldata/soilgrids/WebDav.html
+   371→
+   372→#### D. FAO GAEZ
+   373→
+   374→Use crop suitability and agroecological context as broad screening information. GAEZ is not field-level ground truth. Its regular grid is coarse relative to many farms.
+   375→
+   376→Implementation requirements:
+   377→- Import only the modules/products needed for supported workflows.
+   378→- Record baseline, climate scenario, management level, irrigation/rainfed context, crop, and product version.
+   379→- Show the product's spatial support and limitations.
+   380→- Never translate suitability classes directly into a guaranteed crop recommendation.
+   381→
+   382→Official source: https://www.fao.org/gaez/gaezv4/en
+   383→
+   384→#### E. FAO Crop Calendar
+   385→
+   386→Use as a reference for planting and harvesting windows where applicable. Do not assume an official public API exists. Build a curated import mechanism with region, crop, season, source, effective dates, and validation status.
+   387→
+   388→Official portal: https://cropcalendar.apps.fao.org/
+   389→
+   390→#### F. Farmer-provided data
+   391→
+   392→Support structured forms and file imports for:
+   393→- soil laboratory reports;
+   394→- crop history;
+   395→- field boundaries;
+   396→- irrigation events and allocations;
+   397→- yield and harvest records;
+   398→- management practices;
+   399→- crop calendars validated by local advisors;
+   400→- equipment and market constraints.
+   401→
+   402→Support CSV and GeoJSON in the initial implementation. Add GeoPackage and other formats through a controlled import pipeline, not by trusting arbitrary files.
+   403→
+   404→#### G. Synthetic fixtures
+   405→
+   406→Create reproducible synthetic environments for testing. These must have `is_synthetic=true`, an explicit generator version, seed, scenario profile, and purpose. Never display synthetic measurements as real observations.
+   407→
+   408→### 11.2 Future NASA integration
+   409→
+   410→NASA is not an initial runtime dependency. Keep extension points for future products such as SMAP, GPM, Landsat, MODIS, ECOSTRESS, GRACE/GRACE-FO, NASA POWER, and elevation products. Do not implement these integrations until the project has a clear use case, access plan, product documentation review, and tests.
+   411→
+   412→When a NASA provider is eventually added, it must implement the same provider contracts and canonical output schemas as all other sources.
+   413→
+   414→## 12. Provider Abstraction
+   415→
+   416→Define provider interfaces around normalized domain data, not provider-specific response payloads.
+   417→
+   418→Suggested interfaces:
+   419→
+   420→```python
+   421→from datetime import datetime
+   422→from typing import Protocol, Sequence
+   423→
+   424→class EnvironmentalDataProvider(Protocol):
+   425→    provider_code: str
+   426→
+   427→    async def fetch_observations(
+   428→        self,
+   429→        *,
+   430→        area_of_interest: "AreaOfInterest",
+   431→        variables: Sequence[str],
+   432→        start: datetime,
+   433→        end: datetime,
+   434→        options: dict | None = None,
+   435→    ) -> "ProviderFetchResult":
+   436→        ...
+   437→```
+   438→
+   439→Also define separate contracts for:
+   440→- raster providers;
+   441→- tabular providers;
+   442→- soil-property providers;
+   443→- crop-knowledge importers;
+   444→- local file importers.
+   445→
+   446→A provider result should include:
+   447→- normalized observations or asset references;
+   448→- source/product identifiers;
+   449→- retrieval metadata;
+   450→- coverage diagnostics;
+   451→- warnings;
+   452→- provider request identifier;
+   453→- raw payload/file reference where retention is permitted.
+   454→
+   455→### Provider registry
+   456→
+   457→Implement a registry/factory keyed by provider code. Use configuration to activate/deactivate providers. A provider outage must not crash unrelated application modules. Provider errors must be surfaced as structured job failures and data-coverage warnings.
+   458→
+   459→### Provider contract tests
+   460→
+   461→Each provider must pass the same contract suite:
+   462→- returns valid canonical objects;
+   463→- includes provenance;
+   464→- preserves native temporal support;
+   465→- includes units;
+   466→- flags missing/nodata values;
+   467→- rejects invalid date ranges and unsupported variables;
+   468→- handles timeouts and retryable errors;
+   469→- does not duplicate records on retry;
+   470→- is safe to rerun idempotently where possible.
+   471→
+   472→## 13. Canonical Data Model
+   473→
+   474→Create a canonical observation/asset model independent of data provider.
+   475→
+   476→### 13.1 Observation fields
+   477→
+   478→At minimum:
+   479→
+   480→- `id` (UUID)
+   481→- `field_id` (nullable for broader area-level records)
+   482→- `variable_code`
+   483→- `value` (nullable if missing/nodata)
+   484→- `unit`
+   485→- `observed_at` or `period_start`/`period_end`
+   486→- `time_support` (instant, hourly, daily, pentadal, monthly, seasonal, etc.)
+   487→- `source_id`
+   488→- `dataset_product_id`
+   489→- `product_version`
+   490→- `spatial_support_type` (point, grid_cell, polygon_average, field_intersection, station, lab_sample)
+   491→- `spatial_resolution_m` where known
+   492→- `geometry` or raster/asset reference where applicable
+   493→- `quality_status`
+   494→- `uncertainty_value` and `uncertainty_type` where available
+   495→- `is_synthetic`
+   496→- `retrieved_at`
+   497→- `processing_version`
+   498→- `metadata` JSONB
+   499→
+   500→Do not force every data type into one oversized table if the implementation needs separate raster assets and observation tables. Maintain the canonical semantics.
+   501→
+   502→### 13.2 Source metadata
+   503→
+   504→Every source/product must have:
+   505→- provider name;
+   506→- product code;
+   507→- product version;
+   508→- variables;
+   509→- unit conventions;
+   510→- spatial/temporal resolution;
+   511→- spatial/temporal coverage;
+   512→- license and attribution;
+   513→- documentation URL;
+   514→- retrieval method;
+   515→- known limitations;
+   516→- active/deprecated status.
+   517→
+   518→### 13.3 Provenance graph
+   519→
+   520→Derived features must point to the exact input observation/asset snapshot and processing version. Optimization runs must point to:
+   521→- feature snapshot;
+   522→- crop-knowledge version;
+   523→- constraint set version;
+   524→- objective weights;
+   525→- solver version and parameters;
+   526→- scenario assumptions;
+   527→- algorithm version.
+   528→
+   529→Historical results must remain reproducible even after new data arrives.
+   530→
+   531→## 14. Spatial and Temporal Harmonization
+   532→
+   533→### 14.1 Spatial rules
+   534→
+   535→- Store user field geometry in EPSG:4326 for interchange, with PostGIS geometry/geography support.
+   536→- Validate polygons, rings, holes, self-intersections, coordinate order, and antimeridian edge cases where relevant.
+   537→- Calculate area with geodesic or appropriate equal-area methods, not planar square degrees.
+   538→- Use spatial indexes for query performance.
+   539→- Preserve native input raster resolution and CRS.
+   540→- For raster extraction, record resampling method and aggregation method.
+   541→- Use area-weighted aggregation where appropriate; distinguish center-point sampling from polygon statistics.
+   542→- Preserve nodata masks and valid-pixel coverage.
+   543→- If field size is much smaller than source pixel size, show a warning that the estimate is not field-resolved.
+   544→- Never create false spatial precision by upsampling a coarse grid.
+   545→
+   546→### 14.2 Temporal rules
+   547→
+   548→- Store timestamps in UTC.
+   549→- Store farm timezone separately and use it for local operation calendars and UI display.
+   550→- Keep original temporal support. Do not transform a monthly total into daily values without a documented disaggregation model.
+   551→- Distinguish observation date, accumulation period, retrieval date, and publication date.
+   552→- Support growing seasons that cross calendar years and both hemispheres.
+   553→- Use crop- and region-specific growing windows; do not assume northern-hemisphere seasonality globally.
+   554→- For long-term trends, use internally consistent dataset products and document any product transitions.
+   555→
+   556→### 14.3 Spatial-temporal resolution compatibility
+   557→
+   558→The pipeline must be able to align variables for analysis without pretending they have equal information content. An analytical grid/time step is a processing choice, not a claim that all inputs have that precision. Keep per-variable native support metadata and quality flags after harmonization.
+   559→
+   560→## 15. Unit System and Data Dictionary
+   561→
+   562→Use SI units internally wherever sensible. Store the original source unit and conversion metadata where needed. Use a unit library for conversions where practical.
+   563→
+   564→Examples:
+   565→- air temperature: degrees Celsius;
+   566→- precipitation depth: mm per defined period;
+   567→- soil moisture: m3/m3 when volumetric;
+   568→- ET0 and ETc: mm per defined period;
+   569→- water volume: m3;
+   570→- field area: hectares internally for agricultural summaries, with source geometry retained;
+   571→- soil organic carbon: source-defined unit, normalized only after verifying depth/basis;
+   572→- salinity: preserve method and unit (e.g. dS/m) because measurement method matters;
+   573→- yield: value + commodity-specific unit + moisture/content basis where relevant;
+   574→- price/cost: amount + ISO currency code + date + market/source.
+   575→
+   576→Create a versioned data dictionary. Never convert values without preserving the source unit, conversion factor, and conversion version.
+   577→
+   578→## 16. Data Quality, Coverage, and Uncertainty
+   579→
+   580→Do not compress these concepts into one arbitrary confidence score. Represent them separately.
+   581→
+   582→### 16.1 Quality status
+   583→
+   584→Suggested statuses:
+   585→- `valid`
+   586→- `suspect`
+   587→- `invalid`
+   588→- `missing`
+   589→- `estimated`
+   590→- `not_assessed`
+   591→
+   592→### 16.2 Coverage status
+   593→
+   594→Suggested statuses:
+   595→- `complete_for_period`
+   596→- `partial`
+   597→- `outside_provider_coverage`
+   598→- `insufficient_spatial_support`
+   599→- `missing`
+   600→- `not_assessed`
+   601→
+   602→### 16.3 Evidence class
+   603→
+   604→Suggested classes:
+   605→- direct field measurement;
+   606→- farmer-reported record;
+   607→- station observation;
+   608→- satellite-derived estimate;
+   609→- reanalysis/model estimate;
+   610→- global soil prediction;
+   611→- curated agronomic reference;
+   612→- synthetic test data.
+   613→
+   614→### 16.4 Uncertainty
+   615→
+   616→- Preserve source prediction intervals or ensemble spread when provided.
+   617→- If uncertainty is unavailable, store `unknown`, not zero.
+   618→- Do not invent probabilistic confidence values.
+   619→- For derived features, describe uncertainty propagation method or mark it unquantified.
+   620→- Distinguish measurement uncertainty, model uncertainty, spatial representativeness uncertainty, and missing-data uncertainty where possible.
+   621→
+   622→### 16.5 Field Data Passport
+   623→
+   624→Build a dedicated **Field Data Passport** for each field. It should show:
+   625→- available variables;
+   626→- missing variables;
+   627→- source/product and version;
+   628→- time period covered;
+   629→- native spatial and temporal resolution;
+   630→- last retrieval date;
+   631→- data age/freshness;
+   632→- proportion of valid pixels/observations;
+   633→- observed vs estimated vs synthetic status;
+   634→- unresolved warnings;
+   635→- which analytical features are enabled/disabled as a result.
+   636→
+   637→This is a key product feature: users should understand whether the field has enough evidence for a given analysis before receiving a rotation comparison.
+   638→
+   639→---
+   640→
+   641→# PART V — DATABASE DESIGN
+   642→
+   643→## 17. Database Domains and Tables
+   644→
+   645→Use PostgreSQL + PostGIS. Use UUID primary keys unless a table has a strong reason for another identifier. Include `created_at`, `updated_at`, and relevant actor/version fields. Use database constraints and indexes, not just application-level validation.
+   646→
+   647→The following is the logical minimum. You may add tables when justified; do not collapse independent concepts into one opaque JSON field.
+   648→
+   649→### 17.1 Identity and tenancy
+   650→
+   651→#### `users`
+   652→- `id`
+   653→- `email` (unique, normalized)
+   654→- `password_hash` or external identity subject
+   655→- `display_name`
+   656→- `preferred_language`
+   657→- `timezone`
+   658→- `is_active`
+   659→- timestamps
+   660→
+   661→#### `organizations`
+   662→- `id`
+   663→- `name`
+   664→- `organization_type`
+   665→- `country_code` nullable
+   666→- timestamps
+   667→
+   668→#### `memberships`
+   669→- `id`
+   670→- `organization_id`
+   671→- `user_id`
+   672→- `role_code`
+   673→- `status`
+   674→- unique organization/user pair
+   675→
+   676→Use explicit authorization checks for every farm/field resource.
+   677→
+   678→### 17.2 Farms and fields
+   679→
+   680→#### `farms`
+   681→- `id`
+   682→- `organization_id`
+   683→- `name`
+   684→- `country_code`
+   685→- `admin_region`
+   686→- `timezone`
+   687→- `currency_code`
+   688→- `unit_system`
+   689→- `preferred_language`
+   690→- timestamps
+   691→
+   692→#### `fields`
+   693→- `id`
+   694→- `farm_id`
+   695→- `name`
+   696→- `area_ha`
+   697→- `boundary` as validated MULTIPOLYGON geometry with SRID 4326
+   698→- `boundary_version`
+   699→- `status`
+   700→- optional elevation/agroecological references
+   701→- timestamps
+   702→
+   703→#### `field_boundary_versions`
+   704→- `id`
+   705→- `field_id`
+   706→- `version_number`
+   707→- `boundary`
+   708→- `area_ha`
+   709→- `change_reason`
+   710→- `created_by`
+   711→- `created_at`
+   712→
+   713→Do not overwrite boundary history without a version record.
+   714→
+   715→### 17.3 Data registry and ingestion
+   716→
+   717→#### `data_sources`
+   718→- `id`
+   719→- `provider_code`
+   720→- `provider_name`
+   721→- `base_url`
+   722→- `license_name`
+   723→- `license_url`
+   724→- `attribution_text`
+   725→- `documentation_url`
+   726→- `status`
+   727→
+   728→#### `dataset_products`
+   729→- `id`
+   730→- `source_id`
+   731→- `product_code`
+   732→- `product_version`
+   733→- `description`
+   734→- `spatial_resolution_m`
+   735→- `temporal_resolution`
+   736→- `coverage_geometry` or coverage metadata
+   737→- `valid_from`, `valid_to`
+   738→- `metadata`
+   739→
+   740→#### `data_assets`
+   741→- `id`
+   742→- `dataset_product_id`
+   743→- `storage_uri`
+   744→- `file_format`
+   745→- `checksum`
+   746→- `spatial_extent`
+   747→- `temporal_start`, `temporal_end`
+   748→- `retrieved_at`
+   749→- `ingestion_job_id`
+   750→- `metadata`
+   751→
+   752→#### `ingestion_jobs`
+   753→- `id`
+   754→- `provider_code`
+   755→- `request_parameters`
+   756→- `status`
+   757→- `started_at`, `completed_at`
+   758→- `records_received`, `records_rejected`
+   759→- `warnings`, `error_summary`
+   760→- `idempotency_key`
+   761→
+   762→#### `observations`
+   763→- `id`
+   764→- `field_id` nullable
+   765→- `dataset_product_id`
+   766→- `asset_id` nullable
+   767→- `variable_code`
+   768→- `value` nullable
+   769→- `unit`
+   770→- `observed_at` nullable
+   771→- `period_start`, `period_end`
+   772→- `time_support`
+   773→- `spatial_support_type`
+   774→- `spatial_resolution_m`
+   775→- `quality_status`
+   776→- `uncertainty_value`, `uncertainty_type`
+   777→- `is_synthetic`
+   778→- `metadata`
+   779→
+   780→#### `observation_quality_flags`
+   781→- `id`
+   782→- `observation_id`
+   783→- `flag_code`
+   784→- `severity`
+   785→- `message`
+   786→- `details`
+   787→
+   788→### 17.4 Soil data
+   789→
+   790→#### `soil_samples`
+   791→- `id`
+   792→- `field_id`
+   793→- `sampled_at`
+   794→- `depth_top_cm`
+   795→- `depth_bottom_cm`
+   796→- `sampling_method`
+   797→- `laboratory_name`
+   798→- `sample_geometry` or location
+   799→- `source_type`
+   800→- `reported_by`
+   801→- `metadata`
+   802→
+   803→#### `soil_measurements`
+   804→- `id`
+   805→- `soil_sample_id`
+   806→- `property_code`
+   807→- `value`
+   808→- `unit`
+   809→- `analytical_method`
+   810→- `quality_status`
+   811→- `source_reference_id`
+   812→
+   813→Do not mix SoilGrids map predictions with lab measurements in the same evidence class.
+   814→
+   815→### 17.5 Crop knowledge
+   816→
+   817→#### `crop_families`
+   818→- `id`
+   819→- `scientific_name`
+   820→- `common_names`
+   821→
+   822→#### `crops`
+   823→- `id`
+   824→- `scientific_name`
+   825→- `common_names`
+   826→- `crop_family_id`
+   827→- `crop_category`
+   828→- `life_cycle_type`
+   829→- `is_legume`
+   830→- `is_cover_crop`
+   831→- `status`
+   832→
+   833→These broad flags are descriptors, not sufficient evidence for agronomic conclusions.
+   834→
+   835→#### `crop_varieties`
+   836→- `id`
+   837→- `crop_id`
+   838→- `variety_name`
+   839→- `region_code` nullable
+   840→- `maturity_group` nullable
+   841→- `metadata`
+   842→
+   843→#### `crop_traits`
+   844→- `id`
+   845→- `crop_id` or `crop_variety_id`
+   846→- `trait_code`
+   847→- `value_numeric` or `value_text`
+   848→- `unit`
+   849→- `region_code` or geometry where relevant
+   850→- `management_context`
+   851→- `source_reference_id`
+   852→- `evidence_class`
+   853→- `valid_from`, `valid_to`
+   854→- `validation_status`
+   855→
+   856→#### `crop_calendar_windows`
+   857→- `id`
+   858→- `crop_id`
+   859→- `region_code` / agroecological zone
+   860→- `season_code`
+   861→- `planting_start`, `planting_end`
+   862→- `harvest_start`, `harvest_end`
+   863→- `hemisphere_or_seasonality_context`
+   864→- `source_reference_id`
+   865→- `validation_status`
+   866→
+   867→#### `crop_water_parameters`
+   868→- `id`
+   869→- `crop_id`
+   870→- `variety_id` nullable
+   871→- `growth_stage`
+   872→- `kc_value`
+   873→- `kc_method` (single/dual)
+   874→- `valid_region`
+   875→- `climate_context`
+   876→- `source_reference_id`
+   877→- `validation_status`
+   878→
+   879→Never populate all crops with guessed water coefficients. A crop with no verified parameter must remain unsupported for that calculation.
+   880→
+   881→### 17.6 Water and irrigation
+   882→
+   883→#### `water_sources`
+   884→- `id`
+   885→- `farm_id`
+   886→- `source_type` (surface, groundwater, rainwater_storage, reclaimed, other)
+   887→- `name`
+   888→- `quality/salinity metadata` where available
+   889→- `metadata`
+   890→
+   891→#### `water_allocations`
+   892→- `id`
+   893→- `farm_id` or `field_id`
+   894→- `water_source_id`
+   895→- `period_start`, `period_end`
+   896→- `available_volume_m3`
+   897→- `allocation_basis`
+   898→- `source_reference_id`
+   899→
+   900→#### `irrigation_events`
+   901→- `id`
+   902→- `field_id`
+   903→- `event_at`
+   904→- `applied_depth_mm` or `volume_m3`
+   905→- `irrigation_method`
+   906→- `application_efficiency` nullable
+   907→- `recorded_by`
+   908→- `evidence_class`
+   909→
+   910→### 17.7 Farmer preferences and constraints
+   911→
+   912→#### `farmer_preferences`
+   913→- `id`
+   914→- `farm_id`
+   915→- `objective_weights` JSONB or normalized child table
+   916→- `risk_tolerance`
+   917→- `preferred_strategy_style`
+   918→- `updated_at`
+   919→
+   920→#### `farm_constraints`
+   921→- `id`
+   922→- `farm_id` or `field_id`
+   923→- `constraint_code`
+   924→- `operator`
+   925→- `value_numeric` / `value_text` / structured value
+   926→- `unit`
+   927→- `is_hard_constraint`
+   928→- `valid_from`, `valid_to`
+   929→- `source` (farmer/advisor/regulation/system)
+   930→- `metadata`
+   931→
+   932→### 17.8 Crop history and management
+   933→
+   934→#### `crop_history`
+   935→- `id`
+   936→- `field_id`
+   937→- `crop_id`
+   938→- `variety_id` nullable
+   939→- `sowing_date`
+   940→- `harvest_date`
+   941→- `season_label`
+   942→- `area_ha`
+   943→- `source/evidence class`
+   944→
+   945→#### `management_events`
+   946→- `id`
+   947→- `field_id`
+   948→- `event_type`
+   949→- `event_date`
+   950→- `crop_id` nullable
+   951→- `quantity`, `unit`
+   952→- `description`
+   953→- `recorded_by`
+   954→- `evidence_class`
+   955→- `metadata`
+   956→
+   957→Examples include planting, harvesting, fertilizer application, irrigation, tillage, cover-crop termination, residue incorporation, pest treatment, and soil sampling.
+   958→
+   959→#### `harvest_records`
+   960→- `id`
+   961→- `field_id`
+   962→- `crop_id`
+   963→- `season_start`, `season_end`
+   964→- `yield_value`
+   965→- `yield_unit`
+   966→- `harvest_area_ha`
+   967→- `production_cost`
+   968→- `selling_price`
+   969→- `currency_code`
+   970→- `moisture_basis` / quality basis where relevant
+   971→- `recorded_by`
+   972→
+   973→### 17.9 Feature and analytics runs
+   974→
+   975→#### `feature_runs`
+   976→- `id`
+   977→- `field_id`
+   978→- `data_snapshot_id`
+   979→- `processing_version`
+   980→- `status`
+   981→- `started_at`, `completed_at`
+   982→- `warnings`
+   983→
+   984→#### `feature_values`
+   985→- `id`
+   986→- `feature_run_id`
+   987→- `feature_code`
+   988→- `period_start`, `period_end`
+   989→- `value` nullable
+   990→- `unit`
+   991→- `quality_status`
+   992→- `uncertainty_value` nullable
+   993→- `metadata`
+   994→
+   995→### 17.10 Rotation and optimization
+   996→
+   997→#### `rotation_plans`
+   998→- `id`
+   999→- `field_id`
+  1000→- `name`
+  1001→- `plan_type` (baseline/manual/candidate/approved)
+  1002→- `planning_start`, `planning_end`
+  1003→- `version`
+  1004→- `status`
+  1005→- `created_by`
+  1006→
+  1007→#### `rotation_slots`
+  1008→- `id`
+  1009→- `rotation_plan_id`
+  1010→- `sequence_order`
+  1011→- `season_start`, `season_end`
+  1012→- `main_crop_id`
+  1013→- `cover_crop_id` nullable
+  1014→- `management_strategy`
+  1015→
+  1016→#### `optimization_runs`
+  1017→- `id`
+  1018→- `field_id`
+  1019→- `request_snapshot`
+  1020→- `feature_snapshot_id`
+  1021→- `crop_knowledge_version`
+  1022→- `algorithm_version`
+  1023→- `solver_name`, `solver_version`
+  1024→- `solver_status`
+  1025→- `runtime_seconds`
+  1026→- `created_at`, `completed_at`
+  1027→
+  1028→#### `rotation_scenarios`
+  1029→- `id`
+  1030→- `optimization_run_id`
+  1031→- `name`
+  1032→- `scenario_type`
+  1033→- `feasibility_status`
+  1034→- `overall_score` nullable
+  1035→- `pareto_rank` nullable
+  1036→- `explanation_summary`
+  1037→
+  1038→#### `scenario_slots`
+  1039→- `id`
+  1040→- `rotation_scenario_id`
+  1041→- `sequence_order`
+  1042→- `crop_id`
+  1043→- `cover_crop_id` nullable
+  1044→- `season_start`, `season_end`
+  1045→
+  1046→#### `scenario_criterion_results`
+  1047→- `id`
+  1048→- `rotation_scenario_id`
+  1049→- `criterion_code`
+  1050→- `raw_value` nullable
+  1051→- `normalized_value` nullable
+  1052→- `weight` nullable
+  1053→- `contribution` nullable
+  1054→- `unit`
+  1055→- `evidence_status`
+  1056→- `uncertainty_summary`
+  1057→
+  1058→#### `scenario_explanations`
+  1059→- `id`
+  1060→- `rotation_scenario_id`
+  1061→- `explanation_type`
+  1062→- `claim_text`
+  1063→- `evidence_ids`
+  1064→- `rule_ids`
+  1065→- `limitations`
+  1066→
+  1067→### 17.11 Simulation
+  1068→
+  1069→#### `stress_test_runs`
+  1070→- `id`
+  1071→- `optimization_run_id`
+  1072→- `scenario_definition`
+  1073→- `simulation_method`
+  1074→- `random_seed`
+  1075→- `simulation_version`
+  1076→- `status`
+  1077→
+  1078→#### `stress_test_results`
+  1079→- `id`
+  1080→- `stress_test_run_id`
+  1081→- `rotation_scenario_id`
+  1082→- `metric_code`
+  1083→- `summary_statistics`
+  1084→- `unit`
+  1085→- `limitations`
+  1086→
+  1087→### 17.12 Soil ledger and farm memory
+  1088→
+  1089→#### `soil_assessments`
+  1090→- `id`
+  1091→- `field_id`
+  1092→- `assessment_date`
+  1093→- `indicator_code`
+  1094→- `measured_value` nullable
+  1095→- `estimated_value` nullable
+  1096→- `unit`
+  1097→- `evidence_class`
+  1098→- `source_reference_id`
+  1099→- `model_version`
+  1100→
+  1101→#### `farm_journal_entries`
+  1102→- `id`
+  1103→- `field_id`
+  1104→- `entry_at`
+  1105→- `entry_type`
+  1106→- `text_content`
+  1107→- `voice_asset_id` nullable
+  1108→- `transcription_status`
+  1109→- `recorded_by`
+  1110→- `sync_status`
+  1111→
+  1112→#### `farmer_feedback`
+  1113→- `id`
+  1114→- `rotation_scenario_id` nullable
+  1115→- `field_id`
+  1116→- `feedback_type`
+  1117→- `rating` nullable
+  1118→- `notes`
+  1119→- `created_by`
+  1120→
+  1121→### 17.13 Knowledge evidence and governance
+  1122→
+  1123→#### `knowledge_sources`
+  1124→- `id`
+  1125→- `publisher`
+  1126→- `title`
+  1127→- `url`
+  1128→- `publication_date`
+  1129→- `license`
+  1130→- `citation_text`
+  1131→
+  1132→#### `knowledge_rules`
+  1133→- `id`
+  1134→- `rule_code`
+  1135→- `rule_type`
+  1136→- `region_scope`
+  1137→- `rule_definition`
+  1138→- `severity`
+  1139→- `source_id`
+  1140→- `validation_status`
+  1141→- `valid_from`, `valid_to`
+  1142→- `reviewed_by`
+  1143→
+  1144→#### `agronomist_reviews`
+  1145→- `id`
+  1146→- `target_type`
+  1147→- `target_id`
+  1148→- `review_status`
+  1149→- `review_notes`
+  1150→- `reviewer_id`
+  1151→- `reviewed_at`
+  1152→
+  1153→### 17.14 Jobs, audit, and offline synchronization
+  1154→
+  1155→#### `background_jobs`
+  1156→- `id`
+  1157→- `job_type`
+  1158→- `status`
+  1159→- `progress`
+  1160→- `input_reference`
+  1161→- `result_reference`
+  1162→- `error_code`, `error_message`
+  1163→- `created_by`
+  1164→- timestamps
+  1165→
+  1166→#### `audit_events`
+  1167→- `id`
+  1168→- `actor_id`
+  1169→- `organization_id`
+  1170→- `entity_type`
+  1171→- `entity_id`
+  1172→- `action`
+  1173→- `before_snapshot`
+  1174→- `after_snapshot`
+  1175→- `created_at`
+  1176→
+  1177→#### `sync_events`
+  1178→- `id`
+  1179→- `device_id`
+  1180→- `client_event_id`
+  1181→- `entity_type`
+  1182→- `entity_id`
+  1183→- `operation`
+  1184→- `payload`
+  1185→- `sync_status`
+  1186→- `conflict_reference`
+  1187→- `created_at`
+  1188→
+  1189→Add appropriate unique constraints, foreign keys, check constraints, composite indexes, and spatial indexes. Use JSONB for genuinely variable metadata, not as a substitute for relational structure.
+  1190→
+  1191→---
+  1192→
+  1193→# PART VI — AGRICULTURAL INTELLIGENCE AND ALGORITHMS
+  1194→
+  1195→## 18. Feature Engineering Framework
+  1196→
+  1197→Create a feature registry rather than scattering formulas across services.
+  1198→
+  1199→Each feature definition must contain:
+  1200→- feature code;
+  1201→- display name and description;
+  1202→- input variable codes;
+  1203→- formula or algorithm reference;
+  1204→- unit;
+  1205→- temporal support;
+  1206→- spatial support;
+  1207→- minimum data coverage;
+  1208→- quality requirements;
+  1209→- missing-input behavior;
+  1210→- version;
+  1211→- evidence/source reference where the formula is agronomic.
+  1212→
+  1213→### 18.1 Environmental feature candidates
+  1214→
+  1215→- seasonal rainfall total;
+  1216→- monthly rainfall climatology;
+  1217→- rainfall anomaly against a declared baseline;
+  1218→- number and duration of dry spells under a configurable definition;
+  1219→- mean/min/max temperature;
+  1220→- growing-degree days only when crop-specific base/upper thresholds are sourced;
+  1221→- heat-stress days relative to crop/phenological thresholds with regional validity;
+  1222→- frost exposure only where the data and crop thresholds support it;
+  1223→- reference evapotranspiration ET0;
+  1224→- soil-moisture anomaly by depth and product;
+  1225→- vegetation index summaries where an imagery provider is implemented;
+  1226→- bare-soil-window evidence from crop records/calendar and, when available, remote-sensing indicators.
+  1227→
+  1228→Do not calculate NDVI from data that do not include the required reflectance bands. Do not infer crop type from NDVI alone.
+  1229→
+  1230→### 18.2 Soil and agronomic features
+  1231→
+  1232→- pH status relative to crop-specific reference ranges;
+  1233→- texture class from valid sand/silt/clay values;
+  1234→- organic-carbon history;
+  1235→- salinity status where measurement methods are known;
+  1236→- soil-water holding proxies only when required parameters are available;
+  1237→- crop-family diversity;
+  1238→- crop sequence history;
+  1239→- nitrogen input/output budget where inputs and outputs are sufficiently documented;
+  1240→- cover duration;
+  1241→- erosion susceptibility indicators only with a documented method and adequate terrain/rainfall/soil inputs.
+  1242→
+  1243→### 18.3 Missing data behavior
+  1244→
+  1245→If a feature cannot be computed, store a missing result with a reason code. Examples:
+  1246→- `MISSING_REQUIRED_VARIABLE`
+  1247→- `INSUFFICIENT_TEMPORAL_COVERAGE`
+  1248→- `SPATIAL_RESOLUTION_TOO_COARSE`
+  1249→- `UNVERIFIED_CROP_PARAMETER`
+  1250→- `UNSUPPORTED_REGION`
+  1251→- `INVALID_UNIT`
+  1252→
+  1253→Never use zero as a synonym for unknown.
+  1254→
+  1255→## 19. Crop Rotation Candidate Generation and Optimization
+  1256→
+  1257→### 19.1 Inputs
+  1258→
+  1259→- field area and boundary;
+  1260→- planning horizon and season definitions;
+  1261→- current and previous crop history;
+  1262→- crop catalog and variety information;
+  1263→- regional calendars;
+  1264→- crop traits and water parameters;
+  1265→- soil observations/estimates;
+  1266→- climate and water features;
+  1267→- farm constraints;
+  1268→- farmer objective weights;
+  1269→- validated pest/pathogen rotation rules;
+  1270→- equipment, labor, market, and storage constraints where supplied.
+  1271→
+  1272→### 19.2 Baseline scenario
+  1273→
+  1274→Always include the existing rotation or farmer-entered baseline. If the history is incomplete, clearly label the baseline as partial/incomplete. Do not invent a historical sequence.
+  1275→
+  1276→### 19.3 Candidate generation
+  1277→
+  1278→Generate a candidate crop set using transparent filters:
+  1279→- crop data available for the relevant region;
+  1280→- crop calendar does not conflict with the planning window;
+  1281→- crop traits satisfy the user's stated constraints where known;
+  1282→- soil/environment evidence does not indicate a clearly disqualifying condition;
+  1283→- crop parameters required for objective calculation exist.
+  1284→
+  1285→A crop with insufficient evidence may appear in an exploratory list only if clearly labelled `NEEDS_LOCAL_REVIEW`; it must not silently enter the validated recommendation set.
+  1286→
+  1287→### 19.4 Hard constraints
+  1288→
+  1289→Examples:
+  1290→- at most one primary crop per field/season unless intercropping is explicitly modeled;
+  1291→- sowing and harvest windows must fit the planning horizon;
+  1292→- crop duration must fit the selected calendar window;
+  1293→- seasonal irrigation demand must not exceed an explicitly supplied water allocation when this is a hard constraint;
+  1294→- excluded crops must not be selected;
+  1295→- equipment/labor/market constraints must be honored if marked hard;
+  1296→- pest/pathogen break rules only apply when the rule has valid regional scope and adequate evidence;
+  1297→- soil and salinity restrictions only apply when required measurements/estimates are available and the rule is validated.
+  1298→
+  1299→Unknown constraints must not be interpreted as satisfied. Return `not_evaluated` where necessary.
+  1300→
+  1301→### 19.5 Soft objectives
+  1302→
+  1303→Support objective criteria such as:
+  1304→- lower modeled irrigation requirement;
+  1305→- improved crop-family diversity;
+  1306→- contribution to nitrogen cycling where evidence supports the estimate;
+  1307→- reduced bare-soil duration;
+  1308→- lower erosion susceptibility under documented assumptions;
+  1309→- potential gross margin or contribution margin where market data are provided;
+  1310→- crop calendar flexibility;
+  1311→- resilience under selected stress scenarios;
+  1312→- risk diversification across crops.
+  1313→
+  1314→Do not equate legume presence with a fixed nitrogen gain. The amount of nitrogen fixation depends on species, variety, biomass, inoculation, soil, management, and residue handling.
+  1315→
+  1316→### 19.6 Optimization method
+  1317→
+  1318→Use Google OR-Tools CP-SAT for discrete sequencing and constraints. Keep the solver behind an `OptimizationSolver` interface.
+  1319→
+  1320→Model decisions as binary or integer variables for crop/season/management choices. Use integer-scaled coefficients for CP-SAT objectives, document the scaling, and test rounding behavior.
+  1321→
+  1322→For multiple objectives, produce a set of non-dominated or trade-off solutions using a documented method such as repeated epsilon-constraint solves or carefully defined weighted runs. Do not imply that one weighted sum captures every possible Pareto solution.
+  1323→
+  1324→Persist:
+  1325→- solver status;
+  1326→- runtime;
+  1327→- optimality/bound details when available;
+  1328→- objective coefficients and normalization rules;
+  1329→- input snapshots;
+  1330→- solver/library version;
+  1331→- all hard-constraint outcomes.
+  1332→
+  1333→### 19.7 Scoring and ranking
+  1334→
+  1335→Do not produce an overall score when required criteria are missing or incomparable. When a score is permitted:
+  1336→- normalize each objective using fixed/source-defined or declared reference ranges;
+  1337→- disclose directionality (higher/lower is better);
+  1338→- preserve raw values next to normalized values;
+  1339→- apply farmer weights transparently;
+  1340→- show criterion coverage;
+  1341→- make missing criteria visible rather than silently filling them;
+  1342→- avoid comparing incomparable units without a documented normalization.
+  1343→
+  1344→### 19.7.1 Soil-health objective guardrail
+  1345→
+  1346→The optimizer must not treat a generic soil-health score as a physically measured quantity. Implement soil-related objectives as explicit, separately reported indicators or evidence-backed proxies (for example, cover duration, crop-family diversity, or a documented nutrient-balance estimate). If the available data do not support a defensible soil-health objective for a field, mark that objective as unavailable and do not let a fabricated composite score influence the ranking. Any later composite index must have a published definition, weights, regional validity, sensitivity analysis, and agronomist review.
+  1347→
+  1348→### 19.8 Output status vocabulary
+  1349→
+  1350→Use statuses such as:
+  1351→- `feasible`;
+  1352→- `infeasible`;
+  1353→- `not_evaluated`;
+  1354→- `needs_local_review`;
+  1355→- `insufficient_data`;
+  1356→- `candidate_only`;
+  1357→- `approved_by_advisor`.
+  1358→
+  1359→A strategy must never be labelled “best” without specifying the objective context and evidence limitations.
+  1360→
+  1361→## 20. Water Intelligence Engine
+  1362→
+  1363→### 20.1 Main concept
+  1364→
+  1365→Use the FAO-56 crop coefficient approach where inputs and crop parameters are available:
+  1366→
+  1367→`ETc = Kc × ET0`
+  1368→
+  1369→ET0 is reference evapotranspiration; Kc varies with crop and development stage. The implementation must preserve whether the input is single-Kc or dual-Kc. Do not assume a constant Kc across the whole season where stage-specific coefficients are available or required.
+  1370→
+  1371→### 20.2 Water balance
+  1372→
+  1373→Implement a clearly documented, configurable water-balance calculation. A simplified root-zone accounting form may be used only when its assumptions are explicit:
+  1374→
+  1375→`Net irrigation need = max(0, ETc - effective_rainfall - usable_soil_water_change - capillary_rise_contribution)`
+  1376→
+  1377→where terms are defined with consistent signs and units. If soil-water storage, effective rainfall, capillary rise, runoff, deep percolation, salinity leaching, or other terms are unavailable, do not pretend the simplified estimate is a complete irrigation prescription.
+  1378→
+  1379→Gross applied irrigation may be approximated as net irrigation divided by application efficiency only when a defensible efficiency value is provided or explicitly assumed and shown.
+  1380→
+  1381→### 20.3 Required outputs
+  1382→
+  1383→- crop ET estimate by growth stage and period;
+  1384→- rainfall contribution estimate and method;
+  1385→- estimated net irrigation requirement;
+  1386→- gross irrigation estimate only when efficiency inputs exist;
+  1387→- water allocation versus estimated requirement;
+  1388→- water deficit/surplus by period;
+  1389→- missing inputs and assumptions;
+  1390→- uncertainty or range where supported;
+  1391→- comparison across rotation scenarios.
+  1392→
+  1393→### 20.4 Additional controls
+  1394→
+  1395→- keep units consistent (mm, m3, ha);
+  1396→- convert 1 mm over 1 hectare to 10 m3 correctly;
+  1397→- do not confuse ET with withdrawal or applied irrigation;
+  1398→- account for irrigation method and efficiency only if available;
+  1399→- consider salinity/leaching requirements separately and only with appropriate local evidence;
+  1400→- do not issue real-time irrigation instructions without validated local sensor/field inputs and expert-approved thresholds.
+  1401→
+  1402→## 21. Soil Health Ledger
+  1403→
+  1404→Build an indicator-based ledger rather than one opaque “soil health score.”
+  1405→
+  1406→Track, where data exist:
+  1407→- soil organic carbon / organic matter;
+  1408→- pH;
+  1409→- electrical conductivity/salinity;
+  1410→- texture;
+  1411→- bulk density;
+  1412→- total nitrogen and nutrient measurements;
+  1413→- soil moisture;
+  1414→- cover duration;
+  1415→- management events;
+  1416→- crop-family diversity;
+  1417→- erosion-related indicators.
+  1418→
+  1419→Every value must identify whether it is:
+  1420→- measured by a laboratory;
+  1421→- reported by the farmer;
+  1422→- estimated from a gridded model;
+  1423→- calculated from a transparent nutrient budget;
+  1424→- inferred from a remote-sensing product.
+  1425→
+  1426→The ledger must show trends only when repeated comparable measurements exist. Warn when sampling depth, season, laboratory method, or analytical units differ. Never claim a measured increase in soil organic carbon based solely on a management event or a one-season model estimate.
+  1427→
+  1428→### Nutrient budget
+  1429→
+  1430→A later module may calculate partial nutrient balances using measured/recorded inputs and outputs. It must expose uncounted pathways and uncertainties. Biological nitrogen fixation, residue mineralization, leaching, gaseous losses, and crop uptake cannot be assumed as fixed constants without appropriate evidence.
+  1431→
+  1432→## 22. Climate Stress Testing Lab
+  1433→
+  1434→Separate stress testing from forecasting.
+  1435→
+  1436→### Scenario types
+  1437→- historical reference period;
+  1438→- user-defined rainfall reduction/increase;
+  1439→- user-defined temperature shift;
+  1440→- water-allocation reduction;
+  1441→- shifted season timing;
+  1442→- combined heat and drought;
+  1443→- selected climate-projection dataset scenario when added later.
+  1444→
+  1445→Every result must state that a user-defined perturbation is a hypothetical scenario, not a forecast.
+  1446→
+  1447→### Sensitivity analysis
+  1448→
+  1449→Start with deterministic sensitivity analysis (for example, a range of rainfall and water allocation changes). Add Monte Carlo only when suitable distributions and dependencies can be justified from data.
+  1450→
+  1451→If using stochastic simulations:
+  1452→- set and persist random seeds;
+  1453→- preserve observed dependence/correlation among climate variables where possible;
+  1454→- do not independently randomize variables when this creates physically implausible combinations;
+  1455→- report distributions and intervals, not a false precise probability;
+  1456→- make model assumptions visible.
+  1457→
+  1458→### Output metrics
+  1459→- feasibility under scenario;
+  1460→- estimated water deficit;
+  1461→- crop stress indicator where model supports it;
+  1462→- changes in objective values;
+  1463→- relative ranking stability;
+  1464→- failure points and threshold crossings;
+  1465→- data/model limitations.
+  1466→
+  1467→## 23. Bare Soil Window and Cover-Crop Planner
+  1468→
+  1469→Calculate candidate bare-soil windows using crop history, crop calendars, sowing/harvest dates, and management records. Remote-sensing evidence may be added when an appropriate product is implemented.
+  1470→
+  1471→The planner should:
+  1472→- estimate the gap between harvest and next sowing;
+  1473→- report the evidence used to estimate bare-soil duration;
+  1474→- identify cover-crop candidates only when regional calendar, water, and agronomic data support them;
+  1475→- assess whether a cover crop could compete for scarce water before the next cash crop;
+  1476→- include termination timing and equipment constraints;
+  1477→- avoid suggesting cover crops in windows that are operationally or climatically unsuitable.
+  1478→
+  1479→## 24. Pest and Disease Rotation Intelligence
+  1480→
+  1481→Build a curated, evidence-backed rule engine first. A full knowledge graph is optional later.
+  1482→
+  1483→A rule should contain:
+  1484→- pest/pathogen identifier;
+  1485→- affected host crops and varieties where known;
+  1486→- relevant crop families where evidence supports it;
+  1487→- region/season/soil/climate applicability;
+  1488→- break-period guidance and its source;
+  1489→- management/context dependencies;
+  1490→- severity and confidence/evidence status;
+  1491→- source citation;
+  1492→- agronomist review state.
+  1493→
+  1494→Rules without region-specific validity must be warnings for review, not hard constraints. Do not generalize disease cycles based only on botanical family.
+  1495→
+  1496→## 25. Farm Memory and Learning Loop
+  1497→
+  1498→Record:
+  1499→- planned crops and dates;
+  1500→- actual planting/harvest dates;
+  1501→- irrigation and input quantities;
+  1502→- management events;
+  1503→- pest/disease events;
+  1504→- observed weather impacts;
+  1505→- actual yield and quality;
+  1506→- costs and selling prices where supplied;
+  1507→- farmer feedback and reasons for plan changes.
+  1508→
+  1509→The comparison engine should show planned versus actual outcomes. Historical recommendations must remain immutable and versioned. Any future personalization or model calibration must be explicit, validated, consent-aware, and reversible.
+  1510→
+  1511→Do not automatically train models on user records. Add an opt-in data contribution and privacy policy before any aggregated learning workflow.
+  1512→
+  1513→## 26. Explainability and Evidence Engine
+  1514→
+  1515→Every scenario must have structured explanation records.
+  1516→
+  1517→Each explanation should answer:
+  1518→- Why was this crop/rotation considered?
+  1519→- Which constraints were evaluated?
+  1520→- Which were satisfied, violated, or not evaluated?
+  1521→- Which observations and crop-knowledge sources influenced the result?
+  1522→- Which benefits are potential rather than measured?
+  1523→- What risks or trade-offs remain?
+  1524→- What inputs are missing?
+  1525→- What needs local review?
+  1526→
+  1527→Store evidence references, rule IDs, feature IDs, and algorithm versions. Do not rely on free-form LLM text as the sole evidence record.
+  1528→
+  1529→---
+  1530→
+  1531→# PART VII — ADDITIONAL INNOVATIVE FEATURES
+  1532→
+  1533→Implement the first four as product differentiators where feasible; stage the others according to evidence and scope. Do not let optional features block the core rotation workflow.
+  1534→
+  1535→## 27. Feature A — Field Data Passport / Decision Readiness Gate
+  1536→
+  1537→This is a high-priority differentiator.
+  1538→
+  1539→Before allowing an apparently authoritative comparison, FieldShift should evaluate whether the field has enough valid information for the requested analysis.
+  1540→
+  1541→For each decision type, define required/optional inputs. Example:
+  1542→- water comparison requires a crop water parameter, ET0, effective rainfall method, area, and water allocation if evaluating feasibility against a hard water cap;
+  1543→- soil-carbon trend requires comparable repeated measurements or a clearly labelled model estimate;
+  1544→- pest-break warning requires a regionally applicable validated rule and known crop history;
+  1545→- crop calendar feasibility requires regionally appropriate planting/harvest windows and crop duration.
+  1546→
+  1547→The Data Passport should return:
+  1548→- evidence coverage;
+  1549→- missing data;
+  1550→- spatial/temporal adequacy;
+  1551→- freshness;
+  1552→- quality flags;
+  1553→- allowed analysis types;
+  1554→- blocked/limited analyses and reasons.
+  1555→
+  1556→## 28. Feature B — Rotation Trade-off Explorer
+  1557→
+  1558→Allow the user to select two or more scenarios and compare them side by side, with:
+  1559→- crop sequence timeline;
+  1560→- water requirement ranges;
+  1561→- economic assumptions;
+  1562→- soil indicators and their evidence class;
+  1563→- bare-soil windows;
+  1564→- pest/disease warnings;
+  1565→- operational resource requirements;
+  1566→- climate stress performance;
+  1567→- unresolved risks.
+  1568→
+  1569→Provide a “why not?” view showing why other crops or plans were excluded.
+  1570→
+  1571→## 29. Feature C — Farm Resource Bottleneck Planner
+  1572→
+  1573→Extend rotation optimization beyond water to operational feasibility.
+  1574→
+  1575→Capture:
+  1576→- machinery and implement availability;
+  1577→- labor availability by time window;
+  1578→- storage capacity;
+  1579→- seed/input availability;
+  1580→- transport and market access;
+  1581→- budget constraints.
+  1582→
+  1583→Show bottleneck periods where several field operations compete for the same resource. This feature can later evolve into multi-field scheduling and cooperative-level planning.
+  1584→
+  1585→## 30. Feature D — Advisor Collaboration and Approval Workflow
+  1586→
+  1587→Support a workflow in which a farmer can share a plan with a selected agronomist, receive comments, request changes, and mark a plan as reviewed. Preserve:
+  1588→- reviewer identity;
+  1589→- review date;
+  1590→- version reviewed;
+  1591→- comments;
+  1592→- unresolved issues;
+  1593→- approval scope.
+  1594→
+  1595→An “approved” label must mean reviewed by a named authorized advisor, not scientifically guaranteed.
+  1596→
+  1597→## 31. Feature E — Evidence Conflict and Provider Disagreement Monitor
+  1598→
+  1599→Where multiple providers offer comparable variables, compare their signals and surface disagreements. Example: rainfall products may differ because of methodology, spatial support, and gauge inputs.
+  1600→
+  1601→Do not average sources blindly. Display:
+  1602→- products compared;
+  1603→- native resolution and period;
+  1604→- differences;
+  1605→- likely methodological reasons when documented;
+  1606→- the source selected for a given calculation;
+  1607→- sensitivity of the decision to source selection.
+  1608→
+  1609→## 32. Feature F — Field Digital Twin / Seasonal Replay
+  1610→
+  1611→Create a timeline view of a field across seasons that combines:
+  1612→- crop sequence;
+  1613→- weather summaries;
+  1614→- irrigation and management events;
+  1615→- soil samples;
+  1616→- harvest outcomes;
+  1617→- stress-test scenarios.
+  1618→
+  1619→Allow the user to replay a previous season and compare an alternative plan against the historical sequence. Distinguish actual events from simulated alternatives.
+  1620→
+  1621→## 33. Feature G — Market and Farm-Gate Economics
+  1622→
+  1623→Add optional market data integration only after defining lawful, reliable sources for each region. Allow farmer-entered prices and costs first.
+  1624→
+  1625→Support:
+  1626→- gross revenue estimate;
+  1627→- variable costs;
+  1628→- gross margin;
+  1629→- price volatility scenario;
+  1630→- market access and buyer availability;
+  1631→- storage/transport limits.
+  1632→
+  1633→Never label gross margin as net profit unless all relevant costs are included. Price data must include date, location, currency, unit, quality class, and source.
+  1634→
+  1635→## 34. Feature H — Irrigation Advisory Calendar
+  1636→
+  1637→Generate a schedule-like view of estimated crop water demand and irrigation windows. Do not make automatic irrigation control part of the initial product. Any irrigation suggestion must identify the inputs and assumptions, and should require local validation if field sensors, soil hydraulic parameters, or irrigation efficiency data are missing.
+  1638→
+  1639→## 35. Feature I — Voice-First Farm Journal
+  1640→
+  1641→Allow voice note capture and optional transcription. Store original audio securely only with user consent. Transcriptions must be editable and must never be treated as confirmed chemical/diagnostic facts without user review.
+  1642→
+  1643→Support local languages over time. Do not send private audio to external transcription services without explicit consent and clear disclosure.
+  1644→
+  1645→## 36. Feature J — Offline Field Kit
+  1646→
+  1647→Allow a user to pre-download:
+  1648→- field boundaries;
+  1649→- last successful analysis summary;
+  1650→- seasonal plan;
+  1651→- crop calendar reference;
+  1652→- selected knowledge notes;
+  1653→- blank journal forms.
+  1654→
+  1655→Offline mode must clearly mark stale data and disable actions that require current data. Synchronization must be conflict-aware and auditable.
+  1656→
+  1657→## 37. Feature K — Drought / Heat / Heavy Rain Watch
+  1658→
+  1659→This is a later feature that requires a forecast or near-real-time provider. Use explicit alert thresholds with regional and crop validity. Distinguish a forecast warning from observed conditions. Provide alert confidence/coverage and explain how the alert was generated.
+  1660→
+  1661→## 38. Feature L — Multi-Field and Cooperative Resource Optimization
+  1662→
+  1663→Later, optimize water, labor, machinery, crop mix, or storage across multiple fields. This requires organization-level permissions, fair allocation policy, and explicit ownership rules. Do not assume one user's preferences should override another farmer's field decisions.
+  1664→
+  1665→## 39. Feature Prioritization
+  1666→
+  1667→### Must implement in core full project
+  1668→- Farm/field management.
+  1669→- Data-source abstraction.
+  1670→- Alternative data connectors/importers.
+  1671→- Synthetic data and test profiles.
+  1672→- Data Passport.
+  1673→- Crop catalog and evidence-backed parameters.
+  1674→- Field history and preferences.
+  1675→- Crop rotation optimizer.
+  1676→- Water intelligence.
+  1677→- Soil Health Ledger.
+  1678→- Stress testing/sensitivity analysis.
+  1679→- Bare-soil window planner.
+  1680→- Explainability and evidence traceability.
+  1681→- Farmer journal.
+  1682→- Basic advisor review.
+  1683→- Offline-safe capture and sync foundations.
+  1684→
+  1685→### Implement after core is stable
+  1686→- Provider disagreement monitor.
+  1687→- Digital twin / seasonal replay.
+  1688→- Resource bottleneck planning.
+  1689→- Farm-gate economics.
+  1690→- Voice-first journal.
+  1691→- Advanced multi-field optimization.
+  1692→- Forecast-based alerting.
+  1693→- Optional AquaCrop 7.3 integration.
+  1694→
+  1695→### Research-only until validated
+  1696→- Automated pest/disease image diagnosis.
+  1697→- Carbon-credit quantification.
+  1698→- Predictive yield guarantees.
+  1699→- Causal claims about management impacts from observational data alone.
+  1700→- Fully automated agronomic prescriptions.
+  1701→
+  1702→---
+  1703→
+  1704→# PART VIII — API CONTRACTS
+  1705→
+  1706→## 40. API Conventions
+  1707→
+  1708→Base path: `/api/v1`.
+  1709→
+  1710→Use:
+  1711→- JSON request/response bodies;
+  1712→- UUID identifiers;
+  1713→- ISO 8601 timestamps;
+  1714→- UTC timestamps internally;
+  1715→- explicit units in numerical payloads;
+  1716→- pagination for list endpoints;
+  1717→- consistent error objects;
+  1718→- request IDs and structured logs;
+  1719→- authorization checks on every resource;
+  1720→- idempotency keys for retryable create/ingestion actions.
+  1721→
+  1722→Use OpenAPI generated from FastAPI schemas, but review the generated contract and add examples/descriptions. Do not let OpenAPI be the only documentation.
+  1723→
+  1724→## 41. Required Endpoint Groups
+  1725→
+  1726→### Identity and organizations
+  1727→- `POST /auth/register`
+  1728→- `POST /auth/login`
+  1729→- `POST /auth/refresh`
+  1730→- `POST /auth/logout`
+  1731→- `GET /me`
+  1732→- `POST /organizations`
+  1733→- `POST /organizations/{organization_id}/members`
+  1734→
+  1735→### Farms and fields
+  1736→- `POST /farms`
+  1737→- `GET /farms`
+  1738→- `GET /farms/{farm_id}`
+  1739→- `PATCH /farms/{farm_id}`
+  1740→- `POST /farms/{farm_id}/fields`
+  1741→- `GET /fields/{field_id}`
+  1742→- `PATCH /fields/{field_id}`
+  1743→- `POST /fields/{field_id}/boundary-versions`
+  1744→- `GET /fields/{field_id}/map`
+  1745→
+  1746→### Soil
+  1747→- `POST /fields/{field_id}/soil-samples`
+  1748→- `POST /soil/import-jobs`
+  1749→- `GET /fields/{field_id}/soil-samples`
+  1750→- `GET /fields/{field_id}/soil-ledger`
+  1751→
+  1752→### Crop knowledge and farm history
+  1753→- `GET /crops`
+  1754→- `GET /crops/{crop_id}`
+  1755→- `GET /crops/{crop_id}/regional-parameters`
+  1756→- `POST /fields/{field_id}/crop-history`
+  1757→- `GET /fields/{field_id}/crop-history`
+  1758→- `POST /fields/{field_id}/management-events`
+  1759→- `POST /fields/{field_id}/harvest-records`
+  1760→
+  1761→### Data platform
+  1762→- `GET /data/catalog`
+  1763→- `GET /data/providers/health`
+  1764→- `POST /fields/{field_id}/data-jobs`
+  1765→- `POST /data/import-jobs`
+  1766→- `GET /jobs/{job_id}`
+  1767→- `GET /fields/{field_id}/observations`
+  1768→- `GET /fields/{field_id}/data-passport`
+  1769→
+  1770→### Features and intelligence
+  1771→- `POST /fields/{field_id}/feature-runs`
+  1772→- `GET /fields/{field_id}/features`
+  1773→- `GET /fields/{field_id}/water-budget`
+  1774→- `POST /fields/{field_id}/rotation-optimizations`
+  1775→- `GET /optimizations/{optimization_id}`
+  1776→- `GET /optimizations/{optimization_id}/scenarios`
+  1777→- `GET /scenarios/{scenario_id}/comparison`
+  1778→- `POST /scenarios/{scenario_id}/stress-tests`
+  1779→- `GET /stress-tests/{stress_test_id}`
+  1780→- `GET /fields/{field_id}/bare-soil-windows`
+  1781→
+  1782→### Farmer experience
+  1783→- `POST /fields/{field_id}/journal-entries`
+  1784→- `GET /fields/{field_id}/journal-entries`
+  1785→- `POST /scenarios/{scenario_id}/feedback`
+  1786→- `POST /scenarios/{scenario_id}/advisor-reviews`
+  1787→- `GET /fields/{field_id}/seasonal-action-plan`
+  1788→
+  1789→### Offline synchronization
+  1790→- `POST /sync/push`
+  1791→- `GET /sync/pull`
+  1792→- `GET /sync/conflicts`
+  1793→- `POST /sync/conflicts/{conflict_id}/resolution`
+  1794→
+  1795→## 42. Example Contracts
+  1796→
+  1797→### 42.1 Create field
+  1798→
+  1799→Request:
+  1800→
+  1801→```json
+  1802→{
+  1803→  "name": "North Field",
+  1804→  "area_ha": 5.2,
+  1805→  "geometry": {
+  1806→    "type": "Polygon",
+  1807→    "coordinates": [[[31.40, 31.10], [31.41, 31.10], [31.41, 31.11], [31.40, 31.11], [31.40, 31.10]]]
+  1808→  }
+  1809→}
+  1810→```
+  1811→
+  1812→Coordinates are illustrative only. Validate geometry and calculate/check area server-side.
+  1813→
+  1814→Response:
+  1815→
+  1816→```json
+  1817→{
+  1818→  "id": "uuid",
+  1819→  "name": "North Field",
+  1820→  "area_ha": 5.2,
+  1821→  "geometry_valid": true,
+  1822→  "boundary_version": 1,
+  1823→  "data_passport_status": "not_assessed"
+  1824→}
+  1825→```
+  1826→
+  1827→### 42.2 Start data ingestion job
+  1828→
+  1829→```json
+  1830→{
+  1831→  "providers": ["open_meteo", "chirps"],
+  1832→  "variables": ["temperature_mean", "precipitation", "reference_et0"],
+  1833→  "start_date": "2018-01-01",
+  1834→  "end_date": "2025-12-31",
+  1835→  "temporal_aggregation": "monthly",
+  1836→  "spatial_policy": "preserve_native"
+  1837→}
+  1838→```
+  1839→
+  1840→Return `202 Accepted` with `job_id`, status, and status URL. Provider/model/product selection must be explicit or resolved through a documented configuration, not hidden defaults.
+  1841→
+  1842→### 42.3 Rotation optimization request
+  1843→
+  1844→```json
+  1845→{
+  1846→  "planning_horizon": {
+  1847→    "start_date": "2027-01-01",
+  1848→    "season_count": 4,
+  1849→    "season_definition_id": "uuid"
+  1850→  },
+  1851→  "baseline_rotation_id": "uuid",
+  1852→  "objectives": {
+  1853→    "water_efficiency": 0.25,
+  1854→    "soil_health": 0.25,
+  1855→    "economic_return": 0.20,
+  1856→    "climate_resilience": 0.20,
+  1857→    "erosion_control": 0.10
+  1858→  },
+  1859→  "hard_constraints": {
+  1860→    "maximum_irrigation_volume_m3": 12000,
+  1861→    "excluded_crop_ids": [],
+  1862→    "allowed_crop_ids": [],
+  1863→    "equipment_ids": [],
+  1864→    "market_constraints": []
+  1865→  },
+  1866→  "solution_preferences": {
+  1867→    "max_scenarios": 5,
+  1868→    "include_baseline": true,
+  1869→    "include_exploratory_candidates": false
+  1870→  }
+  1871→}
+  1872→```
+  1873→
+  1874→The example weights are illustrative. Validate that weights are finite, non-negative, and have a valid normalization policy. Missing objective evidence must not silently become a zero score.
+  1875→
+  1876→### 42.4 Optimization result
+  1877→
+  1878→Return:
+  1879→- run status;
+  1880→- solver status;
+  1881→- algorithm/knowledge/data versions;
+  1882→- baseline scenario;
+  1883→- candidate scenarios;
+  1884→- per-criterion raw result and normalized value where valid;
+  1885→- feasibility and constraint diagnostics;
+  1886→- evidence references;
+  1887→- missing inputs;
+  1888→- uncertainties/limitations;
+  1889→- local-review requirements.
+  1890→
+  1891→Do not return a fabricated numeric score where inputs are incomplete.
+  1892→
+  1893→### 42.5 Standard error
+  1894→
+  1895→```json
+  1896→{
+  1897→  "error": {
+  1898→    "code": "INSUFFICIENT_DATA",
+  1899→    "message": "The requested analysis cannot be evaluated with the available evidence.",
+  1900→    "details": [
+  1901→      {
+  1902→        "field": "crop_water_parameter",
+  1903→        "reason": "No regionally valid crop coefficient is available for this crop."
+  1904→      }
+  1905→    ],
+  1906→    "request_id": "uuid"
+  1907→  }
+  1908→}
+  1909→```
+  1910→
+  1911→Use meaningful HTTP status codes. Never expose stack traces, secrets, provider credentials, or private paths to clients.
+  1912→
+  1913→---
+  1914→
+  1915→# PART IX — FRONTEND AND FARMER EXPERIENCE
+  1916→
+  1917→## 43. Main Application Sections
+  1918→
+  1919→Implement a clean, responsive application with these navigation areas:
+  1920→
+  1921→1. Overview / Farm Workspace.
+  1922→2. Farms and Fields.
+  1923→3. Field Intelligence.
+  1924→4. Soil Profile and Soil Ledger.
+  1925→5. Crop Catalog and Crop History.
+  1926→6. Rotation Studio.
+  1927→7. Water Intelligence.
+  1928→8. Climate Stress Lab.
+  1929→9. Seasonal Action Plan.
+  1930→10. Farm Journal.
+  1931→11. Data Passport.
+  1932→12. Advisor Review.
+  1933→13. Organization Settings.
+  1934→
+  1935→## 44. UI Design Requirements
+  1936→
+  1937→- Use calm, accessible, high-contrast colors; do not rely on red/green alone to communicate status.
+  1938→- Use plain language in Farmer Mode.
+  1939→- Add technical definitions and units in Expert Mode.
+  1940→- Display source, date, spatial resolution, and evidence class near relevant maps/charts.
+  1941→- Use map legends and readable units.
+  1942→- Provide empty states that explain what data is missing and how to add it.
+  1943→- Make warnings actionable, not alarmist.
+  1944→- Avoid implying that a visualized raster is field-level ground truth.
+  1945→- Provide keyboard accessibility and semantic labels.
+  1946→- Support responsive layouts for phone, tablet, and desktop.
+  1947→- Support RTL and LTR layouts; start with English and Arabic architecture-ready localization.
+  1948→
+  1949→## 45. Rotation Studio UX
+  1950→
+  1951→The user should be able to:
+  1952→- select a field;
+  1953→- select planning seasons/horizon;
+  1954→- view existing crop history;
+  1955→- configure hard constraints;
+  1956→- set objective priorities;
+  1957→- generate candidates;
+  1958→- manually edit candidate sequences;
+  1959→- rerun validation;
+  1960→- compare at least three strategies, including the baseline when available;
+  1961→- see why a crop was included/excluded;
+  1962→- inspect water, soil, economic, and risk trade-offs;
+  1963→- save a plan version;
+  1964→- request advisor review.
+  1965→
+  1966→The user must not be forced to configure advanced scientific variables to use the basic flow.
+  1967→
+  1968→## 46. Data Visualization Requirements
+  1969→
+  1970→Use charts/maps that answer specific questions:
+  1971→- rainfall and temperature trends over declared time windows;
+  1972→- soil moisture time series with source and depth;
+  1973→- observation coverage and missing periods;
+  1974→- field boundary and spatial extent;
+  1975→- crop sequence timeline;
+  1976→- water demand/supply timeline;
+  1977→- soil indicator history;
+  1978→- strategy trade-off comparison;
+  1979→- stress-test sensitivity chart;
+  1980→- plan versus actual outcome comparison.
+  1981→
+  1982→Every chart must identify units, date range, source or derivation, and whether values are observed, estimated, or synthetic.
+  1983→
+  1984→---
+  1985→
+  1986→# PART X — SECURITY, PRIVACY, RELIABILITY, AND OPERATIONS
+  1987→
+  1988→## 47. Security
+  1989→
+  1990→Implement:
+  1991→- secure authentication (password hashing with a current recommended algorithm or a vetted identity provider);
+  1992→- refresh-token rotation and revocation where applicable;
+  1993→- RBAC and resource-level authorization;
+  1994→- organization/farm tenant isolation;
+  1995→- input validation and output encoding;
+  1996→- rate limiting for exposed endpoints;
+  1997→- file type/size validation and malware scanning hook for uploads;
+  1998→- secrets from environment/secret manager, never committed;
+  1999→- CORS restricted to approved origins;
+  2000→- audit logs for sensitive actions;
+
+[showing lines 1-2000 of 2642; use offset=2001 with limit to continue reading]
