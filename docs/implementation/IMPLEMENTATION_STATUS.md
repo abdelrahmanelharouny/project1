@@ -64,7 +64,20 @@ Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 | Unit (geometry, area, variables, determinism) | ✅ passing | 33 |
 | Provider contract (synthetic) | ✅ passing | 13 |
 | Integration (auth/tenant, CRUD, ingestion, passport, migrations) | ✅ passing | 39 |
-| **Total** | ✅ **85 passed** | `pytest tests` |
+| **Total** | ✅ **85 passed** | `pytest tests` (17.6 s, re-verified 2026-10-30) |
+
+### Browser end-to-end verification (agent-browser, 2026-10-30)
+
+- ✅ Auth gate renders; status line reports PostgreSQL 16.10 + PostGIS 3.5.0 connected
+- ✅ "Enter demo workspace" seeds SYNTHETIC fixtures and lands in the workspace
+- ✅ Overview stats (1 farm / 2 fields / 847.08 ha) and quick actions work
+- ✅ Farms & Fields: farm list, field table (areas, boundary v1, observation counts), field detail with offline map preview
+- ✅ Observations: synthetic ingestion job run live (job 4e6c4220) → 730 records; table/chart update
+- ✅ Data Passport: AVAILABLE(6) → AVAILABLE(7) after ingesting `wind_speed_2m`; missing-variable list clears; overall status honestly stays "Partial" due to info-level SYNTHETIC_GAP warnings; blocked analyses list explicit missing inputs
+- ✅ Zero console errors / zero page errors
+- ✅ Mobile (390×844): no horizontal overflow on any tab; tab strip scrolls; footer sticks to viewport bottom with safe-area padding; long content pushes footer naturally (`mt-auto`)
+- ✅ Desktop (1366×900): one-screen layout, footer flush at bottom
+- Fixed during verification: Overview "Data Passport of …" button (`whitespace-nowrap`) forced the implicit grid column to min-content → horizontal overflow on mobile; button now wraps (`whitespace-normal`) and grid items got `min-w-0`
 
 ## Not implemented (next milestones — deliberately)
 

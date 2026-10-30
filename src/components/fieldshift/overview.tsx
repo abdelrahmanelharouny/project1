@@ -167,7 +167,7 @@ export function Overview() {
       ) : null}
 
       {!empty ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
           <Card className="border-stone-200 bg-white shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Quick actions</CardTitle>
@@ -183,7 +183,7 @@ export function Overview() {
               </Button>
               <Button
                 variant="outline"
-                className="border-stone-300"
+                className="max-w-full whitespace-normal border-stone-300 text-left"
                 disabled={!firstField}
                 onClick={() => {
                   if (firstField) {
