@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-10-31 (Milestone 5 — global agricultural knowledge base & decision intelligence)
+Last updated: 2026-10-31 (Milestone 6A — advanced water intelligence engine)
 
 Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 
@@ -171,6 +171,32 @@ Gap analysis: `docs/implementation/M5_GAP_ANALYSIS.md` · ADRs 0014–0018 in `D
 | Tests | ✅ | +71 new: knowledge contracts (schema, cross-refs, conflicts, checksum, regional keys, deliberate gaps), rotation core (candidates calendar/duration/climate/soil/water/history, confirmed-vs-reference rule gating, determinism, water infeasible+conflicts, pairwise + family + history-boundary breaks, Pareto/preference changes, missing economics), integration (import workflow idempotency/conflicts, crops/rules API, candidates API, full runs, no-relaxation, infeasible, comparison, reproducibility, custom weights, tenant isolation, passport readiness) — suite total **314 passed** |
 | UI: Rotation tab | ✅ | planning seasons editor, crop-history form, per-season candidate lists with status chips + expandable reasons/citations, optimizer card (profiles, water allocation, past runs) with infeasible-conflict alerts + SYNTHETIC banner, strategy cards (Pareto badges, criteria tables with honest "(not evaluated)", accordions: why/constraints/evidence+limitations/validation-required, checksums), knowledge browser (packs+sources, crops table with Kc gap column, rules with enforceability badges) |
 
+
+## Milestone 6A — Advanced water intelligence engine (2026-10-31)
+
+Full design: `M6A_DESIGN.md` · readiness matrix: `M6A_READINESS_MATRIX.md` · verification evidence: `M6A_VERIFICATION.md`.
+
+| Task | Status | Notes |
+|---|---|---|
+| Phase 0 — deepening baseline re-verified | ✅ | 343/343 baseline re-run; all 15 deepening docs reviewed; Kc records cross-verified against fetched FAO-56 primary sources |
+| Phase 0 — crop-by-crop readiness matrix | ✅ | 11 crops classified (complete/partial/missing/not-locally-validated); 3 root-depth transcription errors found & corrected |
+| Phase 1 — versioned water knowledge model | ✅ | `app/water/*` (`water-engine-1.0.0`, `water-methods-1.0.0`); seed pack `kp-seed-2026.11.1` adds Table 22 p values + Zr corrections; superseded pack retired at bootstrap |
+| Phase 2 — ET engine | ✅ | FAO-56 single-Kc curve shared by candidates & planner (200 randomized equivalence trials vs M5 estimator, max diff 0.0); stage/daily/monthly aggregation; dual-Kc refused honestly |
+| Phase 3 — effective rainfall + soil balance | ✅ | FAO-33 Pe (verified incl. worked examples) + constant-fraction; TAW/RAW/Dr/Ks root-zone balance; Saxton-Rawls 2006 PTF (verified coefficients, validity domain enforced) |
+| Phase 4 — irrigation requirement ladder | ✅ | 7-quantity ladder with statuses; NIR = max(0, ETc − Pe − ΔSW); GIR only with efficiency; 1 mm·ha = 10 m³ identity property-tested |
+| Phase 5 — seasonal planning | ✅ | stage/monthly timelines, deficit windows (stress + allocation shortfall), scenario reruns as immutable snapshots, unknown allocation ≠ unlimited |
+| Phase 6 — rotation integration | ✅ | NIR coefficients in CP-SAT allocation constraint (ETc conservative fallback disclosed); infeasibility names water_allocation + demand basis |
+| Phase 7 — water intelligence interface | ✅ | `/water/methods`, readiness matrix, plan create/list/get/delete APIs; frontend Water tab (Simple/Expert, stage timeline, ladder, accordions, plan history) |
+| Phase 8 — verification | ✅ | 98 new tests (70 unit golden/property + 11 rotation-integration + 17 API integration); 441/441; browser E2E with exact arithmetic checks; migration tests; lint clean |
+
+### Key M6A decisions (ADRs 0019–0021, summarized in M6A_DESIGN.md)
+
+- Methodology ladder: ETc → Pe → root-zone balance → requirement ladder → rotation; each level disclosed when used.
+- Provider ET0 only (no local Penman-Monteith/Hargreaves — no radiation/humidity evidence; backlog W-6).
+- USDA-SCS effective rainfall NOT implemented (coefficients unverified in Phase 0; backlog W-5).
+- PTF-over-texture is opt-in with the single-layer extrapolation disclosure; farmer measurements win.
+- Unknown water allocation is reported as unknown — never interpreted as unlimited water.
+
 ### Browser end-to-end verification — Milestone 5 (agent-browser, 2026-10-31)
 
 - ✅ Auth gate → demo workspace → new **Rotation** tab visible and functional
@@ -224,7 +250,8 @@ Full deliverable set: `docs/deepening/` (15 documents) · findings register:
 - ⬜ SoilGrids other depth intervals (soil measurement history — later milestone)
 - ✅ Feature runs / climate features / temporal aggregation (Milestone 4 — done)
 - ✅ Crop knowledge base + candidate generation + rotation optimization + Pareto evaluation (Milestone 5 — done)
-- ⬜ Rotation optimizer + water intelligence + soil ledger (Milestones 6–7)
+- ✅ Water intelligence engine (Milestone 6A — done)
+- ⬜ Rotation optimizer water-scheduling refinements + soil ledger (Milestones 6B–7)
 - ⬜ Stress testing lab (Milestone 8)
 - ⬜ Farmer journal, advisor review, offline sync (Milestone 9)
 - ⬜ NASA connectors — intentionally not implemented (future adapter; Master rule 8)

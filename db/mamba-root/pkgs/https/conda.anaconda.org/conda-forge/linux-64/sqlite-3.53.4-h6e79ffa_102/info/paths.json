@@ -1,0 +1,11 @@
+{
+  "paths": [
+    {
+      "_path": "bin/sqlite3",
+      "path_type": "hardlink",
+      "sha256": "a7aa5da0a51d5b2348fc58ec68fd0ff28735403f73d4a981cdd8d848a3475bc4",
+      "size_in_bytes": 474600
+    }
+  ],
+  "paths_version": 1
+}

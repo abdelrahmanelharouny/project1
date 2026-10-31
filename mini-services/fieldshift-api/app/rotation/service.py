@@ -214,6 +214,15 @@ def _season_climate(
         if entries:
             monthly_et0.append((y, m, sum(v for _yr, v in entries) / len(entries)))
 
+    # M6A: month-of-year precipitation climatology for the net irrigation
+    # requirement (months absent stay absent — never zero-filled).
+    monthly_precip: list[tuple[int, int, float]] = []
+    precip_table = monthly.get(CLIMATE_FEATURE_CODES["precipitation"], {})
+    for y, m, _days in month_days:
+        entries = precip_table.get(m)
+        if entries:
+            monthly_precip.append((y, m, sum(v for _yr, v in entries) / len(entries)))
+
     if coverage < MIN_CLIMATE_COVERAGE:
         return None
     if covered < total_days:
@@ -247,6 +256,7 @@ def _season_climate(
         season_hot_days_35c=hot,
         season_et0_mm=round(et0, 2) if et0 is not None else None,
         monthly_et0=tuple(monthly_et0),
+        monthly_precip=tuple(monthly_precip),
         coverage_ratio=round(coverage, 4),
         years_used=tuple(years_used),
         basis=(
@@ -830,6 +840,8 @@ def candidate_payload(
                 "unevaluated_dimensions": list(a.unevaluated_dimensions),
                 "water_requirement_mm": a.water_requirement_mm,
                 "water_estimate_assumptions": list(a.water_estimate_assumptions),
+                "net_irrigation_requirement_mm": a.net_irrigation_requirement_mm,
+                "water_demand_basis": a.water_demand_basis,
                 "calendar_windows_matched": list(a.calendar_windows_matched),
             }
             for a in assessments.values()

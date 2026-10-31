@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 
-export type WorkspaceTab = 'overview' | 'farms' | 'observations' | 'features' | 'rotation' | 'passport'
+export type WorkspaceTab = 'overview' | 'farms' | 'observations' | 'features' | 'rotation' | 'water' | 'passport'
 
 export interface SelectedField {
   id: string
@@ -51,6 +51,7 @@ export const useFieldShiftUi = create<FieldShiftUiState>((set) => ({
   goToPassportFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'passport' }),
   goToFeaturesFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'features' }),
   goToRotationFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'rotation' }),
+  goToWaterFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'water' }),
   goToObservationsFor: (field) =>
     set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'observations' }),
 }))

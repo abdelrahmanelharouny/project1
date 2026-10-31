@@ -60,3 +60,43 @@ SoilGrids area-weighting deferred (G-2 rationale).
 G-1 automatic antimeridian re-wrapping (today: explicit warning) ·
 G-2 area-weighted SoilGrids extraction (kept unweighted deliberately —
 250 m grid; revisit for sub-hectare fields).
+
+## W — Water intelligence (opened by M6A, 2026-10-31)
+
+W-1 · **Irrigation scheduling / daily water accounting** — daily Dr
+recurrence with irrigation events, depletion-avoidance scheduling, return
+interval + gross-per-event sizing (FAO-56 ch. 8 full form incl. runoff and
+deep-percolation terms). Requires farmer irrigation records (W-8) and
+sowing-date calibration. NOT a seasonal-plan extension — a separate decision
+product.
+
+W-2 · **Dual-Kc (Kcb + Ke) estimation** — digitize FAO-56 Table 17 Kcb values
+with the same transcription protocol as Table 12; requires the daily water
+balance (W-1) to be useful. The schema already accepts kc_method='dual' rows.
+
+W-3 · **Crop calendar regions (C-4 dependency)** — seasonal water plans
+assume sowing at season start or a farmer-supplied date; regional crop
+calendars would let the planner position stage windows automatically.
+
+W-4 · **Measured initial root-zone depletion** — farmer soil-moisture probe
+readings at sowing to replace the field-capacity-at-sowing assumption.
+
+W-5 · **USDA-SCS effective rainfall** — digitize the monthly USDA-SCS curve
+from the primary source (FAO I&D Paper 46 / Smith 1992 or Dastane 1978);
+coefficients must be transcribed from the printed tables, never from memory.
+
+W-6 · **Local ET0 computation** — only if a station/radiation evidence
+contract arrives (FAO-56 Penman-Monteith requires Rs, RH, u2; Hargreaves
+needs Tmax/Tmin + Ra). Today ET0 is provider-only (ERA5). Any local method
+needs its own evidence class and a validation study against the provider
+series.
+
+W-7 · **Seasonal plan → irrigation events bridge** — convert the seasonal net
+requirement into a first-guess event calendar (depends on W-1).
+
+W-8 · **Farmer irrigation-record ingestion** — applied volumes/events
+(farmer_reported_record) to close the ladder's "actual applied" step and
+enable compliance reporting.
+
+W-9 · **Bulk-density correction for the PTF** — Saxton-Rawls density factor
+(DF) once compaction evidence or farmer bulk-density measurements exist.

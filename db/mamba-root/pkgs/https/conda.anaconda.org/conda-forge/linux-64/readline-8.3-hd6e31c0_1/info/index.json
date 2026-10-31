@@ -1,0 +1,16 @@
+{
+  "arch": "x86_64",
+  "build": "hd6e31c0_1",
+  "build_number": 1,
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "libgcc >=15",
+    "ncurses >=6.6,<7.0a0"
+  ],
+  "license": "GPL-3.0-only",
+  "name": "readline",
+  "platform": "linux",
+  "subdir": "linux-64",
+  "timestamp": 1787033801506,
+  "version": "8.3"
+}

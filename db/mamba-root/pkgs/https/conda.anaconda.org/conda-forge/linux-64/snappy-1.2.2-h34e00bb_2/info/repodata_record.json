@@ -1,0 +1,24 @@
+{
+    "arch": "x86_64",
+    "build": "h34e00bb_2",
+    "build_number": 2,
+    "build_string": "h34e00bb_2",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "libgcc >=15",
+        "libstdcxx >=15",
+        "__glibc >=2.17,<3.0.a0"
+    ],
+    "fn": "snappy-1.2.2-h34e00bb_2.conda",
+    "license": "BSD-3-Clause",
+    "md5": "2b7e31ffbd476eecf33b3b833692339c",
+    "name": "snappy",
+    "platform": "linux",
+    "sha256": "8635d10c7f127808b09c0c8e77b21a255829e0934e49326548c949f7e0551f09",
+    "size": 45695,
+    "subdir": "linux-64",
+    "timestamp": 1790063285,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/snappy-1.2.2-h34e00bb_2.conda",
+    "version": "1.2.2"
+}

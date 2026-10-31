@@ -1,0 +1,6 @@
+- script:
+  - tzselect --help
+  - zdump --help
+  - zic --help
+  - test ! -d "${PREFIX}/man"
+  - test ! -f "${PREFIX}/share/zoneinfo"

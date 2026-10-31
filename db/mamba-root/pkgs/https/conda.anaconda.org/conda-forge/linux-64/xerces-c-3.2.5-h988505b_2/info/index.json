@@ -1,0 +1,19 @@
+{
+  "arch": "x86_64",
+  "build": "h988505b_2",
+  "build_number": 2,
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "icu >=75.1,<76.0a0",
+    "libgcc >=13",
+    "libnsl >=2.0.1,<2.1.0a0",
+    "libstdcxx >=13"
+  ],
+  "license": "Apache-2.0",
+  "license_family": "Apache",
+  "name": "xerces-c",
+  "platform": "linux",
+  "subdir": "linux-64",
+  "timestamp": 1727733890754,
+  "version": "3.2.5"
+}

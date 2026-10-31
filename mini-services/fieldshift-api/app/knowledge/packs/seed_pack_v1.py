@@ -12,14 +12,26 @@ HONESTY CONTRACT (docs/implementation/M5_GAP_ANALYSIS.md, ADR-0014):
   flagged as requiring regional calibration.
 - Deliberate gaps stay gaps: no drought/heat tolerance scores (no defensible
   source), faba bean has NO Kc values (its water criteria must come out
-  unevaluated, never guessed).
+  unevaluated, never guessed). M6A adds faba bean's Table 22 rooting depth and
+  depletion fraction — a Kc row is still deliberately absent.
+- M6A Phase-0 verification: Kc anchors and stage lengths were re-checked
+  against the FAO-56 chapter 6 tables and root depths / depletion fractions
+  against chapter 8 Table 22 (both fetched from the FAO document during the
+  verification, not transcribed from memory). Findings are recorded in
+  docs/implementation/M6A_READINESS_MATRIX.md.
 - Rotation rules are `validation_status="reference"` with mechanism text.
   NOTHING in this pack is `confirmed_regional`; hard rotation-break constraints
   therefore bind on nothing until local expert validation happens.
 """
 
 PACK_CODE = "kp-seed-global"
-PACK_VERSION = "kp-seed-2026.11.0"
+# M6A: 2026.11.1 adds FAO-56 Table 22 depletion fractions (p) for every crop
+# and corrects three root-depth transcriptions found during the M6A Phase-0
+# verification against the fetched primary source (see
+# docs/implementation/M6A_READINESS_MATRIX.md §4). Values remain
+# validation_status="reference"; agronomist review is still the only path to
+# confirmed_regional.
+PACK_VERSION = "kp-seed-2026.11.1"
 
 _FAO56 = "fao56_1998"
 _ECOCROP = "fao_ecocrop"
@@ -77,6 +89,17 @@ def _window(planting_start, planting_end, harvest_start=None, harvest_end=None, 
         "requires regional calibration before operational use."
     )
     return row
+
+
+def _p(value):
+    """FAO-56 Table 22 soil water depletion fraction p (for ETc ≈ 5 mm/day).
+    The ETc adjustment p = p_table + 0.04·(5 − ETc) is applied by the water
+    engine when a season ETc mean exists (Table 22 footnote 2, verified)."""
+    return _trait(
+        "stress_depletion_fraction_p", value=value, unit="fraction",
+        notes="FAO-56 Table 22 depletion fraction p for ETc ≈ 5 mm/day; "
+              "adjusted by the water engine with p = p + 0.04·(5 − ETc).",
+    )
 
 
 def _kc(stage, value, stage_days, *, notes=None):
@@ -157,7 +180,12 @@ SEED_PACK: dict = {
     "digitization_note": (
         "Values were transcribed from the cited printed tables/databases into this pack "
         "by hand. Transcription accuracy is pending agronomist review "
-        "(validation_status='reference'). Do not treat any value as regionally confirmed."
+        "(validation_status='reference'). Do not treat any value as regionally confirmed. "
+        "Version 2026.11.1 (M6A): depletion fractions p and rooting depths were re-verified "
+        "against the FAO-56 chapter 6/8 tables fetched from the FAO document during the "
+        "M6A Phase-0 verification; three root-depth transcriptions were corrected "
+        "(barley, dry bean, cotton) and Table 22 p values were added for every crop. "
+        "See docs/implementation/M6A_READINESS_MATRIX.md."
     ),
     "sources": [
         {
@@ -223,6 +251,7 @@ SEED_PACK: dict = {
             "is_cover_crop_capable": False,
             "traits": _stages(20, 40, 50, 30) + [
                 _trait("root_depth_effective_m", low=1.0, high=1.7, unit="m"),
+                _p(0.55),
             ] + _eco(8, 18, 30, 450, 1500, 5.8, 7.2),
             "calendar_windows": [_window("04-15", "06-15", "08-15", "10-15")],
             "water_parameters": _kcs(0.30, 1.20, 0.60),
@@ -238,6 +267,7 @@ SEED_PACK: dict = {
             "is_cover_crop_capable": False,
             "traits": _stages(20, 25, 60, 30) + [
                 _trait("root_depth_effective_m", low=1.0, high=1.5, unit="m"),
+                _p(0.55),
             ] + _eco(5, 15, 24, 400, 1000, 6.0, 7.5),
             "calendar_windows": [_window("03-01", "04-30", "07-01", "08-31")],
             "water_parameters": _kcs(0.30, 1.15, 0.35),
@@ -252,7 +282,9 @@ SEED_PACK: dict = {
             "is_legume": False,
             "is_cover_crop_capable": False,
             "traits": _stages(15, 25, 50, 30) + [
-                _trait("root_depth_effective_m", low=1.0, high=1.2, unit="m"),
+                # M6A verification: corrected 1.0–1.2 → FAO-56 Table 22 1.0–1.5.
+                _trait("root_depth_effective_m", low=1.0, high=1.5, unit="m"),
+                _p(0.55),
             ] + _eco(3, 12, 22, 300, 1000, 6.0, 8.0),
             "calendar_windows": [_window("03-01", "04-15", "06-15", "08-15")],
             "water_parameters": _kcs(0.30, 1.15, 0.25),
@@ -268,6 +300,7 @@ SEED_PACK: dict = {
             "is_cover_crop_capable": False,
             "traits": _stages(25, 30, 45, 30) + [
                 _trait("root_depth_effective_m", low=0.4, high=0.6, unit="m"),
+                _p(0.35),
             ] + _eco(2, 15, 22, 500, 1200, 4.8, 6.5),
             "calendar_windows": [
                 _window("03-15", "05-15", "07-15", "09-30"),
@@ -288,6 +321,7 @@ SEED_PACK: dict = {
             "is_cover_crop_capable": False,
             "traits": _stages(20, 35, 40, 25) + [
                 _trait("root_depth_effective_m", low=0.6, high=1.3, unit="m"),
+                _p(0.50),
                 _trait("n_fixation_capacity_kg_ha", low=50, high=150, unit="kg N/ha/season",
                        source=_HERRIDGE, confidence="low",
                        notes="Order-of-magnitude BNF range for well-nodulated grain legumes "
@@ -306,7 +340,10 @@ SEED_PACK: dict = {
             "is_legume": True,
             "is_cover_crop_capable": False,
             "traits": _stages(20, 30, 40, 20) + [
-                _trait("root_depth_effective_m", low=0.6, high=1.2, unit="m"),
+                # M6A verification: corrected 0.6–1.2 → FAO-56 Table 22
+                # "Beans, dry and Pulses" 0.6–0.9.
+                _trait("root_depth_effective_m", low=0.6, high=0.9, unit="m"),
+                _p(0.45),
                 _trait("n_fixation_capacity_kg_ha", low=30, high=100, unit="kg N/ha/season",
                        source=_HERRIDGE, confidence="low",
                        notes="Common bean is a weaker N fixer than soybean; coarse range."),
@@ -329,6 +366,11 @@ SEED_PACK: dict = {
                        confidence="low",
                        notes="Coarse cycle length from EcoCrop context; no FAO-56 stage "
                              "table entry digitized for this pack."),
+                # M6A: Table 22 gives faba bean (dry/seed) Zr 0.5–0.7 m and
+                # p 0.45 — rooting/stress knowledge, NOT a Kc. The Kc gap below
+                # stays deliberately open (no defensible transcription).
+                _trait("root_depth_effective_m", low=0.5, high=0.7, unit="m"),
+                _p(0.45),
                 _trait("n_fixation_capacity_kg_ha", low=60, high=200, unit="kg N/ha/season",
                        source=_HERRIDGE, confidence="low"),
             ] + _eco(2, 10, 22, 450, 1000, 6.0, 8.0),
@@ -347,6 +389,7 @@ SEED_PACK: dict = {
             "is_cover_crop_capable": False,
             "traits": _stages(25, 35, 45, 30) + [
                 _trait("root_depth_effective_m", low=0.8, high=1.5, unit="m"),
+                _p(0.45),
             ] + _eco(5, 20, 28, 400, 1200, 6.0, 8.0),
             "calendar_windows": [_window("04-01", "05-31", "08-15", "10-15")],
             "water_parameters": _kcs(0.35, 1.15, 0.35),
@@ -361,7 +404,9 @@ SEED_PACK: dict = {
             "is_legume": False,
             "is_cover_crop_capable": False,
             "traits": _stages(30, 50, 55, 45) + [
-                _trait("root_depth_effective_m", low=0.6, high=1.8, unit="m"),
+                # M6A verification: corrected 0.6–1.8 → FAO-56 Table 22 1.0–1.7.
+                _trait("root_depth_effective_m", low=1.0, high=1.7, unit="m"),
+                _p(0.65),
             ] + _eco(12, 25, 32, 500, 1500, 5.5, 8.0),
             "calendar_windows": [_window("04-15", "06-01", "09-01", "11-15")],
             "water_parameters": _kcs(0.35, 1.18, 0.50),
@@ -377,6 +422,7 @@ SEED_PACK: dict = {
             "is_cover_crop_capable": False,
             "traits": _stages(30, 40, 40, 25) + [
                 _trait("root_depth_effective_m", low=0.7, high=1.5, unit="m"),
+                _p(0.40),
             ] + _eco(7, 18, 28, 400, 1000, 5.5, 7.5),
             "calendar_windows": [_window("04-01", "05-31", "07-15", "09-30")],
             "water_parameters": _kcs(0.60, 1.15, 0.80,
@@ -393,6 +439,7 @@ SEED_PACK: dict = {
             "is_cover_crop_capable": False,
             "traits": _stages(15, 25, 70, 40) + [
                 _trait("root_depth_effective_m", low=0.3, high=0.6, unit="m"),
+                _p(0.30),
             ] + _eco(3, 13, 25, 350, 800, 5.5, 7.5),
             "calendar_windows": [
                 _window("10-15", "12-15", "04-15", "06-15"),

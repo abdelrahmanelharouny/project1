@@ -12,12 +12,16 @@ import {
   getHealth,
   getHealthReady,
   getProvidersHealth,
+  getWaterMethods,
+  getWaterPlan,
+  getWaterReadiness,
   listBoundaryVersions,
   listFeatureRuns,
   listFeatureValues,
   listFields,
   listObservations,
   listFarms,
+  listWaterPlans,
 } from '@/lib/api'
 import type {
   BoundaryVersionListResponse,
@@ -44,6 +48,10 @@ import type {
   RotationRun,
   RotationRunListResponse,
   RotationRulesResponse,
+  WaterMethodsResponse,
+  WaterPlan,
+  WaterPlanListResponse,
+  WaterReadinessResponse,
 } from '@/lib/types'
 
 /**
@@ -326,5 +334,39 @@ export function useRotationComparison(runId: string | null): UseQueryResult<Rota
     queryKey: ['rotation-comparison', runId],
     queryFn: () => getRotationComparison(runId as string),
     enabled: !!runId,
+  })
+}
+
+// Milestone 6A — water intelligence
+export function useWaterMethods(enabled = true): UseQueryResult<WaterMethodsResponse> {
+  return useQuery({
+    queryKey: ['water-methods'],
+    queryFn: getWaterMethods,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useWaterReadiness(fieldId: string | null): UseQueryResult<WaterReadinessResponse> {
+  return useQuery({
+    queryKey: ['water-readiness', fieldId],
+    queryFn: () => getWaterReadiness(fieldId as string),
+    enabled: !!fieldId,
+  })
+}
+
+export function useWaterPlans(fieldId: string | null): UseQueryResult<WaterPlanListResponse> {
+  return useQuery({
+    queryKey: ['water-plans', fieldId],
+    queryFn: () => listWaterPlans(fieldId as string),
+    enabled: !!fieldId,
+  })
+}
+
+export function useWaterPlan(planId: string | null): UseQueryResult<WaterPlan> {
+  return useQuery({
+    queryKey: ['water-plan', planId],
+    queryFn: () => getWaterPlan(planId as string),
+    enabled: !!planId,
   })
 }

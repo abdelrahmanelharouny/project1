@@ -1,0 +1,22 @@
+{
+  "channels": [
+    "https://conda.anaconda.org/conda-forge/"
+  ],
+  "description": "libpng is the official PNG reference library. It supports almost all PNG\nfeatures, is extensible, and has been extensively tested for over 20 years.",
+  "dev_url": "https://sourceforge.net/p/libpng/code/ci/libpng16/tree/",
+  "doc_url": "http://www.libpng.org/pub/png/libpng.html",
+  "extra": {
+    "flow_run_id": "github_36782084043",
+    "recipe-maintainers": [
+      "ocefpaf",
+      "msarahan",
+      "pkgw",
+      "baszalmstra"
+    ],
+    "remote_url": "https://github.com/conda-forge/libpng-feedstock",
+    "sha": "fb861d8ff886d5bfe7fc4f01c6545d59779798ff"
+  },
+  "home": "http://www.libpng.org/pub/png/libpng.html",
+  "license": "zlib-acknowledgement",
+  "summary": "PNG reference library"
+}

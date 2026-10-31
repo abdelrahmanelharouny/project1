@@ -1,0 +1,73 @@
+# This file created by conda-build 24.9.0
+# meta.yaml template originally from:
+# /home/conda/recipe_root, last modified Mon Sep 30 21:54:18 2024
+# ------------------------------------------------
+
+package:
+  name: xerces-c
+  version: 3.2.5
+source:
+  sha256: 545cfcce6c4e755207bd1f27e319241e50e37c0c27250f11cda116018f1ef0f5
+  url: https://archive.apache.org/dist/xerces/c/3/sources/xerces-c-3.2.5.tar.gz
+build:
+  number: '2'
+  run_exports:
+    - xerces-c >=3.2.5,<3.3.0a0
+  string: h988505b_2
+requirements:
+  build:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - binutils_impl_linux-64 2.43 h4bf12b8_1
+    - binutils_linux-64 2.43 h4852527_1
+    - gcc_impl_linux-64 13.3.0 hfea6d02_1
+    - gcc_linux-64 13.3.0 hc28eda2_4
+    - gnuconfig 2020.11.07 hd8ed1ab_0
+    - gxx_impl_linux-64 13.3.0 hdbfa832_1
+    - gxx_linux-64 13.3.0 h6834431_4
+    - kernel-headers_linux-64 3.10.0 he073ed8_17
+    - ld_impl_linux-64 2.43 h712a8e2_1
+    - libgcc 14.1.0 h77fa898_1
+    - libgcc-devel_linux-64 13.3.0 h84ea5a7_101
+    - libgcc-ng 14.1.0 h69a702a_1
+    - libgomp 14.1.0 h77fa898_1
+    - libsanitizer 13.3.0 heb74ff8_1
+    - libstdcxx 14.1.0 hc0a3c3a_1
+    - libstdcxx-devel_linux-64 13.3.0 h84ea5a7_101
+    - libxcrypt 4.4.36 hd590300_1
+    - make 4.4.1 hb9d3cd8_1
+    - perl 5.32.1 7_hd590300_perl5
+    - sysroot_linux-64 2.17 h4a8ded7_17
+    - tzdata 2024a h8827d51_1
+  host:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - icu 75.1 he02047a_0
+    - libgcc 14.1.0 h77fa898_1
+    - libgcc-ng 14.1.0 h69a702a_1
+    - libgomp 14.1.0 h77fa898_1
+    - libnsl 2.0.1 hd590300_0
+    - libstdcxx 14.1.0 hc0a3c3a_1
+    - libstdcxx-ng 14.1.0 h4852527_1
+  run:
+    - __glibc >=2.17,<3.0.a0
+    - icu >=75.1,<76.0a0
+    - libgcc >=13
+    - libnsl >=2.0.1,<2.1.0a0
+    - libstdcxx >=13
+about:
+  home: http://xerces.apache.org/xerces-c/
+  license: Apache-2.0
+  license_family: Apache
+  license_file: LICENSE
+  summary: Xerces-C++ is a validating XML parser written in a portable subset of C++
+extra:
+  copy_test_source_files: true
+  final: true
+  flow_run_id: azure_20240930.1.1
+  recipe-maintainers:
+    - gillins
+    - groutr
+    - ocefpaf
+  remote_url: https://github.com/conda-forge/xerces-c-feedstock
+  sha: 4acd4d3e720ac33e740718d6beed83a4e998ac3f

@@ -1,0 +1,16 @@
+{
+  "c_stdlib": "sysroot",
+  "cxx_compiler": "gxx",
+  "zlib": "1",
+  "proj": "9.5",
+  "libxml2": "2",
+  "channel_targets": "conda-forge main",
+  "c_stdlib_version": "2.17",
+  "c_compiler": "gcc",
+  "geos": "3.13.0",
+  "c_compiler_version": "13",
+  "target_platform": "linux-64",
+  "sqlite": "3",
+  "cxx_compiler_version": "13",
+  "__glibc": "__glibc >=2.17,<3.0.a0"
+}

@@ -1,0 +1,23 @@
+{
+    "arch": "x86_64",
+    "build": "hebe6cf0_2",
+    "build_number": 2,
+    "build_string": "hebe6cf0_2",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "libgcc >=15",
+        "__glibc >=2.17,<3.0.a0"
+    ],
+    "fn": "json-c-0.18-hebe6cf0_2.conda",
+    "license": "MIT",
+    "md5": "9aa77c4e7f9a988df94da18a7b9b90fe",
+    "name": "json-c",
+    "platform": "linux",
+    "sha256": "78ec5a672acc8a6bf9c74268b88a72230809517aebe75a11acf959d3f9a63fe0",
+    "size": 90204,
+    "subdir": "linux-64",
+    "timestamp": 1790188731,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/json-c-0.18-hebe6cf0_2.conda",
+    "version": "0.18"
+}

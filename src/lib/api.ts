@@ -470,6 +470,11 @@ import type {
   RotationRulesResponse,
   RotationStrategiesResponse,
   RotationComparisonResponse,
+  WaterMethodsResponse,
+  WaterPlan,
+  WaterPlanCreateInput,
+  WaterPlanListResponse,
+  WaterReadinessResponse,
 } from './types'
 
 export function getKnowledgePacks(): Promise<KnowledgePackListResponse> {
@@ -541,4 +546,35 @@ export function getRotationStrategies(runId: string): Promise<RotationStrategies
 
 export function getRotationComparison(runId: string): Promise<RotationComparisonResponse> {
   return request<RotationComparisonResponse>(`/api/v1/rotation-runs/${runId}/comparison`)
+}
+
+// =============================================================
+// Milestone 6A — water intelligence
+// =============================================================
+
+export function getWaterMethods(): Promise<WaterMethodsResponse> {
+  return request<WaterMethodsResponse>('/api/v1/water/methods', { anonymous: true })
+}
+
+export function getWaterReadiness(fieldId: string): Promise<WaterReadinessResponse> {
+  return request<WaterReadinessResponse>(`/api/v1/fields/${fieldId}/water/knowledge-readiness`)
+}
+
+export function createWaterPlan(fieldId: string, input: WaterPlanCreateInput): Promise<WaterPlan> {
+  return request<WaterPlan>(`/api/v1/fields/${fieldId}/water-plans`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listWaterPlans(fieldId: string): Promise<WaterPlanListResponse> {
+  return request<WaterPlanListResponse>(`/api/v1/fields/${fieldId}/water-plans`)
+}
+
+export function getWaterPlan(planId: string): Promise<WaterPlan> {
+  return request<WaterPlan>(`/api/v1/water-plans/${planId}`)
+}
+
+export function deleteWaterPlan(planId: string): Promise<void> {
+  return request<void>(`/api/v1/water-plans/${planId}`, { method: 'DELETE' })
 }

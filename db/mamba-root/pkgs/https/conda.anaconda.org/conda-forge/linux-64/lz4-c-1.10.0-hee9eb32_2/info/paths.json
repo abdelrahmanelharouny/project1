@@ -1,0 +1,115 @@
+{
+  "paths": [
+    {
+      "_path": "bin/lz4",
+      "path_type": "hardlink",
+      "sha256": "f4fe7ed7044bc6891043a9d3d9db8572f4b36bd9da6cbc15bbff2afd029b1132",
+      "size_in_bytes": 265272
+    },
+    {
+      "_path": "bin/lz4c",
+      "path_type": "softlink",
+      "sha256": "f4fe7ed7044bc6891043a9d3d9db8572f4b36bd9da6cbc15bbff2afd029b1132",
+      "size_in_bytes": 3
+    },
+    {
+      "_path": "bin/lz4cat",
+      "path_type": "softlink",
+      "sha256": "f4fe7ed7044bc6891043a9d3d9db8572f4b36bd9da6cbc15bbff2afd029b1132",
+      "size_in_bytes": 3
+    },
+    {
+      "_path": "bin/unlz4",
+      "path_type": "softlink",
+      "sha256": "f4fe7ed7044bc6891043a9d3d9db8572f4b36bd9da6cbc15bbff2afd029b1132",
+      "size_in_bytes": 3
+    },
+    {
+      "_path": "etc/conda/test-files/lz4-c/0/test_shared_cmake/CMakeLists.txt",
+      "path_type": "hardlink",
+      "sha256": "b4c349bc6b520fd67143e1a4fa59126cc2db108597c5ee4954148f5419efae15",
+      "size_in_bytes": 232
+    },
+    {
+      "_path": "include/lz4.h",
+      "path_type": "hardlink",
+      "sha256": "26b82efc53d1570f3b54eef02e9c4764c1ad374ff03cac04e2ced5ea4d4c552f",
+      "size_in_bytes": 46014
+    },
+    {
+      "_path": "include/lz4file.h",
+      "path_type": "hardlink",
+      "sha256": "400ed90bc74324abcf338d37235dd81aa431fd815c22db4b369b88c12b213115",
+      "size_in_bytes": 3317
+    },
+    {
+      "_path": "include/lz4frame.h",
+      "path_type": "hardlink",
+      "sha256": "b845db4b7ee1bfa64b8f641a94f62e7f636a8b5d673cc61766413782283aaad1",
+      "size_in_bytes": 36085
+    },
+    {
+      "_path": "include/lz4frame_static.h",
+      "path_type": "hardlink",
+      "sha256": "31ab72a6e97e4fa0bedd4420d24a3f1f8024cbfa1d8ffad88c87cbb4e04f769d",
+      "size_in_bytes": 2044
+    },
+    {
+      "_path": "include/lz4hc.h",
+      "path_type": "hardlink",
+      "sha256": "e43824e8a9ba16f54100c4ccbccfa5782a858ca9ab83c48aac303fea3e76e21e",
+      "size_in_bytes": 20308
+    },
+    {
+      "_path": "lib/liblz4.so",
+      "path_type": "softlink",
+      "sha256": "3e0df06a1a179077b1e89c3496dd4fa9d8fbbf493e4fec0586c9ccddf786a3ff",
+      "size_in_bytes": 16
+    },
+    {
+      "_path": "lib/liblz4.so.1",
+      "path_type": "softlink",
+      "sha256": "3e0df06a1a179077b1e89c3496dd4fa9d8fbbf493e4fec0586c9ccddf786a3ff",
+      "size_in_bytes": 16
+    },
+    {
+      "_path": "lib/liblz4.so.1.10.0",
+      "path_type": "hardlink",
+      "sha256": "3e0df06a1a179077b1e89c3496dd4fa9d8fbbf493e4fec0586c9ccddf786a3ff",
+      "size_in_bytes": 194696
+    },
+    {
+      "_path": "lib/pkgconfig/liblz4.pc",
+      "path_type": "hardlink",
+      "file_mode": "text",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/bld/rattler-build_lz4-c_1786717122/host_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+      "sha256": "92a589c9585ac90dada2854a3fca82a9e034652dc04da7578b08b11171ef4873",
+      "size_in_bytes": 641
+    },
+    {
+      "_path": "share/man/man1/lz4.1",
+      "path_type": "hardlink",
+      "sha256": "84e711b1283c2b79f5c5d225ed3dbe70a516e0b6bdda5279f395bd3d12ea7d19",
+      "size_in_bytes": 10666
+    },
+    {
+      "_path": "share/man/man1/lz4c.1",
+      "path_type": "softlink",
+      "sha256": "84e711b1283c2b79f5c5d225ed3dbe70a516e0b6bdda5279f395bd3d12ea7d19",
+      "size_in_bytes": 5
+    },
+    {
+      "_path": "share/man/man1/lz4cat.1",
+      "path_type": "softlink",
+      "sha256": "84e711b1283c2b79f5c5d225ed3dbe70a516e0b6bdda5279f395bd3d12ea7d19",
+      "size_in_bytes": 5
+    },
+    {
+      "_path": "share/man/man1/unlz4.1",
+      "path_type": "softlink",
+      "sha256": "84e711b1283c2b79f5c5d225ed3dbe70a516e0b6bdda5279f395bd3d12ea7d19",
+      "size_in_bytes": 5
+    }
+  ],
+  "paths_version": 1
+}

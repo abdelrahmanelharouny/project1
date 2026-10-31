@@ -1,0 +1,207 @@
+{
+  "paths": [
+    {
+      "_path": "include/webp/decode.h",
+      "path_type": "hardlink",
+      "sha256": "e554551d085f234e930f36b5879a77ef58bfea34c48ebfd620426e63b224025c",
+      "size_in_bytes": 24342
+    },
+    {
+      "_path": "include/webp/demux.h",
+      "path_type": "hardlink",
+      "sha256": "9b0d10c0fa1ac2dc750c4d687b038e40a685bb9240cb045759f5b9546017361d",
+      "size_in_bytes": 16019
+    },
+    {
+      "_path": "include/webp/encode.h",
+      "path_type": "hardlink",
+      "sha256": "928e8d3ed502baa0f47ed10913ee018ed6172afcd4f308e0ea005a126b83f27e",
+      "size_in_bytes": 28501
+    },
+    {
+      "_path": "include/webp/mux.h",
+      "path_type": "hardlink",
+      "sha256": "c72cf593f8194c671efcade33f1678294380120d45a337511d612a3acb643f35",
+      "size_in_bytes": 25966
+    },
+    {
+      "_path": "include/webp/mux_types.h",
+      "path_type": "hardlink",
+      "sha256": "ca789c9fe2edc52f759cb3888e9171ee44b5c12f2db21458f96176d578bc897e",
+      "size_in_bytes": 3260
+    },
+    {
+      "_path": "include/webp/sharpyuv/sharpyuv.h",
+      "path_type": "hardlink",
+      "sha256": "4fcb150246232b0e8e605752deb66ca861872f86dd692308d9f854e10ad964ee",
+      "size_in_bytes": 7669
+    },
+    {
+      "_path": "include/webp/sharpyuv/sharpyuv_csp.h",
+      "path_type": "hardlink",
+      "sha256": "80c23c727edb1ce6a42b38f9458c3d75c572856c898f0cd913ba03468afb9d3a",
+      "size_in_bytes": 2152
+    },
+    {
+      "_path": "include/webp/types.h",
+      "path_type": "hardlink",
+      "sha256": "992d2ffe864adb6d80cc91b7a062074d167ed96772f28d104a650148eca31794",
+      "size_in_bytes": 3177
+    },
+    {
+      "_path": "lib/libsharpyuv.so",
+      "path_type": "softlink",
+      "sha256": "5506179ef4b8fb9d513d2f76366ccc2eb63cd06c7e17d7f26d1853d986f7febb",
+      "size_in_bytes": 46048
+    },
+    {
+      "_path": "lib/libsharpyuv.so.0",
+      "path_type": "softlink",
+      "sha256": "5506179ef4b8fb9d513d2f76366ccc2eb63cd06c7e17d7f26d1853d986f7febb",
+      "size_in_bytes": 46048
+    },
+    {
+      "_path": "lib/libsharpyuv.so.0.1.2",
+      "path_type": "hardlink",
+      "sha256": "5506179ef4b8fb9d513d2f76366ccc2eb63cd06c7e17d7f26d1853d986f7febb",
+      "size_in_bytes": 46048
+    },
+    {
+      "_path": "lib/libwebp.so",
+      "path_type": "softlink",
+      "sha256": "54491b4b810128b52895134aeff75e6de308365e93b59fd7c3b0278b54ca6a31",
+      "size_in_bytes": 789584
+    },
+    {
+      "_path": "lib/libwebp.so.7",
+      "path_type": "softlink",
+      "sha256": "54491b4b810128b52895134aeff75e6de308365e93b59fd7c3b0278b54ca6a31",
+      "size_in_bytes": 789584
+    },
+    {
+      "_path": "lib/libwebp.so.7.2.0",
+      "path_type": "hardlink",
+      "sha256": "54491b4b810128b52895134aeff75e6de308365e93b59fd7c3b0278b54ca6a31",
+      "size_in_bytes": 789584
+    },
+    {
+      "_path": "lib/libwebpdecoder.so",
+      "path_type": "softlink",
+      "sha256": "93e374058d4f1330d385906b7cd9e7f30cf8b15c843ffb0d673a5fe0a4d6230c",
+      "size_in_bytes": 469040
+    },
+    {
+      "_path": "lib/libwebpdecoder.so.3",
+      "path_type": "softlink",
+      "sha256": "93e374058d4f1330d385906b7cd9e7f30cf8b15c843ffb0d673a5fe0a4d6230c",
+      "size_in_bytes": 469040
+    },
+    {
+      "_path": "lib/libwebpdecoder.so.3.2.0",
+      "path_type": "hardlink",
+      "sha256": "93e374058d4f1330d385906b7cd9e7f30cf8b15c843ffb0d673a5fe0a4d6230c",
+      "size_in_bytes": 469040
+    },
+    {
+      "_path": "lib/libwebpdemux.so",
+      "path_type": "softlink",
+      "sha256": "b42102f88cb510b42dfda52d8235ff6e95a74ac971d5ca11edde792c720df5ba",
+      "size_in_bytes": 29264
+    },
+    {
+      "_path": "lib/libwebpdemux.so.2",
+      "path_type": "softlink",
+      "sha256": "b42102f88cb510b42dfda52d8235ff6e95a74ac971d5ca11edde792c720df5ba",
+      "size_in_bytes": 29264
+    },
+    {
+      "_path": "lib/libwebpdemux.so.2.0.17",
+      "path_type": "hardlink",
+      "sha256": "b42102f88cb510b42dfda52d8235ff6e95a74ac971d5ca11edde792c720df5ba",
+      "size_in_bytes": 29264
+    },
+    {
+      "_path": "lib/libwebpmux.so",
+      "path_type": "softlink",
+      "sha256": "89c18c4d31d860f54fbee6957fb74ce1e5db050ba585b7502770a9bc1d6f2e85",
+      "size_in_bytes": 52328
+    },
+    {
+      "_path": "lib/libwebpmux.so.3",
+      "path_type": "softlink",
+      "sha256": "89c18c4d31d860f54fbee6957fb74ce1e5db050ba585b7502770a9bc1d6f2e85",
+      "size_in_bytes": 52328
+    },
+    {
+      "_path": "lib/libwebpmux.so.3.1.2",
+      "path_type": "hardlink",
+      "sha256": "89c18c4d31d860f54fbee6957fb74ce1e5db050ba585b7502770a9bc1d6f2e85",
+      "size_in_bytes": 52328
+    },
+    {
+      "_path": "lib/pkgconfig/libsharpyuv.pc",
+      "file_mode": "text",
+      "path_type": "hardlink",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/libwebp-base_1785954447030/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+      "sha256": "209d0171963609707476985c7062e4de4fe6be5a157b1082474df34b3e02d90c",
+      "size_in_bytes": 514
+    },
+    {
+      "_path": "lib/pkgconfig/libwebp.pc",
+      "file_mode": "text",
+      "path_type": "hardlink",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/libwebp-base_1785954447030/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+      "sha256": "0f9a6f537784c239bab403845584cdb34deff139a1e77461cc182aa413433e20",
+      "size_in_bytes": 528
+    },
+    {
+      "_path": "lib/pkgconfig/libwebpdecoder.pc",
+      "file_mode": "text",
+      "path_type": "hardlink",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/libwebp-base_1785954447030/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+      "sha256": "1a44d7f2598095598d8bbb7c87c88b21e59df529a87df11649aef6a1137911ed",
+      "size_in_bytes": 526
+    },
+    {
+      "_path": "lib/pkgconfig/libwebpdemux.pc",
+      "file_mode": "text",
+      "path_type": "hardlink",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/libwebp-base_1785954447030/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+      "sha256": "b125608d07da7a1691645997a5fdffa9d5c0c114e86b433feb20ddc021093394",
+      "size_in_bytes": 532
+    },
+    {
+      "_path": "lib/pkgconfig/libwebpmux.pc",
+      "file_mode": "text",
+      "path_type": "hardlink",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/libwebp-base_1785954447030/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+      "sha256": "a80ab37b1c0c0a29d4e06a722c3cf9907403feb7fab4d23a9a50f899b30a0a68",
+      "size_in_bytes": 551
+    },
+    {
+      "_path": "share/WebP/cmake/WebPConfig.cmake",
+      "path_type": "hardlink",
+      "sha256": "7711e60712204aab07521b8f539cb783ab62b8e195840da472df5e7d55ec9d95",
+      "size_in_bytes": 1363
+    },
+    {
+      "_path": "share/WebP/cmake/WebPConfigVersion.cmake",
+      "path_type": "hardlink",
+      "sha256": "c9be14d51d2108603dd1bd53c9e27945cea0d40bd970e5f27c6318373af3ade0",
+      "size_in_bytes": 1861
+    },
+    {
+      "_path": "share/WebP/cmake/WebPTargets-release.cmake",
+      "path_type": "hardlink",
+      "sha256": "15451a83781defb6a5b77a7511b97d9cc83edaa736bfae11909ae7436cd733c5",
+      "size_in_bytes": 2777
+    },
+    {
+      "_path": "share/WebP/cmake/WebPTargets.cmake",
+      "path_type": "hardlink",
+      "sha256": "3630d62008c472ed88cb085c194ab481a14341f100fc20de16855e8bb98c78ee",
+      "size_in_bytes": 5300
+    }
+  ],
+  "paths_version": 1
+}

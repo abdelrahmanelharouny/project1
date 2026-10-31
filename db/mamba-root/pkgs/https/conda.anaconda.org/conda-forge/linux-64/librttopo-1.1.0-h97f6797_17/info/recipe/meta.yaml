@@ -1,0 +1,78 @@
+# This file created by conda-build 24.9.0
+# meta.yaml template originally from:
+# /home/conda/recipe_root, last modified Thu Sep 26 08:10:58 2024
+# ------------------------------------------------
+
+package:
+  name: librttopo
+  version: 1.1.0
+source:
+  patches: null
+  sha256: 5b4002b2b6be1fe59a487cff6edbc81db773dd1e437beb966fac6ac68e849f19
+  url: http://www.gaia-gis.it/gaia-sins/librttopo-1.1.0.tar.gz
+build:
+  number: '17'
+  run_exports:
+    - librttopo >=1.1.0,<1.2.0a0
+  string: h97f6797_17
+requirements:
+  build:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - _sysroot_linux-64_curr_repodata_hack 3 h69a702a_16
+    - binutils_impl_linux-64 2.43 h4bf12b8_1
+    - binutils_linux-64 2.43 h4852527_1
+    - gcc_impl_linux-64 13.3.0 hfea6d02_1
+    - gcc_linux-64 13.3.0 hc28eda2_4
+    - gnuconfig 2020.11.07 hd8ed1ab_0
+    - gxx_impl_linux-64 13.3.0 hdbfa832_1
+    - gxx_linux-64 13.3.0 h6834431_4
+    - kernel-headers_linux-64 3.10.0 h4a8ded7_16
+    - ld_impl_linux-64 2.43 h712a8e2_1
+    - libgcc 14.1.0 h77fa898_1
+    - libgcc-devel_linux-64 13.3.0 h84ea5a7_101
+    - libgomp 14.1.0 h77fa898_1
+    - libsanitizer 13.3.0 heb74ff8_1
+    - libstdcxx 14.1.0 hc0a3c3a_1
+    - libstdcxx-devel_linux-64 13.3.0 h84ea5a7_101
+    - make 4.4.1 hb9d3cd8_1
+    - sysroot_linux-64 2.17 h4a8ded7_16
+    - tzdata 2024a h8827d51_1
+  host:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - geos 3.13.0 h5888daf_0
+    - libgcc 14.1.0 h77fa898_1
+    - libgomp 14.1.0 h77fa898_1
+    - libstdcxx 14.1.0 hc0a3c3a_1
+  run:
+    - __glibc >=2.17,<3.0.a0
+    - geos >=3.13.0,<3.13.1.0a0
+    - libgcc >=13
+    - libstdcxx >=13
+about:
+  description: "The RT Topology Library exposes an API to create and manage standard\
+    \ (ISO\n13249 aka SQL/MM) topologies using user-provided data stores and released\n\
+    under the GNU GPL license (version 2 or later).\n\nThe code is derived from PostGIS\
+    \ liblwgeom library enhanced to provide\nthread-safety, have less dependencies\
+    \ and be independent from PostGIS\nrelease cycles.\n\nThe RT Topology Library\
+    \ was funded by \u201CRegione Toscana - SITA\u201D (CIG:\n6445512CC1), which also\
+    \ funded many improvements in the originating\nliblwgeom.\n"
+  dev_url: https://git.osgeo.org/gitea/rttopo/librttopo
+  doc_url: https://git.osgeo.org/gitea/rttopo/librttopo
+  home: https://git.osgeo.org/gitea/rttopo/librttopo
+  license: GPL-2.0-or-later
+  license_file: COPYING
+  summary: 'The RT Topology Library exposes an API to create and manage standard
+
+    topologies using user-provided data stores.
+
+    '
+extra:
+  copy_test_source_files: true
+  final: true
+  flow_run_id: azure_20240926.1.1
+  recipe-maintainers:
+    - xylar
+  remote_url: https://github.com/conda-forge/librttopo-feedstock
+  sha: cac56da5153b48dd68764a914118f9376b5ef95d

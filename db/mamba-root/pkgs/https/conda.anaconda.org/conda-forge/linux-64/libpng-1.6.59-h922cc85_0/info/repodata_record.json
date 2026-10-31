@@ -1,0 +1,24 @@
+{
+    "arch": "x86_64",
+    "build": "h922cc85_0",
+    "build_number": 0,
+    "build_string": "h922cc85_0",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "__glibc >=2.17,<3.0.a0",
+        "libgcc >=15",
+        "libzlib >=1.3.2,<2.0a0"
+    ],
+    "fn": "libpng-1.6.59-h922cc85_0.conda",
+    "license": "zlib-acknowledgement",
+    "md5": "8c9caf742a485ac688ffa88bbadbf0be",
+    "name": "libpng",
+    "platform": "linux",
+    "sha256": "c7381be8ef713501f6cd2f5ad473e401f2edeaec3c46788296b8dbf0de165e15",
+    "size": 316872,
+    "subdir": "linux-64",
+    "timestamp": 1790805159,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/libpng-1.6.59-h922cc85_0.conda",
+    "version": "1.6.59"
+}

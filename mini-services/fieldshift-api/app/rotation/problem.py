@@ -175,6 +175,11 @@ class ClimateEvidence:
     years_used: tuple[int, ...] = ()
     basis: str = "monthly climatology from the evidence feature run (historical proxy, not a forecast)"
     warnings: tuple[str, ...] = ()
+    # M6A (additive): month-of-year precipitation climatology on the season
+    # calendar — feeds the net irrigation requirement. Months absent from the
+    # tuple are unknown (never zero-filled); the water engine treats them
+    # conservatively with disclosure. Kept last to preserve field order.
+    monthly_precip: tuple[tuple[int, int, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -235,6 +240,12 @@ class CandidateAssessment:
     unevaluated_dimensions: tuple[dict[str, Any], ...] = ()
     water_requirement_mm: float | None = None
     water_estimate_assumptions: tuple[str, ...] = ()
+    # M6A (additive): net irrigation requirement (ETc − Pe, FAO-33 fallback) —
+    # None when precipitation evidence is absent, with the reason recorded in
+    # water_demand_basis. When None the allocation constraint falls back to
+    # the ETc screening value (a conservative upper bound, disclosed).
+    net_irrigation_requirement_mm: float | None = None
+    water_demand_basis: str | None = None
     calendar_windows_matched: tuple[str, ...] = ()
 
     @property

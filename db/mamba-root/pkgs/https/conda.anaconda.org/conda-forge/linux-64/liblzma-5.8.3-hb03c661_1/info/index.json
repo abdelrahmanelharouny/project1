@@ -1,0 +1,18 @@
+{
+  "arch": "x86_64",
+  "build": "hb03c661_1",
+  "build_number": 1,
+  "constrains": [
+    "xz 5.8.3.*"
+  ],
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "libgcc >=14"
+  ],
+  "license": "0BSD",
+  "name": "liblzma",
+  "platform": "linux",
+  "subdir": "linux-64",
+  "timestamp": 1786348617826,
+  "version": "5.8.3"
+}

@@ -1,0 +1,60 @@
+{% set version = "9.5.1" %}
+
+package:
+  name: proj
+  version: {{ version }}
+
+source:
+  url: https://download.osgeo.org/proj/proj-{{ version }}.tar.gz
+  sha256: a8395f9696338ffd46b0feb603edbb730fad6746fba77753c77f7f997345e3d3
+  patches:
+    - define_OLD_BUGGY_REMQUO.patch
+
+build:
+  number: 0
+  run_exports:
+    # ABI has been stable across minor versions since 8.0.0
+    #    https://abi-laboratory.pro/tracker/timeline/proj/
+    - {{ pin_subpackage('proj', max_pin='x.x') }}
+
+requirements:
+  build:
+    - cmake
+    - make  # [not win]
+    - {{ compiler('c') }}
+    - {{ compiler('cxx') }}
+    - {{ stdlib('c') }}
+    - sqlite     # [build_platform != target_platform]
+  host:
+    - sqlite
+    - libtiff
+    - libcurl
+  run:
+    - sqlite
+    - libtiff
+    - libcurl
+  run_constrained:
+    - proj4 ==999999999999
+
+test:
+  commands:
+    - test -f ${PREFIX}/lib/libproj${SHLIB_EXT}  # [unix]
+    - test ! -f ${PREFIX}/lib/libproj.a          # [unix]
+    - if not exist %LIBRARY_LIB%\\proj.lib exit 1  # [win]
+    # See other tests with run_test.py
+
+about:
+  home: https://proj.org/
+  license: MIT
+  license_file: COPYING
+  summary: Cartographic Projections and Coordinate Transformations Library
+
+extra:
+  recipe-maintainers:
+    - hobu
+    - msarahan
+    - mwtoews
+    - ocefpaf
+    - pelson
+    - snowman2
+    - xylar

@@ -1,0 +1,92 @@
+# This file created by conda-build 24.3.0
+# meta.yaml template originally from:
+# /home/conda/recipe_root, last modified Mon May  6 15:36:38 2024
+# ------------------------------------------------
+
+package:
+  name: uriparser
+  version: 0.9.8
+source:
+  sha256: d6289387eaf2495e38ed80d709ad673fe04d63fad707badfee96f3d2dabc7c35
+  url: https://github.com/uriparser/uriparser/archive/uriparser-0.9.8.tar.gz
+build:
+  number: '0'
+  run_exports:
+    - uriparser >=0.9.8,<1.0a0
+  string: hac33072_0
+requirements:
+  build:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - binutils_impl_linux-64 2.40 ha885e6a_0
+    - binutils_linux-64 2.40 hdade7a5_3
+    - bzip2 1.0.8 hd590300_5
+    - c-ares 1.28.1 hd590300_0
+    - ca-certificates 2024.2.2 hbcca054_0
+    - cmake 3.29.2 hcfe8598_0
+    - gcc_impl_linux-64 12.3.0 h58ffeeb_6
+    - gcc_linux-64 12.3.0 h6477408_3
+    - gxx_impl_linux-64 12.3.0 h2a574ab_6
+    - gxx_linux-64 12.3.0 h4a1b8e8_3
+    - kernel-headers_linux-64 2.6.32 he073ed8_17
+    - keyutils 1.6.1 h166bdaf_0
+    - krb5 1.21.2 h659d440_0
+    - ld_impl_linux-64 2.40 h55db66e_0
+    - libcurl 8.7.1 hca28451_0
+    - libedit 3.1.20191231 he28a2e2_2
+    - libev 4.33 hd590300_2
+    - libexpat 2.6.2 h59595ed_0
+    - libgcc-devel_linux-64 12.3.0 h0223996_106
+    - libgcc-ng 13.2.0 h77fa898_6
+    - libgomp 13.2.0 h77fa898_6
+    - libnghttp2 1.58.0 h47da74e_1
+    - libsanitizer 12.3.0 hb8811af_6
+    - libssh2 1.11.0 h0841786_0
+    - libstdcxx-devel_linux-64 12.3.0 h0223996_106
+    - libstdcxx-ng 13.2.0 hc0a3c3a_6
+    - libuv 1.48.0 hd590300_0
+    - libzlib 1.2.13 hd590300_5
+    - ncurses 6.4.20240210 h59595ed_0
+    - ninja 1.12.0 h00ab1b0_0
+    - openssl 3.3.0 hd590300_0
+    - rhash 1.4.4 hd590300_0
+    - sysroot_linux-64 2.12 he073ed8_17
+    - xz 5.2.6 h166bdaf_0
+    - zstd 1.5.6 ha6fb4c9_0
+  host:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - libgcc-ng 13.2.0 h77fa898_6
+    - libgomp 13.2.0 h77fa898_6
+    - libstdcxx-ng 13.2.0 hc0a3c3a_6
+  run:
+    - libgcc-ng >=12
+    - libstdcxx-ng >=12
+test:
+  commands:
+    - test -f $PREFIX/lib/liburiparser.so
+    - test -f $PREFIX/lib/cmake/uriparser-0.9.8/uriparser.cmake
+about:
+  description: 'uriparser is a strictly RFC 3986 compliant URI parsing and handling
+
+    library written in C89 ("ANSI C"). uriparser is cross-platform, fast,
+
+    supports Unicode, and is licensed under the New BSD license.
+
+    '
+  dev_url: https://github.com/uriparser/uriparser
+  doc_url: https://uriparser.github.io/
+  home: https://uriparser.github.io/
+  license: BSD-3-Clause
+  license_family: BSD
+  license_file: COPYING
+  summary: RFC 3986 compliant URI parsing and handling library written in C89
+extra:
+  copy_test_source_files: true
+  final: true
+  flow_run_id: azure_20240506.1.1
+  recipe-maintainers:
+    - kkraus14
+    - mariusvniekerk
+  remote_url: https://github.com/conda-forge/uriparser-feedstock
+  sha: 3904f95b32e3e4ac2c5bdb2b140012ed0156210c

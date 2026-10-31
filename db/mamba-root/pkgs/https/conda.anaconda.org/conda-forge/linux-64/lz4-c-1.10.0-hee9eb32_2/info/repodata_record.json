@@ -1,0 +1,24 @@
+{
+    "arch": "x86_64",
+    "build": "hee9eb32_2",
+    "build_number": 2,
+    "build_string": "hee9eb32_2",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "libgcc >=15",
+        "libstdcxx >=15",
+        "__glibc >=2.17,<3.0.a0"
+    ],
+    "fn": "lz4-c-1.10.0-hee9eb32_2.conda",
+    "license": "BSD-2-Clause",
+    "md5": "e38a3253d72ab07d471483f24947e2a2",
+    "name": "lz4-c",
+    "platform": "linux",
+    "sha256": "b8c0e930183e6b7f83cd35ace102f2b8c2f0faae41dc05255dc72f247dfc556a",
+    "size": 181812,
+    "subdir": "linux-64",
+    "timestamp": 1786717122,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/lz4-c-1.10.0-hee9eb32_2.conda",
+    "version": "1.10.0"
+}

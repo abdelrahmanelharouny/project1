@@ -1,0 +1,15 @@
+{
+  "arch": "x86_64",
+  "build": "h280c20c_3",
+  "build_number": 3,
+  "depends": [
+    "libgcc >=14",
+    "__glibc >=2.17,<3.0.a0"
+  ],
+  "license": "BSD-2-Clause OR GPL-2.0-or-later",
+  "name": "libev",
+  "platform": "linux",
+  "subdir": "linux-64",
+  "timestamp": 1785917328200,
+  "version": "4.33"
+}

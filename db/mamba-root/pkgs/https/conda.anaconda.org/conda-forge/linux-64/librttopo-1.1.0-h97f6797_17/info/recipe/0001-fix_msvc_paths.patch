@@ -1,0 +1,28 @@
+diff -Naur makefile.vc makefile.vc
+--- makefile.vc	2020-10-09 00:16:09.954322590 +0200
++++ makefile.vc	2020-10-08 21:32:29.654244931 +0200
+@@ -3,6 +3,7 @@
+ # NMAKE Makefile to build librttopo on Windows
+ #
+ !INCLUDE nmake.opt
++INSTDIR=$(LIBRARY_PREFIX)
+
+ LIBOBJ	 = src\box2d.obj src\bytebuffer.obj src\g_box.obj \
+ 	src\g_serialized.obj src\g_util.obj src\measures3d.obj src\measures.obj \
+@@ -21,7 +22,7 @@
+
+ LIBRTTOPO_DLL	 	       =	librttopo$(VERSION).dll
+
+-CFLAGS	=	/nologo -IC:\OSGeo4W\include -I. -Iheaders $(OPTFLAGS)
++CFLAGS	=	/nologo -I$(LIBRARY_INC) -I. -Iheaders $(OPTFLAGS)
+
+ default:	all
+
+@@ -36,7 +37,7 @@
+ librttopo_i.lib:	$(LIBOBJ)
+ 	link /debug /dll /out:$(LIBRTTOPO_DLL) \
+ 		/implib:librrttopo_i.lib $(LIBOBJ) \
+-		C:\OSGeo4W\lib\geos_c.lib
++		$(LIBRARY_LIB)\geos_c.lib
+ 	if exist $(LIBRTTOPO_DLL).manifest mt -manifest \
+ 		$(LIBRTTOPO_DLL).manifest -outputresource:$(LIBRTTOPO_DLL);2

@@ -1,0 +1,23 @@
+{
+    "arch": "x86_64",
+    "build": "hebe6cf0_0",
+    "build_number": 0,
+    "build_string": "hebe6cf0_0",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "__glibc >=2.17,<3.0.a0",
+        "libgcc >=15"
+    ],
+    "fn": "c-ares-1.34.9-hebe6cf0_0.conda",
+    "license": "MIT",
+    "md5": "78b505af04bf7a87ca957ef0cb5946f5",
+    "name": "c-ares",
+    "platform": "linux",
+    "sha256": "bd95dd25b80b5c4faf5349542377bf89b2794e23d0f7aa7f1c431e4f3b633f3c",
+    "size": 233759,
+    "subdir": "linux-64",
+    "timestamp": 1792507024,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/c-ares-1.34.9-hebe6cf0_0.conda",
+    "version": "1.34.9"
+}

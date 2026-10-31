@@ -1,0 +1,55 @@
+schema_version: 1
+
+context:
+  version: "2026f"
+
+package:
+  name: tzcode
+  version: ${{ version }}
+
+source:
+  - url: https://data.iana.org/time-zones/releases/tzcode${{ version }}.tar.gz
+    sha256: 5a18da01393679ef2559214dc687563f7f3d05691f6f58b7fbc0166f3e796cd6
+  - url: https://data.iana.org/time-zones/releases/tzdata${{ version }}.tar.gz
+    sha256: 01b4a91cec5167ed48c11e8ab78f2048cead78ce94b0cafcad0ae8c5a3044d3d
+    target_directory: tzdata
+
+build:
+  number: 0
+  skip: win
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ stdlib("c") }}
+    - make
+  host:
+  run:
+
+tests:
+  - script:
+      - tzselect --help
+      - zdump --help
+      - zic --help
+      - test ! -d "${PREFIX}/man"
+      - test ! -f "${PREFIX}/share/zoneinfo"
+
+about:
+  license: BSD-3-Clause
+  license_file: LICENSE
+  summary: The Time Zone Database (often called tz or zoneinfo) code
+  description: |
+    The Time Zone Database (often called tz or zoneinfo) contains
+    code (this package) and data (the tzdata package) that represent the
+    history of local time for many
+    representative locations around the globe. It is updated periodically
+    to reflect changes made by political bodies to time zone boundaries,
+    UTC offsets, and daylight-saving rules.
+  homepage: https://www.iana.org/time-zones
+  documentation: https://tools.ietf.org/html/rfc6557
+
+extra:
+  recipe-maintainers:
+    - sodre
+    - ocefpaf
+    - xylar

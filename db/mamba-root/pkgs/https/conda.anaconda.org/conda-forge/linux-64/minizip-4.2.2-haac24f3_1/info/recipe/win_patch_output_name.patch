@@ -1,0 +1,10 @@
+--- minizip-ng-4.0.7.orig/CMakeLists.txt	2024-06-15 11:21:44.000000000 -0500
++++ minizip-ng-4.0.7/CMakeLists.txt	2024-12-12 06:52:12.597616514 -0600
+@@ -684,6 +684,7 @@
+ # Create minizip library and aliases
+ add_library(${MINIZIP_TARGET} ${MINIZIP_SRC} ${MINIZIP_HDR})
+ add_library(MINIZIP::${MINIZIP_TARGET} ALIAS ${MINIZIP_TARGET})
++set_target_properties(${MINIZIP_TARGET} PROPERTIES OUTPUT_NAME "libminizip")
+ if(NOT TARGET MINIZIP::minizip)
+     add_library(MINIZIP::minizip ALIAS ${MINIZIP_TARGET})
+ endif()

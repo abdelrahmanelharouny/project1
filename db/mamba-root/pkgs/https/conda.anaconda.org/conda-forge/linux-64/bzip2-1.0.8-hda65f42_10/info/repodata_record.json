@@ -1,0 +1,24 @@
+{
+    "arch": "x86_64",
+    "build": "hda65f42_10",
+    "build_number": 10,
+    "build_string": "hda65f42_10",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "__glibc >=2.17,<3.0.a0",
+        "libgcc >=14"
+    ],
+    "fn": "bzip2-1.0.8-hda65f42_10.conda",
+    "license": "bzip2-1.0.6",
+    "license_family": "BSD",
+    "md5": "e675fabcf81499adc7edf58124fb1e01",
+    "name": "bzip2",
+    "platform": "linux",
+    "sha256": "1a0d382c515ebf55f8ee1f38c8b81bc95af5c2acc42ad53b66bc5df932032f96",
+    "size": 257808,
+    "subdir": "linux-64",
+    "timestamp": 1785906269,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-hda65f42_10.conda",
+    "version": "1.0.8"
+}

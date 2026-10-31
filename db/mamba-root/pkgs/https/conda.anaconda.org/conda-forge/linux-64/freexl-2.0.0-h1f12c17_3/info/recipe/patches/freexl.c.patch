@@ -1,0 +1,32 @@
+--- freexl-1.0.6.orig/src/freexl.c	2020-08-02 03:43:26.000000000 -0300
++++ freexl-1.0.6/src/freexl.c	2020-09-28 15:31:30.127472654 -0300
+@@ -92,7 +92,7 @@
+ #if defined(_WIN32) && !defined(__MINGW32__) && _MSC_VER < 1800
+ /* obsolete MSVC compiler doesn't support lround() at all */
+ static double
+-round (double num)
++freexl_round (double num)
+ {
+     double integer = ceil (num);
+     if (num > 0)
+@@ -101,9 +101,9 @@
+ }
+ 
+ static long
+-lround (double num)
++freexl_lround (double num)
+ {
+-    long integer = (long) round (num);
++    long integer = (long) freexl_round (num);
+     return integer;
+ }
+ #endif
+@@ -545,7 +545,7 @@
+     int secs;
+     double day_seconds = 24 * 60 * 60;
+     day_seconds *= percent;
+-    secs = lround (day_seconds);
++    secs = freexl_lround (day_seconds);
+     hours = secs / 3600;
+     secs -= hours * 3600;
+     mins = secs / 60;

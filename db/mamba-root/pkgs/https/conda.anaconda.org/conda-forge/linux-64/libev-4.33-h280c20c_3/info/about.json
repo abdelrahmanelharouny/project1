@@ -1,0 +1,18 @@
+{
+  "channels": [
+    "https://conda.anaconda.org/conda-forge/"
+  ],
+  "extra": {
+    "flow_run_id": "github_30987761810",
+    "recipe-maintainers": [
+      "petercable",
+      "carlodri",
+      "wolfv"
+    ],
+    "remote_url": "https://github.com/conda-forge/libev-feedstock",
+    "sha": "865d6e94ceab52b90efb1658293f4d63f3cc6e69"
+  },
+  "home": "https://software.schmorp.de/pkg/libev.html",
+  "license": "BSD-2-Clause OR GPL-2.0-or-later",
+  "summary": "A full-featured and high-performance event loop loosely modeled after libevent"
+}

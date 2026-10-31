@@ -2,7 +2,17 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, data_platform, farms, features, fields, health, knowledge, rotation
+from app.api.v1 import (
+    auth,
+    data_platform,
+    farms,
+    features,
+    fields,
+    health,
+    knowledge,
+    rotation,
+    water,
+)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router)
@@ -13,3 +23,4 @@ api_router.include_router(data_platform.router)
 api_router.include_router(features.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(rotation.router)
+api_router.include_router(water.router)

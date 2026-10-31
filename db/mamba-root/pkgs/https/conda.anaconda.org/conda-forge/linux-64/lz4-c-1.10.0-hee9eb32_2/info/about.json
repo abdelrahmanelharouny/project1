@@ -1,0 +1,22 @@
+{
+  "channels": [
+    "https://conda.anaconda.org/conda-forge/"
+  ],
+  "description": "LZ4 is lossless compression algorithm, providing compression speed at 400\nMB/s per core (0.16 Bytes/cycle). It features an extremely fast decoder,\nwith speed in multiple GB/s per core (0.71 Bytes/cycle). A high compression\nderivative, called LZ4_HC, is available, trading customizable CPU time for\ncompression ratio. LZ4 library is provided as open source software using a\nBSD license.",
+  "dev_url": "https://github.com/lz4/lz4",
+  "extra": {
+    "feedstock-name": "lz4-c",
+    "flow_run_id": "github_31808792655",
+    "recipe-maintainers": [
+      "mingwandroid",
+      "rmax",
+      "wesm",
+      "xhochy"
+    ],
+    "remote_url": "https://github.com/conda-forge/lz4-c-feedstock",
+    "sha": "7739afba01c0c2ec6ce7d9c9fab6c9818d7d6f22"
+  },
+  "home": "https://www.lz4.org/",
+  "license": "BSD-2-Clause",
+  "summary": "Extremely Fast Compression algorithm"
+}

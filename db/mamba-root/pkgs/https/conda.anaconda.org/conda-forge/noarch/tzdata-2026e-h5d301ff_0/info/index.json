@@ -1,0 +1,11 @@
+{
+  "build": "h5d301ff_0",
+  "build_number": 0,
+  "depends": [],
+  "license": "LicenseRef-Public-Domain",
+  "name": "tzdata",
+  "noarch": "generic",
+  "subdir": "noarch",
+  "timestamp": 1792758382821,
+  "version": "2026e"
+}

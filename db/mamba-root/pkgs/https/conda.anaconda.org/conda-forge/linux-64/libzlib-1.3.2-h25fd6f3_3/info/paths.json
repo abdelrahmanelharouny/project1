@@ -1,0 +1,17 @@
+{
+  "paths": [
+    {
+      "_path": "lib/libz.so.1",
+      "path_type": "softlink",
+      "sha256": "3c6fd78e248a60e45081bcc77031204a7cb64a88ff2e27fc786ef12ae7e91fca",
+      "size_in_bytes": 117168
+    },
+    {
+      "_path": "lib/libz.so.1.3.2",
+      "path_type": "hardlink",
+      "sha256": "3c6fd78e248a60e45081bcc77031204a7cb64a88ff2e27fc786ef12ae7e91fca",
+      "size_in_bytes": 117168
+    }
+  ],
+  "paths_version": 1
+}

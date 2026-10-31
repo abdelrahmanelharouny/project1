@@ -1,0 +1,37 @@
+{
+  "paths": [
+    {
+      "_path": "include/Lerc_c_api.h",
+      "path_type": "hardlink",
+      "sha256": "9421a283919b39581505e3b5bb111fcab731ed69986e2ae0840e4334c89469cb",
+      "size_in_bytes": 23324
+    },
+    {
+      "_path": "include/Lerc_types.h",
+      "path_type": "hardlink",
+      "sha256": "31ae1425571c2f06ce57fb92e6678596c77e8266bc3e96c92fb3e0b98a6c95e6",
+      "size_in_bytes": 1309
+    },
+    {
+      "_path": "lib/libLerc.so",
+      "path_type": "softlink",
+      "sha256": "e5929c7b18cada8926e12c686bde2d0b957c639a501b991ea1391ab9195f42ca",
+      "size_in_bytes": 872808
+    },
+    {
+      "_path": "lib/libLerc.so.4",
+      "path_type": "hardlink",
+      "sha256": "e5929c7b18cada8926e12c686bde2d0b957c639a501b991ea1391ab9195f42ca",
+      "size_in_bytes": 872808
+    },
+    {
+      "_path": "lib/pkgconfig/Lerc.pc",
+      "file_mode": "text",
+      "path_type": "hardlink",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/lerc_1793411230015/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeh",
+      "sha256": "f839b235b3b2e332f32e3333fa74b5a417edad2b87398336691c0954086a2cf1",
+      "size_in_bytes": 549
+    }
+  ],
+  "paths_version": 1
+}

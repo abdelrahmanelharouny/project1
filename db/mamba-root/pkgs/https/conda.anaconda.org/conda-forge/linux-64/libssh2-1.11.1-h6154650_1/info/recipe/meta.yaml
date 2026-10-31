@@ -1,0 +1,78 @@
+# This file created by conda-build 26.7.0
+# ------------------------------------------------
+
+package:
+  name: libssh2
+  version: 1.11.1
+source:
+  url: https://www.libssh2.org/download/libssh2-1.11.1.tar.gz
+  sha256: d9ec76cbe34db98eec3539fe2c899d26b0c837cb3eb466a56b0f109cabf658f7
+build:
+  run_exports:
+    - libssh2 >=1.11.1,<2.0a0
+  number: 1
+  string: h6154650_1
+requirements:
+  build:
+    - _openmp_mutex 4.5 20_gnu
+    - binutils_impl_linux-64 2.46.1 default_hfdba357_102
+    - binutils_linux-64 2.46.1 default_h4852527_102
+    - cmake-no-system 4.4.2 hecca717_0
+    - gcc_impl_linux-64 14.4.0 h9711763_1
+    - gcc_linux-64 14.4.0 hc469d41_0
+    - kernel-headers_linux-64 3.10.0 he073ed8_18
+    - ld_impl_linux-64 2.46.1 default_hbd61a6d_102
+    - libgcc 16.1.0 ha9f2e26_1
+    - libgcc-devel_linux-64 14.4.0 hd9a9cd0_101
+    - libgomp 16.1.0 he0feb66_1
+    - libsanitizer 14.4.0 hf39dbba_1
+    - libstdcxx 16.1.0 h934c35e_1
+    - libstdcxx-devel_linux-64 14.4.0 ha5b54cb_101
+    - libzlib 1.3.2 h25fd6f3_3
+    - make 4.4.1 hb03c661_3
+    - sysroot_linux-64 2.17 h0157908_18
+    - tzdata 2026c h151e31d_0
+    - zstd 1.5.7 hb78ec9c_7
+  host:
+    - _openmp_mutex 4.5 20_gnu
+    - ca-certificates 2026.7.22 hbd8a1cb_0
+    - libgcc 16.1.0 ha9f2e26_1
+    - libgomp 16.1.0 he0feb66_1
+    - libzlib 1.3.2 h25fd6f3_3
+    - openssl 3.5.7 h35e630c_1
+    - zlib 1.3.2 h25fd6f3_3
+  run:
+    - __glibc >=2.17,<3.0.a0
+    - libgcc >=14
+    - libzlib >=1.3.2,<2.0a0
+    - openssl >=3.5.7,<4.0a0
+test:
+  commands:
+    - test -f $PREFIX/include/libssh2.h
+    - test -f $PREFIX/include/libssh2_publickey.h
+    - test -f $PREFIX/include/libssh2_sftp.h
+    - test ! -f $PREFIX/lib/libssh2.a
+    - test -f $PREFIX/lib/libssh2${SHLIB_EXT}
+about:
+  home: https://www.libssh2.org/
+  license: BSD-3-Clause
+  license_family: BSD
+  license_file: COPYING
+  summary: the SSH library
+  description: 'libssh2 is a library implementing the SSH2 protocol, available under
+    the revised BSD license.
+
+    '
+  dev_url: https://github.com/libssh2/libssh2
+extra:
+  feedstock-name: libssh2
+  recipe-maintainers:
+    - nehaljwani
+    - ocefpaf
+    - shadowwalkersb
+    - xhochy
+  final: true
+  copy_test_source_files: true
+  flow_run_id: github_31803396274
+  remote_url: https://github.com/conda-forge/libssh2-feedstock
+  sha: e5701cd76588f38d76a9fd704185ffc88184c102

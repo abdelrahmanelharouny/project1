@@ -362,23 +362,45 @@ def optimize_strategy(
 
     # water allocation (per season, only when the farmer supplied one).
     # CP-SAT needs integer arithmetic: coefficients are m3 x 1000 (L precision).
+    # M6A: the demand coefficient uses the NET IRRIGATION REQUIREMENT when it
+    # is evaluable for the season's crop, else the ETc screening value — a
+    # CONSERVATIVE upper bound (NIR ≤ ETc when the rainfall credit ≥ 0),
+    # recorded in the constraint detail. No estimate at all ⇒ the crop was
+    # already held out above (never silently skipped).
     area_m2 = problem.farm.area_ha * 10_000.0
     if problem.water_allocation_m3 is not None:
         alloc_scaled = int(round(problem.water_allocation_m3 * 1000))
         for i, season in enumerate(seasons):
             season_terms = []
+            demand_basis_notes: list[str] = []
             for code in admissible[i]:
                 a = problem.candidates[season.label][code]
-                if a.water_requirement_mm is not None:
-                    coeff = int(round(a.water_requirement_mm / 1000.0 * area_m2 * 1000))
+                demand_mm = (
+                    a.net_irrigation_requirement_mm
+                    if a.net_irrigation_requirement_mm is not None
+                    else a.water_requirement_mm
+                )
+                if demand_mm is not None:
+                    coeff = int(round(demand_mm / 1000.0 * area_m2 * 1000))
                     season_terms.append(x[(i, code)] * coeff)
+                    if a.net_irrigation_requirement_mm is None:
+                        demand_basis_notes.append(
+                            f"{code}: ETc screening (NIR not evaluable)"
+                        )
             if season_terms:
+                basis_note = (
+                    " demand basis: net irrigation requirement (ETc − Pe; soil-water "
+                    "contribution not evaluated at solver level)."
+                    if not demand_basis_notes
+                    else " demand basis per crop: " + "; ".join(sorted(demand_basis_notes)) + "."
+                )
                 register(
                     {
                         "constraint": "water_allocation",
-                        "detail": f"Season {season.label}: screened crop water requirement "
-                        f"within the farmer-supplied allocation "
-                        f"({problem.water_allocation_m3:.0f} m3). " + WATER_ESTIMATE_NOTE,
+                        "detail": f"Season {season.label}: crop water demand within the "
+                        f"farmer-supplied allocation "
+                        f"({problem.water_allocation_m3:.0f} m3)." + basis_note + " "
+                        + WATER_ESTIMATE_NOTE,
                     },
                     sum(season_terms) <= alloc_scaled,
                 )

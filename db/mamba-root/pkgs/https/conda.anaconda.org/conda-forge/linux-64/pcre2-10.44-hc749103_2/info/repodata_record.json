@@ -1,0 +1,26 @@
+{
+    "arch": "x86_64",
+    "build": "hc749103_2",
+    "build_number": 2,
+    "build_string": "hc749103_2",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "__glibc >=2.17,<3.0.a0",
+        "bzip2 >=1.0.8,<2.0a0",
+        "libgcc >=13",
+        "libzlib >=1.3.1,<2.0a0"
+    ],
+    "fn": "pcre2-10.44-hc749103_2.conda",
+    "license": "BSD-3-Clause",
+    "license_family": "BSD",
+    "md5": "31614c73d7b103ef76faa4d83d261d34",
+    "name": "pcre2",
+    "platform": "linux",
+    "sha256": "09717569649d89caafbf32f6cda1e65aef86e5a86c053d30e4ce77fca8d27b68",
+    "size": 956207,
+    "subdir": "linux-64",
+    "timestamp": 1745931215,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/pcre2-10.44-hc749103_2.conda",
+    "version": "10.44"
+}

@@ -1,0 +1,11 @@
+prefix=/home/conda/feedstock_root/build_artifacts/geotiff_1739974590034/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pla
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: GeoTIFF
+Description: GeoTIFF file format library
+Version: 1.7.4
+Libs: -L${libdir} -lgeotiff
+Cflags: -I${includedir}
+Requires.private: proj, libtiff-4

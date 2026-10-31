@@ -1,0 +1,15 @@
+--- cmake/External_minizip.cmake        2024-07-09 21:58:33.096705782 -0500
++++ cmake/External_minizip.cmake        2024-07-09 22:34:55.205590642 -0500
+@@ -9,10 +9,11 @@
+   -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+   -DZLIB_INCLUDE_DIR:PATH=${ZLIB_INCLUDE_DIR}
+   -DZLIB_LIBRARY:FILEPATH=${ZLIB_LIBRARY}
+-  -DBUILD_SHARED_LIBS:BOOL=${BUILD_SHARED_LIBS} )
++  -DBUILD_SHARED_LIBS:BOOL=no )
+ 
+ if(MSVC)
+   include_project_vars(MINIZIP "minizip")
+ else()
+   include_project_vars(MINIZIP "libminizip")
++  set(MINIZIP_LIBRARY "${INSTALL_DIR}/lib/libminizip.a")
+ endif()

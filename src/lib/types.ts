@@ -1002,3 +1002,194 @@ export interface RotationComparisonResponse {
   }>
   note: string
 }
+
+// Milestone 6A — water intelligence engine
+
+export interface WaterMethodMeta {
+  code: string
+  scope: string
+  formula: string
+  conditions: string
+  evidence_class: string
+  citation_text: string
+}
+
+export interface WaterMethodsResponse {
+  water_engine_version: string
+  methods_version: string
+  effective_rainfall_methods: WaterMethodMeta[]
+  soil_sources: Array<{ code: string; detail: string }>
+  irrigation_efficiency_classes: Array<{
+    method_class: string
+    efficiency: number
+    applies_to: string
+    evidence_class: string
+    citation_text: string
+  }>
+  unit_identities: { mm_over_ha_to_m3: number; mm_over_m2_to_litres: number }
+  not_implemented: Array<{ item: string; reason: string }>
+}
+
+export interface WaterReadinessDimension {
+  status: 'complete' | 'partial' | 'missing' | 'not_locally_validated' | 'not_applicable'
+  detail: string
+  source?: Record<string, unknown> | null
+}
+
+export interface WaterReadinessCrop {
+  crop_code: string
+  overall: string
+  etc_computable: boolean
+  dimensions: Record<string, WaterReadinessDimension>
+  notes: string[]
+}
+
+export interface WaterReadinessResponse {
+  field_id: string
+  crops: WaterReadinessCrop[]
+  summary: { total_crops: number; by_overall: Record<string, number>; note: string }
+}
+
+export interface WaterPlanStage {
+  stage: string
+  day_window: [number, number]
+  dates: [string, string]
+  days_in_season: number
+  days_in_crop?: number
+  kc_mean: number | null
+  kc_start: number | null
+  kc_end: number | null
+  etc_mm: number | null
+  pe_mm: number | null
+  dr_end_mm: number | null
+  ks_mean: number | null
+  stress_sensitivity?: { p_table: number | null; p_used: number | null; basis: string | null }
+}
+
+export interface WaterPlanMonth {
+  year: number
+  month: number
+  days_in_season: number
+  et0_mm: number | null
+  kc_mean: number | null
+  etc_mm: number | null
+  precip_mm: number | null
+  effective_rainfall_mm: number | null
+  precip_evidence_missing: boolean
+  net_irrigation_mm: number | null
+  dr_end_mm: number | null
+}
+
+export interface WaterPlanLadderStep {
+  quantity: string
+  value_mm: number | null
+  status: string
+  basis: string
+  detail: string | null
+}
+
+export interface WaterPlanSeason {
+  season_label: string
+  crop_code: string
+  season: { start_date: string; end_date: string }
+  sowing_date: string
+  area_ha: number
+  totals: {
+    et0_mm: number | null
+    etc_mm: number | null
+    precip_mm: number | null
+    effective_rainfall_mm: number | null
+    soil_water_contribution_mm: number | null
+    net_irrigation_requirement_mm: number | null
+    gross_irrigation_requirement_mm: number | null
+    volumes_m3: Record<string, number>
+  }
+  stages: WaterPlanStage[]
+  months: WaterPlanMonth[]
+  ladder: WaterPlanLadderStep[]
+  volumes_m3: Record<string, number>
+  allocation: {
+    water_allocation_m3: number | null
+    status: string
+    detail: string
+    net_requirement_m3?: number
+    coverage_ratio?: number
+    deficit_m3?: number
+  }
+  deficit_windows: Array<Record<string, unknown>>
+  root_zone: {
+    source_label: string
+    taw_mm: number | null
+    raw_mm: number | null
+    p_table: number | null
+    p_used: number | null
+    dr_start_mm: number | null
+    dr_end_mm: number | null
+    soil_evidence_classes: Record<string, string | null>
+  }
+  effective_rainfall: {
+    method: string
+    info: Record<string, unknown>
+    pe_by_month: Record<string, number>
+  }
+  assumptions: string[]
+  missing_evidence: string[]
+  sources: Array<Record<string, unknown>>
+  checksum_sha256: string
+}
+
+export interface WaterPlanResult {
+  engine_version: string
+  methods_version: string
+  seasons: WaterPlanSeason[]
+  rotation_totals: {
+    seasons_total: number
+    seasons_evaluable: number
+    net_irrigation_requirement_mm_sum: number | null
+    net_irrigation_requirement_m3_sum: number | null
+    note: string
+  }
+  area_ha: number
+}
+
+export interface WaterPlan {
+  id: string
+  field_id: string
+  status: string
+  label: string
+  seasons: Array<{ label: string; start_date: string; end_date: string }>
+  crop_assignments: Array<Record<string, unknown>>
+  methods: Record<string, unknown>
+  soil_inputs: Record<string, unknown>
+  warnings: string[]
+  not_evaluated: Record<string, string[]>
+  water_engine_version: string
+  methods_version: string
+  feature_run_ids: string[]
+  knowledge_pack_refs: Array<Record<string, unknown>>
+  water_allocation_m3: number | null
+  checksum_sha256: string | null
+  error_summary: string | null
+  created_at: string | null
+  result?: WaterPlanResult
+}
+
+export interface WaterPlanListResponse {
+  field_id: string
+  items: WaterPlan[]
+}
+
+export interface WaterPlanCreateInput {
+  label?: string
+  seasons: Array<{ label: string; start_date: string; end_date: string }>
+  crop_assignments: Array<{ crop_code: string }>
+  sowing_dates?: Record<string, string>
+  soil_source?: 'none' | 'farmer_measured' | 'ptf_texture'
+  farmer_soil?: { theta_fc: number; theta_wp: number; zr_m?: number; p_table?: number }
+  effective_rainfall_method?: string
+  pe_fraction?: number
+  irrigation_efficiency?: { value?: number; method_class?: string }
+  water_allocation_m3?: number | null
+  evidence_run_id?: string | null
+  idempotency_key?: string
+}

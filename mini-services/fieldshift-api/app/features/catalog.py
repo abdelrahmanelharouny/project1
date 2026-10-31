@@ -15,7 +15,8 @@ Units follow the canonical variable catalog: degC, mm, m/s, m3/m3.
 from dataclasses import dataclass, field
 
 FEATURE_ENGINE_VERSION = "feature-engine-1.0.0"
-FEATURE_CATALOG_VERSION = "featurespec-2026.11.1-d1"
+# M6A: added daily/seasonal/crop-season ET0 totals (water-intelligence inputs).
+FEATURE_CATALOG_VERSION = "featurespec-2026.11.2-m6a"
 
 # Minimum-coverage policy defaults. Accumulations (sums) demand near-full
 # coverage because a missing day under-counts the total; means tolerate
@@ -234,6 +235,47 @@ FEATURE_CATALOG: dict[str, FeatureSpec] = {
             required_variables=("reference_et0",),
             min_coverage_ratio=COVERAGE_SUM,
             formula_reference="Sum of valid daily reference ET0 values (FAO-56 reference surface). Requires an ET0-publishing source (ERA5 product).",
+            strategy="accumulation",
+            strategy_params={"variable": "reference_et0"},
+        ),
+        # M6A: daily/seasonal/crop-season ET0 totals for the water intelligence
+        # engine (same ET0-publishing-source requirement as the monthly total).
+        FeatureSpec(
+            feature_code="reference_et0_total_daily",
+            name="Daily reference ET0 total",
+            description="Daily grass-reference evapotranspiration on the local calendar day.",
+            unit="mm",
+            category="water",
+            aggregation_levels=("daily",),
+            required_variables=("reference_et0",),
+            min_coverage_ratio=1.0,
+            formula_reference="Identity: the daily reference ET0 observation for the assigned local day (FAO-56 reference surface). Missing days stay missing (never zero). Requires an ET0-publishing source (ERA5 product).",
+            strategy="daily_passthrough",
+            strategy_params={"variable": "reference_et0"},
+        ),
+        FeatureSpec(
+            feature_code="reference_et0_total_seasonal",
+            name="Seasonal reference ET0 total",
+            description="Accumulated grass-reference evapotranspiration over the meteorological season.",
+            unit="mm",
+            category="water",
+            aggregation_levels=("seasonal",),
+            required_variables=("reference_et0",),
+            min_coverage_ratio=COVERAGE_SUM,
+            formula_reference="Sum of valid daily reference ET0 values over the season window. Below the coverage minimum the value stays NULL (never scaled up, never zero-filled).",
+            strategy="accumulation",
+            strategy_params={"variable": "reference_et0"},
+        ),
+        FeatureSpec(
+            feature_code="reference_et0_total_crop_season",
+            name="Crop-season reference ET0 total",
+            description="Accumulated grass-reference evapotranspiration over a user-defined crop-season window.",
+            unit="mm",
+            category="water",
+            aggregation_levels=("crop_season",),
+            required_variables=("reference_et0",),
+            min_coverage_ratio=0.8,
+            formula_reference="Sum of valid daily reference ET0 values over the explicitly supplied season window. Windows are recorded verbatim in run provenance.",
             strategy="accumulation",
             strategy_params={"variable": "reference_et0"},
         ),

@@ -1,0 +1,2 @@
+https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda
+https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda

@@ -226,7 +226,24 @@ def import_pack(
 
 
 def seed_default_packs(db: Session) -> None:
-    """Idempotent bootstrap of the bundled seed pack (active)."""
+    """Idempotent bootstrap of the bundled seed pack (active).
+
+    When the bundled pack's version changes (M6A: 2026.11.0 → 2026.11.1), the
+    superseded version of the same pack_code is RETIRED — a lifecycle
+    transition (draft → active → retired), not a history rewrite: the old row
+    keeps its content and checksum. Without this, two active versions of the
+    same rules would load twice into the decision core."""
     from app.knowledge.packs.seed_pack_v1 import get_seed_pack
 
-    import_pack(db, get_seed_pack(), activate=True)
+    pack, _report, _created = import_pack(db, get_seed_pack(), activate=True)
+    superseded = db.scalars(
+        select(dbm.KnowledgePack).where(
+            dbm.KnowledgePack.pack_code == pack.pack_code,
+            dbm.KnowledgePack.pack_version != pack.pack_version,
+            dbm.KnowledgePack.status != "retired",
+        )
+    ).all()
+    for old in superseded:
+        old.status = "retired"
+    if superseded:
+        db.flush()

@@ -1,0 +1,21 @@
+{
+  "channels": [
+    "https://conda.anaconda.org/conda-forge/"
+  ],
+  "description": "This is an implementation of the Hypertext Transfer Protocol version 2 in C.\n\nThe framing layer of HTTP/2 is implemented as a reusable C library. On top\nof that, we have implemented an HTTP/2 client, server and proxy. We have\nalso developed load test and benchmarking tools for HTTP/2.",
+  "dev_url": "https://github.com/nghttp2/nghttp2",
+  "doc_url": "https://nghttp2.org/documentation/",
+  "extra": {
+    "flow_run_id": "github_40689783785",
+    "recipe-maintainers": [
+      "cpaulik",
+      "mariusvniekerk",
+      "wolfv"
+    ],
+    "remote_url": "https://github.com/conda-forge/nghttp2-feedstock",
+    "sha": "b584ecdee6c1e0f802f49328202dadf690021430"
+  },
+  "home": "https://github.com/nghttp2/nghttp2",
+  "license": "MIT",
+  "summary": "This is an implementation of Hypertext Transfer Protocol version 2."
+}

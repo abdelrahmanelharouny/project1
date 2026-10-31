@@ -1,4 +1,4 @@
-"""Candidate generation (Milestone 5.3, ADR-0016).
+"""Candidate generation (Milestone 5.3, ADR-0016; water via M6A engine).
 
 Pure evaluation of knowledge-base crops for the planning seasons of one field.
 Outcomes are first-class: `eligible`, `conditionally_eligible`, `excluded`,
@@ -7,7 +7,9 @@ Missing evidence never becomes zero and never becomes an exclusion.
 
 Water requirement is a FAO-56 single-Kc screening estimate (ADR-0017) computed
 only when BOTH monthly ET0 evidence and sourced Kc anchors exist; its
-assumptions are returned with the estimate.
+assumptions are returned with the estimate. M6A adds the NET IRRIGATION
+REQUIREMENT (ETc − Pe, FAO I&D 33 method) when monthly precipitation evidence
+exists; the allocation constraint uses the most precise evaluable demand.
 """
 
 from __future__ import annotations
@@ -24,8 +26,20 @@ from app.rotation.problem import (
     SeasonSpec,
     TraitValue,
 )
+from app.water.curve import (
+    KcCurve,
+    build_curve,
+    season_etc_mm,
+)
+from app.water.effective_rainfall import effective_rainfall_mm
 
 DURATION_SPILL_TOLERANCE_DAYS = 14  # documented harvest-spill tolerance
+
+# M6A: the effective-rainfall method used for candidate-level net irrigation
+# requirements (FAO I&D 33 monthly formula; verified during the M6A Phase-0
+# programme). An explicit method parameter per run arrives with the water
+# planner; candidates keep the verified default.
+CANDIDATE_PE_METHOD = "fao_aglw_1986"
 
 
 def _reason(
@@ -96,7 +110,11 @@ def estimate_water_requirement_mm(
 ) -> tuple[float | None, list[str]]:
     """FAO-56 single-Kc screening estimate (ADR-0017).
 
-    Returns (mm, assumptions) or (None, [why not evaluable])."""
+    Returns (mm, assumptions) or (None, [why not evaluable]).
+
+    M6A: the curve construction and season summation live in the versioned
+    water engine (`app.water.curve`) — the arithmetic is shared so the
+    optimizer coefficients and the water planner can never drift apart."""
     missing: list[str] = []
     if crop.water_params is None:
         missing.append("no sourced Kc parameters in the knowledge base — water "
@@ -107,90 +125,113 @@ def estimate_water_requirement_mm(
         return None, missing
 
     stage_lengths = {
-        "init": crop.numeric_trait("stage_init_days"),
-        "dev": crop.numeric_trait("stage_dev_days"),
+        "initial": crop.numeric_trait("stage_init_days"),
+        "development": crop.numeric_trait("stage_dev_days"),
         "mid": crop.numeric_trait("stage_mid_days"),
         "late": crop.numeric_trait("stage_late_days"),
     }
-    if any(v is None for v in stage_lengths.values()):
+    missing_stages = [s for s, v in stage_lengths.items() if v is None]
+    if missing_stages:
         missing.append("crop stage lengths missing from the knowledge base")
         return None, missing
 
     wp = crop.water_params
-    init_len = int(stage_lengths["init"])
-    dev_len = int(stage_lengths["dev"])
-    mid_len = int(stage_lengths["mid"])
-    late_len = int(stage_lengths["late"])
+    try:
+        curve: KcCurve = build_curve(
+            stage_lengths=stage_lengths,
+            kc_initial=wp.kc_initial,
+            kc_mid=wp.kc_mid,
+            kc_late=wp.kc_late,
+            source_key=wp.source_key,
+            citation_text=wp.citation_text,
+            evidence_class=wp.evidence_class,
+            pack_code=wp.pack_code,
+            pack_version=wp.pack_version,
+        )
+    except ValueError as exc:
+        missing.append(f"curve refused: {exc}")
+        return None, missing
 
-    def kc_on_day(day_index: int) -> float:
-        if day_index < init_len:
-            return wp.kc_initial
-        if day_index < init_len + dev_len:
-            t = (day_index - init_len) / max(dev_len, 1)
-            return wp.kc_initial + t * (wp.kc_mid - wp.kc_initial)
-        if day_index < init_len + dev_len + mid_len:
-            return wp.kc_mid
-        t = (day_index - init_len - dev_len - mid_len) / max(late_len, 1)
-        t = min(max(t, 0.0), 1.0)
-        return wp.kc_mid + t * (wp.kc_late - wp.kc_mid)
-
-    # Monthly ET0 totals; each month assumed uniform per day (documented).
-    # Deepening F-07: a month of the season without ET0 evidence makes the
-    # whole estimate unevaluable — dropping the month would UNDER-report the
-    # requirement (a silent partial estimate), and partial compliance must
-    # never be labelled as a full estimate.
-    et0_by_month = {(y, m): v for y, m, v in evidence.monthly_et0}
-    season_months: list[tuple[int, int]] = []
-    y, m = season.start_date.year, season.start_date.month
-    while (y, m) <= (season.end_date.year, season.end_date.month):
-        season_months.append((y, m))
-        if m == 12:
-            y, m = y + 1, 1
-        else:
-            m += 1
-    absent = [(y, m) for y, m in season_months if (y, m) not in et0_by_month]
-    if absent:
+    total, _months_used, absent = season_etc_mm(
+        curve, season.start_date, season.end_date, season.start_date,
+        evidence.monthly_et0,
+    )
+    if total is None:
+        # Deepening F-07: a month of the season without ET0 evidence makes the
+        # whole estimate unevaluable — dropping the month would UNDER-report
+        # the requirement (a silent partial estimate), and partial compliance
+        # must never be labelled as a full estimate.
         missing.extend(
-            f"ET0 missing for {y:04d}-{m:02d} — the screening estimate is refused "
+            f"ET0 missing for {label} — the screening estimate is refused "
             "rather than under-reported (no month is silently dropped)"
-            for y, m in absent
+            for label in absent
         )
         return None, missing
-    total = 0.0
-    for y, m in season_months:
-        et0_month = et0_by_month[(y, m)]
-        if y == season.start_date.year and m == season.start_date.month:
-            month_start = season.start_date
-        else:
-            month_start = date(y, m, 1)
-        if y == season.end_date.year and m == season.end_date.month:
-            month_end = season.end_date
-        else:
-            # last day of month
-            if m == 12:
-                month_end = date(y, 12, 31)
-            else:
-                month_end = date(y, m + 1, 1).toordinal() - 1
-                month_end = date.fromordinal(month_end)
-        import calendar as _cal
-
-        days_in_month = _cal.monthrange(y, m)[1]
-        month_len = (month_end - month_start).days + 1
-        et0_daily = et0_month / days_in_month
-        d = month_start
-        while d <= month_end:
-            day_index = (d - season.start_date).days
-            total += kc_on_day(day_index) * et0_daily
-            d = date.fromordinal(d.toordinal() + 1)
 
     assumptions = [
         "Sowing assumed at the planning-season start (no farmer sowing date supplied).",
         "FAO-56 single-Kc curve reconstructed from sourced stage anchors "
         "(linear ramp across development and late stages).",
         "Monthly ET0 totals distributed uniformly within each calendar month "
-        "(screening estimate — the daily water balance arrives in Milestone 7).",
+        "(screening estimate — computed by the versioned water engine).",
     ]
-    return round(total, 2), assumptions
+    return total, assumptions
+
+
+def estimate_net_irrigation_mm(
+    crop: KnowledgeCrop, evidence: ClimateEvidence, season: SeasonSpec
+) -> tuple[float | None, str | None, list[str]]:
+    """Net irrigation requirement at candidate level (M6A, ADR-0019/0021).
+
+    NIR = max(0, ETc − Pe) with the FAO I&D Paper 33 effective-rainfall
+    method on monthly precipitation climatology. The soil-water contribution
+    is NOT evaluated at candidate level (no soil inputs here) — the estimate
+    is therefore an upper bound, and its basis string says so.
+
+    Returns (nir_mm | None, basis | None, why_not)."""
+    if not evidence.monthly_precip:
+        return None, None, [
+            "no monthly precipitation evidence in the feature run — the net "
+            "irrigation requirement is not evaluable (rainfall credit unknown, "
+            "never assumed)"
+        ]
+    etc, etc_assumptions = estimate_water_requirement_mm(crop, evidence, season)
+    if etc is None:
+        return None, None, list(etc_assumptions)
+
+    # months of the season
+    months: list[tuple[int, int]] = []
+    y, m = season.start_date.year, season.start_date.month
+    while (y, m) <= (season.end_date.year, season.end_date.month):
+        months.append((y, m))
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+    p_by_month = {(yy, mm): v for yy, mm, v in evidence.monthly_precip}
+    absent = [f"{yy:04d}-{mm:02d}" for yy, mm in months if (yy, mm) not in p_by_month]
+
+    pe_total = 0.0
+    conservative_months: list[str] = []
+    for yy, mm in months:
+        p = p_by_month.get((yy, mm))
+        if p is None:
+            # no rainfall credit for the month (conservative, disclosed)
+            conservative_months.append(f"{yy:04d}-{mm:02d}")
+            continue
+        pe, _info = effective_rainfall_mm(p, CANDIDATE_PE_METHOD)
+        if pe is not None:
+            pe_total += pe
+
+    nir = max(0.0, etc - pe_total)
+    basis = (
+        f"NIR = max(0, ETc − Pe), Pe via '{CANDIDATE_PE_METHOD}' on monthly "
+        "precipitation climatology; soil-water contribution not evaluated at "
+        "candidate level (upper bound)"
+    )
+    if conservative_months:
+        basis += f"; no rainfall credit for {', '.join(conservative_months)} (evidence missing)"
+    return round(nir, 2), basis, []
 
 
 def assess_crop(
@@ -498,9 +539,12 @@ def assess_crop(
             )
         )
 
-    # 7) water requirement estimate (screening, ADR-0017)
+    # 7) water requirement estimate (screening, ADR-0017) + net irrigation
+    #    requirement (M6A, ADR-0019/0021)
     water_mm: float | None = None
     water_assumptions: tuple[str, ...] = ()
+    nir_mm: float | None = None
+    demand_basis: str | None = None
     if evidence is not None:
         water_mm, why_not = estimate_water_requirement_mm(crop, evidence, season)
         if water_mm is None:
@@ -509,6 +553,16 @@ def assess_crop(
             )
         else:
             water_assumptions = tuple(why_not)  # assumptions when estimated
+        nir_mm, demand_basis, nir_why_not = estimate_net_irrigation_mm(
+            crop, evidence, season
+        )
+        if nir_mm is None and water_mm is not None:
+            demand_basis = (
+                "demand basis: ETc screening (net irrigation requirement not "
+                f"evaluable — {' '.join(nir_why_not)}); ETc is a conservative "
+                "upper bound of irrigation need"
+            )
+            water_assumptions = water_assumptions + (demand_basis,)
 
     # 8) rotation history (rule-gated, region-scoped)
     if previous_crop_code is not None:
@@ -595,6 +649,8 @@ def assess_crop(
         unevaluated_dimensions=tuple(unevaluated),
         water_requirement_mm=water_mm,
         water_estimate_assumptions=water_assumptions,
+        net_irrigation_requirement_mm=nir_mm,
+        water_demand_basis=demand_basis,
         calendar_windows_matched=matched_labels,
     )
 

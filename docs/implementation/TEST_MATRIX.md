@@ -1,10 +1,10 @@
 # Test Matrix
 
-All results below were actually executed. Latest full-suite run: **2026-10-31** (M4 + M5 included). Command (from `mini-services/fieldshift-api`):
+All results below were actually executed. Latest full-suite run: **2026-10-31** (M6A included). Command (from `mini-services/fieldshift-api`):
 
 ```
 .venv/bin/python -m pytest tests
-# => 343 passed in ~4 min (M1–M2: 157 · M3: +27 · M4: +59 · M5: +71 · deepening: +29)
+# => 441 passed in ~4 min (M1–M2: 157 · M3: +27 · M4: +59 · M5: +71 · deepening: +29 · M6A: +98)
 ```
 
 Frontend lint (from repository root):
@@ -393,6 +393,85 @@ Integration regressions (`tests/integration/test_deepening_api.py`, 6):
 | D-I5 | duplicate species-level Kc anchor rejected by DB (NULLS NOT DISTINCT) | F-18 | ✅ |
 
 E2E (browser re-verification): E23–E26 in `docs/deepening/DEEPENING_EXIT_REPORT.md` §7.
+
+
+## Milestone 6A — water intelligence engine (+98 tests, 2026-10-31)
+
+Evidence report: `docs/implementation/M6A_VERIFICATION.md` · design:
+`docs/implementation/M6A_DESIGN.md` · readiness:
+`docs/implementation/M6A_READINESS_MATRIX.md`.
+
+Unit — golden benchmarks & properties (`tests/unit/test_water_core.py`, 70):
+
+| ID | Benchmark / property | Expected | Result |
+|---|---|---|---|
+| W-U1 | FAO-33 effective rainfall worked examples (P=35/90/116/5/260/75) | Pe 11/47/67.8/0/183/35 (source rounds 67.8→68) | ✅ |
+| W-U2 | Pe continuity at 75 mm; monotone; floor ≥ 0; unknown method; negative P | property holds | ✅ |
+| W-U3 | `constant_fraction` requires explicit fraction; `none` → not evaluated | enforced | ✅ |
+| W-U4 | Kc curve stage constants/ramps/beyond-curve hold | hand-computed | ✅ |
+| W-U5 | partial stage lengths / zero length / out-of-range anchor refused | KcCurveError | ✅ |
+| W-U6 | ETc = Kc×ET0 identity; season ETc hand-computed month slice | exact | ✅ |
+| W-U7 | missing ET0 month refuses whole estimate (F-07 generalized) | None + reasons | ✅ |
+| W-U8 | Saxton-Rawls PTF worked values (0.29/0.32/3.51) | θFC 0.3536, θWP 0.2054 | ✅ |
+| W-U9 | PTF validity domain refusals + plausibility bounds | PTFDomainError | ✅ |
+| W-U10 | OC→OM van Bemmelen conversion | ×1.724 | ✅ |
+| W-U11 | FAO-56 Example 36 TAW ratios (90/170/120 mm per m) | exact | ✅ |
+| W-U12 | p adjustment p+0.04·(5−ETc): 4→0.59, 8→0.43, 5→0.55 | exact | ✅ |
+| W-U13 | RAW = p·TAW; domain checks | exact | ✅ |
+| W-U14 | Ks: 1 until RAW, linear to 0 at TAW; RAW<TAW enforced | exact | ✅ |
+| W-U15 | Dr recurrence: monotone rise, rain refill, TAW cap, 0 floor | hand-computed | ✅ |
+| W-U16 | missing ETc in balance raises (missing ≠ zero) | SoilBalanceError | ✅ |
+| W-U17 | deficit windows detection/merging | hand-computed | ✅ |
+| W-U18 | unit identities 1 mm·ha=10 m³, 1 mm·m²=1 L; negative/zero area rejected | exact | ✅ |
+| W-U19 | FAO-33 §4.3 irrigation-need chain (5 months) | IN 67/110.2/166/195/180 | ✅ |
+| W-U20 | ladder: FAO-33 fallback disclosed; soil+efficiency full path; floor at 0; ETc missing blocks | statuses exact | ✅ |
+| W-U21 | efficiency classes = verified FAO TM1 Table 8 (0.60/0.75/0.90) | exact | ✅ |
+| W-U22 | planner: FAO-33 mode NIR = ETc − Pe; stage rows cover season; monthly rows; conservative no-credit months; allocation unknown/deficit/within; GIR only with Ea; synthetic banner; checksum reproducibility; sowing-date shift; PTF notes | all asserted | ✅ |
+| W-U23 | readiness matrix: faba_bean missing/ETc-false; regional not-locally-validated; soil-hydraulic missing | asserted | ✅ |
+
+Unit — rotation integration (`tests/unit/test_water_rotation_integration.py`, 11):
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| W-R1 | NIR evaluable with monthly precip (ETc − Pe, exact chain 571.87−67.8=504.07) | exact | ✅ |
+| W-R2 | NIR None without precip evidence, reason recorded | honest | ✅ |
+| W-R3 | NIR ≤ ETc always; wet season → 0 | property | ✅ |
+| W-R4 | allocation uses NIR basis: thirsty violates / frugal satisfies (45,000 m³) | validator exact | ✅ |
+| W-R5 | ETc screening fallback disclosed when precip missing | detail text | ✅ |
+| W-R6 | optimizer and validator agree on NIR basis (frugal chosen) | consistent | ✅ |
+| W-R7 | infeasible conflict names water_allocation + demand basis | named conflict | ✅ |
+| W-R8 | crop without estimates still held out under allocation | violated | ✅ |
+| W-R9 | no-evidence → water dimensions unevaluated, never zero | asserted | ✅ |
+| W-R10 | water dimension listed when evidence lacks inputs | asserted | ✅ |
+
+Integration — water API (`tests/integration/test_water_api.py`, 17):
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| W-I1 | /water/methods versioned + verified citations + not-implemented list (USDA-SCS, local ET0) | asserted | ✅ |
+| W-I2 | readiness endpoint lists all crops with statuses + tenant isolation (403) | asserted | ✅ |
+| W-I3 | plan create with synthetic evidence: SYNTHETIC warning, totals, 4 stage rows, 5 month rows, ladder honesty | asserted | ✅ |
+| W-I4 | reproducibility: same inputs → same checksum; both plans persisted (immutable snapshots) | asserted | ✅ |
+| W-I5 | idempotency key replays the same plan id | asserted | ✅ |
+| W-I6 | farmer soil (θFC/θWP/Zr/p) runs root-zone balance: TAW exact, stress windows ≥ 1 | asserted | ✅ |
+| W-I7 | ptf_texture without soil observations → refused + FAO-33 fallback (honest) | asserted | ✅ |
+| W-I8 | faba_bean plan honestly unevaluated (no Kc), not_evaluated map populated | asserted | ✅ |
+| W-I9 | unknown allocation reported unknown (never unlimited) | asserted | ✅ |
+| W-I10 | method-class efficiency (drip) → GIR = NIR/0.9 with FAO citation | exact | ✅ |
+| W-I11 | validation errors: unknown crop/missing assignments/bad method/fraction/class/soil source/negative allocation → 422 | asserted | ✅ |
+| W-I12 | plan without feature run → all quantities unevaluated, never zero | asserted | ✅ |
+| W-I13 | delete + 404 afterwards; cross-tenant get/delete → 403 | asserted | ✅ |
+
+E2E (browser, agent-browser 2026-10-31) — M6A additions:
+
+| ID | Scenario | Result |
+|---|---|---|
+| E27 | Water tab: no-evidence plan renders all quantities "—" with warnings; allocation "not evaluated" | ✅ |
+| E28 | Synthetic plan: ET0 819.0 / ETc 664.0 / Pe 0.0 / NIR 664.0 mm ≈ 2,809,252 m³; stage Kc means 0.30/0.74/1.20/0.93; allocation deficit 2,764,252 m³ exact | ✅ |
+| E29 | Expert scenario (farmer soil): TAW 229.5 exact, p→0.5575 exact, RAW 127.9462, NIR 434.5 exact, stress window 93 days, shortfall 1,793,329 m³ exact | ✅ |
+| E30 | Water ladder 7 quantities with honest statuses; methodology accordions incl. not-implemented list; plan history with checksums; delete works | ✅ |
+| E31 | Mobile 390px scrollWidth == clientWidth (after grid min-w-0 fix); footer natural push-down | ✅ |
+| E32 | Zero page errors through the whole session | ✅ |
 
 ## Known warnings in test output
 

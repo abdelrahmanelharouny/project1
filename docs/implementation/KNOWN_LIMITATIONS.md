@@ -82,3 +82,44 @@ Honest record of what this slice does NOT do. Nothing here is claimed to work.
 - External agronomic validation remains OUTSTANDING for all seed knowledge
   (zero confirmed_regional rules by design).
 - Full backlog: `docs/deepening/KNOWLEDGE_GAPS_AND_RESEARCH_BACKLOG.md`.
+
+## Milestone 6A additions (2026-10-31)
+
+- Water planning is SEASONAL screening, not irrigation scheduling: daily
+  water accounting, irrigation-event timing and depletion-avoidance
+  scheduling are backlog W-7. The root-zone balance runs a RAINFED trajectory
+  (no irrigation events) to size the soil-water contribution; this is
+  disclosed in every plan.
+- ET0 is consumed from the provider product only (ERA5, FAO-56 reference
+  surface). No local ET0 computation exists (no radiation/humidity evidence
+  contract; backlog W-6). ETc therefore inherits the provider's reanalysis
+  uncertainty.
+- Effective rainfall: FAO I&D 33 formula on MONTHLY totals (slope condition
+  4–5% disclosed). USDA-SCS is NOT implemented (coefficients unverified in
+  the M6A Phase-0 programme — backlog W-5). Daily Pe variants are not
+  implemented.
+- Dual-Kc (Kcb + Ke) is refused: no sourced Kcb rows exist (FAO-56 ch. 7
+  machinery documented; inputs absent).
+- Soil water-holding inputs: farmer-measured values are used as supplied
+  (farmer_reported_record, not independently verified); the Saxton-Rawls
+  (2006) PTF path is a texture-based MODEL estimate over the latest soil
+  observations — when those come from SoilGrids they describe the 0–5 cm
+  layer ASSUMED representative of the root zone (single-layer extrapolation,
+  backlog S-6). No bulk-density correction is applied; OM is set to 0 when no
+  SOC observation exists (disclosed). PTF estimates outside the published
+  validity domain are refused, never extrapolated.
+- Surface soil moisture (ERA5-Land 0–7 cm) is never used as root-zone
+  storage — the deepening rule is preserved; the balance requires explicit
+  θFC/θWP/Zr.
+- Rooting depth uses the midpoint of the FAO-56 Table 22 range (disclosed);
+  stage-wise root development is not modelled. Initial depletion assumed 0 mm
+  (field capacity at sowing) — a measured initial water content refines this.
+- Capillary rise and groundwater contribution are not modelled (no evidence;
+  disclosed in every plan).
+- Actual irrigation applied is "unknown" until farmer irrigation-record
+  ingestion exists (backlog W-8); the ladder never infers it.
+- Candidate-level NIR (rotation flow) omits the soil-water contribution (no
+  soil context at candidate time) and is labelled an upper bound; the
+  dedicated water planner computes the full ladder.
+- The Kc curve holds the late-stage (end) Kc for season windows longer than
+  the digitized curve (M5-consistent convention, documented).

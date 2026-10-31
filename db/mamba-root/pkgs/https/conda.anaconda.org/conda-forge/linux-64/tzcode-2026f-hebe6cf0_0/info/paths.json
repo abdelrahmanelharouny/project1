@@ -1,0 +1,29 @@
+{
+  "paths": [
+    {
+      "_path": "bin/tzselect",
+      "path_type": "hardlink",
+      "sha256": "3b08fff3515d38abc4aaa5e57c33abb05f28dda01806f2578a134f8cc3cacc1f",
+      "size_in_bytes": 21917
+    },
+    {
+      "_path": "bin/zdump",
+      "path_type": "hardlink",
+      "sha256": "06ee4ab60150bc52f32b9ac22859d88a1aaee04306c707ef71635d836fd3df2f",
+      "size_in_bytes": 57016
+    },
+    {
+      "_path": "bin/zic",
+      "path_type": "hardlink",
+      "sha256": "d1eb6b2fad0636013f7481db054d5eaa7e6d17a8a5347c55613b6e2adedb414d",
+      "size_in_bytes": 68088
+    },
+    {
+      "_path": "lib/libtz.a",
+      "path_type": "hardlink",
+      "sha256": "7dd5c835f67294fb3b735f7269544d21b872d0ccd1cb0f3145fd4c6d882d1706",
+      "size_in_bytes": 49236
+    }
+  ],
+  "paths_version": 1
+}

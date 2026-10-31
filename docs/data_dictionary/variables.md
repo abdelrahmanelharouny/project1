@@ -25,3 +25,16 @@ Rules:
 - Version bump policy: any change to codes/units/evidence hints bumps `DATA_DICTIONARY_VERSION`; observations keep the version they were ingested under via `processing_version` + dataset product version.
 - Slice-2 additions (v2026.11.0-slice2): `wind_speed_10m` (Open-Meteo) and the five SoilGrids 0-5 cm soil properties. Soil properties are instant-support static model snapshots with uncertainty — never time series and never lab measurements.
 - Model availability: Open-Meteo's ERA5-Land publishes temperature + surface soil moisture only; derived precipitation/ET0 and wind require the `era5` product (see `MODEL_VARIABLES` in the provider).
+
+## M6A note (2026-10-31) — decision-layer water quantities
+
+Crop ETc, effective rainfall (Pe), root-zone depletion (Dr), TAW/RAW, and the
+net/gross irrigation requirements are NOT observation variables and are NOT
+feature-engine features: they are decision-layer quantities computed by the
+versioned water engine (`water-engine-1.0.0`, methods `water-methods-1.0.0`)
+from knowledge-pack rows + feature-run evidence. Their provenance travels in
+each water-plan snapshot (`checksum_sha256`, methods version, per-value
+citations). Feature catalog additions in M6A: `reference_et0_total_daily`,
+`reference_et0_total_seasonal`, `reference_et0_total_crop_season`
+(`featurespec-2026.11.2-m6a`). Unit identities for volumes remain
+1 mm over 1 ha = 10 m³ and 1 mm over 1 m² = 1 L.

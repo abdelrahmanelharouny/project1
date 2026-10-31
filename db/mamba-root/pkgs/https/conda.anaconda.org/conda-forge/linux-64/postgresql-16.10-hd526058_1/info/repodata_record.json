@@ -1,0 +1,31 @@
+{
+    "arch": "x86_64",
+    "build": "hd526058_1",
+    "build_number": 1,
+    "build_string": "hd526058_1",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "__glibc >=2.17,<3.0.a0",
+        "krb5 >=1.21.3,<1.22.0a0",
+        "libgcc >=14",
+        "libpq 16.10 h1cdf469_1",
+        "libxml2 >=2.13.8,<2.14.0a0",
+        "libzlib >=1.3.1,<2.0a0",
+        "openssl >=3.5.2,<4.0a0",
+        "readline >=8.2,<9.0a0",
+        "tzcode",
+        "tzdata"
+    ],
+    "fn": "postgresql-16.10-hd526058_1.conda",
+    "license": "PostgreSQL",
+    "md5": "90bc8b42401e5a0c22c37e80404df6ff",
+    "name": "postgresql",
+    "platform": "linux",
+    "sha256": "a8a17d3ff9eb99b04eb3df6b37e0385397a4ba8c21fab9838080a0069ad23e8f",
+    "size": 5395924,
+    "subdir": "linux-64",
+    "timestamp": 1756306157,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/postgresql-16.10-hd526058_1.conda",
+    "version": "16.10"
+}

@@ -1,0 +1,43 @@
+{
+  "paths": [
+    {
+      "_path": "include/librttopo.h",
+      "path_type": "hardlink",
+      "sha256": "cdf6854ae50dbfe7aff87b77341b1233af8a4587481674180c4546568060505b",
+      "size_in_bytes": 47568
+    },
+    {
+      "_path": "include/librttopo_geom.h",
+      "path_type": "hardlink",
+      "sha256": "5f7796e86fa8b5b7d54d505c15a98c26b01464040c8f411db30eec546b492136",
+      "size_in_bytes": 78448
+    },
+    {
+      "_path": "lib/librttopo.so",
+      "path_type": "softlink",
+      "sha256": "50a279ce0a9d500dbf0ffc712c087efae11a5013473d9adbbc9e103d6ebd38da",
+      "size_in_bytes": 534752
+    },
+    {
+      "_path": "lib/librttopo.so.1",
+      "path_type": "softlink",
+      "sha256": "50a279ce0a9d500dbf0ffc712c087efae11a5013473d9adbbc9e103d6ebd38da",
+      "size_in_bytes": 534752
+    },
+    {
+      "_path": "lib/librttopo.so.1.1.0",
+      "path_type": "hardlink",
+      "sha256": "50a279ce0a9d500dbf0ffc712c087efae11a5013473d9adbbc9e103d6ebd38da",
+      "size_in_bytes": 534752
+    },
+    {
+      "_path": "lib/pkgconfig/rttopo.pc",
+      "file_mode": "text",
+      "path_type": "hardlink",
+      "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/librttopo_1727338340094/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_p",
+      "sha256": "16fc82a7be0883e6493181a99919e0e19ab403cf5c95ab0651c60506daa76c9b",
+      "size_in_bytes": 987
+    }
+  ],
+  "paths_version": 1
+}

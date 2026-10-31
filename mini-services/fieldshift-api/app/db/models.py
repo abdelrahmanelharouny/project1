@@ -1046,3 +1046,52 @@ class RotationStrategy(Base, TimestampMixin):
         ),
         UniqueConstraint("run_id", "strategy_key", name="uq_rotation_strategy_key"),
     )
+
+
+class WaterPlan(Base, TimestampMixin):
+    """A seasonal water-intelligence plan for one field (Milestone 6A).
+
+    Immutable snapshot of the plan inputs, methodology versions and results —
+    the water analogue of a rotation strategy. Recomputing a plan creates a
+    NEW row; nothing is rewritten. `checksum_sha256` covers inputs + versions
+    + values (reproducibility contract)."""
+
+    __tablename__ = "water_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="succeeded")
+    label: Mapped[str] = mapped_column(String(120), nullable=False, default="water plan")
+    seasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    crop_assignments: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    methods: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    soil_inputs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    not_evaluated: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    water_engine_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    methods_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    feature_run_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    knowledge_pack_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    water_allocation_m3: Mapped[float | None] = mapped_column(Float, nullable=True)
+    request_parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running','succeeded','failed')", name="ck_water_plan_status"
+        ),
+        Index(
+            "uq_water_plan_idempotency",
+            field_id,
+            idempotency_key,
+            unique=True,
+            postgresql_where=text_("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_water_plans_field", field_id),
+    )

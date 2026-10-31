@@ -1,0 +1,119 @@
+# This file created by conda-build 24.11.2
+# meta.yaml template originally from:
+# /home/conda/recipe_root, last modified Thu Dec 12 10:46:22 2024
+# ------------------------------------------------
+
+package:
+  name: libspatialite
+  version: 5.1.0
+source:
+  patches:
+    - skip_tests.patch
+  sha256: 43be2dd349daffe016dd1400c5d11285828c22fea35ca5109f21f3ed50605080
+  url: https://www.gaia-gis.it/gaia-sins/libspatialite-sources/libspatialite-5.1.0.tar.gz
+build:
+  number: '12'
+  run_exports:
+    - libspatialite >=5.1.0,<5.2.0a0
+  string: h1b4f908_12
+requirements:
+  build:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - autoconf 2.71 pl5321h2b4cb7a_1
+    - automake 1.17 pl5321ha770c72_0
+    - binutils_impl_linux-64 2.43 h4bf12b8_2
+    - binutils_linux-64 2.43 h4852527_2
+    - gcc_impl_linux-64 13.3.0 hfea6d02_1
+    - gcc_linux-64 13.3.0 hc28eda2_7
+    - gnuconfig 2020.11.07 hd8ed1ab_0
+    - gxx_impl_linux-64 13.3.0 hdbfa832_1
+    - gxx_linux-64 13.3.0 h6834431_7
+    - kernel-headers_linux-64 3.10.0 he073ed8_18
+    - ld_impl_linux-64 2.43 h712a8e2_2
+    - libgcc 14.2.0 h77fa898_1
+    - libgcc-devel_linux-64 13.3.0 h84ea5a7_101
+    - libgcc-ng 14.2.0 h69a702a_1
+    - libgomp 14.2.0 h77fa898_1
+    - libsanitizer 13.3.0 heb74ff8_1
+    - libstdcxx 14.2.0 hc0a3c3a_1
+    - libstdcxx-devel_linux-64 13.3.0 h84ea5a7_101
+    - libtool 2.4.7 he02047a_1
+    - libxcrypt 4.4.36 hd590300_1
+    - m4 1.4.18 h516909a_1001
+    - make 4.4.1 hb9d3cd8_2
+    - perl 5.32.1 7_hd590300_perl5
+    - pkg-config 0.29.2 h4bc722e_1009
+    - sysroot_linux-64 2.17 h4a8ded7_18
+    - tzdata 2024b hc8b5060_0
+  host:
+    - _libgcc_mutex 0.1 conda_forge
+    - _openmp_mutex 4.5 2_gnu
+    - bzip2 1.0.8 h4bc722e_7
+    - c-ares 1.34.3 hb9d3cd8_1
+    - ca-certificates 2024.8.30 hbcca054_0
+    - freexl 2.0.0 h9dce30a_1
+    - geos 3.13.0 h5888daf_0
+    - keyutils 1.6.1 h166bdaf_0
+    - krb5 1.21.3 h659f571_0
+    - lerc 4.0.0 h27087fc_0
+    - libcurl 8.10.1 hbbe4b11_0
+    - libdeflate 1.22 hb9d3cd8_0
+    - libedit 3.1.20191231 he28a2e2_2
+    - libev 4.33 hd590300_2
+    - libexpat 2.6.4 h5888daf_0
+    - libgcc 14.2.0 h77fa898_1
+    - libgcc-ng 14.2.0 h69a702a_1
+    - libgomp 14.2.0 h77fa898_1
+    - libiconv 1.17 hd590300_2
+    - libjpeg-turbo 3.0.0 hd590300_1
+    - liblzma 5.6.3 hb9d3cd8_1
+    - libnghttp2 1.64.0 h161d5f1_0
+    - librttopo 1.1.0 h97f6797_17
+    - libsqlite 3.47.2 hee588c1_0
+    - libssh2 1.11.1 hf672d98_0
+    - libstdcxx 14.2.0 hc0a3c3a_1
+    - libstdcxx-ng 14.2.0 h4852527_1
+    - libtiff 4.7.0 hc4654cb_2
+    - libwebp-base 1.4.0 hd590300_0
+    - libxml2 2.13.5 h0d44e9d_1
+    - libzlib 1.3.1 hb9d3cd8_2
+    - minizip 4.0.7 h05a5f5f_2
+    - ncurses 6.5 he02047a_1
+    - openssl 3.4.0 hb9d3cd8_0
+    - proj 9.5.1 h0054346_0
+    - readline 8.2 h8228510_1
+    - sqlite 3.47.2 h9eae976_0
+    - zlib 1.3.1 hb9d3cd8_2
+    - zstd 1.5.6 ha6fb4c9_0
+  run:
+    - __glibc >=2.17,<3.0.a0
+    - freexl >=2
+    - freexl >=2.0.0,<3.0a0
+    - geos >=3.13.0,<3.13.1.0a0
+    - libgcc >=13
+    - librttopo >=1.1.0,<1.2.0a0
+    - libsqlite >=3.47.2,<4.0a0
+    - libstdcxx >=13
+    - libxml2 >=2.13.5,<3.0a0
+    - libzlib >=1.3.1,<2.0a0
+    - proj >=9.5.1,<9.6.0a0
+    - sqlite
+    - zlib
+about:
+  home: https://www.gaia-gis.it/fossil/libspatialite/index
+  license: MPL-1.1
+  license_file: COPYING
+  summary: Extend the SQLite core to support fully fledged Spatial SQL capabilities
+extra:
+  copy_test_source_files: true
+  final: true
+  flow_run_id: azure_20241212.1.1
+  recipe-maintainers:
+    - akrherz
+    - danclewley
+    - gillins
+    - ocefpaf
+    - xylar
+  remote_url: https://github.com/conda-forge/libspatialite-feedstock
+  sha: 5c9f813cf48a76d52c1c28c4d8f78006a06cf236

@@ -1,0 +1,23 @@
+From fba4a6a5e8a7895db7e0efcbcdb7087a04a00322 Mon Sep 17 00:00:00 2001
+From: Daniel Engberg <daniel.engberg.lists@pyret.net>
+Date: Sat, 30 Dec 2023 10:57:12 +0100
+Subject: [PATCH] cmake: Install cmake files in a more common path
+
+Install cmake files in prefix/lib/cmake/pcre2 rather than prefix/cmake
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 599d5bfa..079750a3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1124,7 +1124,7 @@ configure_file(${PCRE2_CONFIG_IN} ${PCRE2_CONFIG_OUT} @ONLY)
+ set(PCRE2_CONFIG_VERSION_IN  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/pcre2-config-version.cmake.in)
+ set(PCRE2_CONFIG_VERSION_OUT ${CMAKE_CURRENT_BINARY_DIR}/cmake/pcre2-config-version.cmake)
+ configure_file(${PCRE2_CONFIG_VERSION_IN} ${PCRE2_CONFIG_VERSION_OUT} @ONLY)
+-install(FILES ${PCRE2_CONFIG_OUT} ${PCRE2_CONFIG_VERSION_OUT} DESTINATION cmake)
++install(FILES ${PCRE2_CONFIG_OUT} ${PCRE2_CONFIG_VERSION_OUT} DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pcre2)
+ 
+ FILE(GLOB html ${PROJECT_SOURCE_DIR}/doc/html/*.html)
+ FILE(GLOB man1 ${PROJECT_SOURCE_DIR}/doc/*.1)

@@ -1,0 +1,10 @@
+libdir=/home/conda/feedstock_root/build_artifacts/bld/rattler-build_minizip_1788896575/host_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeh/lib
+includedir=/home/conda/feedstock_root/build_artifacts/bld/rattler-build_minizip_1788896575/host_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeh/include
+
+Name: gtest_main
+Description: GoogleTest (with main() function)
+Version: 1.16.0
+URL: https://github.com/google/googletest
+Requires: gtest = 1.16.0
+Libs: -L${libdir} -lgtest_main -lpthread
+Cflags: -I${includedir} -DGTEST_HAS_PTHREAD=1

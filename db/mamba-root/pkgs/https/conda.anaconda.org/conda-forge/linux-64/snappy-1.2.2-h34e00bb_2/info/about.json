@@ -1,0 +1,22 @@
+{
+  "channels": [
+    "https://conda.anaconda.org/conda-forge/"
+  ],
+  "dev_url": "https://github.com/google/snappy",
+  "extra": {
+    "flow_run_id": "github_35701324215",
+    "recipe-maintainers": [
+      "groutr",
+      "jakirkham",
+      "wesm",
+      "xhochy",
+      "djsutherland",
+      "velonica0"
+    ],
+    "remote_url": "https://github.com/conda-forge/snappy-feedstock",
+    "sha": "a9057b8bdbb9a3a602a0805a3943bca5d738f4c2"
+  },
+  "home": "https://github.com/google/snappy",
+  "license": "BSD-3-Clause",
+  "summary": "A fast compressor/decompressor"
+}

@@ -1,0 +1,116 @@
+{% set version = "1.3.0" %}
+
+package:
+  name: libkml-split
+  version: {{ version }}
+
+source:
+  url: https://github.com/libkml/libkml/archive/{{ version }}.tar.gz
+  sha256: 8892439e5570091965aaffe30b08631fdf7ca7f81f6495b4648f0950d7ea7963
+  patches:
+    # backport https://github.com/libkml/libkml/commit/c9dda89c35961922d8060b05bc5f6d8e6964fe21
+    - patches/0001-Visual-Studio-2015-build-fix.patch
+    # backport (parts of) https://github.com/libkml/libkml/commit/9163d288dfae64139563190dbf09f82ec28e8559
+    - patches/0002-compile-and-test-libkml-on-MinGW-from-the-MSYS2-proj.patch
+    # skip a very few failing tests on windows
+    - patches/0003-skip-some-few-tests-in-DateTime-Kmz-Test.patch  # [win]
+    # Use a static library for minizip
+    - patches/external_minizip.diff     # [unix]
+
+build:
+  number: 1023
+
+requirements:
+  build:
+    - cmake
+    - {{ compiler('c') }}
+    - {{ stdlib('c') }}
+    - {{ compiler('cxx') }}
+    - make  # [unix]
+  host:
+    - libboost-headers
+    - expat
+    - uriparser
+    # not compatible with minizip in conda-forge, see GH-2
+    # - minizip 1.*
+    - zlib
+    # only for testing
+    - gtest  # [build_platform == target_platform]
+  run:
+    # relied upon by libkml headers, so we need them
+    - libboost-headers
+
+outputs:
+  - name: libkml
+    files:
+      - lib/libkml*
+      - Library/lib/kml*.lib
+      # Remove once we have shared libraries on windows
+      - Library/lib/minizip*.lib
+    requirements:
+      build:
+        - cmake
+        - {{ compiler('c') }}
+        - {{ stdlib('c') }}
+        - {{ compiler('cxx') }}
+        - make  # [unix]
+      host:
+        - expat
+        - uriparser
+        - zlib
+
+    test:
+      commands:
+        - test ! -f $PREFIX/include/kml/engine.h  # [unix]
+        - test -f $PREFIX/lib/libkmlbase.so.1  # [linux]
+        - test -f $PREFIX/lib/libkmlbase.dylib  # [osx]
+        - if not exist %LIBRARY_LIB%\\kmlbase.lib exit 1  # [win]
+        - if exist %LIBRARY_INC%\\kml\\engine.h exit 1  # [win]
+
+  - name: libkml-devel
+    build:
+      run_exports:
+        # no ABI lab result.  Pinning to major-minor as conda-forge has.
+        - {{ pin_subpackage('libkml', max_pin='x.x') }}
+    files:
+      - lib/cmake/libkml
+      - lib/pkgconfig/libkml.pc
+      - include/kml
+      - Library/cmake/LibKML*
+      - Library/lib/pkgconfig/libkml.pc
+      - Library/include/kml
+    requirements:
+      build:
+        - cmake
+        - {{ compiler('c') }}
+        - {{ stdlib('c') }}
+        - {{ compiler('cxx') }}
+        - make  # [unix]
+      host:
+        - expat
+        - uriparser
+        - {{ pin_subpackage('libkml', exact=True) }}
+      run:
+        - {{ pin_subpackage('libkml', exact=True) }}
+        # relied upon by libkml headers, so we need them
+        - libboost-headers
+
+    test:
+      commands:
+        - test -f $PREFIX/include/kml/engine.h  # [unix]
+        - if not exist %LIBRARY_INC%\\kml\\engine.h exit 1  # [win]
+
+about:
+  home: https://github.com/libkml/libkml
+  license: BSD-3-Clause
+  license_file: LICENSE
+  summary: 'Reference implementation of OGC KML 2.2'
+  description: |
+    This is Google's reference implementation of OGC KML 2.2.
+    It also includes implementations of Google's gx: extensions used by Google Earth,
+    as well as several utility libraries for working with other formats.
+
+extra:
+  recipe-maintainers:
+    - ocefpaf
+    - msarahan

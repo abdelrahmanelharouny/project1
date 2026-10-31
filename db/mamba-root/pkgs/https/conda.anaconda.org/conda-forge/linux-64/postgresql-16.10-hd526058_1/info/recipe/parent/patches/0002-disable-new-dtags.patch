@@ -1,0 +1,12 @@
+--- postgresql-16.0.orig/src/makefiles/Makefile.linux	2023-09-14 10:35:53.599777660 -0500
++++ postgresql-16.0/src/makefiles/Makefile.linux	2023-09-14 10:36:57.716206257 -0500
+@@ -1,6 +1,8 @@
+ # Use --enable-new-dtags to generate DT_RUNPATH instead of DT_RPATH.
+ # This allows LD_LIBRARY_PATH to still work when needed.
+-rpath = -Wl,-rpath,'$(rpathdir)',--enable-new-dtags
++#rpath = -Wl,-rpath,'$(rpathdir)',--enable-new-dtags
++# But for Anaconda Distribution it allows LD_LIBRARY_PATH to break everything when not needed.
++rpath = -Wl,-rpath,'$(rpathdir)',--disable-new-dtags
+ 
+ 
+ # Rule for building a shared library from a single .o file

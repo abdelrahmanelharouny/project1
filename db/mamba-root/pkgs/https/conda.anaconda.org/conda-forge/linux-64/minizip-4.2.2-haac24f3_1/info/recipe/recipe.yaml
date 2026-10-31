@@ -1,0 +1,99 @@
+schema_version: 1
+
+context:
+  name: minizip
+  version: "4.2.2"
+
+package:
+  name: ${{ name|lower }}
+  version: ${{ version }}
+
+source:
+  url: https://github.com/zlib-ng/minizip-ng/archive/${{ version }}/${{ name }}-${{ version }}.tar.gz
+  sha256: 71af7b9799856d8b03619df3949e9c1be9703f8de0795af71399ba283cb27aac
+  patches:
+    - if: win
+      then: win_patch_output_name.patch
+    - if: win
+      then: gtest_shared_main.patch
+
+build:
+  number: 1
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ stdlib("c") }}
+    - ${{ compiler('cxx') }}
+    - cmake
+    - if: not win
+      then: make
+    - if: win
+      then: ninja
+    - if: not win
+      then: pkg-config
+  host:
+    - bzip2
+    - if: win
+      then: gtest
+    - if: not win
+      then: libiconv
+    - if: not win
+      then: openssl
+    - liblzma-devel
+    - zlib
+    - zstd
+  run_exports:
+    - ${{ pin_subpackage('minizip', upper_bound='x') }}
+  ignore_run_exports:
+    from_package:
+      - gtest
+
+tests:
+  - files:
+      recipe:
+        - if: target_platform == "win-arm64"
+          then: CMakeLists.txt
+        - if: target_platform == "win-arm64"
+          then: test_minizip.c
+    requirements:
+      run:
+        - if: target_platform == "win-arm64"
+          then: ${{ compiler('c') }}
+        - if: target_platform == "win-arm64"
+          then: cmake
+        - if: target_platform == "win-arm64"
+          then: zlib
+    script:
+      - if: unix
+        then: test -f $PREFIX/lib/libminizip${SHLIB_EXT}
+      - if: win
+        then: if not exist %LIBRARY_BIN%\libminizip.dll exit 1
+      - if: win
+        then: if not exist %LIBRARY_LIB%\libminizip.lib exit 1
+      - if: target_platform == "win-arm64"
+        then: cmake -S . -B test-build -G "NMake Makefiles"
+      - if: target_platform == "win-arm64"
+        then: cmake --build test-build --config Release
+      - if: target_platform == "win-arm64"
+        then: test-build\minizip_consumer.exe
+      - if: target_platform == "win-arm64"
+        then: dumpbin /headers test-build\minizip_consumer.exe | findstr /c:"AA64"
+      - if: target_platform == "win-arm64"
+        then: dumpbin /headers %LIBRARY_BIN%\libminizip.dll | findstr /c:"AA64"
+      - if: unix
+        then: test ! -f $PREFIX/lib/libminizip.a
+
+about:
+  # http://zlib.net/zlib_license.html
+  license: Zlib
+  license_file: LICENSE
+  summary: minizip-ng is a zip manipulation library written in C.
+  description: |
+    minizip-ng is a zip manipulation library written in C
+  homepage: https://github.com/zlib-ng/minizip-ng
+  repository: https://github.com/zlib-ng/minizip-ng
+
+extra:
+  recipe-maintainers:
+    - akrherz

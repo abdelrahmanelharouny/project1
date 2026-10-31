@@ -1,0 +1,838 @@
+     1→"""Rotation run orchestration (Milestone 5) — the only bridge between the DB
+     2→world and the pure decision core.
+     3→
+     4→Pipeline: validate request → load active knowledge → build FarmContext
+     5→(climate evidence from ONE feature run, soil observations, crop history,
+     6→farmer constraints) → generate per-season candidates → build problem →
+     7→baseline + optimized strategy profiles → evaluate criteria → normalize within
+     8→the strategy set → Pareto → constraint checks → explanations → persist
+     9→snapshot (runs + strategies) with full version/provenance refs.
+    10→"""
+    11→
+    12→from __future__ import annotations
+    13→
+    14→import hashlib
+    15→import json
+    16→import uuid
+    17→from datetime import UTC, date, datetime
+    18→from typing import Any
+    19→
+    20→from sqlalchemy import select
+    21→from sqlalchemy.orm import Session
+    22→
+    23→from app.core.errors import NotFound, ValidationFailed
+    24→from app.db import models as dbm
+    25→from app.knowledge.service import load_knowledge
+    26→from app.rotation import candidates as candidates_mod
+    27→from app.rotation import constraints as constraints_mod
+    28→from app.rotation import objectives as objectives_mod
+    29→from app.rotation import optimizer as optimizer_mod
+    30→from app.rotation.explain import build_explanations
+    31→from app.rotation.problem import (
+    32→    ClimateEvidence,
+    33→    FarmContext,
+    34→    RANDOM_SEED,
+    35→    RotationProblem,
+    36→    SeasonSpec,
+    37→    SoilEvidence,
+    38→    StrategySolution,
+    39→    ROTATION_ENGINE_VERSION,
+    40→    SOLVER_NAME,
+    41→)
+    42→
+    43→MAX_SEASONS = 4
+    44→MIN_CLIMATE_COVERAGE = 0.9
+    45→CLIMATE_FEATURE_CODES = {
+    46→    "precipitation": "precipitation_total_monthly",
+    47→    "tmean": "air_temperature_mean_monthly",
+    48→    "hot_days": "hot_days_35c_count_monthly",
+    49→    "et0": "reference_et0_total_monthly",
+    50→}
+    51→SOIL_VARIABLES = [
+    52→    "soil_ph",
+    53→    "soil_organic_carbon",
+    54→    "soil_sand_content",
+    55→    "soil_clay_content",
+    56→    "soil_bulk_density",
+    57→]
+    58→
+    59→
+    60→def _validate_seasons(raw: list[dict[str, Any]]) -> list[SeasonSpec]:
+    61→    if not raw:
+    62→        raise ValidationFailed(
+    63→            "At least one planning season is required.",
+    64→            details=[{"field": "seasons"}],
+    65→        )
+    66→    if len(raw) > MAX_SEASONS:
+    67→        raise ValidationFailed(
+    68→            f"At most {MAX_SEASONS} planning seasons per run.",
+    69→            details=[{"field": "seasons"}],
+    70→        )
+    71→    seasons: list[SeasonSpec] = []
+    72→    labels: set[str] = set()
+    73→    for item in raw:
+    74→        label = str(item.get("label") or "").strip()
+    75→        if not label or len(label) > 60:
+    76→            raise ValidationFailed(
+    77→                "Season labels must be 1-60 characters.",
+    78→                details=[{"field": "seasons", "reason": str(item)[:80]}],
+    79→            )
+    80→        if label in labels:
+    81→            raise ValidationFailed(
+    82→                f"Duplicate season label '{label}'.",
+    83→                details=[{"field": "seasons", "reason": label}],
+    84→            )
+    85→        labels.add(label)
+    86→        try:
+    87→            start = date.fromisoformat(str(item["start_date"]))
+    88→            end = date.fromisoformat(str(item["end_date"]))
+    89→        except (KeyError, ValueError):
+    90→            raise ValidationFailed(
+    91→                "Seasons need start_date and end_date (ISO dates).",
+    92→                details=[{"field": "seasons", "reason": label}],
+    93→            ) from None
+    94→        if start > end:
+    95→            raise ValidationFailed(
+    96→                f"Season '{label}' start_date is after end_date.",
+    97→                details=[{"field": "seasons", "reason": label}],
+    98→            )
+    99→        if (end - start).days > 400:
+   100→            raise ValidationFailed(
+   101→                f"Season '{label}' is longer than 400 days — split it.",
+   102→                details=[{"field": "seasons", "reason": label}],
+   103→            )
+   104→        seasons.append(SeasonSpec(label=label, start_date=start, end_date=end))
+   105→    return seasons
+   106→
+   107→
+   108→def _pick_evidence_run(db: Session, field_id: Any, explicit_id: str | None) -> dbm.FeatureRun | None:
+   109→    if explicit_id:
+   110→        run = db.get(dbm.FeatureRun, uuid.UUID(explicit_id))
+   111→        if run is None or str(run.field_id) != str(field_id):
+   112→            raise NotFound("Feature run not found for this field.")
+   113→        if run.status != "succeeded":
+   114→            raise ValidationFailed(
+   115→                "The referenced feature run has not succeeded.",
+   116→                details=[{"field": "evidence_run_id", "reason": run.status}],
+   117→            )
+   118→        return run
+   119→    return db.scalar(
+   120→        select(dbm.FeatureRun)
+   121→        .where(dbm.FeatureRun.field_id == field_id, dbm.FeatureRun.status == "succeeded")
+   122→        .order_by(dbm.FeatureRun.completed_at.desc())
+   123→        .limit(1)
+   124→    )
+   125→
+   126→
+   127→def _season_climate(
+   128→    run: dbm.FeatureRun, season: SeasonSpec
+   129→) -> ClimateEvidence | None:
+   130→    """Aggregate the run's monthly feature values over one planning season as a
+   131→    MONTH-OF-YEAR climatology (historical proxy — planning seasons are usually
+   132→    in the future; no forecast is claimed).
+   133→
+   134→    Coverage = fraction of season days whose month-of-year has any covered
+   135→    value in the run; below MIN_CLIMATE_COVERAGE the season's climate evidence
+   136→    is None (the dimension is unevaluated, never approximated)."""
+   137→    monthly: dict[str, dict[int, list[tuple[int, float]]]] = {}  # code -> month -> [(year, value)]
+   138→    for row in run.values:
+   139→        if row.aggregation_level != "monthly" or row.value is None:
+   140→            continue
+   141→        monthly.setdefault(row.feature_code, {}).setdefault(
+   142→            row.period_start.month, []
+   143→        ).append((row.period_start.year, row.value))
+   144→
+   145→    import calendar as cal
+   146→
+   147→    def months_in_season(season: SeasonSpec) -> list[tuple[int, int, int]]:
+   148→        """(year, month, days of that month inside the season)."""
+   149→        out = []
+   150→        y, m = season.start_date.year, season.start_date.month
+   151→        while (y, m) <= (season.end_date.year, season.end_date.month):
+   152→            if y == season.start_date.year and m == season.start_date.month:
+   153→                month_start = season.start_date
+   154→            else:
+   155→                month_start = date(y, m, 1)
+   156→            if y == season.end_date.year and m == season.end_date.month:
+   157→                month_end = season.end_date
+   158→            else:
+   159→                month_end = date(y, m, cal.monthrange(y, m)[1])
+   160→            out.append((y, m, (month_end - month_start).days + 1))
+   161→            m += 1
+   162→            if m == 13:
+   163→                y, m = y + 1, 1
+   164→        return out
+   165→
+   166→    month_days = months_in_season(season)
+   167→    total_days = sum(d for _, _, d in month_days)
+   168→
+   169→    years_used = sorted(
+   170→        {
+   171→            y
+   172→            for table in monthly.values()
+   173→            for entries in table.values()
+   174→            for y, _v in entries
+   175→        }
+   176→    )
+   177→
+   178→    def collect(code: str, mode: str) -> tuple[float | None, int]:
+   179→        """Season aggregate of month-of-year climatological means.
+   180→
+   181→        mode='total' (precip, ET0, hot-day counts): monthly TOTALS scaled by
+   182→        the fraction of that month inside the season, summed.
+   183→        mode='mean' (temperature): monthly means day-weighted over the season.
+   184→        Returns (value, days covered by present months)."""
+   185→        table = monthly.get(code, {})
+   186→        acc = 0.0
+   187→        covered = 0
+   188→        for y, m, days in month_days:
+   189→            entries = table.get(m)
+   190→            if entries:
+   191→                mean = sum(v for _yr, v in entries) / len(entries)
+   192→                if mode == "total":
+   193→                    frac = days / cal.monthrange(y, m)[1]
+   194→                    acc += mean * frac
+   195→                else:
+   196→                    acc += mean * days
+   197→                covered += days
+   198→        if mode == "mean":
+   199→            acc = acc / total_days if total_days else 0.0
+   200→        return acc, covered
+   201→
+   202→    warnings: list[str] = []
+   203→    precip_total, covered = collect(CLIMATE_FEATURE_CODES["precipitation"], "total")
+   204→    tmean_wsum, covered_t = collect(CLIMATE_FEATURE_CODES["tmean"], "mean")
+   205→    hot_days, covered_h = collect(CLIMATE_FEATURE_CODES["hot_days"], "total")
+   206→    et0_total, covered_e = collect(CLIMATE_FEATURE_CODES["et0"], "total")
+   207→
+   208→    coverage = covered / total_days if total_days else 0.0
+   209→
+   210→    monthly_et0: list[tuple[int, int, float]] = []
+   211→    et0_table = monthly.get(CLIMATE_FEATURE_CODES["et0"], {})
+   212→    for y, m, _days in month_days:
+   213→        entries = et0_table.get(m)
+   214→        if entries:
+   215→            monthly_et0.append((y, m, sum(v for _yr, v in entries) / len(entries)))
+   216→
+   217→    if coverage < MIN_CLIMATE_COVERAGE:
+   218→        return None
+   219→    if covered < total_days:
+   220→        warnings.append(
+   221→            "precipitation months incomplete — the season total includes only the "
+   222→            "months present in the evidence run (an under-count, never filled)"
+   223→        )
+   224→
+   225→    tmean = tmean_wsum if covered_t == total_days else (
+   226→        tmean_wsum * total_days / covered_t if covered_t else None
+   227→    )
+   228→    if covered_t < total_days:
+   229→        warnings.append("temperature months incomplete — mean weighted by covered days")
+   230→    hot = round(hot_days, 1) if covered_h == total_days else None
+   231→    if covered_h < total_days and hot is None:
+   232→        warnings.append("hot-day counts incomplete — not evaluated for this season")
+   233→    et0 = et0_total if covered_e == total_days else None
+   234→    if covered_e < total_days and et0 is None:
+   235→        warnings.append("ET0 months incomplete — water estimates not evaluated")
+   236→
+   237→    year_note = (
+   238→        f"years {years_used[0]}-{years_used[-1]}" if len(years_used) > 1
+   239→        else f"year {years_used[0]}" if years_used else "no years"
+   240→    )
+   241→    return ClimateEvidence(
+   242→        feature_run_id=str(run.id),
+   243→        is_synthetic=bool(run.is_synthetic),
+   244→        season_precipitation_mm=round(precip_total, 2) if covered else None,
+   245→        season_mean_temp_degC=round(tmean, 2) if tmean is not None else None,
+   246→        season_mean_tmax_degC=None,
+   247→        season_hot_days_35c=hot,
+   248→        season_et0_mm=round(et0, 2) if et0 is not None else None,
+   249→        monthly_et0=tuple(monthly_et0),
+   250→        coverage_ratio=round(coverage, 4),
+   251→        years_used=tuple(years_used),
+   252→        basis=(
+   253→            f"month-of-year climatology from feature run {str(run.id)[:8]} "
+   254→            f"({year_note}) — a historical proxy, NOT a forecast for the "
+   255→            "planning season."
+   256→        ),
+   257→        warnings=tuple(warnings),
+   258→    )
+   259→
+   260→
+   261→def _soil_evidence(db: Session, field_id: Any) -> tuple[SoilEvidence | None, str | None]:
+   262→    rows = db.execute(
+   263→        select(dbm.Observation)
+   264→        .where(
+   265→            dbm.Observation.field_id == field_id,
+   266→            dbm.Observation.variable_code.in_(SOIL_VARIABLES),
+   267→            dbm.Observation.value.is_not(None),
+   268→        )
+   269→        .order_by(dbm.Observation.observed_at.desc())
+   270→        .limit(50)
+   271→    ).scalars().all()
+   272→    latest: dict[str, dbm.Observation] = {}
+   273→    for obs in rows:
+   274→        latest.setdefault(obs.variable_code, obs)
+   275→    if not latest:
+   276→        return None, None
+   277→    evidence_classes = sorted({o.evidence_class or "unknown" for o in latest.values()})
+   278→
+   279→    def val(code: str) -> tuple[float, str] | None:
+   280→        obs = latest.get(code)
+   281→        if obs is None or obs.value is None:
+   282→            return None
+   283→        return (float(obs.value), obs.evidence_class or "unknown")
+   284→
+   285→    soil = SoilEvidence(
+   286→        ph=val("soil_ph"),
+   287→        organic_carbon_g_kg=val("soil_organic_carbon"),
+   288→        clay_g_kg=val("soil_clay_content"),
+   289→        sand_g_kg=val("soil_sand_content"),
+   290→        bulk_density=val("soil_bulk_density"),
+   291→    )
+   292→    return soil, ", ".join(evidence_classes)
+   293→
+   294→
+   295→def build_farm_context(
+   296→    db: Session,
+   297→    field: dbm.Field,
+   298→    seasons: list[SeasonSpec],
+   299→    evidence_run_id: str | None,
+   300→    hemisphere: str,
+   301→) -> tuple[FarmContext, list[str], list[str], dbm.FeatureRun | None]:
+   302→    warnings: list[str] = []
+   303→    run = _pick_evidence_run(db, field.id, evidence_run_id)
+   304→    climate_by_season: dict[str, ClimateEvidence] = {}
+   305→    climate_run_refs: dict[str, str] = {}
+   306→    if run is None:
+   307→        warnings.append(
+   308→            "No succeeded feature run exists for this field — climate dimensions are "
+   309→            "unevaluated (missing evidence is never treated as zero)."
+   310→        )
+   311→    else:
+   312→        for season in seasons:
+   313→            evidence = _season_climate(run, season)
+   314→            if evidence is None:
+   315→                warnings.append(
+   316→                    f"Season '{season.label}': climate coverage below "
+   317→                    f"{MIN_CLIMATE_COVERAGE:.0%} in the evidence run — climate dimensions "
+   318→                    "unevaluated for this season."
+   319→                )
+   320→            else:
+   321→                climate_by_season[season.label] = evidence
+   322→                climate_run_refs[season.label] = str(run.id)
+   323→                for w in evidence.warnings:
+   324→                    warnings.append(f"Season '{season.label}': {w}")
+   325→        if run.is_synthetic:
+   326→            warnings.append(
+   327→                "The evidence feature run used SYNTHETIC data — every climate-informed "
+   328→                "outcome is a demonstration, never real farm evidence."
+   329→            )
+   330→
+   331→    soil, soil_class = _soil_evidence(db, field.id)
+   332→
+   333→    history_rows = db.scalars(
+   334→        select(dbm.CropHistory)
+   335→        .where(dbm.CropHistory.field_id == field.id)
+   336→        .order_by(dbm.CropHistory.sowing_date.asc().nullslast(), dbm.CropHistory.created_at.asc())
+   337→    ).all()
+   338→    crop_code_by_id = {
+   339→        c.id: c.crop_code
+   340→        for c in db.scalars(select(dbm.Crop)).all()
+   341→    }
+   342→    history: list[dict[str, Any]] = []
+   343→    for h in history_rows:
+   344→        history.append({
+   345→            "id": str(h.id),
+   346→            "season_label": h.season_label,
+   347→            "crop_code": crop_code_by_id.get(h.crop_id) if h.crop_id else None,
+   348→            "crop_label": h.crop_label,
+   349→            "sowing_date": h.sowing_date.isoformat() if h.sowing_date else None,
+   350→            "harvest_date": h.harvest_date.isoformat() if h.harvest_date else None,
+   351→        })
+   352→
+   353→    constraints_rows = db.scalars(
+   354→        select(dbm.FarmConstraint).where(dbm.FarmConstraint.farm_id == field.farm_id)
+   355→    ).all()
+   356→    market_exclusions: list[str] = []
+   357→    equipment_limits: list[str] = []
+   358→    water_allocation: float | None = None
+   359→    margin_index: dict[str, float] = {}
+   360→    for c in constraints_rows:
+   361→        if c.constraint_code == "market_exclusion" and c.value_text:
+   362→            market_exclusions.extend(
+   363→                [p.strip() for p in c.value_text.split(",") if p.strip()]
+   364→            )
+   365→        elif c.constraint_code == "equipment_limitation" and c.value_text:
+   366→            equipment_limits.extend(
+   367→                [p.strip() for p in c.value_text.split(",") if p.strip()]
+   368→            )
+   369→        elif c.constraint_code == "water_allocation_m3_per_season" and c.value_numeric is not None:
+   370→            water_allocation = float(c.value_numeric)
+   371→        elif c.constraint_code == "market_margin_index" and c.value_text and c.value_numeric is not None:
+   372→            margin_index[c.value_text.strip()] = float(c.value_numeric)
+   373→
+   374→    farm = FarmContext(
+   375→        field_id=str(field.id),
+   376→        farm_id=str(field.farm_id),
+   377→        area_ha=float(field.area_ha),
+   378→        country_code=field.farm.country_code,
+   379→        hemisphere=hemisphere,
+   380→        seasons=tuple(seasons),
+   381→        soil=soil,
+   382→        climate_by_season=climate_by_season,
+   383→        climate_run_refs=climate_run_refs,
+   384→        history=tuple(history),
+   385→        market_exclusions=tuple(sorted(set(market_exclusions))),
+   386→        equipment_limits=tuple(sorted(set(equipment_limits))),
+   387→        water_allocation_m3=water_allocation,
+   388→        margin_index_by_crop=margin_index,
+   389→        synthetic_evidence_in_use=bool(run.is_synthetic) if run else False,
+   390→        soil_evidence_class=soil_class,
+   391→    )
+   392→    return farm, warnings, [str(h["id"]) for h in history], run
+   393→
+   394→
+   395→def _baseline_assignment(
+   396→    seasons: list[SeasonSpec], history: tuple[dict[str, Any], ...]
+   397→) -> tuple[tuple[str, str | None], ...]:
+   398→    assignment: list[tuple[str, str | None]] = []
+   399→    for season in seasons:
+   400→        crop_code = None
+   401→        for h in history:
+   402→            if h.get("season_label") == season.label:
+   403→                crop_code = h.get("crop_code")
+   404→                break
+   405→        if crop_code is None:
+   406→            for h in history:
+   407→                sow = h.get("sowing_date")
+   408→                harv = h.get("harvest_date")
+   409→                if sow and harv:
+   410→                    if date.fromisoformat(sow) <= season.end_date and date.fromisoformat(
+   411→                        harv
+   412→                    ) >= season.start_date:
+   413→                        crop_code = h.get("crop_code")
+   414→                        break
+   415→        assignment.append((season.label, crop_code))
+   416→    return tuple(assignment)
+   417→
+   418→
+   419→def _solution_checksum(
+   420→    solution: StrategySolution, problem: RotationProblem
+   421→) -> str:
+   422→    payload = {
+   423→        "strategy": solution.strategy_key,
+   424→        "assignment": [[lbl, cc] for lbl, cc in solution.assignment],
+   425→        "objective": solution.objective_value,
+   426→        "criteria": [
+   427→            [c.criterion_code, c.raw_value, c.normalized] for c in solution.criteria
+   428→        ],
+   429→        "problem": problem.checksum(),
+   430→        "engine": ROTATION_ENGINE_VERSION,
+   431→    }
+   432→    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+   433→    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+   434→
+   435→
+   436→def start_rotation_run(
+   437→    db: Session,
+   438→    *,
+   439→    field: dbm.Field,
+   440→    payload: dict[str, Any],
+   441→    created_by: Any = None,
+   442→) -> dbm.RotationRun:
+   443→    """Validate, execute inline and persist a rotation run (202-style job)."""
+   444→    idempotency_key = payload.get("idempotency_key")
+   445→    if idempotency_key:
+   446→        # Deepening F-3: replay lookup scoped to THIS field (cross-tenant
+   447→        # replay of a known key must never serialize another tenant's run).
+   448→        existing = db.scalar(
+   449→            select(dbm.RotationRun).where(
+   450→                dbm.RotationRun.idempotency_key == idempotency_key,
+   451→                dbm.RotationRun.field_id == field.id,
+   452→            )
+   453→        )
+   454→        if existing is not None:
+   455→            return existing
+   456→
+   457→    seasons = _validate_seasons(payload.get("seasons") or [])
+   458→    hemisphere = payload.get("hemisphere") or "north"
+   459→    if hemisphere not in ("north", "south"):
+   460→        raise ValidationFailed(
+   461→            "hemisphere must be 'north' or 'south'.",
+   462→            details=[{"field": "hemisphere", "reason": hemisphere}],
+   463→        )
+   464→
+   465→    requested_profiles = payload.get("strategy_profiles") or list(optimizer_mod.DEFAULT_PROFILES)
+   466→    if not isinstance(requested_profiles, list) or not requested_profiles:
+   467→        raise ValidationFailed(
+   468→            "strategy_profiles must be a non-empty list.",
+   469→            details=[{"field": "strategy_profiles"}],
+   470→        )
+   471→    known = set(optimizer_mod.DEFAULT_PROFILES) | {"custom"}
+   472→    for p in requested_profiles:
+   473→        if p not in known:
+   474→            raise ValidationFailed(
+   475→                f"Unknown strategy profile '{p}'.",
+   476→                details=[{"field": "strategy_profiles", "reason": p}],
+   477→            )
+   478→    custom_weights = payload.get("custom_weights") or {}
+   479→    if "custom" in requested_profiles:
+   480→        if not custom_weights:
+   481→            raise ValidationFailed(
+   482→                "The 'custom' profile needs custom_weights.",
+   483→                details=[{"field": "custom_weights"}],
+   484→            )
+   485→        for code, w in custom_weights.items():
+   486→            if code not in objectives_mod.CRITERION_FUNCS:
+   487→                raise ValidationFailed(
+   488→                    f"Unknown criterion '{code}' in custom_weights.",
+   489→                    details=[{"field": "custom_weights", "reason": code}],
+   490→                )
+   491→            if not isinstance(w, (int, float)) or w < 0:
+   492→                raise ValidationFailed(
+   493→                    f"Custom weight for '{code}' must be a non-negative number.",
+   494→                    details=[{"field": "custom_weights", "reason": code}],
+   495→                )
+   496→        if sum(float(w) for w in custom_weights.values()) <= 0:
+   497→            raise ValidationFailed(
+   498→                "custom_weights must sum to a positive value.",
+   499→                details=[{"field": "custom_weights"}],
+   500→            )
+   501→
+   502→    water_allocation = payload.get("water_allocation_m3")
+   503→    if water_allocation is not None:
+   504→        try:
+   505→            water_allocation = float(water_allocation)
+   506→        except (TypeError, ValueError):
+   507→            raise ValidationFailed(
+   508→                "water_allocation_m3 must be a number.",
+   509→                details=[{"field": "water_allocation_m3"}],
+   510→            ) from None
+   511→        if water_allocation <= 0:
+   512→            raise ValidationFailed(
+   513→                "water_allocation_m3 must be positive.",
+   514→                details=[{"field": "water_allocation_m3"}],
+   515→            )
+   516→
+   517→    knowledge = load_knowledge(db)
+   518→    if not knowledge.crops:
+   519→        raise ValidationFailed(
+   520→            "No active knowledge pack with crops — import a knowledge pack first.",
+   521→            details=[{"field": "knowledge"}],
+   522→        )
+   523→
+   524→    run = dbm.RotationRun(
+   525→        field_id=field.id,
+   526→        status="running",
+   527→        seasons=[
+   528→            {"label": s.label, "start_date": s.start_date.isoformat(), "end_date": s.end_date.isoformat()}
+   529→            for s in seasons
+   530→        ],
+   531→        strategy_profiles=list(requested_profiles),
+   532→        water_allocation_m3=water_allocation,
+   533→        knowledge_pack_refs=[dict(r) for r in knowledge.pack_refs],
+   534→        rotation_engine_version=ROTATION_ENGINE_VERSION,
+   535→        solver_name=SOLVER_NAME,
+   536→        random_seed=RANDOM_SEED,
+   537→        request_parameters=dict(payload.get("request_parameters") or {}),
+   538→        idempotency_key=idempotency_key,
+   539→        created_by=getattr(created_by, "id", None),
+   540→        started_at=datetime.now(UTC),
+   541→    )
+   542→    db.add(run)
+   543→    db.flush()
+   544→
+   545→    try:
+   546→        farm, warnings, history_ids, evidence_run = build_farm_context(
+   547→            db, field, seasons, payload.get("evidence_run_id"), hemisphere
+   548→        )
+   549→        run.feature_run_ids = (
+   550→            [str(evidence_run.id)] if evidence_run is not None else []
+   551→        )
+   552→        run.crop_history_ids = history_ids
+   553→
+   554→        assessments = candidates_mod.generate_candidates(knowledge, farm)
+   555→        baseline_assignment = _baseline_assignment(seasons, farm.history)
+   556→        problem = RotationProblem(
+   557→            field_id=str(field.id),
+   558→            seasons=tuple(seasons),
+   559→            candidates=assessments,
+   560→            knowledge=knowledge,
+   561→            farm=farm,
+   562→            water_allocation_m3=water_allocation,
+   563→            baseline_assignment=baseline_assignment,
+   564→            synthetic_evidence=farm.synthetic_evidence_in_use,
+   565→        )
+   566→        run.knowledge_pack_refs = [dict(r) for r in knowledge.pack_refs]
+   567→
+   568→        solutions: list[StrategySolution] = []
+   569→        infeasible_profiles: list[dict[str, Any]] = []
+   570→        solver_failures: list[dict[str, Any]] = []
+   571→        baseline = optimizer_mod.build_baseline_solution(problem)
+   572→        solutions.append(baseline)
+   573→
+   574→        for profile in requested_profiles:
+   575→            weights = (
+   576→                {k: float(v) for k, v in custom_weights.items()}
+   577→                if profile == "custom"
+   578→                else dict(optimizer_mod.PROFILE_WEIGHTS[profile])
+   579→            )
+   580→            result = optimizer_mod.optimize_strategy(problem, profile, weights)
+   581→            if isinstance(result, optimizer_mod.InfeasibleResult):
+   582→                # Deepening F-4: only a PROVEN infeasible model is an infeasible
+   583→                # profile; solver failures (model_invalid / unknown) are kept
+   584→                # separate so a solver breakdown never reads as an agronomic
+   585→                # infeasibility statement.
+   586→                entry = {
+   587→                    "strategy_key": profile,
+   588→                    "conflicts": result.conflicts,
+   589→                    "notes": result.notes,
+   590→                }
+   591→                if result.status == "infeasible":
+   592→                    infeasible_profiles.append(entry)
+   593→                else:
+   594→                    entry["solver_status"] = result.status
+   595→                    solver_failures.append(entry)
+   596→                continue
+   597→            solutions.append(result)
+   598→
+   599→        # evaluate + normalize + objective + pareto
+   600→        evaluated: list[StrategySolution] = []
+   601→        for sol in solutions:
+   602→            criteria = objectives_mod.evaluate_criteria(problem, dict(sol.assignment))
+   603→            checks = constraints_mod.check_all(problem, dict(sol.assignment))
+   604→            evaluated.append(
+   605→                StrategySolution(
+   606→                    strategy_key=sol.strategy_key,
+   607→                    strategy_kind=sol.strategy_kind,
+   608→                    is_baseline=sol.is_baseline,
+   609→                    profile_weights=sol.profile_weights,
+   610→                    weights_effective=sol.weights_effective,
+   611→                    skipped_weights=sol.skipped_weights,
+   612→                    assignment=sol.assignment,
+   613→                    objective_value=sol.objective_value,
+   614→                    criteria=criteria,
+   615→                    constraints_checked=tuple(checks),
+   616→                    evidence_coverage=None,
+   617→                    solver_status=sol.solver_status,
+   618→                    solver_wall_time_ms=sol.solver_wall_time_ms,
+   619→                )
+   620→            )
+   621→        objectives_mod.normalize_within_set(evaluated)
+   622→        final: list[StrategySolution] = []
+   623→        for sol in evaluated:
+   624→            objective, effective, skipped = objectives_mod.weighted_objective(sol)
+   625→            final.append(
+   626→                StrategySolution(
+   627→                    strategy_key=sol.strategy_key,
+   628→                    strategy_kind=sol.strategy_kind,
+   629→                    is_baseline=sol.is_baseline,
+   630→                    profile_weights=sol.profile_weights,
+   631→                    weights_effective=effective,
+   632→                    skipped_weights=skipped,
+   633→                    assignment=sol.assignment,
+   634→                    objective_value=objective,
+   635→                    criteria=sol.criteria,
+   636→                    constraints_checked=sol.constraints_checked,
+   637→                    evidence_coverage=objectives_mod.evidence_coverage_of(sol),
+   638→                    solver_status=sol.solver_status,
+   639→                    solver_wall_time_ms=sol.solver_wall_time_ms,
+   640→                )
+   641→            )
+   642→        objectives_mod.compute_pareto(final)
+   643→        solutions = final
+   644→
+   645→        # persist strategies
+   646→        not_evaluated: dict[str, Any] = {}
+   647→        for season_label, season_assessments in assessments.items():
+   648→            unevaluated = {
+   649→                code: [d["code"] for d in a.unevaluated_dimensions]
+   650→                for code, a in season_assessments.items()
+   651→                if a.status == "unevaluated" or a.unevaluated_dimensions
+   652→            }
+   653→            if unevaluated:
+   654→                not_evaluated[season_label] = unevaluated
+   655→
+   656→        run.not_evaluated = not_evaluated
+   657→        run.warnings = warnings
+   658→        solver_status = None
+   659→        optimized_solutions = [s for s in solutions if not s.is_baseline]
+   660→        statuses = [s.solver_status for s in optimized_solutions]
+   661→        if infeasible_profiles and not optimized_solutions:
+   662→            solver_status = "infeasible"
+   663→        elif solver_failures and not optimized_solutions:
+   664→            # mirror the solver failure upward (model_invalid / unknown):
+   665→            # a solver breakdown is never reported as an agronomic infeasibility.
+   666→            solver_status = solver_failures[0]["solver_status"]
+   667→        elif infeasible_profiles or solver_failures:
+   668→            # mixed outcome: some profiles solved (possibly only feasibly),
+   669→            # some did not — the details block carries the specifics.
+   670→            solver_status = "feasible"
+   671→            warnings.append(
+   672→                "Some strategy profiles did not reach a proven optimum "
+   673→                f"({len(infeasible_profiles)} infeasible, {len(solver_failures)} solver "
+   674→                "failure(s)); see infeasibility details."
+   675→            )
+   676→        elif optimized_solutions and all(st == "optimal" for st in statuses):
+   677→            # 'optimal' is claimed only when EVERY optimized profile proved
+   678→            # optimality (a time-limited FEASIBLE result is not optimality).
+   679→            solver_status = "optimal"
+   680→        elif optimized_solutions:
+   681→            solver_status = "feasible"
+   682→        else:
+   683→            solver_status = "unknown"
+   684→        run.solver_status = solver_status
+   685→        run.infeasibility_details = {
+   686→            "profiles": infeasible_profiles,
+   687→            "solver_failures": solver_failures,
+   688→            "note": (
+   689→                "Infeasible profiles are reported explicitly; no hard constraint was "
+   690→                "relaxed to produce the other strategies."
+   691→            )
+   692→            if infeasible_profiles
+   693→            else {},
+   694→        }
+   695→
+   696→        for sol in solutions:
+   697→            explanations = build_explanations(problem, sol, solutions)
+   698→            explanations["_weights_effective"] = sol.weights_effective
+   699→            explanations["_skipped_weights"] = sol.skipped_weights
+   700→            db.add(
+   701→                dbm.RotationStrategy(
+   702→                    run_id=run.id,
+   703→                    strategy_key=sol.strategy_key,
+   704→                    strategy_kind=sol.strategy_kind,
+   705→                    is_baseline=sol.is_baseline,
+   706→                    profile_weights=sol.profile_weights,
+   707→                    assignment=[
+   708→                        {"season_label": lbl, "crop_code": cc} for lbl, cc in sol.assignment
+   709→                    ],
+   710→                    objective_value=sol.objective_value,
+   711→                    criteria=[
+   712→                        {
+   713→                            "criterion_code": c.criterion_code,
+   714→                            "raw_value": c.raw_value,
+   715→                            "unit": c.unit,
+   716→                            "direction": c.direction,
+   717→                            "normalized": c.normalized,
+   718→                            "evaluable": c.evaluable,
+   719→                            "missing_evidence": list(c.missing_evidence),
+   720→                            "derivation": c.derivation,
+   721→                            "source_refs": list(c.source_refs),
+   722→                        }
+   723→                        for c in sol.criteria
+   724→                    ],
+   725→                    constraints_checked=[
+   726→                        {
+   727→                            "constraint_code": c.constraint_code,
+   728→                            "status": c.status,
+   729→                            "description": c.description,
+   730→                            "detail": c.detail,
+   731→                            "rule_codes": list(c.rule_codes),
+   732→                            "source_refs": list(c.source_refs),
+   733→                        }
+   734→                        for c in sol.constraints_checked
+   735→                    ],
+   736→                    pareto={
+   737→                        "on_front": sol.on_pareto_front,
+   738→                        "dominated_by": list(sol.dominated_by),
+   739→                        "dominates": list(sol.dominates),
+   740→                    },
+   741→                    explanations=explanations,
+   742→                    evidence_coverage=sol.evidence_coverage,
+   743→                    checksum_sha256=_solution_checksum(sol, problem),
+   744→                )
+   745→            )
+   746→        run.status = "succeeded"
+   747→        run.completed_at = datetime.now(UTC)
+   748→        db.flush()
+   749→    except ValidationFailed:
+   750→        run.status = "failed"
+   751→        run.error_summary = "validation failed"
+   752→        run.completed_at = datetime.now(UTC)
+   753→        raise
+   754→    except Exception as exc:  # noqa: BLE001 — job failure accounting
+   755→        run.status = "failed"
+   756→        run.error_summary = f"{type(exc).__name__}: {exc}"
+   757→        run.completed_at = datetime.now(UTC)
+   758→        db.flush()
+   759→        raise
+   760→    return run
+   761→
+   762→
+   763→def problem_seed() -> int:
+   764→    return RANDOM_SEED
+   765→
+   766→
+   767→# ---------------------------------------------------------------- serializers
+   768→
+   769→
+   770→def run_payload(run: dbm.RotationRun, *, include_strategies: bool = False) -> dict[str, Any]:
+   771→    data: dict[str, Any] = {
+   772→        "id": str(run.id),
+   773→        "field_id": str(run.field_id),
+   774→        "status": run.status,
+   775→        "solver_status": run.solver_status,
+   776→        "seasons": run.seasons,
+   777→        "strategy_profiles": run.strategy_profiles,
+   778→        "water_allocation_m3": run.water_allocation_m3,
+   779→        "knowledge_pack_refs": run.knowledge_pack_refs,
+   780→        "feature_run_ids": run.feature_run_ids,
+   781→        "crop_history_ids": run.crop_history_ids,
+   782→        "rotation_engine_version": run.rotation_engine_version,
+   783→        "solver_name": run.solver_name,
+   784→        "solver_version": run.solver_version,
+   785→        "random_seed": run.random_seed,
+   786→        "infeasibility_details": run.infeasibility_details,
+   787→        "warnings": run.warnings,
+   788→        "not_evaluated": run.not_evaluated,
+   789→        "records_written": len(run.strategies) if run.strategies else 0,
+   790→        "error_summary": run.error_summary,
+   791→        "started_at": run.started_at.isoformat() if run.started_at else None,
+   792→        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+   793→        "status_url": f"/api/v1/rotation-runs/{run.id}",
+   794→    }
+   795→    if include_strategies:
+   796→        data["strategies"] = [strategy_payload(s) for s in run.strategies]
+   797→    return data
+   798→
+   799→
+   800→def strategy_payload(s: dbm.RotationStrategy) -> dict[str, Any]:
+   801→    return {
+   802→        "id": str(s.id),
+   803→        "strategy_key": s.strategy_key,
+   804→        "strategy_kind": s.strategy_kind,
+   805→        "is_baseline": s.is_baseline,
+   806→        "profile_weights": s.profile_weights,
+   807→        "weights_effective": s.explanations.get("_weights_effective", {}),
+   808→        "skipped_weights": s.explanations.get("_skipped_weights", {}),
+   809→        "assignment": s.assignment,
+   810→        "objective_value": s.objective_value,
+   811→        "criteria": s.criteria,
+   812→        "constraints_checked": s.constraints_checked,
+   813→        "pareto": s.pareto,
+   814→        "explanations": s.explanations,
+   815→        "evidence_coverage": s.evidence_coverage,
+   816→        "checksum_sha256": s.checksum_sha256,
+   817→    }
+   818→
+   819→
+   820→def candidate_payload(
+   821→    season_label: str, assessments: dict[str, Any]
+   822→) -> dict[str, Any]:
+   823→    return {
+   824→        "season_label": season_label,
+   825→        "candidates": [
+   826→            {
+   827→                "crop_code": a.crop_code,
+   828→                "status": a.status,
+   829→                "reasons": list(a.reasons),
+   830→                "unevaluated_dimensions": list(a.unevaluated_dimensions),
+   831→                "water_requirement_mm": a.water_requirement_mm,
+   832→                "water_estimate_assumptions": list(a.water_estimate_assumptions),
+   833→                "calendar_windows_matched": list(a.calendar_windows_matched),
+   834→            }
+   835→            for a in assessments.values()
+   836→        ],
+   837→    }
+   838→

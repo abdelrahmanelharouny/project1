@@ -1,0 +1,121 @@
+From 5bd81aa4c92e04498c2815235231eb3ec0f57149 Mon Sep 17 00:00:00 2001
+From: Diego Sogari <diego.sogari@gmail.com>
+Date: Sun, 3 Jul 2016 07:30:25 -0300
+Subject: [PATCH 2/3] compile and test libkml on MinGW from the MSYS2 project:
+
+ - fix initialization of static variable in Testb2a_hex from string_util_test.cc
+ - provide setenv function in google_maps_data_test.cc
+ - select the correct path strings on some tests of KmzTest, to account for the path separator on each platform
+
+[taken from
+https://github.com/libkml/libkml/commit/9163d288dfae64139563190dbf09f82ec28e8559
+as well as relevant hunks from
+https://github.com/libkml/libkml/commit/11af078816cb7a936a9a8044950a6d6c374ad9a0
+]
+---
+ tests/kml/base/string_util_test.cc            |  2 +-
+ .../kml/convenience/google_maps_data_test.cc  |  7 ++++++
+ tests/kml/engine/kmz_file_test.cc             | 23 +++++++++++++++++++
+ 3 files changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/tests/kml/base/string_util_test.cc b/tests/kml/base/string_util_test.cc
+index 6825cad..a20bffc 100644
+--- a/tests/kml/base/string_util_test.cc
++++ b/tests/kml/base/string_util_test.cc
+@@ -33,7 +33,7 @@ TEST(StringUtilTest, Testb2a_hex) {
+   const uint32_t kff = 0xff;
+ 
+   const char* e = "00";
+-  static char a[2];
++  static char a[3] = {'\0'};
+ 
+   b2a_hex(k00, a);
+   ASSERT_EQ(0, strcmp(e, a));
+diff --git a/tests/kml/convenience/google_maps_data_test.cc b/tests/kml/convenience/google_maps_data_test.cc
+index 4ff31c1..85c03c8 100644
+--- a/tests/kml/convenience/google_maps_data_test.cc
++++ b/tests/kml/convenience/google_maps_data_test.cc
+@@ -36,6 +36,13 @@
+ #include "kml/convenience/http_client_test_util.h"
+ #include "kml/engine.h"
+ 
++#if defined(_WIN32) && !defined(setenv)
++// This code is safe, as the temporary string object will be destructed at the
++// end of the full expression
++#define setenv(name, value, overwrite) \
++    (putenv((string(name) + "=" + string(value)).c_str()))
++#endif
++
+ // The following define is a convenience for testing inside Google.
+ #ifdef GOOGLE_INTERNAL
+ #include "kml/base/google_internal_test.h"
+diff --git a/tests/kml/engine/kmz_file_test.cc b/tests/kml/engine/kmz_file_test.cc
+index b112cde..ecb0adb 100644
+--- a/tests/kml/engine/kmz_file_test.cc
++++ b/tests/kml/engine/kmz_file_test.cc
+@@ -347,7 +347,11 @@ TEST_F(KmzTest, TestAddFileList) {
+   created->List(&list);
+   ASSERT_EQ(static_cast<size_t>(2), list.size());
+   ASSERT_EQ(string("dummy.png"), list[0]);
++#ifndef _WIN32
+   ASSERT_EQ(string("kmzfiles/dummy.kml"), list[1]);
++#else
++  ASSERT_EQ(string("kmzfiles\\dummy.kml"), list[1]);
++#endif
+ }
+ 
+ TEST_F(KmzTest, TestCreateFromElement) {
+@@ -370,7 +374,11 @@ TEST_F(KmzTest, TestCreateFromElement) {
+   ASSERT_EQ(static_cast<size_t>(3), list.size());
+   ASSERT_EQ(string("doc.kml"), list[0]);
+   ASSERT_EQ(string("dummy.png"), list[1]);
++#ifndef _WIN32
+   ASSERT_EQ(string("kmzfiles/dummy.kml"), list[2]);
++#else
++  ASSERT_EQ(string("kmzfiles\\dummy.kml"), list[2]);
++#endif
+ }
+ 
+ TEST_F(KmzTest, TestCreateFromKmlFilePath) {
+@@ -388,7 +396,11 @@ TEST_F(KmzTest, TestCreateFromKmlFilePath) {
+   ASSERT_EQ(static_cast<size_t>(3), list.size());
+   ASSERT_EQ(string("doc.kml"), list[0]);
+   ASSERT_EQ(string("dummy.png"), list[1]);
++#ifndef _WIN32
+   ASSERT_EQ(string("kmzfiles/dummy.kml"), list[2]);
++#else
++  ASSERT_EQ(string("kmzfiles\\dummy.kml"), list[2]);
++#endif
+ }
+ 
+ TEST_F(KmzTest, TestCreateFromKmlFile) {
+@@ -410,7 +422,11 @@ TEST_F(KmzTest, TestCreateFromKmlFile) {
+   ASSERT_EQ(static_cast<size_t>(3), list.size());
+   ASSERT_EQ(string("doc.kml"), list[0]);
+   ASSERT_EQ(string("dummy.png"), list[1]);
++#ifndef _WIN32
+   ASSERT_EQ(string("kmzfiles/dummy.kml"), list[2]);
++#else
++  ASSERT_EQ(string("kmzfiles\\dummy.kml"), list[2]);
++#endif
+ }
+ 
+ TEST_F(KmzTest, TestCreateFromGoogleEarthFile) {
+@@ -431,10 +447,17 @@ TEST_F(KmzTest, TestCreateFromGoogleEarthFile) {
+   created->List(&list);
+   ASSERT_EQ(static_cast<size_t>(5), list.size());
+   ASSERT_EQ(string("doc.kml"), list[0]);
++#ifndef _WIN32
+   ASSERT_EQ(string("files/camelbrown200.png"), list[1]);
+   ASSERT_EQ(string("files/camelblack200.png"), list[2]);
+   ASSERT_EQ(string("files/camera_mode.png"), list[3]);
+   ASSERT_EQ(string("files/camelcolor200.png"), list[4]);
++#else
++  ASSERT_EQ(string("files\\camelbrown200.png"), list[1]);
++  ASSERT_EQ(string("files\\camelblack200.png"), list[2]);
++  ASSERT_EQ(string("files\\camera_mode.png"), list[3]);
++  ASSERT_EQ(string("files\\camelcolor200.png"), list[4]);
++#endif
+ }
+ 
+ TEST_F(KmzTest, TestSaveToString) {

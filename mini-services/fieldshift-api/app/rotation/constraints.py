@@ -188,12 +188,24 @@ def check_rotation_breaks(
     return checks
 
 
+def water_demand_mm(assessment) -> float | None:
+    """M6A: the demand used by the allocation constraint — the net irrigation
+    requirement when evaluable, else the ETc screening (conservative upper
+    bound). The solver constraint and this validator MUST stay 1:1."""
+    if assessment is None:
+        return None
+    if assessment.net_irrigation_requirement_mm is not None:
+        return assessment.net_irrigation_requirement_mm
+    return assessment.water_requirement_mm
+
+
 def check_water_allocation(
     problem: RotationProblem, assignment: dict[str, str | None]
 ) -> ConstraintCheck:
     """PER-SEASON allocation: each planning season's crop must fit within the
     farmer-supplied seasonal allocation (constraint_code
-    water_allocation_m3_per_season)."""
+    water_allocation_m3_per_season). Demand basis: net irrigation requirement
+    when evaluable, else the ETc screening (disclosed in the detail)."""
     allocation = problem.water_allocation_m3
     if allocation is None:
         return ConstraintCheck(
@@ -206,22 +218,29 @@ def check_water_allocation(
     area_m2 = problem.farm.area_ha * 10_000.0
     worst_ratio: float | None = None
     worst_detail = ""
+    worst_basis_note = ""
     unevaluable: list[str] = []
     for season in problem.seasons:
         crop_code = assignment.get(season.label)
         if crop_code is None:
             continue
         assessment = problem.candidates.get(season.label, {}).get(crop_code)
-        if assessment is None or assessment.water_requirement_mm is None:
+        demand_mm = water_demand_mm(assessment)
+        if assessment is None or demand_mm is None:
             unevaluable.append(f"{season.label}:{crop_code}")
             continue
-        need_m3 = assessment.water_requirement_mm / 1000.0 * area_m2
+        need_m3 = demand_mm / 1000.0 * area_m2
         ratio = need_m3 / allocation
         if worst_ratio is None or ratio > worst_ratio:
             worst_ratio = ratio
             worst_detail = (
                 f"{season.label}: '{crop_code}' needs {need_m3:.0f} m3 vs "
                 f"allocation {allocation:.0f} m3 ({ratio * 100:.0f}%)."
+            )
+            worst_basis_note = (
+                " (demand basis: net irrigation requirement)"
+                if assessment.net_irrigation_requirement_mm is not None
+                else " (demand basis: ETc screening — NIR not evaluable; conservative upper bound)"
             )
     if unevaluable:
         return ConstraintCheck(
@@ -236,9 +255,9 @@ def check_water_allocation(
     return ConstraintCheck(
         constraint_code="water_allocation",
         description="Seasonal water allocation constraint (each season's estimated crop "
-        "water requirement within the farmer-supplied allocation).",
+        "water demand within the farmer-supplied allocation).",
         status=status,
-        detail=(worst_detail or "no assigned crops") + " " + WATER_ESTIMATE_NOTE,
+        detail=(worst_detail or "no assigned crops") + worst_basis_note + " " + WATER_ESTIMATE_NOTE,
     )
 
 

@@ -1,0 +1,24 @@
+{
+    "arch": "x86_64",
+    "build": "h5888daf_0",
+    "build_number": 0,
+    "build_string": "h5888daf_0",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "__glibc >=2.17,<3.0.a0",
+        "libgcc >=13",
+        "libstdcxx >=13"
+    ],
+    "fn": "geos-3.13.0-h5888daf_0.conda",
+    "license": "LGPL-2.1-only",
+    "md5": "40b4ab956c90390e407bb177f8a58bab",
+    "name": "geos",
+    "platform": "linux",
+    "sha256": "5c70d6d16e044859edca85feb9d4f1c3c6062aaf88d650826f5ccdf8c44336de",
+    "size": 1869233,
+    "subdir": "linux-64",
+    "timestamp": 1725676083,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/geos-3.13.0-h5888daf_0.conda",
+    "version": "3.13.0"
+}

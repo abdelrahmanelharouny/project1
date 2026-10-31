@@ -1,0 +1,23 @@
+{
+    "arch": "x86_64",
+    "build": "h7cc23a3_1",
+    "build_number": 1,
+    "build_string": "h7cc23a3_1",
+    "channel": "conda-forge",
+    "constrains": [],
+    "depends": [
+        "__glibc >=2.17,<3.0.a0",
+        "libgcc >=15"
+    ],
+    "fn": "keyutils-1.6.3-h7cc23a3_1.conda",
+    "license": "LGPL-2.1-or-later",
+    "md5": "ba55d1b89fd7775e67de8291029b4059",
+    "name": "keyutils",
+    "platform": "linux",
+    "sha256": "dd053c96dcb0dcfd59422aefea9d2fe937a190167f34fba7893ec1e10a7e8963",
+    "size": 135295,
+    "subdir": "linux-64",
+    "timestamp": 1786739238,
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/keyutils-1.6.3-h7cc23a3_1.conda",
+    "version": "1.6.3"
+}
