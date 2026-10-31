@@ -212,7 +212,8 @@ export function Overview() {
               </p>
               <p>
                 <strong className="font-medium text-stone-800">Observations</strong> runs ingestion jobs against the
-                synthetic provider (clearly labelled) so you can test the pipeline end to end.
+                synthetic fixtures and the real Open-Meteo reanalysis archive, or imports your CSV records and CHIRPS
+                rasters — every source keeps its own honest evidence label.
               </p>
               <p>
                 <strong className="font-medium text-stone-800">Data Passport</strong> is the honesty layer: what data

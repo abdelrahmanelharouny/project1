@@ -3,11 +3,13 @@
 import { useMemo } from 'react'
 import { useQuery, useQueries, type UseQueryResult } from '@tanstack/react-query'
 import {
+  fetchDataCoverage,
   getCatalog,
   getDataPassport,
   getFieldMap,
   getHealth,
   getHealthReady,
+  getProvidersHealth,
   listBoundaryVersions,
   listFields,
   listObservations,
@@ -16,6 +18,7 @@ import {
 import type {
   BoundaryVersionListResponse,
   CatalogResponse,
+  DataCoverageResponse,
   DataPassport,
   Farm,
   Field,
@@ -24,6 +27,7 @@ import type {
   HealthReadyResponse,
   HealthResponse,
   ObservationListResponse,
+  ProvidersHealthResponse,
 } from '@/lib/types'
 
 /**
@@ -158,5 +162,23 @@ export function useDataPassport(fieldId: string | null): UseQueryResult<DataPass
     queryKey: ['data-passport', fieldId],
     queryFn: () => getDataPassport(fieldId as string),
     enabled: Boolean(fieldId),
+  })
+}
+
+export function useProvidersHealth(enabled = true): UseQueryResult<ProvidersHealthResponse> {
+  return useQuery({
+    queryKey: ['providers-health'],
+    queryFn: getProvidersHealth,
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+export function useDataCoverage(fieldId: string | null, enabled = true): UseQueryResult<DataCoverageResponse> {
+  return useQuery({
+    queryKey: ['data-coverage', fieldId],
+    queryFn: () => fetchDataCoverage(fieldId as string),
+    enabled: enabled && Boolean(fieldId),
+    staleTime: 30_000,
   })
 }

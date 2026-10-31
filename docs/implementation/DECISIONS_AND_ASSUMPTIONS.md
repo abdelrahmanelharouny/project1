@@ -75,3 +75,43 @@ Records architectural decisions (ADR-style, lightweight). Each entry: context �
 3. The Next.js `/` route is the only user-visible route in this environment; all sections live in one workspace.
 4. Prisma/SQLite scaffolding in the repository remains untouched and unused by FieldShift (sandbox convention), to be removed when the template constraint lifts.
 5. Coordinate reference for all stored boundaries is EPSG:4326 as specified; antimeridian inputs produce warnings rather than silent re-wrapping.
+
+## ADR-0009 — Open-Meteo: explicit model selection with a verified model-variable matrix
+
+**Context.** Master §11.1-A requires selecting the model/product explicitly rather than a silently changing best-match, and recording model, resolution, retrieval time and timezone basis. Live verification (2026-10-30) showed the archive endpoint publishes temperature + surface soil moisture for `era5_land` but derived precipitation/ET0 and wind only for `era5`.
+
+**Decision.** Two selectable products — `era5_land` (default, ~11 km, land-only) and `era5` (~28 km, global) — with a hardcoded, live-verified `MODEL_VARIABLES` matrix. The API route fail-fasts (422 `UNSUPPORTED_VARIABLE`) when the selected model publishes none of the requested variables and warns when partial; per-observation metadata records model, native variable/unit, conversion, grid cell, elevation and UTC basis. Values the upstream returns as null become `missing` observations with `OPENMETEO_NULL` flags — never zeros.
+
+**Consequences.** The UI filters the variable list per model; multi-year requests chunk by calendar years (max 10y/request) with retry/backoff on 429/5xx; adding a future model is a data-table change.
+
+## ADR-0010 — CHIRPS v3 as an upload + extraction workflow, not a fetch provider
+
+**Context.** CHIRPS is published as rasters, not an API; the sandbox cannot bulk-download global daily files, and the Master requires bulk/file ingestion plus spatial-subset extraction with product variant and preliminary/final status recorded.
+
+**Decision.** The workflow accepts a CHIRPS v3 GeoTIFF upload (EPSG:4326 enforced — no silent reprojection), computes an unweighted field-mean over valid cells (polygon_average), and records sha256, nodata accounting, valid-cell ratio (LOW_CELL_COVERAGE flag below 50%), product kind (daily/pentad/monthly) and status (preliminary flags the observation). All-nodata and zero-intersection cases are structured 422 errors, never fabricated values. The provider degrades to `degraded` when rasterio is unavailable.
+
+**Consequences.** No raster download pipeline or object storage is needed yet; daily-extreme caution is encoded in the source limitations text shown on the passport.
+
+## ADR-0011 — SoilGrids: optional WCS-only provider restricted to the 0-5 cm depth in this slice
+
+**Context.** ISRIC's REST API is paused; WCS is the documented path. SoilGrids is a static model snapshot, not a time series, and the observation natural key has no depth column.
+
+**Decision.** Implement the SoilGrids 2.0 WCS GetCoverage client for five properties (pH×10, SOC, sand, clay, bulk density cg/cm³ — with documented unit conversions) at the 0-5 cm depth, fetching Qmean + Q0.05/Q0.95 to record a 90% prediction-interval half-width as uncertainty. The provider is registered `optional`, probed via DescribeCoverage, and degrades gracefully: an unreachable WCS yields a structured `PROVIDER_UNAVAILABLE` job failure while other providers continue. Depth selection for other standard depths arrives with Milestone 4's soil measurement history (which has depth columns).
+
+**Consequences.** No natural-key collisions across depths; the passport always shows uncertainty and "model prediction, not a soil sample" limitations.
+
+## ADR-0012 — Farmer CSV import: controlled validation, farmer-reported evidence
+
+**Context.** Master §11.1-F requires structured imports of farmer data; rule 11 forbids fabricating values; evidence classes must not be mixed silently.
+
+**Decision.** A strict CSV shape (`date, variable_code, value, unit, notes`) validated row-by-row: unknown variables, unit mismatches (case-insensitive against the catalog), bad dates and non-numeric values are rejected with per-row warnings; blank values become explicit `missing` observations with a `FARMER_BLANK` flag; in-file duplicates are rejected. All rows land as `farmer_reported_record` evidence, `point` spatial support, with file sha256/row-number provenance. Imports share the ingestion job accounting path (`input_record_count`) and natural-key idempotency.
+
+**Consequences.** Soil-lab CSV intake waits for Milestone 4's `soil_measurements` history (depth/method columns); the import cannot silently pollute model data.
+
+## ADR-0013 — Data Passport groups by (variable, source product), never by variable alone
+
+**Context.** With Milestone 3, one field can hold the same variable from synthetic fixtures AND real reanalysis; grouping by variable alone lets one source's label (e.g. SYNTHETIC) mask another's rows — a provenance violation.
+
+**Decision.** Passport entries are per (variable_code, dataset_product, processing_version), each carrying its own evidence class, license, attribution, period, warnings and support. Analysis readiness gates on the best entry per variable (real sources preferred on ties). The observations-table provenance badge and the coverage view follow the same per-source rule.
+
+**Consequences.** The UI shows duplicate variable cards when sources overlap, by design; downstream feature runs (Milestone 4) will need an explicit source-selection policy per variable.

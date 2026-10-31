@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     # production this must be restricted to approved origins only.
     cors_allow_origins: str = ""
 
+    # External providers (Milestone 3). Base URL overridable for testing/proxying.
+    open_meteo_base_url: str = "https://archive-api.open-meteo.com/v1/archive"
+    open_meteo_timeout_seconds: float = 25.0
+    open_meteo_max_years_per_request: int = 10
+    soilgrids_wcs_base_url: str = "https://maps.isric.org/mapserv"
+    soilgrids_timeout_seconds: float = 45.0
+    provider_probe_timeout_seconds: float = 6.0
+    provider_probe_cache_seconds: int = 120
+    max_import_file_bytes: int = 32_000_000  # 32 MB upload guard for CSV/GeoTIFF imports
+
 
 @lru_cache
 def get_settings() -> Settings:

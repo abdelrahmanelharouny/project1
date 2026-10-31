@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-DATA_DICTIONARY_VERSION = "2026.11.0-slice1"
+DATA_DICTIONARY_VERSION = "2026.11.0-slice2"
 
 
 class VariableDefinition(BaseModel):
@@ -80,6 +80,55 @@ VARIABLE_CATALOG: dict[str, VariableDefinition] = {
             typical_time_support="daily",
             description="Daily mean wind speed at 2 m above ground.",
             evidence_class_hint="reanalysis_model_estimate",
+        ),
+        VariableDefinition(
+            code="wind_speed_10m",
+            name="Wind speed at 10 m",
+            unit="m/s",
+            typical_time_support="daily",
+            description="Daily mean wind speed at 10 m above ground (native height of most gridded products).",
+            evidence_class_hint="reanalysis_model_estimate",
+        ),
+        # --- SoilGrids 2.0 predicted soil properties (0-5 cm, slice-2 depth) ---
+        VariableDefinition(
+            code="soil_ph",
+            name="Soil pH (H2O, 0-5 cm)",
+            unit="pH",
+            typical_time_support="instant",
+            description="Predicted soil pH in water for the 0-5 cm depth from SoilGrids (static snapshot).",
+            evidence_class_hint="global_soil_prediction",
+        ),
+        VariableDefinition(
+            code="soil_organic_carbon",
+            name="Soil organic carbon (0-5 cm)",
+            unit="g/kg",
+            typical_time_support="instant",
+            description="Predicted soil organic carbon content for the 0-5 cm depth from SoilGrids (static snapshot).",
+            evidence_class_hint="global_soil_prediction",
+        ),
+        VariableDefinition(
+            code="soil_sand_content",
+            name="Soil sand fraction (0-5 cm)",
+            unit="g/kg",
+            typical_time_support="instant",
+            description="Predicted sand content for the 0-5 cm depth from SoilGrids (static snapshot).",
+            evidence_class_hint="global_soil_prediction",
+        ),
+        VariableDefinition(
+            code="soil_clay_content",
+            name="Soil clay fraction (0-5 cm)",
+            unit="g/kg",
+            typical_time_support="instant",
+            description="Predicted clay content for the 0-5 cm depth from SoilGrids (static snapshot).",
+            evidence_class_hint="global_soil_prediction",
+        ),
+        VariableDefinition(
+            code="soil_bulk_density",
+            name="Soil bulk density (0-5 cm)",
+            unit="kg/dm3",
+            typical_time_support="instant",
+            description="Predicted fine-earth bulk density for the 0-5 cm depth from SoilGrids (static snapshot).",
+            evidence_class_hint="global_soil_prediction",
         ),
     ]
 }

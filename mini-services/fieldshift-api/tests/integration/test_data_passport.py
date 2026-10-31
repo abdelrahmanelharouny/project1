@@ -97,3 +97,39 @@ class TestFilledPassport:
         passport = _passport(client, farm_with_field["headers"], farm_with_field["field"]["id"])
         assert "confidence_score" not in passport
         assert any("never merged" in n for n in passport["notes"])
+
+    def test_same_variable_from_two_sources_gets_two_entries(self, client, farm_with_field):
+        """Milestone 3 honesty rule: sources are never merged behind one label."""
+        import httpx
+
+        headers = farm_with_field["headers"]
+        field_id = farm_with_field["field"]["id"]
+        resp = client.post(
+            f"/api/v1/fields/{field_id}/data-jobs",
+            headers=headers,
+            json={"provider_code": "synthetic", "variables": ["soil_moisture_surface"],
+                  "start_date": "2023-01-01", "end_date": "2023-12-31", "seed": 5},
+        )
+        assert resp.status_code == 202
+        resp = client.post(
+            f"/api/v1/fields/{field_id}/data-jobs",
+            headers=headers,
+            json={"provider_code": "open_meteo", "variables": ["soil_moisture_surface"],
+                  "start_date": "2023-01-01", "end_date": "2023-12-31", "model": "era5_land"},
+        )
+        assert resp.status_code == 202
+
+        passport = _passport(client, headers, field_id)
+        entries = [v for v in passport["variables"] if v["variable_code"] == "soil_moisture_surface"]
+        assert len(entries) == 2
+        by_provider = {e["dataset_product"]["provider_code"]: e for e in entries}
+        assert set(by_provider) == {"synthetic", "open_meteo"}
+        assert by_provider["synthetic"]["is_synthetic"] is True
+        assert by_provider["synthetic"]["evidence_class"] == "synthetic_test_data"
+        assert by_provider["open_meteo"]["is_synthetic"] is False
+        assert by_provider["open_meteo"]["evidence_class"] == "reanalysis_model_estimate"
+        assert by_provider["open_meteo"]["dataset_product"]["license_name"] == "CC BY 4.0"
+        assert by_provider["open_meteo"]["spatial_support"]["type"] == "grid_cell"
+        for entry in entries:
+            assert entry["observation_count"] >= 360
+            assert entry["dataset_product"]["attribution_text"]

@@ -47,3 +47,14 @@ Python: 3.12.16 (sandbox venv, uv-managed).
 | Docker Compose (Postgres/Redis/MinIO) | conda-forge user-space PostgreSQL+PostGIS; no Redis/MinIO yet | sandbox has no Docker/root; Redis/MinIO not needed for slice scope | 0002 |
 | Celery workers | inline job execution with persisted job tables | slice scope; contract already queue-ready | 0006 |
 | OR-Tools CP-SAT | not implemented yet | Milestone 6 | — |
+
+## Milestone 3 additions (2026-10-30)
+
+| Concern | Choice | Version | Rationale |
+|---|---|---|---|
+| Raster I/O (CHIRPS GeoTIFF extract) | `rasterio` | 1.5.2 (pinned) | Wheels install cleanly on Python 3.12; in-memory `MemoryFile` supports upload→extract without temp files; optional degradation if absent |
+| Multipart uploads (CSV/GeoTIFF) | `python-multipart` | 0.0.32 (pinned) | FastAPI's required parser for Form/File endpoints |
+| HTTP client (Open-Meteo / SoilGrids WCS) | `httpx` (already pinned) | 0.28.1 | Sync client with timeouts, `MockTransport` for network-free contract tests |
+| Geometry ops for AOI centroid/bbox | `shapely` (already pinned) | 2.2.0 | Reused from the geometry validation module |
+
+Live-provider facts verified at implementation time (recorded per Master version discipline): the Open-Meteo archive endpoint publishes temperature + 0-7 cm soil moisture for `era5_land`, while derived precipitation/ET0 and wind require `era5`; ISRIC SoilGrids REST is paused, WCS 2.0.1 on `maps.isric.org` is the documented path; CHIRPS v3 is distributed as rasters (no query API), so the workflow is upload + spatial-subset extraction.

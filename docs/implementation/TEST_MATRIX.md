@@ -4,7 +4,7 @@ All results below were actually executed on 2026-10-30. Command (from `mini-serv
 
 ```
 .venv/bin/python -m pytest tests
-# => 85 passed, 9 warnings in ~17s
+# => 157 passed, 9 warnings in ~17s
 ```
 
 Frontend lint (from repository root):
@@ -16,7 +16,7 @@ bun run lint
 
 ## Environment under test
 
-- Python 3.12.16, FastAPI 0.162.0, SQLAlchemy 2.1.6, GeoAlchemy2 0.20.0, Shapely 2.2.0, PyProj 3.8.0, Pydantic 2.14.2
+- Python 3.12.16, FastAPI 0.162.0, SQLAlchemy 2.1.6, GeoAlchemy2 0.20.0, Shapely 2.2.0, PyProj 3.8.0, Pydantic 2.14.2, httpx 0.28.1, rasterio 1.5.2 (M3)
 - PostgreSQL 16.10 + PostGIS 3.5.0 (GEOS 3.13.0, PROJ 9.5.1), database `fieldshift_test` for integration tests
 - Node: Next.js 16.1.3 (webpack dev mode), React 19, maplibre-gl 6.16.0
 
@@ -119,6 +119,44 @@ bun run lint
 | I38 | Clean-database migration (drop→create→upgrade head) | tables + MULTIPOLYGON 4326 + postgis ext | ✅ |
 | I39 | Downgrade base → re-upgrade roundtrip | succeeds | ✅ |
 
+## Milestone 3 — providers & imports
+
+Unit / contract (no network; httpx mocked, GeoTIFF fixtures built in-test):
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| M3-U1 | Open-Meteo year chunking | calendar-aligned, adjacent, no gaps | ✅ |
+| M3-U2 | Variable map ↔ catalog units; wind km/h→m/s conversion | matches | ✅ |
+| M3-U3 | Happy path mapping (mocked payload) | values, units, evidence, grid metadata | ✅ |
+| M3-U4 | Upstream null → missing + OPENMETEO_NULL flag | never zero | ✅ |
+| M3-U5 | Upstream error body / 5xx retry → structured provider errors | raised | ✅ |
+| M3-U6 | Coverage clamp to archive lag; 1940 start guard | warning + clamp | ✅ |
+| M3-U7 | Model-variable matrix: wind fails fast on era5_land; mixed request warns | 422 / warning | ✅ |
+| M3-U8 | Open-Meteo full contract suite (protocol, provenance, units, idempotency) | all items | ✅ |
+| M3-U9 | CSV parsing: valid rows → farmer_reported canonical observations | sha256 + row provenance | ✅ |
+| M3-U10 | CSV blank value → missing + FARMER_BLANK; zero stays valid | no fabrication | ✅ |
+| M3-U11 | CSV rejects unknown variable / unit mismatch / duplicates / bad rows | per-row warnings | ✅ |
+| M3-U12 | CSV import via job persists; re-run idempotent via natural key | 3 rows, no dupes | ✅ |
+| M3-U13 | CHIRPS GeoTIFF field extract (fixture raster) | mean, polygon_average, sha256 | ✅ |
+| M3-U14 | CHIRPS nodata accounting + LOW_CELL_COVERAGE flag | 20% coverage flagged | ✅ |
+| M3-U15 | CHIRPS all-nodata / wrong CRS / no intersection | structured 422, never zero | ✅ |
+| M3-U16 | CHIRPS preliminary flag + monthly period bounds (leap) | correct | ✅ |
+| M3-U17 | SoilGrids mocked WCS: Qmean/Q005/Q095 → value + 90% interval | 12.0 ± 4.0 g/kg | ✅ |
+| M3-U18 | SoilGrids pH /10 and bulk density /100 conversions | documented in metadata | ✅ |
+| M3-U19 | SoilGrids unreachable → PROVIDER_UNAVAILABLE (graceful) | other providers unaffected | ✅ |
+
+Integration:
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| M3-I1 | `/data/providers/health` lists 5 providers with kinds/statuses/details | incl. rasterio flag | ✅ |
+| M3-I2 | CSV template endpoint | text/csv attachment | ✅ |
+| M3-I3 | CSV upload end-to-end + bad-row accounting (202, received/rejected) | job-shaped | ✅ |
+| M3-I4 | CHIRPS upload end-to-end (202, extraction, satellite evidence) | observation stored | ✅ |
+| M3-I5 | `/fields/{id}/data-coverage` per-variable/per-provider aggregation | counts + period + retrieval | ✅ |
+| M3-I6 | Live Open-Meteo smoke (real API, era5_land + era5) | 124+31 records, conversions, 422 mismatch | ✅ |
+| M3-I7 | Passport: same variable from two sources → two entries with own evidence/license | per-source honesty | ✅ |
+
 ## End-to-end (browser, agent-browser)
 
 | ID | Flow | Result |
@@ -131,6 +169,12 @@ bun run lint
 | E6 | Data Passport — overall status, aggregated warnings, variable cards (99% valid, counts), missing variable, analyses (available/blocked with reasons), attribution verbatim, notes | ✅ |
 | E7 | Sticky footer present on short and long pages; responsive layout | ✅ |
 | E8 | Console clean after fixes (no hydration errors, no failed API calls) | ✅ |
+| E9 | M3 Observations: provider switch (synthetic ↔ Open-Meteo), model select, per-model variable filtering | ✅ |
+| E10 | M3 REAL Open-Meteo ingestion from UI (era5_land, 365 records) with honest reanalysis warning | ✅ |
+| E11 | M3 CSV upload via UI (template download, 3 rows → farmer_csv job, farmer-reported badge) | ✅ |
+| E12 | M3 Coverage panel shows per-provider chips (soil moisture 730 = 365 open_meteo + 365 synthetic) | ✅ |
+| E13 | M3 Passport shows TWO soil-moisture entries: era5_land (CC BY 4.0, reanalysis, grid_cell @ 11132 m) + SYNTHETIC | ✅ |
+| E14 | M3 mobile 390px: no horizontal overflow on any tab, sticky footer intact | ✅ |
 
 ## Known warnings in test output
 

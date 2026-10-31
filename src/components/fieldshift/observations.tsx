@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
@@ -9,9 +9,13 @@ import {
   CalendarRange,
   CheckCircle2,
   Database,
+  FileSpreadsheet,
   FlaskConical,
+  Globe2,
+  Layers,
   Loader2,
   RefreshCw,
+  Upload,
   XCircle,
 } from 'lucide-react'
 import {
@@ -47,6 +51,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
   TableBody,
@@ -57,11 +62,21 @@ import {
 } from '@/components/ui/table'
 import { FieldPicker, GoToFarmsButton } from '@/components/fieldshift/field-picker'
 import { JobStatusBadge, QualityBadge, SyntheticBadge } from '@/components/fieldshift/badges'
-import { useCatalog, useObservations } from '@/hooks/use-fieldshift'
-import { COVERAGE_END, COVERAGE_START, createDataJob, describeError, MAX_JOB_YEARS, validateJobWindow } from '@/lib/api'
+import { useCatalog, useDataCoverage, useObservations, useProvidersHealth } from '@/hooks/use-fieldshift'
+import {
+  COVERAGE_END,
+  COVERAGE_START,
+  createDataJob,
+  CSV_TEMPLATE_URL,
+  describeError,
+  extractChirps,
+  importObservationsCsv,
+  MAX_JOB_YEARS,
+  validateJobWindow,
+} from '@/lib/api'
 import { humanizeCode } from '@/lib/format'
 import { useFieldShiftUi } from '@/lib/store'
-import type { DataJob, SyntheticProfile } from '@/lib/types'
+import type { DataJob, Observation, ProviderHealth, SyntheticProfile } from '@/lib/types'
 
 const PROFILES: { value: SyntheticProfile; label: string }[] = [
   { value: 'temperate_seasonal', label: 'Temperate seasonal' },
@@ -73,6 +88,15 @@ const PROFILES: { value: SyntheticProfile; label: string }[] = [
 
 const DEFAULT_START = '2023-01-01'
 const DEFAULT_END = '2023-12-31'
+
+/** Providers that run fetch-style ingestion jobs (the others are upload flows). */
+const JOB_PROVIDERS = ['synthetic', 'open_meteo'] as const
+type JobProviderCode = (typeof JOB_PROVIDERS)[number]
+
+const PROVIDER_LABELS: Record<JobProviderCode, string> = {
+  synthetic: 'Synthetic fixtures',
+  open_meteo: 'Open-Meteo (ERA5 / ERA5-Land)',
+}
 
 function ChartCard({
   title,
@@ -98,14 +122,101 @@ function ChartCard({
   )
 }
 
+function ProviderStatusDot({ provider }: { provider: ProviderHealth }) {
+  const probe = provider.probe?.status
+  let dotClass = 'bg-emerald-600'
+  let label = 'available'
+  if (provider.status === 'optional' || provider.status === 'degraded') {
+    dotClass = 'bg-amber-500'
+    label = provider.status
+  }
+  if (probe === 'unreachable') {
+    dotClass = 'bg-red-500'
+    label = 'unreachable right now'
+  } else if (probe === 'degraded') {
+    dotClass = 'bg-amber-500'
+    label = 'slow / degraded'
+  } else if (probe === 'ok') {
+    dotClass = 'bg-emerald-600'
+    label = `live (${provider.probe?.latency_ms ?? '?'} ms)`
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-stone-500">
+      <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} aria-hidden />
+      {label}
+    </span>
+  )
+}
+
+/** Provenance label for non-synthetic rows, derived from observation metadata. */
+function ExternalProvenanceBadge({ observation }: { observation: Observation }) {
+  const meta = observation.metadata as Record<string, unknown> | null
+  let label = 'external'
+  if (meta && typeof meta === 'object') {
+    if (meta.import_kind === 'observations_csv') label = 'CSV import'
+    else if (meta.import_kind === 'chirps_geotiff_extract') label = 'CHIRPS raster'
+    else if (typeof meta.model === 'string') label = `reanalysis · ${meta.model}`
+  }
+  return (
+    <Badge variant="outline" className="border-stone-300 text-[10px] text-stone-500">
+      {label}
+    </Badge>
+  )
+}
+
+function JobFooter({ job }: { job: DataJob }) {
+  return (
+    <div className="space-y-2" aria-live="polite">
+      <div className="flex flex-wrap items-center gap-2">
+        <JobStatusBadge status={job.status} />
+        <span className="text-xs text-stone-500">
+          job {job.job_id.slice(0, 8)} · {job.provider_code}
+        </span>
+      </div>
+      <div className="flex gap-4 text-sm text-stone-700">
+        <span>
+          Records received: <strong className="tabular-nums">{job.records_received}</strong>
+        </span>
+        <span>
+          Rejected: <strong className="tabular-nums">{job.records_rejected}</strong>
+        </span>
+      </div>
+      {job.error_summary ? (
+        <Alert variant="destructive">
+          <XCircle className="h-4 w-4" />
+          <AlertTitle>Job error</AlertTitle>
+          <AlertDescription>{job.error_summary}</AlertDescription>
+        </Alert>
+      ) : null}
+      {job.warnings.length > 0 ? (
+        <Alert className="border-amber-300 bg-amber-50 [&>svg]:text-amber-600">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle className="text-amber-900">Job warnings</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
+              {job.warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <p className="text-[11px] text-stone-500">Request: {JSON.stringify(job.request_parameters)}</p>
+    </div>
+  )
+}
+
 export function Observations() {
   const queryClient = useQueryClient()
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
 
   const catalog = useCatalog()
+  const providersHealth = useProvidersHealth()
 
-  // ---- ingestion form state (job + errors remember their field) ----
+  // ---- provider / ingestion form state (job + errors remember their field) ----
+  const [provider, setProvider] = useState<JobProviderCode>('synthetic')
+  const [model, setModel] = useState('era5_land')
   const [selectedVariables, setSelectedVariables] = useState<string[]>(['precipitation'])
   const [profile, setProfile] = useState<SyntheticProfile>('mediterranean_dry_summer')
   const [seed, setSeed] = useState(42)
@@ -113,6 +224,17 @@ export function Observations() {
   const [jobEnd, setJobEnd] = useState(DEFAULT_END)
   const [formError, setFormError] = useState<{ fieldId: string; message: string } | null>(null)
   const [job, setJob] = useState<{ fieldId: string; data: DataJob } | null>(null)
+
+  // ---- file import state ----
+  const csvInputRef = useRef<HTMLInputElement>(null)
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvJob, setCsvJob] = useState<{ fieldId: string; data: DataJob } | null>(null)
+  const chirpsInputRef = useRef<HTMLInputElement>(null)
+  const [chirpsFile, setChirpsFile] = useState<File | null>(null)
+  const [chirpsDate, setChirpsDate] = useState('2024-01-31')
+  const [chirpsKind, setChirpsKind] = useState<'daily' | 'pentad' | 'monthly'>('daily')
+  const [chirpsStatus, setChirpsStatus] = useState<'preliminary' | 'final'>('final')
+  const [chirpsJob, setChirpsJob] = useState<{ fieldId: string; data: DataJob } | null>(null)
 
   // ---- loaded observation window ----
   const [windowStart, setWindowStart] = useState(DEFAULT_START)
@@ -126,11 +248,53 @@ export function Observations() {
     appliedWindow.end,
     Boolean(selectedField),
   )
+  const coverageQuery = useDataCoverage(selectedField?.id ?? null, Boolean(selectedField))
   const items = useMemo(() => observationsQuery.data?.items ?? [], [observationsQuery.data])
 
   const visibleJob = job && selectedField && job.fieldId === selectedField.id ? job.data : null
   const visibleFormError =
     formError && selectedField && formError.fieldId === selectedField.id ? formError.message : null
+  const visibleCsvJob = csvJob && selectedField && csvJob.fieldId === selectedField.id ? csvJob.data : null
+  const visibleChirpsJob =
+    chirpsJob && selectedField && chirpsJob.fieldId === selectedField.id ? chirpsJob.data : null
+
+  const syntheticProvider = providersHealth.data?.providers.find((p) => p.provider_code === 'synthetic')
+  const openMeteoProvider = providersHealth.data?.providers.find((p) => p.provider_code === 'open_meteo')
+  const chirpsProvider = providersHealth.data?.providers.find((p) => p.provider_code === 'chirps_import')
+
+  const activeProvider = provider === 'synthetic' ? syntheticProvider : openMeteoProvider
+  const models = openMeteoProvider?.details.models ?? []
+  const activeModel = models.find((m) => m.code === model)
+
+  /** Variables available for the current provider (+ model for open_meteo). */
+  const selectableVariables = useMemo(() => {
+    const all = catalog.data?.variables ?? []
+    if (provider === 'open_meteo') {
+      const modelVars = new Set(activeModel?.variables ?? [])
+      return all.filter((v) => modelVars.has(v.code))
+    }
+    const syntheticVars = new Set(syntheticProvider?.details.supported_variables ?? [])
+    if (syntheticVars.size === 0) return all
+    return all.filter((v) => syntheticVars.has(v.code))
+  }, [catalog.data, provider, activeModel, syntheticProvider])
+
+  // Keep the effective selection inside the currently selectable set; default to
+  // precipitation, else the first selectable variable. Derived (not synced) so
+  // provider/model switches never wedge.
+  const effectiveSelectedVariables = useMemo(() => {
+    const codes = new Set(selectableVariables.map((v) => v.code))
+    const kept = selectedVariables.filter((code) => codes.has(code))
+    if (kept.length > 0) return kept
+    if (codes.has('precipitation')) return ['precipitation']
+    return selectableVariables.length > 0 ? [selectableVariables[0].code] : []
+  }, [selectableVariables, selectedVariables])
+
+  const invalidateFieldData = (fieldId: string) => {
+    queryClient.invalidateQueries({ queryKey: ['observations', fieldId] })
+    queryClient.invalidateQueries({ queryKey: ['data-passport', fieldId] })
+    queryClient.invalidateQueries({ queryKey: ['data-coverage', fieldId] })
+    queryClient.invalidateQueries({ queryKey: ['fields'] })
+  }
 
   const variableName = (code: string) =>
     catalog.data?.variables.find((v) => v.code === code)?.name ?? humanizeCode(code)
@@ -138,12 +302,11 @@ export function Observations() {
   const ingestMutation = useMutation({
     mutationFn: (fieldId: string) =>
       createDataJob(fieldId, {
-        provider_code: 'synthetic',
-        variables: selectedVariables,
+        provider_code: provider,
+        variables: effectiveSelectedVariables,
         start_date: jobStart,
         end_date: jobEnd,
-        profile,
-        seed,
+        ...(provider === 'synthetic' ? { profile, seed } : { model }),
       }),
     onSuccess: (jobResult) => {
       if (!selectedField) return
@@ -159,10 +322,8 @@ export function Observations() {
         setWindowEnd(end)
         setAppliedWindow({ start, end })
         if (selectedField) {
-          queryClient.invalidateQueries({ queryKey: ['observations', selectedField.id] })
-          queryClient.invalidateQueries({ queryKey: ['data-passport', selectedField.id] })
+          invalidateFieldData(selectedField.id)
         }
-        queryClient.invalidateQueries({ queryKey: ['fields'] })
       } else {
         toast.error('Ingestion job failed', { description: jobResult.error_summary ?? 'No error summary returned.' })
       }
@@ -174,14 +335,70 @@ export function Observations() {
     },
   })
 
+  const csvImportMutation = useMutation({
+    mutationFn: (fieldId: string) => importObservationsCsv(fieldId, csvFile as File),
+    onSuccess: (jobResult) => {
+      if (!selectedField) return
+      setCsvJob({ fieldId: selectedField.id, data: jobResult })
+      if (jobResult.status === 'succeeded') {
+        toast.success('CSV import finished', {
+          description: `${jobResult.records_received} rows read · ${jobResult.records_rejected} rejected.`,
+        })
+        invalidateFieldData(selectedField.id)
+        setCsvFile(null)
+        if (csvInputRef.current) csvInputRef.current.value = ''
+      } else {
+        toast.error('CSV import failed', { description: jobResult.error_summary ?? undefined })
+      }
+    },
+    onError: (err) => {
+      const { title, description } = describeError(err)
+      toast.error(title, { description })
+    },
+  })
+
+  const chirpsMutation = useMutation({
+    mutationFn: (fieldId: string) =>
+      extractChirps(fieldId, chirpsFile as File, {
+        observedAt: chirpsDate,
+        periodKind: chirpsKind,
+        productStatus: chirpsStatus,
+      }),
+    onSuccess: (jobResult) => {
+      if (!selectedField) return
+      setChirpsJob({ fieldId: selectedField.id, data: jobResult })
+      if (jobResult.status === 'succeeded') {
+        toast.success('CHIRPS extraction finished', {
+          description: `${jobResult.records_received} observation(s) extracted from the raster.`,
+        })
+        invalidateFieldData(selectedField.id)
+        setChirpsFile(null)
+        if (chirpsInputRef.current) chirpsInputRef.current.value = ''
+      } else {
+        toast.error('CHIRPS extraction failed', { description: jobResult.error_summary ?? undefined })
+      }
+    },
+    onError: (err) => {
+      const { title, description } = describeError(err)
+      toast.error(title, { description })
+    },
+  })
+
   const submitJob = () => {
     setFormError(null)
     if (!selectedField) return
-    if (selectedVariables.length === 0) {
+    if (effectiveSelectedVariables.length === 0) {
       setFormError({ fieldId: selectedField.id, message: 'Pick at least one variable to ingest.' })
       return
     }
-    const windowProblem = validateJobWindow(jobStart, jobEnd)
+    const windowProblem =
+      provider === 'open_meteo'
+        ? validateJobWindow(jobStart, jobEnd, {
+            min: '1940-01-01',
+            max: new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10),
+            maxYears: 10,
+          })
+        : validateJobWindow(jobStart, jobEnd)
     if (windowProblem) {
       setFormError({ fieldId: selectedField.id, message: windowProblem })
       return
@@ -241,7 +458,25 @@ export function Observations() {
   if (!selectedField) {
     return (
       <div className="space-y-4" aria-label="Observations">
-        <h2 className="text-lg font-semibold text-stone-900">Observations</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-stone-900">Observations</h2>
+            <p className="text-sm text-stone-500">
+              Run ingestion jobs (synthetic fixtures or the real Open-Meteo archive), import files, and inspect what
+              landed.
+            </p>
+          </div>
+          <FieldPicker
+            value={null}
+            onValueChange={setSelectedField}
+            emptyHint={
+              <div className="flex items-center gap-2 text-sm text-stone-500">
+                <span>Create a farm and field first.</span>
+                <GoToFarmsButton label="Go to Farms & Fields" />
+              </div>
+            }
+          />
+        </div>
         <Card className="border-dashed border-stone-300 bg-white">
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
             <Database className="h-8 w-8 text-stone-400" aria-hidden />
@@ -258,7 +493,8 @@ export function Observations() {
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Observations</h2>
           <p className="text-sm text-stone-500">
-            Run synthetic ingestion jobs, then browse and chart what landed.
+            Run ingestion jobs (synthetic fixtures or the real Open-Meteo archive), import files, and inspect what
+            landed.
           </p>
         </div>
         <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
@@ -271,19 +507,89 @@ export function Observations() {
         <Card className="border-stone-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <FlaskConical className="h-4 w-4 text-emerald-700" aria-hidden />
-              Ingest data — synthetic provider
+              {provider === 'synthetic' ? (
+                <FlaskConical className="h-4 w-4 text-emerald-700" aria-hidden />
+              ) : (
+                <Globe2 className="h-4 w-4 text-emerald-700" aria-hidden />
+              )}
+              Ingest data
             </CardTitle>
             <CardDescription>
-              The only provider in this slice is <code className="rounded bg-stone-100 px-1">synthetic</code>: software
-              fixtures for testing, always labelled SYNTHETIC downstream.
+              {provider === 'synthetic'
+                ? 'Software fixtures for testing — always labelled SYNTHETIC downstream.'
+                : 'Real historical reanalysis (gridded model estimates, never field sensors). Open-Meteo data is CC BY 4.0.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Provider</Label>
-              <Input value="synthetic — software fixtures" disabled aria-readonly />
+              <Label htmlFor="obs-provider">Provider</Label>
+              <Select
+                value={provider}
+                onValueChange={(value) => {
+                  setProvider(value as JobProviderCode)
+                  setJob(null)
+                  setFormError(null)
+                  if (value === 'open_meteo' && !models.some((m) => m.code === model)) {
+                    setModel(openMeteoProvider?.details.default_model ?? 'era5_land')
+                  }
+                }}
+              >
+                <SelectTrigger id="obs-provider" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {JOB_PROVIDERS.map((code) => {
+                    const health =
+                      code === 'synthetic'
+                        ? syntheticProvider
+                        : openMeteoProvider
+                    return (
+                      <SelectItem key={code} value={code}>
+                        <span className="flex flex-col">
+                          <span>{PROVIDER_LABELS[code]}</span>
+                          {health ? (
+                            <span className="text-[11px] font-normal text-stone-500">
+                              {health.kind} · {health.status}
+                            </span>
+                          ) : null}
+                        </span>
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+              {activeProvider ? <ProviderStatusDot provider={activeProvider} /> : null}
             </div>
+
+            {provider === 'open_meteo' ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="obs-model">Model / product (explicit selection)</Label>
+                <Select value={model} onValueChange={setModel}>
+                  <SelectTrigger id="obs-model" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((m) => (
+                      <SelectItem key={m.code} value={m.code}>
+                        <span className="flex flex-col">
+                          <span>
+                            {m.code} · ~{Math.round(m.spatial_resolution_m / 1000)} km grid
+                          </span>
+                          <span className="max-w-72 truncate text-[11px] font-normal text-stone-500">
+                            {m.description}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-stone-500">
+                  {activeModel
+                    ? `Publishes: ${activeModel.variables.map((v) => humanizeCode(v)).join(', ')}.`
+                    : 'Pick a consistent reanalysis product — never a silently changing best-match.'}
+                </p>
+              </div>
+            ) : null}
 
             <div className="space-y-1.5">
               <Label>Variables</Label>
@@ -296,8 +602,8 @@ export function Observations() {
                 <p className="text-sm text-red-700">Could not load the data catalog.</p>
               ) : (
                 <div className="grid gap-2 rounded-lg border border-stone-200 p-3 sm:grid-cols-2">
-                  {(catalog.data?.variables ?? []).map((variable) => {
-                    const checked = selectedVariables.includes(variable.code)
+                  {selectableVariables.map((variable) => {
+                    const checked = effectiveSelectedVariables.includes(variable.code)
                     return (
                       <label
                         key={variable.code}
@@ -325,37 +631,42 @@ export function Observations() {
                   })}
                 </div>
               )}
+              {selectableVariables.length === 0 && !catalog.isLoading ? (
+                <p className="text-xs text-stone-500">This provider publishes none of the catalog variables.</p>
+              ) : null}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="obs-profile">Climate profile</Label>
-                <Select value={profile} onValueChange={(value) => setProfile(value as SyntheticProfile)}>
-                  <SelectTrigger id="obs-profile" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROFILES.map((entry) => (
-                      <SelectItem key={entry.value} value={entry.value}>
-                        {entry.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-stone-500">Shapes the synthetic seasonality.</p>
+            {provider === 'synthetic' ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="obs-profile">Climate profile</Label>
+                  <Select value={profile} onValueChange={(value) => setProfile(value as SyntheticProfile)}>
+                    <SelectTrigger id="obs-profile" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROFILES.map((entry) => (
+                        <SelectItem key={entry.value} value={entry.value}>
+                          {entry.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-stone-500">Shapes the synthetic seasonality.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="obs-seed">Seed</Label>
+                  <Input
+                    id="obs-seed"
+                    type="number"
+                    min={0}
+                    value={seed}
+                    onChange={(event) => setSeed(Number(event.target.value) || 0)}
+                  />
+                  <p className="text-xs text-stone-500">Same seed + same inputs → identical series.</p>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="obs-seed">Seed</Label>
-                <Input
-                  id="obs-seed"
-                  type="number"
-                  min={0}
-                  value={seed}
-                  onChange={(event) => setSeed(Number(event.target.value) || 0)}
-                />
-                <p className="text-xs text-stone-500">Same seed + same inputs → identical series.</p>
-              </div>
-            </div>
+            ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -363,8 +674,6 @@ export function Observations() {
                 <Input
                   id="obs-start"
                   type="date"
-                  min={COVERAGE_START}
-                  max={COVERAGE_END}
                   value={jobStart}
                   onChange={(event) => setJobStart(event.target.value)}
                 />
@@ -374,15 +683,15 @@ export function Observations() {
                 <Input
                   id="obs-end"
                   type="date"
-                  min={COVERAGE_START}
-                  max={COVERAGE_END}
                   value={jobEnd}
                   onChange={(event) => setJobEnd(event.target.value)}
                 />
               </div>
             </div>
             <p className="-mt-2 text-xs text-stone-500">
-              Dataset coverage {COVERAGE_START} → {COVERAGE_END}; one job spans at most {MAX_JOB_YEARS} years.
+              {provider === 'synthetic'
+                ? `Fixture coverage ${COVERAGE_START} → ${COVERAGE_END}; one job spans at most ${MAX_JOB_YEARS} years.`
+                : 'Archive coverage 1940 → present (a few days behind); one job spans at most 10 years per request.'}
             </p>
 
             {formError ? (
@@ -407,45 +716,7 @@ export function Observations() {
 
           {visibleJob ? (
             <CardFooter className="block border-t border-stone-100 pt-4">
-              <div className="space-y-2" aria-live="polite">
-                <div className="flex flex-wrap items-center gap-2">
-                  <JobStatusBadge status={visibleJob.status} />
-                  <span className="text-xs text-stone-500">
-                    job {visibleJob.job_id.slice(0, 8)} · {visibleJob.provider_code}
-                  </span>
-                </div>
-                <div className="flex gap-4 text-sm text-stone-700">
-                  <span>
-                    Records received: <strong className="tabular-nums">{visibleJob.records_received}</strong>
-                  </span>
-                  <span>
-                    Rejected: <strong className="tabular-nums">{visibleJob.records_rejected}</strong>
-                  </span>
-                </div>
-                {visibleJob.error_summary ? (
-                  <Alert variant="destructive">
-                    <XCircle className="h-4 w-4" />
-                    <AlertTitle>Job error</AlertTitle>
-                    <AlertDescription>{visibleJob.error_summary}</AlertDescription>
-                  </Alert>
-                ) : null}
-                {visibleJob.warnings.length > 0 ? (
-                  <Alert className="border-amber-300 bg-amber-50 [&>svg]:text-amber-600">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle className="text-amber-900">Job warnings</AlertTitle>
-                    <AlertDescription>
-                      <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
-                        {visibleJob.warnings.map((warning, index) => (
-                          <li key={index}>{warning}</li>
-                        ))}
-                      </ul>
-                    </AlertDescription>
-                  </Alert>
-                ) : null}
-                <p className="text-[11px] text-stone-500">
-                  Request: {JSON.stringify(visibleJob.request_parameters)}
-                </p>
-              </div>
+              <JobFooter job={visibleJob} />
             </CardFooter>
           ) : null}
         </Card>
@@ -469,8 +740,6 @@ export function Observations() {
                 <Input
                   id="window-start"
                   type="date"
-                  min={COVERAGE_START}
-                  max={COVERAGE_END}
                   value={windowStart}
                   onChange={(event) => setWindowStart(event.target.value)}
                 />
@@ -480,8 +749,6 @@ export function Observations() {
                 <Input
                   id="window-end"
                   type="date"
-                  min={COVERAGE_START}
-                  max={COVERAGE_END}
                   value={windowEnd}
                   onChange={(event) => setWindowEnd(event.target.value)}
                 />
@@ -542,13 +809,237 @@ export function Observations() {
                   </ResponsiveContainer>
                 ) : (
                   <div className="flex h-[190px] items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-500">
-                    Ingest precipitation to see the bar chart.
+                    Ingest or import precipitation to see the bar chart.
                   </div>
                 )}
               </ChartCard>
             </div>
           )}
         </div>
+      </div>
+
+      {/* ---------------- file imports + coverage ---------------- */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="border-stone-200 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Upload className="h-4 w-4 text-emerald-700" aria-hidden />
+              File imports
+            </CardTitle>
+            <CardDescription>
+              Controlled import pipelines — files are validated row by row and never trusted blindly.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="csv">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="csv">
+                  <FileSpreadsheet className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> CSV observations
+                </TabsTrigger>
+                <TabsTrigger value="chirps">
+                  <Layers className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> CHIRPS raster
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="csv" className="mt-3 space-y-3">
+                <p className="text-xs text-stone-500">
+                  Upload rain-gauge / farm records as CSV (columns: <code className="rounded bg-stone-100 px-1">date,
+                  variable_code, value, unit, notes</code>). Rows land with the{' '}
+                  <strong>farmer_reported_record</strong> evidence class; blank values are stored as missing, never
+                  zero.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    ref={csvInputRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="max-w-xs"
+                    onChange={(event) => setCsvFile(event.target.files?.[0] ?? null)}
+                    aria-label="CSV file to import"
+                  />
+                  <a
+                    href={CSV_TEMPLATE_URL}
+                    className="text-xs font-medium text-emerald-700 underline-offset-2 hover:underline"
+                    download
+                  >
+                    Download template
+                  </a>
+                </div>
+                <Button
+                  className="bg-emerald-700 hover:bg-emerald-800"
+                  disabled={!csvFile || csvImportMutation.isPending}
+                  onClick={() => selectedField && csvImportMutation.mutate(selectedField.id)}
+                >
+                  {csvImportMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Upload className="h-4 w-4" aria-hidden />
+                  )}
+                  Import CSV
+                </Button>
+                {visibleCsvJob ? (
+                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                    <JobFooter job={visibleCsvJob} />
+                  </div>
+                ) : null}
+              </TabsContent>
+
+              <TabsContent value="chirps" className="mt-3 space-y-3">
+                <p className="text-xs text-stone-500">
+                  Upload a CHIRPS v3 GeoTIFF (EPSG:4326) — the service extracts the field-mean rainfall and records
+                  full raster provenance (product variant, nodata cells, sha256).
+                  {chirpsProvider && chirpsProvider.status !== 'active' ? (
+                    <span className="mt-1 block font-medium text-amber-700">
+                      Provider degraded: {String(chirpsProvider.details.degradation_reason ?? 'unavailable')}.
+                    </span>
+                  ) : null}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    ref={chirpsInputRef}
+                    type="file"
+                    accept=".tif,.tiff,application/x-geotiff,image/tiff"
+                    className="max-w-xs"
+                    onChange={(event) => setChirpsFile(event.target.files?.[0] ?? null)}
+                    aria-label="CHIRPS GeoTIFF to import"
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="chirps-date">Raster date</Label>
+                    <Input
+                      id="chirps-date"
+                      type="date"
+                      value={chirpsDate}
+                      onChange={(event) => setChirpsDate(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="chirps-kind">Product kind</Label>
+                    <Select value={chirpsKind} onValueChange={(value) => setChirpsKind(value as typeof chirpsKind)}>
+                      <SelectTrigger id="chirps-kind" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="daily">daily</SelectItem>
+                        <SelectItem value="pentad">pentad</SelectItem>
+                        <SelectItem value="monthly">monthly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="chirps-status">Product status</Label>
+                    <Select
+                      value={chirpsStatus}
+                      onValueChange={(value) => setChirpsStatus(value as typeof chirpsStatus)}
+                    >
+                      <SelectTrigger id="chirps-status" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="final">final</SelectItem>
+                        <SelectItem value="preliminary">preliminary</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Button
+                  className="bg-emerald-700 hover:bg-emerald-800"
+                  disabled={!chirpsFile || chirpsMutation.isPending}
+                  onClick={() => selectedField && chirpsMutation.mutate(selectedField.id)}
+                >
+                  {chirpsMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Upload className="h-4 w-4" aria-hidden />
+                  )}
+                  Extract field rainfall
+                </Button>
+                {visibleChirpsJob ? (
+                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                    <JobFooter job={visibleChirpsJob} />
+                  </div>
+                ) : null}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+
+        <Card className="border-stone-200 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
+              Data coverage
+            </CardTitle>
+            <CardDescription>
+              What exists for <strong className="font-medium text-stone-700">{selectedField.name}</strong>, per variable
+              and per provider.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {coverageQuery.isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-3/4" />
+              </div>
+            ) : coverageQuery.isError ? (
+              <Alert variant="destructive">
+                <XCircle className="h-4 w-4" />
+                <AlertTitle>Could not load coverage</AlertTitle>
+                <AlertDescription>Try again shortly.</AlertDescription>
+              </Alert>
+            ) : (coverageQuery.data?.variables.length ?? 0) === 0 ? (
+              <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
+                <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />
+                <p className="mt-2 text-sm text-stone-600">No observations stored for this field yet.</p>
+              </div>
+            ) : (
+              <div className="max-h-80 overflow-y-auto rounded-md border scrollbar-thin">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead>Variable</TableHead>
+                      <TableHead className="text-right">Rows</TableHead>
+                      <TableHead className="text-right">Valid</TableHead>
+                      <TableHead>Period</TableHead>
+                      <TableHead>Providers</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(coverageQuery.data?.variables ?? []).map((entry) => (
+                      <TableRow key={entry.variable_code}>
+                        <TableCell>
+                          <span className="font-medium text-stone-800">{variableName(entry.variable_code)}</span>
+                          <span className="block text-[11px] text-stone-500">
+                            {entry.variable_code} · {entry.unit}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{entry.total}</TableCell>
+                        <TableCell className="text-right tabular-nums">{entry.valid}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs text-stone-600">
+                          {entry.providers[0]?.first ?? '—'} → {entry.providers[0]?.last ?? '—'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {entry.providers.map((p) => (
+                              <Badge
+                                key={`${entry.variable_code}-${p.provider_code}-${p.product_code}`}
+                                variant="outline"
+                                className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-900"
+                              >
+                                {p.provider_code}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* ---------------- observations table ---------------- */}
@@ -606,7 +1097,7 @@ export function Observations() {
                 No observations in this window{tableVariable !== 'all' ? ' for this variable' : ''} yet.
               </p>
               <p className="mt-1 text-xs text-stone-500">
-                Run an ingestion job on the left, or widen the loaded window.
+                Run an ingestion job or import a file above, or widen the loaded window.
               </p>
               <div className="mt-3 flex justify-center">
                 <GoToFarmsButton label="Manage fields" />
@@ -651,9 +1142,7 @@ export function Observations() {
                         {observation.is_synthetic ? (
                           <SyntheticBadge />
                         ) : (
-                          <Badge variant="outline" className="border-stone-300 text-[10px] text-stone-500">
-                            external
-                          </Badge>
+                          <ExternalProvenanceBadge observation={observation} />
                         )}
                       </TableCell>
                     </TableRow>

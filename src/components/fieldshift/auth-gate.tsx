@@ -135,7 +135,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Sign in to your workspace</CardTitle>
               <CardDescription>
-                First vertical slice: farms, field boundaries, synthetic observations, data passports.
+                Farms, field boundaries, real reanalysis weather (Open-Meteo), file imports and data passports.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

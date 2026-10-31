@@ -133,8 +133,12 @@ export function DataPassport() {
           {/* ---------- available variables ---------- */}
           <section aria-label="Available variables" className="space-y-3">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-              Variables — available ({passportQuery.data.variables.length})
+              Variable sources — available ({passportQuery.data.variables.length})
             </h3>
+            <p className="text-xs text-stone-500">
+              The same variable can appear once per source; every source keeps its own evidence class, license and
+              attribution.
+            </p>
             {passportQuery.data.variables.length === 0 ? (
               <p className="rounded-lg border border-dashed border-stone-300 bg-white p-4 text-sm text-stone-500">
                 No variables available yet — run an ingestion job in the Observations tab.
@@ -142,7 +146,10 @@ export function DataPassport() {
             ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {passportQuery.data.variables.map((variable) => (
-                  <Card key={variable.variable_code} className="border-stone-200 bg-white shadow-sm">
+                  <Card
+                    key={`${variable.variable_code}-${variable.dataset_product?.provider_code ?? 'unknown'}-${variable.dataset_product?.product_code ?? 'unknown'}`}
+                    className="border-stone-200 bg-white shadow-sm"
+                  >
                     <CardHeader className="pb-2">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <CardTitle className="text-sm font-semibold text-stone-900">

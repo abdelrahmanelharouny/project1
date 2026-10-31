@@ -4,9 +4,9 @@ Honest record of what this slice does NOT do. Nothing here is claimed to work.
 
 ## Data and providers
 
-1. **Only the synthetic provider exists.** No real environmental data source is connected yet. The synthetic provider's profiles are invented fixture shapes — they carry zero agronomic validity and must never be interpreted as climate.
-2. **No NASA connectors** (intentional per Master rule 8). No Open-Meteo, CHIRPS, SoilGrids or GAEZ yet (Milestone 3).
-3. **No raster pipeline**: no raster assets, nodata masks, resampling metadata, or pixel-coverage accounting. `spatial_resolution_m` is None for synthetic observations because the generator is field-resolved by construction.
+1. **Synthetic fixtures are fixtures.** The synthetic provider's profiles are invented shapes — zero agronomic validity, always `is_synthetic=true`. Real sources now exist alongside (item 2) but the fixture rule is unchanged.
+2. **Real providers connected in Milestone 3** — Open-Meteo archive (ERA5-Land/ERA5, live-verified), CHIRPS v3 upload+extract, SoilGrids WCS (optional), farmer CSV. Remaining gaps: **no NASA connectors** (intentional, Master rule 8); **no FAO GAEZ / crop-calendar imports yet**; **no live SoilGrids/WCS data in the sandbox verification** (mocked contract tests + graceful degradation verified; the sandbox could not complete a real WCS round-trip); **CHIRPS has no bulk download pipeline** (operator supplies GeoTIFFs); Open-Meteo uses the field **centroid cell only** (no within-field gradient); SoilGrids ingests **0-5 cm only** until Milestone 4 adds depth-aware soil history.
+3. **Minimal raster pipeline**: CHIRPS extraction does nodata masks + pixel-coverage accounting for uploaded single-band GeoTIFFs only. No raster asset storage, resampling metadata, or multi-band/time-series raster handling yet.
 4. **No unit conversion engine yet**: observations are stored in the catalog unit they arrive in; the versioned conversion registry arrives with the variable registry (Milestone 4).
 5. **No soil sample intake**: `soil_analysis` is honestly reported blocked.
 

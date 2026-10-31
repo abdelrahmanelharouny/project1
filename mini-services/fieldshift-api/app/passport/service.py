@@ -1,16 +1,22 @@
-"""Field Data Passport (Master §16.5 / Feature A §27 / Milestone 2 acceptance).
+"""Field Data Passport (Master §16.5 / Feature A §27 / Milestones 2-3).
 
 Aggregates per-field evidence coverage: which variables exist, from which
 source/product/version, over which period, at which native support, with what
 quality/freshness — and which analyses are therefore available, limited, or
 blocked. Blocked analyses always list their missing inputs (never silently
 evaluated — Master rule 11).
+
+Milestone 3 honesty rule: entries are grouped by (variable, source product) —
+the same variable ingested from two providers (e.g. synthetic fixtures AND
+Open-Meteo reanalysis) produces TWO passport entries, each with its own
+evidence class, license and attribution. Sources are never merged into one
+row behind a single label, and one source can never masquerade as another.
 """
 
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.data_platform.contracts.variables import VARIABLE_CATALOG
@@ -96,8 +102,6 @@ def _aggregate_warnings(warnings: list[dict[str, Any]], cap: int = 10) -> list[d
 
 
 def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
-    from sqlalchemy import case
-
     rows = db.execute(
         select(
             Observation.variable_code,
@@ -107,12 +111,23 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
             Observation.spatial_resolution_m,
             Observation.is_synthetic,
             Observation.processing_version,
-            Observation.retrieved_at,
+            func.max(Observation.retrieved_at).label("retrieved_at"),
+            Observation.dataset_product_id,
+            DatasetProduct.product_code,
+            DatasetProduct.product_version,
+            DatasetProduct.metadata.label("product_metadata"),
+            DataSource.provider_code,
+            DataSource.provider_name,
+            DataSource.license_name,
+            DataSource.attribution_text,
+            DataSource.documentation_url,
             func.count().label("n"),
             func.min(Observation.observed_at).label("p_start"),
             func.max(Observation.observed_at).label("p_end"),
             func.sum(case((Observation.value.is_(None), 1), else_=0)).label("n_missing"),
         )
+        .join(DatasetProduct, Observation.dataset_product_id == DatasetProduct.id)
+        .join(DataSource, DatasetProduct.source_id == DataSource.id)
         .where(Observation.field_id == field_id)
         .group_by(
             Observation.variable_code,
@@ -122,91 +137,77 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
             Observation.spatial_resolution_m,
             Observation.is_synthetic,
             Observation.processing_version,
-            Observation.retrieved_at,
+            Observation.dataset_product_id,
+            DatasetProduct.product_code,
+            DatasetProduct.product_version,
+            DatasetProduct.metadata,
+            DataSource.provider_code,
+            DataSource.provider_name,
+            DataSource.license_name,
+            DataSource.attribution_text,
+            DataSource.documentation_url,
         )
+        .order_by(Observation.variable_code, DataSource.provider_code)
     ).all()
-    per_variable: dict[str, dict[str, Any]] = {}
+
+    entries: list[dict[str, Any]] = []
+    entry_key: dict[tuple[Any, Any], int] = {}
     for r in rows:
-        code = r.variable_code
-        entry = per_variable.setdefault(
-            code,
-            {
-                "variable_code": code,
-                "unit": r.unit,
-                "status": "available",
-                "time_support": r.time_support,
-                "spatial_support": {
-                    "type": r.spatial_support_type,
-                    "resolution_m": r.spatial_resolution_m,
-                },
-                "observation_count": 0,
-                "missing_count": 0,
-                "valid_count": 0,
-                "is_synthetic": bool(r.is_synthetic),
-                "evidence_class": "synthetic_test_data" if r.is_synthetic else "reanalysis_model_estimate",
-                "processing_version": r.processing_version,
-                "last_retrieved_at": None,
-                "freshness_days": None,
-                "_period_start": None,
-                "_period_end": None,
-                "period": {"start": None, "end": None},
-                "valid_ratio": None,
-                "dataset_product": None,
-                "warnings": [],
+        product_metadata = r.product_metadata or {}
+        evidence_class = product_metadata.get("evidence_class")
+        if evidence_class is None:
+            evidence_class = "synthetic_test_data" if r.is_synthetic else "reanalysis_model_estimate"
+        key = (r.variable_code, r.dataset_product_id, r.processing_version)
+        entry = {
+            "variable_code": r.variable_code,
+            "unit": r.unit,
+            "status": "available",
+            "time_support": r.time_support,
+            "spatial_support": {
+                "type": r.spatial_support_type,
+                "resolution_m": r.spatial_resolution_m,
             },
+            "observation_count": int(r.n),
+            "missing_count": int(r.n_missing or 0),
+            "valid_count": 0,
+            "is_synthetic": bool(r.is_synthetic),
+            "evidence_class": evidence_class,
+            "processing_version": r.processing_version,
+            "last_retrieved_at": r.retrieved_at.isoformat() if r.retrieved_at else None,
+            "freshness_days": None,
+            "period": {
+                "start": r.p_start.isoformat() if r.p_start else None,
+                "end": r.p_end.isoformat() if r.p_end else None,
+            },
+            "valid_ratio": None,
+            "dataset_product": {
+                "provider_code": r.provider_code,
+                "provider_name": r.provider_name,
+                "product_code": r.product_code,
+                "product_version": r.product_version,
+                "license_name": r.license_name,
+                "attribution_text": r.attribution_text,
+                "documentation_url": r.documentation_url,
+            },
+            "warnings": [],
+        }
+        entry["freshness_days"] = _freshness_days(r.retrieved_at)
+        entry["valid_count"] = entry["observation_count"] - entry["missing_count"]
+        entry["valid_ratio"] = (
+            round(entry["valid_count"] / entry["observation_count"], 4) if entry["observation_count"] else None
         )
-        entry["observation_count"] += r.n
-        entry["missing_count"] += r.n_missing or 0
-        # Keep period bounds as datetimes during aggregation; ISO-format at the end.
-        p_start_dt: datetime | None = r.p_start
-        p_end_dt: datetime | None = r.p_end
-        cur_start = entry["_period_start"]
-        cur_end = entry["_period_end"]
-        if p_start_dt is not None and (cur_start is None or p_start_dt < cur_start):
-            entry["_period_start"] = p_start_dt
-        if p_end_dt is not None and (cur_end is None or p_end_dt > cur_end):
-            entry["_period_end"] = p_end_dt
-        retrieved = r.retrieved_at
-        if retrieved is not None:
-            cur_last = (
-                datetime.fromisoformat(entry["last_retrieved_at"])
-                if entry["last_retrieved_at"]
-                else None
-            )
-            if cur_last is None or retrieved > cur_last:
-                entry["last_retrieved_at"] = retrieved.isoformat()
+        entry_key[key] = len(entries)
+        entries.append(entry)
 
-    # Dataset product provenance per variable (latest retrieval wins).
-    product_rows = db.execute(
-        select(Observation.variable_code, DatasetProduct, DataSource)
-        .join(DatasetProduct, Observation.dataset_product_id == DatasetProduct.id)
-        .join(DataSource, DatasetProduct.source_id == DataSource.id)
-        .where(Observation.field_id == field_id)
-    ).all()
-    for vcode, product, source in product_rows:
-        if vcode in per_variable and per_variable[vcode]["dataset_product"] is None:
-            per_variable[vcode]["dataset_product"] = {
-                "provider_code": source.provider_code,
-                "provider_name": source.provider_name,
-                "product_code": product.product_code,
-                "product_version": product.product_version,
-                "license_name": source.license_name,
-                "attribution_text": source.attribution_text,
-                "documentation_url": source.documentation_url,
-            }
-        if vcode in per_variable:
-            per_variable[vcode]["is_synthetic"] = per_variable[vcode]["is_synthetic"] or bool(
-                product.metadata and product.metadata.get("is_synthetic")
-            )
-
-    warnings_by_variable: dict[str, list[dict[str, Any]]] = {}
+    warnings_by_entry: dict[tuple[Any, Any, Any], list[dict[str, Any]]] = {}
     unresolved_flags = db.execute(
         select(Observation, ObservationQualityFlag)
         .join(ObservationQualityFlag, ObservationQualityFlag.observation_id == Observation.id)
         .where(Observation.field_id == field_id)
     ).all()
     for obs, flag in unresolved_flags:
-        warnings_by_variable.setdefault(obs.variable_code, []).append(
+        key = (obs.variable_code, obs.dataset_product_id, obs.processing_version)
+        warnings_by_entry.setdefault(key, []).append(
             {
                 "flag_code": flag.flag_code,
                 "severity": flag.severity,
@@ -214,24 +215,10 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
                 "observed_at": obs.observed_at.date().isoformat(),
             }
         )
+    for key, index in entry_key.items():
+        entries[index]["warnings"] = _aggregate_warnings(warnings_by_entry.get(key, []))
 
-    # Finalize per-variable stats.
-    for code, entry in per_variable.items():
-        valid = entry["observation_count"] - entry["missing_count"]
-        entry["valid_count"] = valid
-        entry["valid_ratio"] = round(valid / entry["observation_count"], 4) if entry["observation_count"] else None
-        entry["freshness_days"] = _freshness_days(
-            datetime.fromisoformat(entry["last_retrieved_at"]) if entry["last_retrieved_at"] else None
-        )
-        entry["period"] = {
-            "start": entry["_period_start"].isoformat() if entry["_period_start"] else None,
-            "end": entry["_period_end"].isoformat() if entry["_period_end"] else None,
-        }
-        del entry["_period_start"]
-        del entry["_period_end"]
-        entry["warnings"] = _aggregate_warnings(warnings_by_variable.get(code, []))
-
-    present_codes = set(per_variable.keys())
+    present_codes = {e["variable_code"] for e in entries}
     missing_codes = sorted(set(VARIABLE_CATALOG.keys()) - present_codes)
 
     missing_variables = [
@@ -244,21 +231,36 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
         for code in missing_codes
     ]
 
+    # Best entry per variable code: prefer real (non-synthetic) sources on ties,
+    # then the highest valid ratio. Used only for analysis-readiness gating; the
+    # variables list above always shows every source separately.
+    best_by_variable: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        current = best_by_variable.get(entry["variable_code"])
+        if current is None:
+            best_by_variable[entry["variable_code"]] = entry
+            continue
+        current_key = (not current["is_synthetic"], current["valid_ratio"] or 0)
+        candidate_key = (not entry["is_synthetic"], entry["valid_ratio"] or 0)
+        if candidate_key > current_key:
+            best_by_variable[entry["variable_code"]] = entry
+
     # Analysis readiness.
     analyses: list[dict[str, Any]] = []
     for rule in ANALYSIS_RULES:
         missing_inputs: list[str] = []
         reasons: list[str] = []
         for vcode, min_ratio in rule.get("required_variables", {}).items():
-            entry = per_variable.get(vcode)
+            entry = best_by_variable.get(vcode)
             if entry is None:
                 missing_inputs.append(vcode)
                 reasons.append(f"Variable '{vcode}' has no observations.")
             elif (entry["valid_ratio"] or 0) < min_ratio:
                 missing_inputs.append(vcode)
                 reasons.append(
-                    f"Variable '{vcode}' valid coverage {entry['valid_ratio']} is below the "
-                    f"required {min_ratio} for this analysis."
+                    f"Variable '{vcode}' best valid coverage ({entry['valid_ratio']} from "
+                    f"{entry['dataset_product']['provider_code']}) is below the required "
+                    f"{min_ratio} for this analysis."
                 )
         for extra in rule.get("extra_requirements", []):
             missing_inputs.append(extra)
@@ -283,7 +285,7 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
         )
 
     overall = "ready"
-    if not per_variable:
+    if not entries:
         overall = "blocked"
     elif any(a["status"] == "blocked" for a in analyses):
         overall = "partial"
@@ -292,12 +294,16 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
         "field_id": str(field_id),
         "generated_at": datetime.now(UTC).isoformat(),
         "overall_status": overall,
-        "variables": sorted(per_variable.values(), key=lambda e: e["variable_code"]),
+        "variables": entries,
         "missing_variables": missing_variables,
-        "warnings": _aggregate_warnings([w for ws in warnings_by_variable.values() for w in ws], cap=20),
+        "warnings": _aggregate_warnings(
+            [w for ws in warnings_by_entry.values() for w in ws], cap=20
+        ),
         "analyses": analyses,
         "notes": [
             "Coverage/quality/freshness are reported separately and never merged "
             "into a single synthetic confidence score (Master §16).",
+            "The same variable may appear once per source; sources are never "
+            "merged behind a single label.",
         ],
     }

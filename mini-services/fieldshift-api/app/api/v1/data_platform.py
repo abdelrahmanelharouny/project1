@@ -1,20 +1,22 @@
 """Data platform endpoints: catalog, provider health, ingestion jobs,
-observations and the Field Data Passport (Master §41)."""
+observations, imports and the Field Data Passport (Master §41)."""
 
+import json
 import uuid
 from datetime import UTC, datetime, date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.core.errors import InvalidDateRange, NotFound
+from app.core.errors import InvalidDateRange, NotFound, UnsupportedVariable, ValidationFailed
 from app.data_platform.contracts.observations import validate_provider_request
 from app.data_platform.contracts.variables import catalog_payload, DATA_DICTIONARY_VERSION
-from app.data_platform.ingestion.service import start_ingestion_job
+from app.data_platform.ingestion.service import create_import_job, start_ingestion_job
 from app.data_platform.registry.provider_registry import get_provider_registry
 from app.db import models as dbm
 from app.domains.identity.service import get_field_for_principal, get_principal
@@ -70,8 +72,11 @@ def data_catalog(
 
 
 @router.get("/data/providers/health")
-def providers_health(principal: Any = Depends(get_principal)) -> dict:
-    return {"providers": get_provider_registry().health()}
+def providers_health(
+    principal: Any = Depends(get_principal),
+    with_probes: bool = Query(default=True),
+) -> dict:
+    return {"providers": get_provider_registry().health(with_probes=with_probes)}
 
 
 @router.get("/variables")
@@ -87,6 +92,15 @@ class DataJobRequest(BaseModel):
     end_date: date
     profile: str | None = "temperate_seasonal"
     seed: int = 42
+    model: str | None = None  # open_meteo product selection (era5_land | era5)
+
+
+def _provider_options(provider_code: str, payload: DataJobRequest) -> dict[str, Any]:
+    if provider_code == "synthetic":
+        return {"profile": payload.profile, "seed": payload.seed}
+    if provider_code == "open_meteo":
+        return {"model": payload.model or "era5_land"}
+    return {}
 
 
 @router.post("/fields/{field_id}/data-jobs", status_code=status.HTTP_202_ACCEPTED)
@@ -103,7 +117,19 @@ def create_data_job(
     # Fail fast on obviously invalid requests (providers re-validate anyway).
     validate_provider_request(payload.variables, start_dt, end_dt)
     # Unknown provider -> 404 before a job row is created.
-    get_provider_registry().get(payload.provider_code)
+    registry = get_provider_registry()
+    provider = registry.get(payload.provider_code)
+    # Fail fast when no requested variable is available from this provider.
+    supported = registry.supported_variables(payload.provider_code)
+    if supported and not (set(payload.variables) & set(supported)):
+        raise UnsupportedVariable(
+            f"Provider '{payload.provider_code}' supplies none of the requested variables.",
+            details=[{"field": "variables", "reason": f"supported: {', '.join(supported)}"}],
+        )
+    # Provider-specific fail-fast checks (e.g. open_meteo model/variable fit).
+    options = _provider_options(payload.provider_code, payload)
+    if hasattr(provider, "validate_request"):
+        provider.validate_request(variables=payload.variables, options=options)
     job = start_ingestion_job(
         db,
         field=field,
@@ -111,7 +137,7 @@ def create_data_job(
         variables=payload.variables,
         start=start_dt,
         end=end_dt + _one_day_minus(),
-        options={"profile": payload.profile, "seed": payload.seed},
+        options=options,
         idempotency_key=None,
         created_by=principal.id,
     )
@@ -237,3 +263,196 @@ def data_passport(
 ) -> dict:
     field = get_field_for_principal(db, principal, field_id)
     return build_data_passport(db, field.id)
+
+
+# ------------------------------------------------------------- data coverage
+@router.get("/fields/{field_id}/data-coverage")
+def data_coverage(
+    field_id: uuid.UUID,
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Per-variable, per-provider coverage summary for the coverage view."""
+    field = get_field_for_principal(db, principal, field_id)
+    rows = db.execute(
+        select(
+            dbm.Observation.variable_code,
+            dbm.Observation.unit,
+            dbm.DataSource.provider_code,
+            dbm.DataSource.provider_name,
+            dbm.DatasetProduct.product_code,
+            dbm.DatasetProduct.product_version,
+            func.count().label("n"),
+            func.min(dbm.Observation.observed_at).label("first"),
+            func.max(dbm.Observation.observed_at).label("last"),
+            func.max(dbm.Observation.retrieved_at).label("last_retrieval"),
+            func.sum(
+                func.coalesce(dbm.Observation.value.is_not(None).cast(Integer), 0)
+            ).label("valid_n"),
+        )
+        .join(dbm.DatasetProduct, dbm.Observation.dataset_product_id == dbm.DatasetProduct.id)
+        .join(dbm.DataSource, dbm.DatasetProduct.source_id == dbm.DataSource.id)
+        .where(dbm.Observation.field_id == field.id)
+        .group_by(
+            dbm.Observation.variable_code,
+            dbm.Observation.unit,
+            dbm.DataSource.provider_code,
+            dbm.DataSource.provider_name,
+            dbm.DatasetProduct.product_code,
+            dbm.DatasetProduct.product_version,
+        )
+        .order_by(dbm.Observation.variable_code, dbm.DataSource.provider_code)
+    ).all()
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        entry = grouped.setdefault(
+            r.variable_code,
+            {"variable_code": r.variable_code, "unit": r.unit, "total": 0, "valid": 0, "providers": []},
+        )
+        entry["total"] += int(r.n)
+        entry["valid"] += int(r.valid_n or 0)
+        entry["providers"].append(
+            {
+                "provider_code": r.provider_code,
+                "provider_name": r.provider_name,
+                "product_code": r.product_code,
+                "product_version": r.product_version,
+                "count": int(r.n),
+                "valid_count": int(r.valid_n or 0),
+                "first": r.first.date().isoformat() if r.first else None,
+                "last": r.last.date().isoformat() if r.last else None,
+                "last_retrieval": r.last_retrieval.isoformat() if r.last_retrieval else None,
+            }
+        )
+    return {"field_id": str(field.id), "variables": sorted(grouped.values(), key=lambda v: v["variable_code"])}
+
+
+# --------------------------------------------------------------- CSV import
+@router.get("/data/imports/observations-csv/template")
+def observations_csv_template() -> Response:
+    template = (
+        "date,variable_code,value,unit,notes\n"
+        "2024-03-01,precipitation,12.5,mm,heavy overnight rain\n"
+        "2024-03-02,precipitation,0,mm,dry day\n"
+        "2024-03-03,air_temperature_mean,,degC,sensor offline\n"
+    )
+    return Response(
+        content=template,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="fieldshift-observations-template.csv"'},
+    )
+
+
+@router.post(
+    "/fields/{field_id}/imports/observations-csv",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def import_observations_csv(
+    field_id: uuid.UUID,
+    file: UploadFile = File(...),
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Controlled farmer CSV import -> farmer_reported observations (M3)."""
+    from app.data_platform.imports.csv_service import (
+        PROVIDER_CODE as CSV_PROVIDER_CODE,
+        parse_csv_observations,
+    )
+
+    field = get_field_for_principal(db, principal, field_id)
+    raw = file.file.read()
+    if len(raw) > settings.max_import_file_bytes:
+        raise ValidationFailed(
+            "CSV file exceeds the import size limit.",
+            details=[{"field": "file", "reason": f"limit {settings.max_import_file_bytes} bytes"}],
+        )
+    try:
+        content = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValidationFailed(
+            "CSV file must be UTF-8 encoded.",
+            details=[{"field": "file", "reason": "decoding failed"}],
+        ) from None
+
+    result = parse_csv_observations(content, file_name=file.filename or "upload.csv")
+    job = create_import_job(
+        db,
+        field=field,
+        provider_code=CSV_PROVIDER_CODE,
+        job_type="csv_import",
+        result=result,
+        request_parameters={
+            "import_kind": "observations_csv",
+            "file_name": file.filename,
+            "file_sha256": result.coverage.get("file_sha256"),
+        },
+        created_by=principal.id,
+    )
+    return _job_payload(job)
+
+
+# ------------------------------------------------------------ CHIRPS import
+@router.post(
+    "/fields/{field_id}/chirps-extractions",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def chirps_extraction(
+    field_id: uuid.UUID,
+    file: UploadFile = File(...),
+    observed_at: date = Form(...),
+    period_kind: str = Form("daily"),
+    product_status: str = Form("final"),
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Bulk CHIRPS v3 GeoTIFF import + spatial subset extraction (M3)."""
+    from app.data_platform.providers.chirps.extractor import extract_field_precipitation
+    from app.data_platform.providers.chirps.registry_info import (
+        PROVIDER_CODE as CHIRPS_PROVIDER_CODE,
+    )
+
+    field = get_field_for_principal(db, principal, field_id)
+    raw = file.file.read()
+    if len(raw) > settings.max_import_file_bytes:
+        raise ValidationFailed(
+            "GeoTIFF exceeds the import size limit.",
+            details=[{"field": "file", "reason": f"limit {settings.max_import_file_bytes} bytes"}],
+        )
+
+    boundary_geojson = json.loads(_field_boundary_geojson(db, field.id))
+    observed_dt = datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC)
+    result = extract_field_precipitation(
+        raw,
+        file_name=file.filename or "chirps.tif",
+        field_geometry_geojson=boundary_geojson,
+        observed_at=observed_dt,
+        period_kind=period_kind,
+        product_status=product_status,
+    )
+    job = create_import_job(
+        db,
+        field=field,
+        provider_code=CHIRPS_PROVIDER_CODE,
+        job_type="chirps_raster_import",
+        result=result,
+        request_parameters={
+            "import_kind": "chirps_geotiff_extract",
+            "file_name": file.filename,
+            "file_sha256": result.coverage.get("file_sha256"),
+            "period_kind": period_kind,
+            "product_status": product_status,
+            "observed_at": observed_at.isoformat(),
+        },
+        created_by=principal.id,
+    )
+    return _job_payload(job)
+
+
+def _field_boundary_geojson(db: Session, field_id) -> str:
+    from sqlalchemy import text
+
+    return db.execute(
+        text("SELECT ST_AsGeoJSON(boundary) FROM fields WHERE id = :fid"),
+        {"fid": str(field_id)},
+    ).scalar_one()

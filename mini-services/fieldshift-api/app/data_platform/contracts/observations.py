@@ -111,6 +111,9 @@ class ProviderFetchResult(BaseModel):
     coverage: dict[str, Any] = Field(default_factory=dict)
     provider_request_id: str | None = None
     raw_reference: str | None = None  # retained payload/file reference where permitted
+    # Optional upstream count of received input records (file imports: CSV/GeoTIFF
+    # rows or files read). Defaults to len(observations) for fetch-style providers.
+    input_record_count: int | None = None
 
 
 class AreaOfInterest(BaseModel):

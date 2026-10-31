@@ -287,15 +287,38 @@ export interface ProviderProfile {
   description: string
 }
 
+export interface ProviderProbe {
+  status: string
+  latency_ms: number | null
+  detail: string
+}
+
+export interface ProviderModelInfo {
+  code: string
+  open_meteo_model_param: string
+  description: string
+  spatial_resolution_m: number
+  land_only: boolean
+  variables: string[]
+}
+
 export interface ProviderHealth {
   provider_code: string
   kind: string
   status: string
   details: {
-    profiles: ProviderProfile[]
-    is_synthetic: boolean
-    note: string
+    profiles?: ProviderProfile[]
+    is_synthetic?: boolean
+    note?: string
+    models?: ProviderModelInfo[]
+    default_model?: string
+    workflow?: string
+    rasterio_available?: boolean
+    supported_variables?: string[]
+    evidence_class?: string
+    [key: string]: unknown
   }
+  probe?: ProviderProbe
 }
 
 export interface ProvidersHealthResponse {
@@ -336,8 +359,38 @@ export interface DataJobCreateInput {
   variables: string[]
   start_date: string
   end_date: string
-  profile: SyntheticProfile
-  seed: number
+  profile?: SyntheticProfile | null
+  seed?: number
+  model?: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Data coverage (Milestone 3)
+// ---------------------------------------------------------------------------
+
+export interface CoverageProviderEntry {
+  provider_code: string
+  provider_name: string
+  product_code: string
+  product_version: string
+  count: number
+  valid_count: number
+  first: string | null
+  last: string | null
+  last_retrieval: string | null
+}
+
+export interface CoverageVariable {
+  variable_code: string
+  unit: string
+  total: number
+  valid: number
+  providers: CoverageProviderEntry[]
+}
+
+export interface DataCoverageResponse {
+  field_id: string
+  variables: CoverageVariable[]
 }
 
 // ---------------------------------------------------------------------------

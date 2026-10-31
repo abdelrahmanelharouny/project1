@@ -85,6 +85,20 @@ class InsufficientData(FieldShiftError):
     code = "INSUFFICIENT_DATA"
 
 
+class ProviderRequestError(FieldShiftError):
+    """A provider rejected the request (bad params, out-of-coverage, API error body)."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "PROVIDER_REQUEST_ERROR"
+
+
+class ProviderUnavailable(FieldShiftError):
+    """An optional provider is unreachable/degraded. Other providers are unaffected."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "PROVIDER_UNAVAILABLE"
+
+
 def _error_payload(
     code: str,
     message: str,

@@ -26,9 +26,21 @@ class EnvironmentalDataProvider(Protocol):
 
 `app/data_platform/registry/provider_registry.py` — keyed by `provider_code`; unknown codes raise `NOT_FOUND`; `/api/v1/data/providers/health` exposes kind/status/details. Registering a future provider requires no changes to ingestion or passport code.
 
+## Registered providers (Milestone 3)
+
+| provider_code | kind | status | data | notes |
+|---|---|---|---|---|
+| `synthetic` | synthetic | active | fixtures | deterministic, seeded, always labelled SYNTHETIC |
+| `open_meteo` | api | active | **REAL** archive (ERA5-Land / ERA5) | explicit model selection; verified model↔variable matrix (`MODEL_VARIABLES`); UTC basis; null→missing; 10 y chunks; CC BY 4.0 |
+| `chirps_import` | raster_import | active* | **REAL** CHIRPS v3 via GeoTIFF upload | upload → field-mean extract; EPSG:4326 enforced; nodata accounting; product kind/status recorded; *degrades without rasterio |
+| `soilgrids` | api_wcs | optional | **REAL** SoilGrids 2.0 (ISRIC WCS) | 0-5 cm depth (slice scope); Qmean+Q0.05/Q0.95 → 90% interval; graceful PROVIDER_UNAVAILABLE |
+| `farmer_csv` | file_import | active | farmer CSV upload | strict row validation; farmer_reported_record evidence; sha256+row provenance |
+
+Optional provider hooks: `supported_variables()` (advertised via health details, used for UI filtering + route fail-fast) and `validate_request(variables, options)` (no-network fail-fast, e.g. Open-Meteo model fit). Probes: short-timeout, cached, never raise — `open_meteo` probes the archive, `soilgrids` probes DescribeCoverage.
+
 ## Contract test suite (must pass for EVERY provider)
 
-Run against the synthetic provider today (`tests/contract/test_synthetic_provider_contract.py`):
+Run against synthetic, Open-Meteo (mocked HTTP) and SoilGrids (mocked WCS + GeoTIFF fixtures); the CSV import pipeline has an equivalent contract/integration suite:
 
 1. Implements the protocol (runtime checkable).
 2. Returns valid canonical objects (Pydantic re-validation, UTC timestamps, period containment).

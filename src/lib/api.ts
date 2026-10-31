@@ -12,6 +12,7 @@ import type {
   BoundaryVersionCreateResponse,
   BoundaryVersionListResponse,
   CatalogResponse,
+  DataCoverageResponse,
   DataJob,
   DataJobCreateInput,
   DataPassport,
@@ -106,6 +107,8 @@ export function setToken(token: string | null): void {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   body?: unknown
+  /** Multipart form body (file uploads). Content-Type is set by the browser. */
+  formData?: FormData
   /** Skip attaching the bearer token (health, dev/seed-demo). */
   anonymous?: boolean
 }
@@ -123,7 +126,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     response = await fetch(withPort(path), {
       method: options.method ?? 'GET',
       headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body:
+        options.formData !== undefined
+          ? options.formData
+          : options.body !== undefined
+            ? JSON.stringify(options.body)
+            : undefined,
       cache: 'no-store',
     })
   } catch (err) {
@@ -258,6 +266,40 @@ export function createDataJob(fieldId: string, input: DataJobCreateInput): Promi
   return request<DataJob>(`/api/v1/fields/${fieldId}/data-jobs`, { method: 'POST', body: input })
 }
 
+export function fetchDataCoverage(fieldId: string): Promise<DataCoverageResponse> {
+  return request<DataCoverageResponse>(`/api/v1/fields/${fieldId}/data-coverage`)
+}
+
+export function importObservationsCsv(fieldId: string, file: File): Promise<DataJob> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<DataJob>(`/api/v1/fields/${fieldId}/imports/observations-csv`, {
+    method: 'POST',
+    formData,
+  })
+}
+
+export interface ChirpsExtractInput {
+  observedAt: string
+  periodKind: 'daily' | 'pentad' | 'monthly'
+  productStatus: 'preliminary' | 'final'
+}
+
+export function extractChirps(fieldId: string, file: File, input: ChirpsExtractInput): Promise<DataJob> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('observed_at', input.observedAt)
+  formData.append('period_kind', input.periodKind)
+  formData.append('product_status', input.productStatus)
+  return request<DataJob>(`/api/v1/fields/${fieldId}/chirps-extractions`, {
+    method: 'POST',
+    formData,
+  })
+}
+
+/** Download URL for the farmer CSV template (relative, gateway-routed). */
+export const CSV_TEMPLATE_URL = withPort('/api/v1/data/imports/observations-csv/template')
+
 export function getJob(jobId: string): Promise<DataJob> {
   return request<DataJob>(`/api/v1/jobs/${jobId}`)
 }
@@ -340,14 +382,21 @@ export const EXAMPLE_GEOMETRY = JSON.stringify(
 )
 
 /** Client-side guard mirroring backend job validation. Returns an error message or null. */
-export function validateJobWindow(start: string, end: string): string | null {
+export function validateJobWindow(
+  start: string,
+  end: string,
+  bounds?: { min?: string; max?: string; maxYears?: number },
+): string | null {
   const dateRe = /^\d{4}-\d{2}-\d{2}$/
   if (!dateRe.test(start) || !dateRe.test(end)) return 'Enter both dates as YYYY-MM-DD.'
-  if (start < COVERAGE_START || end > COVERAGE_END) {
-    return `Dates must fall inside the dataset coverage ${COVERAGE_START} → ${COVERAGE_END}.`
+  const min = bounds?.min ?? COVERAGE_START
+  const max = bounds?.max ?? COVERAGE_END
+  if (start < min || end > max) {
+    return `Dates must fall inside the dataset coverage ${min} → ${max}.`
   }
   if (end < start) return 'The end date must be on or after the start date.'
   const years = (Date.parse(end) - Date.parse(start)) / (365.25 * 24 * 3600 * 1000)
-  if (years > MAX_JOB_YEARS) return `A single job covers at most ${MAX_JOB_YEARS} years. Split the range.`
+  const maxYears = bounds?.maxYears ?? MAX_JOB_YEARS
+  if (years > maxYears) return `A single job covers at most ${maxYears} years. Split the range.`
   return null
 }

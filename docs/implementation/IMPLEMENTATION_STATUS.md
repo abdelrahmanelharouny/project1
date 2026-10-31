@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-10-30 (first vertical slice)
+Last updated: 2026-10-30 (Milestone 3 — alternative data integrations)
 
 Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 
@@ -46,6 +46,19 @@ Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 | Ingestion jobs (status, counts, warnings, failures) | ✅ | Natural-key dedupe → idempotent rerun; provider errors → structured job failures |
 | Provider contract test suite | ✅ | `tests/contract/` — canonical shapes, provenance, units, native time support, rejects invalid input, idempotency |
 
+## Milestone 3 — Alternative data integrations
+
+| Task | Status | Notes |
+|---|---|---|
+| Open-Meteo historical provider (REAL, live-verified) | ✅ | ERA5-Land (default) / ERA5 explicit products; verified model-variable matrix; UTC basis; null→missing with OPENMETEO_NULL; 10y chunking; retry/backoff; CC BY 4.0 attribution |
+| Model/variable fail-fast | ✅ | Route 422 when the selected model publishes none of the requested variables; UI filters variables per model |
+| CHIRPS v3 import/extraction workflow | ✅ | GeoTIFF upload (EPSG:4326 enforced) → field-mean precipitation; nodata accounting + LOW_CELL_COVERAGE flag; preliminary/final + daily/pentad/monthly recorded; rasterio-optional degradation |
+| SoilGrids optional WCS provider | ✅ | 5 properties at 0-5 cm (slice depth); Qmean + Q0.05/Q0.95 → 90% prediction interval; pH×10 / cg/cm³ conversions documented; DescribeCoverage probe; graceful PROVIDER_UNAVAILABLE |
+| CSV farmer observations import | ✅ | Strict row validation (unknown var, unit mismatch, bad dates, duplicates); blank→missing FARMER_BLANK; farmer_reported_record evidence; sha256+row provenance; template endpoint; idempotent |
+| Source/product registry for all providers | ✅ | open_meteo (2 products), chirps (6 variants), soilgrids, farmer_csv, synthetic — with license/attribution/limitations |
+| Provider health + coverage views | ✅ | Cached live probes (open_meteo ok / soilgrids degraded gracefully); `/fields/{id}/data-coverage` per variable+provider; UI provider picker with status dots, File imports card, Data coverage table |
+| Data Passport per-source grouping | ✅ | Entries are per (variable, source product) — synthetic and real rows never share a label; readiness gates on best real entry; React key + era5_land product attribution fixed during verification |
+
 ## Feature A — Field Data Passport (first version)
 
 | Task | Status | Notes |
@@ -61,10 +74,10 @@ Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 
 | Suite | Status | Count |
 |---|---|---|
-| Unit (geometry, area, variables, determinism) | ✅ passing | 33 |
-| Provider contract (synthetic) | ✅ passing | 13 |
-| Integration (auth/tenant, CRUD, ingestion, passport, migrations) | ✅ passing | 39 |
-| **Total** | ✅ **85 passed** | `pytest tests` (17.6 s, re-verified 2026-10-30) |
+| Unit (geometry, area, variables, determinism, Open-Meteo, CHIRPS) | ✅ passing | 50 |
+| Provider contract (synthetic, Open-Meteo, SoilGrids, farmer CSV) | ✅ passing | 37 |
+| Integration (auth/tenant, CRUD, ingestion, imports, coverage, passport, migrations) | ✅ passing | 70 |
+| **Total** | ✅ **157 passed** | `pytest tests` (~24 s, 2026-10-30) |
 
 ### Browser end-to-end verification (agent-browser, 2026-10-30)
 
@@ -79,12 +92,26 @@ Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 - ✅ Desktop (1366×900): one-screen layout, footer flush at bottom
 - Fixed during verification: Overview "Data Passport of …" button (`whitespace-nowrap`) forced the implicit grid column to min-content → horizontal overflow on mobile; button now wraps (`whitespace-normal`) and grid items got `min-w-0`
 
+### Browser end-to-end verification — Milestone 3 (agent-browser, 2026-10-30)
+
+- ✅ Provider switch in Observations (synthetic ↔ Open-Meteo) with status dots from live probes
+- ✅ Model select (era5_land ~11 km vs era5 ~28 km) with per-model variable filtering (ERA5-Land shows 4 variables; wind/precip/ET0 correctly hidden)
+- ✅ REAL Open-Meteo ingestion from the UI: job 5bd133b4, 365 soil-moisture records stored, honest reanalysis warning displayed
+- ✅ Product attribution fixed during verification: `_product_for_provider` now resolves the model-specific product (era5_land vs era5) instead of the source's first product
+- ✅ Data Passport: two soil_moisture_surface entries — `era5_land` (reanalysis_model_estimate, grid_cell @ 11132 m, CC BY 4.0) AND SYNTHETIC (synthetic_test_data) — never merged
+- ✅ CSV upload through the browser: job e1d9eeb2 · farmer_csv · 3 rows (blank stored as missing), template download link works
+- ✅ Data coverage panel: soil moisture 730 rows = 365 open_meteo + 365 synthetic with provider chips
+- ✅ Live smoke against the real archive API: era5_land (124 rec) + era5 wind (31 rec, km/h→m/s), model mismatch → 422
+- ✅ Zero page errors; mobile 390px: no horizontal overflow on any tab; sticky footer intact
+
 ## Not implemented (next milestones — deliberately)
 
-- ⬜ Open-Meteo historical provider (Milestone 3)
-- ⬜ CHIRPS v3 import/extraction (Milestone 3)
-- ⬜ SoilGrids WCS/WebDAV optional provider (Milestone 3)
-- ⬜ CSV/GeoJSON local file import jobs (Milestone 3)
+- ✅ Open-Meteo historical provider (Milestone 3 — done)
+- ✅ CHIRPS v3 import/extraction (Milestone 3 — done)
+- ✅ SoilGrids WCS optional provider (Milestone 3 — done; WebDAV variant not needed)
+- ✅ CSV observations import (Milestone 3 — done; soil-lab CSV waits for M4 soil history)
+- ⬜ FAO GAEZ / crop-calendar reference imports (Milestone 3+, licensing review)
+- ⬜ SoilGrids other depth intervals (Milestone 4 soil measurement history)
 - ⬜ Feature runs / climate features / temporal aggregation (Milestone 4)
 - ⬜ Crop knowledge base (Milestone 5)
 - ⬜ Rotation optimizer + water intelligence + soil ledger (Milestones 6–7)

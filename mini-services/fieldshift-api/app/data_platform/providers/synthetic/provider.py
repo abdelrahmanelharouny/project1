@@ -261,6 +261,18 @@ class SyntheticProvider:
             for code, p in sorted(PROFILES.items())
         ]
 
+    def supported_variables(self) -> list[str]:
+        """Variables the generator implements (guard rejects anything else)."""
+        return [
+            "air_temperature_mean",
+            "air_temperature_min",
+            "air_temperature_max",
+            "precipitation",
+            "reference_et0",
+            "soil_moisture_surface",
+            "wind_speed_2m",
+        ]
+
     def fetch_observations(
         self,
         *,
