@@ -241,3 +241,47 @@ class TestSubCellField:
                 field_geometry_geojson=far,
                 observed_at=datetime(2024, 1, 31, tzinfo=UTC),
             )
+
+class TestAreaWeightedMean:
+    """Deepening F-13: partially-covered cells weight by actual field overlap."""
+
+    def test_partial_cell_weighting_differs_from_unweighted(self):
+        # 1x2 raster, cell size 0.002 deg, cells span x 31.400-31.402 and
+        # 31.402-31.404. The field covers cell 0 FULLY and cell 1 up to
+        # 31.4035 (75%) — both cell CENTERS stay inside, so centre-inclusion
+        # selects both. Cell 0 = 0 mm, cell 1 = 20 mm:
+        # unweighted mean = 10.0; area-weighted = (0*1.0 + 20*0.75)/1.75 = 8.5714.
+        values = np.array([[0.0, 20.0]])
+        data = build_geotiff(values, west=31.40, north=31.12, cell=0.002)
+        field = {
+            "type": "Polygon",
+            "coordinates": [[[31.400, 31.118], [31.4035, 31.118], [31.4035, 31.120], [31.400, 31.120], [31.400, 31.118]]],
+        }
+        result = extract_field_precipitation(
+            data,
+            file_name="chirps-v3.0-daily.2024-01-31.tif",
+            field_geometry_geojson=field,
+            observed_at=datetime(2024, 1, 31, tzinfo=UTC),
+            period_kind="daily",
+            product_status="final",
+        )
+        obs = result.observations[0]
+        assert obs.metadata["field_mean_weighting"] == "area_weighted_mean"
+        assert obs.processing_version == "chirps-extractor-v2"
+        expected = (0.0 * 1.0 + 20.0 * 0.75) / 1.75
+        assert obs.value == pytest.approx(expected, abs=1e-3)
+
+    def test_single_cell_field_keeps_unweighted_mean(self):
+        values = np.array([[7.0]])
+        data = build_geotiff(values, west=31.40, north=31.12, cell=0.002)
+        result = extract_field_precipitation(
+            data,
+            file_name="chirps-v3.0-daily.2024-01-31.tif",
+            field_geometry_geojson=FIELD_GEOM,
+            observed_at=datetime(2024, 1, 31, tzinfo=UTC),
+            period_kind="daily",
+            product_status="final",
+        )
+        obs = result.observations[0]
+        assert obs.metadata["field_mean_weighting"] == "unweighted_mean"
+        assert obs.value == pytest.approx(7.0, abs=1e-6)

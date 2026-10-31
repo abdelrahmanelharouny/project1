@@ -216,6 +216,11 @@ def _season_climate(
 
     if coverage < MIN_CLIMATE_COVERAGE:
         return None
+    if covered < total_days:
+        warnings.append(
+            "precipitation months incomplete — the season total includes only the "
+            "months present in the evidence run (an under-count, never filled)"
+        )
 
     tmean = tmean_wsum if covered_t == total_days else (
         tmean_wsum * total_days / covered_t if covered_t else None
@@ -438,8 +443,13 @@ def start_rotation_run(
     """Validate, execute inline and persist a rotation run (202-style job)."""
     idempotency_key = payload.get("idempotency_key")
     if idempotency_key:
+        # Deepening F-3: replay lookup scoped to THIS field (cross-tenant
+        # replay of a known key must never serialize another tenant's run).
         existing = db.scalar(
-            select(dbm.RotationRun).where(dbm.RotationRun.idempotency_key == idempotency_key)
+            select(dbm.RotationRun).where(
+                dbm.RotationRun.idempotency_key == idempotency_key,
+                dbm.RotationRun.field_id == field.id,
+            )
         )
         if existing is not None:
             return existing
@@ -557,6 +567,7 @@ def start_rotation_run(
 
         solutions: list[StrategySolution] = []
         infeasible_profiles: list[dict[str, Any]] = []
+        solver_failures: list[dict[str, Any]] = []
         baseline = optimizer_mod.build_baseline_solution(problem)
         solutions.append(baseline)
 
@@ -568,11 +579,20 @@ def start_rotation_run(
             )
             result = optimizer_mod.optimize_strategy(problem, profile, weights)
             if isinstance(result, optimizer_mod.InfeasibleResult):
-                infeasible_profiles.append({
+                # Deepening F-4: only a PROVEN infeasible model is an infeasible
+                # profile; solver failures (model_invalid / unknown) are kept
+                # separate so a solver breakdown never reads as an agronomic
+                # infeasibility statement.
+                entry = {
                     "strategy_key": profile,
                     "conflicts": result.conflicts,
                     "notes": result.notes,
-                })
+                }
+                if result.status == "infeasible":
+                    infeasible_profiles.append(entry)
+                else:
+                    entry["solver_status"] = result.status
+                    solver_failures.append(entry)
                 continue
             solutions.append(result)
 
@@ -637,17 +657,34 @@ def start_rotation_run(
         run.warnings = warnings
         solver_status = None
         optimized_solutions = [s for s in solutions if not s.is_baseline]
+        statuses = [s.solver_status for s in optimized_solutions]
         if infeasible_profiles and not optimized_solutions:
             solver_status = "infeasible"
-        elif infeasible_profiles:
+        elif solver_failures and not optimized_solutions:
+            # mirror the solver failure upward (model_invalid / unknown):
+            # a solver breakdown is never reported as an agronomic infeasibility.
+            solver_status = solver_failures[0]["solver_status"]
+        elif infeasible_profiles or solver_failures:
+            # mixed outcome: some profiles solved (possibly only feasibly),
+            # some did not — the details block carries the specifics.
             solver_status = "feasible"
-        elif optimized_solutions:
+            warnings.append(
+                "Some strategy profiles did not reach a proven optimum "
+                f"({len(infeasible_profiles)} infeasible, {len(solver_failures)} solver "
+                "failure(s)); see infeasibility details."
+            )
+        elif optimized_solutions and all(st == "optimal" for st in statuses):
+            # 'optimal' is claimed only when EVERY optimized profile proved
+            # optimality (a time-limited FEASIBLE result is not optimality).
             solver_status = "optimal"
+        elif optimized_solutions:
+            solver_status = "feasible"
         else:
             solver_status = "unknown"
         run.solver_status = solver_status
         run.infeasibility_details = {
             "profiles": infeasible_profiles,
+            "solver_failures": solver_failures,
             "note": (
                 "Infeasible profiles are reported explicitly; no hard constraint was "
                 "relaxed to produce the other strategies."
@@ -681,6 +718,7 @@ def start_rotation_run(
                             "evaluable": c.evaluable,
                             "missing_evidence": list(c.missing_evidence),
                             "derivation": c.derivation,
+                            "source_refs": list(c.source_refs),
                         }
                         for c in sol.criteria
                     ],

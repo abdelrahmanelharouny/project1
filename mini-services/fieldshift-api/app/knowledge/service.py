@@ -63,10 +63,20 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
     ).all()
     citations = {s.id: s for s in source_rows}
 
+    # Deepening F-9: crop_rows are ordered deterministically so that a
+    # crop_code collision across active packs resolves to the LATEST
+    # (pack_version, pack_code) lexically — the previous unordered query made
+    # the winner depend on arbitrary DB row order (a reproducibility hazard).
     crop_rows = db.scalars(
         select(dbm.Crop)
         .options(joinedload(dbm.Crop.family))
+        .join(dbm.KnowledgePack, dbm.Crop.pack_id == dbm.KnowledgePack.id)
         .where(dbm.Crop.pack_id.in_(pack_ids), dbm.Crop.status == "active")
+        .order_by(
+            dbm.KnowledgePack.pack_version.asc(),
+            dbm.KnowledgePack.pack_code.asc(),
+            dbm.Crop.crop_code.asc(),
+        )
     ).all()
     family_rows = db.scalars(
         select(dbm.CropFamily).where(dbm.CropFamily.pack_id.in_(pack_ids))
@@ -111,8 +121,9 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
         pcode, pver = pack_meta[crop_row.pack_id]
         # Later pack versions win on crop_code collision (packs compose;
         # the collision is explicit because both pack_refs are recorded).
+        # Deterministic: the last row in (pack_version, pack_code) order wins.
         if crop_row.crop_code in crops:
-            continue
+            del crops[crop_row.crop_code]
         family = crop_row.family
         crops[crop_row.crop_code] = KnowledgeCrop(
             crop_code=crop_row.crop_code,
@@ -164,38 +175,36 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
             ),
         )
 
+    # Deepening F-05: anchors are collected first and the WaterParams object is
+    # built ONLY when all three FAO-56 anchors exist. A missing anchor used to
+    # be silently zero-filled (kc_initial=0.0), which would under-estimate
+    # ETc — missing evidence must leave the estimate unevaluated, never zero.
+    water_anchor_src: dict[str, tuple[Any, Any, Any, str]] = {}
     for wp in water_rows:
         owner = next((c for c in crop_rows if c.id == wp.crop_id), None)
         if owner is None or owner.crop_code not in crops:
             continue
-        crop = crops[owner.crop_code]
         if wp.crop_variety_id is not None:
             continue  # variety-level Kc not resolved in this slice
-        pcode, pver = pack_meta[wp.pack_id]
         src = citations[wp.source_id]
-        if crop.water_params is None:
-            crop.water_params = WaterParams(
-                kc_initial=wp.kc_value if wp.growth_stage == "initial" else 0.0,
-                kc_mid=wp.kc_value if wp.growth_stage == "mid" else 0.0,
-                kc_late=wp.kc_value if wp.growth_stage == "late" else 0.0,
-                evidence_class=wp.evidence_class,
+        first = water_anchor_src.setdefault(
+            owner.crop_code, (src, pack_meta[wp.pack_id], {}, wp.evidence_class)
+        )
+        first[2][wp.growth_stage] = float(wp.kc_value)
+    for crop_code, (src, (pcode, pver), anchors, ev_class) in water_anchor_src.items():
+        if {"initial", "mid", "late"} <= set(anchors):
+            crops[crop_code].water_params = WaterParams(
+                kc_initial=anchors["initial"],
+                kc_mid=anchors["mid"],
+                kc_late=anchors["late"],
+                evidence_class=ev_class,
                 source_key=src.source_key,
                 citation_text=src.citation_text,
                 pack_code=pcode,
                 pack_version=pver,
             )
-        else:
-            existing = crop.water_params
-            crop.water_params = WaterParams(  # replace frozen instance, filling anchors
-                kc_initial=wp.kc_value if wp.growth_stage == "initial" else existing.kc_initial,
-                kc_mid=wp.kc_value if wp.growth_stage == "mid" else existing.kc_mid,
-                kc_late=wp.kc_value if wp.growth_stage == "late" else existing.kc_late,
-                evidence_class=existing.evidence_class,
-                source_key=existing.source_key,
-                citation_text=existing.citation_text,
-                pack_code=existing.pack_code,
-                pack_version=existing.pack_version,
-            )
+        # else: leave water_params None — the water dimension stays honestly
+        # unevaluated for this crop (never reconstructed from zeros).
 
     rules: list[RotationRuleData] = []
     confirmed = 0

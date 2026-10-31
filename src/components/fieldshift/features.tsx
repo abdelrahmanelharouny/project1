@@ -414,7 +414,14 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
             <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Loading values…
           </div>
         ) : valuesQuery.data && valuesQuery.data.items.length > 0 ? (
-          <div className="max-h-96 overflow-y-auto rounded-lg border border-stone-200">
+          <div className="space-y-1">
+            {valuesQuery.data.total > valuesQuery.data.items.length ? (
+              <p className="text-[11px] text-stone-500">
+                Showing the first {valuesQuery.data.items.length} of {valuesQuery.data.total}{' '}
+                values — narrow the level or window to see everything.
+              </p>
+            ) : null}
+            <div className="max-h-96 overflow-y-auto rounded-lg border border-stone-200">
             <Table>
               <TableHeader className="sticky top-0 bg-white">
                 <TableRow>
@@ -445,7 +452,7 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs text-stone-500">
-                      {v.provenance.observation_count ?? v.provenance.inputs?.observation_count ?? 0} obs
+                      {v.provenance.observation_count ?? v.provenance.inputs?.observation_count ?? '—'} obs
                       {v.provenance.baseline
                         ? ` · baseline ${v.provenance.baseline.n_years}y`
                         : ''}
@@ -454,6 +461,7 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
                 ))}
               </TableBody>
             </Table>
+            </div>
           </div>
         ) : (
           <p className="rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">

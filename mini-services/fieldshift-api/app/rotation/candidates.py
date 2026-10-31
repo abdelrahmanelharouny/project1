@@ -135,18 +135,30 @@ def estimate_water_requirement_mm(
         return wp.kc_mid + t * (wp.kc_late - wp.kc_mid)
 
     # Monthly ET0 totals; each month assumed uniform per day (documented).
+    # Deepening F-07: a month of the season without ET0 evidence makes the
+    # whole estimate unevaluable — dropping the month would UNDER-report the
+    # requirement (a silent partial estimate), and partial compliance must
+    # never be labelled as a full estimate.
     et0_by_month = {(y, m): v for y, m, v in evidence.monthly_et0}
-    total = 0.0
+    season_months: list[tuple[int, int]] = []
     y, m = season.start_date.year, season.start_date.month
     while (y, m) <= (season.end_date.year, season.end_date.month):
-        et0_month = et0_by_month.get((y, m))
-        if et0_month is None:
-            missing.append(f"ET0 missing for {y:04d}-{m:02d} — month excluded from estimate")
-            if m == 12:
-                y, m = y + 1, 1
-            else:
-                m += 1
-            continue
+        season_months.append((y, m))
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+    absent = [(y, m) for y, m in season_months if (y, m) not in et0_by_month]
+    if absent:
+        missing.extend(
+            f"ET0 missing for {y:04d}-{m:02d} — the screening estimate is refused "
+            "rather than under-reported (no month is silently dropped)"
+            for y, m in absent
+        )
+        return None, missing
+    total = 0.0
+    for y, m in season_months:
+        et0_month = et0_by_month[(y, m)]
         if y == season.start_date.year and m == season.start_date.month:
             month_start = season.start_date
         else:
@@ -170,10 +182,6 @@ def estimate_water_requirement_mm(
             day_index = (d - season.start_date).days
             total += kc_on_day(day_index) * et0_daily
             d = date.fromordinal(d.toordinal() + 1)
-        if m == 12:
-            y, m = y + 1, 1
-        else:
-            m += 1
 
     assumptions = [
         "Sowing assumed at the planning-season start (no farmer sowing date supplied).",

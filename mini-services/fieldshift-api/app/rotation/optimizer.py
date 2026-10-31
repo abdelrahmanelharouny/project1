@@ -89,13 +89,24 @@ STRATEGY_DESCRIPTIONS: dict[str, str] = {
 
 
 class InfeasibleResult:
+    """No usable assignment from one profile.
+
+    `status` distinguishes the CP-SAT outcomes that produce no solution
+    (deepening F-4, Master solver-status semantics): 'infeasible' means the
+    CONSTRAINTS are contradictory (conflict identification applies);
+    'model_invalid' means the model itself is malformed (a reporting bug, not
+    an agronomic statement); 'unknown' means the solver gave up (e.g. time
+    limit) without proving infeasibility. Only 'infeasible' may be reported
+    as an infeasible profile — the others are solver failures."""
+
     def __init__(
         self,
         conflicts: list[dict[str, Any]],
         *,
         notes: list[str] | None = None,
+        status: str = "infeasible",
     ) -> None:
-        self.status = "infeasible"
+        self.status = status
         self.conflicts = conflicts
         self.notes = notes or []
 
@@ -292,10 +303,19 @@ def optimize_strategy(
 
     history_codes = [h.get("crop_code") for h in problem.farm.history if h.get("crop_code")]
 
+    # Deepening F-06: the pairwise lookback is derived from the deepest
+    # confirmed rule (a rule with min_break_seasons=k binds when i - j <= k,
+    # so j must reach back k seasons). The old fixed window of 4 silently
+    # under-enforced rules with k >= 5.
+    max_break = max(
+        (r.min_break_seasons for r in knowledge.rules if r.is_hard_enforceable),
+        default=0,
+    )
+
     # confirmed rotation-break rules: planned-planned pairs
     for i in range(len(seasons)):
         for code in admissible[i]:
-            for j in range(max(0, i - 4), i):
+            for j in range(max(0, i - max_break), i):
                 for pred in admissible[j]:
                     rules = rules_between(
                         knowledge, pred, code, problem.farm.country_code,
@@ -318,7 +338,8 @@ def optimize_strategy(
     # history boundary: last history crop occupies virtual season -1
     last_hist = history_codes[-1] if history_codes else None
     if last_hist is not None:
-        for i in range(min(len(seasons), 4)):
+        # binds when (i + 1) <= k, i.e. i <= k - 1
+        for i in range(min(len(seasons), max_break)):
             for code in admissible[i]:
                 rules = rules_between(
                     knowledge, last_hist, code, problem.farm.country_code,
@@ -432,14 +453,28 @@ def optimize_strategy(
             })
         return InfeasibleResult(conflicts)
 
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+    if status == cp_model.MODEL_INVALID:
         return InfeasibleResult(
             conflicts=[{
-                "constraint": "solver",
-                "detail": f"Solver ended with status {solver.StatusName(status)} — no "
-                "solution reported; nothing is fabricated.",
+                "constraint": "solver_model_invalid",
+                "detail": "CP-SAT reported MODEL_INVALID — the model is malformed and "
+                "nothing can be concluded about the constraints; no solution is "
+                "fabricated.",
             }],
             notes=[f"wall time {solver.WallTime():.3f}s"],
+            status="model_invalid",
+        )
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        # UNKNOWN (or any other non-solution status): the solver did not prove
+        # infeasibility — reporting it as 'infeasible' would be a false claim.
+        return InfeasibleResult(
+            conflicts=[{
+                "constraint": "solver_no_solution",
+                "detail": f"Solver ended with status {solver.StatusName(status)} — no "
+                "solution reported and infeasibility NOT proven; nothing is fabricated.",
+            }],
+            notes=[f"wall time {solver.WallTime():.3f}s"],
+            status="unknown",
         )
 
     assignment: list[tuple[str, str | None]] = []

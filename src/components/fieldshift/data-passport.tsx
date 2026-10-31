@@ -46,11 +46,15 @@ export function DataPassport() {
 
   const products = useMemo(() => {
     if (!passportQuery.data) return []
+    // Deepening F-01: identity includes the synthetic flag — a product that
+    // exists in both a synthetic and a real variant gets TWO cards, never a
+    // merged one, and the badge is driven by the flag instead of assumed.
     const seen = new Map<string, PassportDatasetProduct>()
     for (const variable of passportQuery.data.variables) {
-      if (variable.dataset_product && !seen.has(variable.dataset_product.product_code)) {
-        seen.set(variable.dataset_product.product_code, variable.dataset_product)
-      }
+      const product = variable.dataset_product
+      if (!product) continue
+      const key = `${product.provider_code}|${product.product_code}|${product.product_version}|${product.is_synthetic ? 'synthetic' : 'real'}`
+      if (!seen.has(key)) seen.set(key, product)
     }
     return Array.from(seen.values())
   }, [passportQuery.data])
@@ -176,7 +180,7 @@ export function DataPassport() {
                       <p>
                         Freshness:{' '}
                         <strong className="font-medium text-stone-800">
-                          {variable.freshness_days === null ? 'unknown' : `${variable.freshness_days} days`}
+                          {variable.freshness_days == null ? 'unknown' : `${variable.freshness_days} days`}
                         </strong>
                       </p>
                       <p>
@@ -324,7 +328,7 @@ export function DataPassport() {
                       <Badge variant="outline" className="border-stone-300 text-[10px] font-normal text-stone-600">
                         {product.license_name}
                       </Badge>
-                      <SyntheticBadge />
+                      {product.is_synthetic ? <SyntheticBadge /> : null}
                     </p>
                     <blockquote className="border-l-2 border-emerald-600 pl-3 text-stone-700" cite={product.documentation_url}>
                       {product.attribution_text}

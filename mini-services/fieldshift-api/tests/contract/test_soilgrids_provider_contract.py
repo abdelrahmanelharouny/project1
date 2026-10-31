@@ -171,9 +171,17 @@ class TestSoilGridsContract:
         obs = result.observations[0]
         # raw interval 80..160 dg/kg -> 8..16 g/kg -> halfwidth 4.0
         assert obs.uncertainty_value == pytest.approx(4.0, abs=1e-4)
-        assert obs.uncertainty_type == "prediction_interval_90_halfwidth"
+        # Deepening F-08: the value is the half-width of the MEAN of per-pixel
+        # Q0.05..Q0.95 ranges — the honest label must not claim a formal
+        # field-level 90% prediction interval.
+        assert (
+            obs.uncertainty_type
+            == "mean_of_pixel_q05_q95_halfwidth_not_a_field_level_pi"
+        )
+        assert "NOT a formal field-level" in obs.metadata["uncertainty_semantics"]
         # quantile fractions are 0.05/0.95 (audit fix), not 0.005/0.095
         assert obs.metadata["quantiles_used"] == {"Q0.05": 0.05, "Q0.95": 0.95}
+        assert obs.processing_version == "soilgrids-wcs-normalizer-v3"
 
     def test_ph_conversion_divides_by_ten(self, provider):
         result = provider.fetch_observations(

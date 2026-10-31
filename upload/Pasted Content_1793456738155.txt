@@ -1,0 +1,1098 @@
+# FIELDSHIFT — SCIENTIFIC & TECHNICAL DEEPENING PROGRAM
+## Comprehensive M1–M5 Audit, Knowledge Enrichment, Mathematical Validation & Engineering Hardening
+
+**Project:** FieldShift — Global Agricultural Decision Intelligence Platform
+
+**Phase:** Pre-M6 Scientific and Technical Deepening
+
+**Scope:** Existing Milestones M1, M2, M3, M4, and M5
+
+**Execution Mode:** Repository-first, evidence-driven, scientifically grounded, implementation-oriented.
+
+---
+
+# 1. MISSION AND STRATEGIC DIRECTIVE
+
+We are deliberately pausing all roadmap expansion.
+
+Do NOT proceed to M6 or start implementing new major product modules.
+
+The repository already contains a substantial implementation covering:
+
+- Application and database foundations.
+- Geospatial field management.
+- Environmental data integrations.
+- Open-Meteo ERA5 / ERA5-Land.
+- CHIRPS v3 import and extraction.
+- SoilGrids WCS integration.
+- Farmer CSV imports.
+- Data provenance and data-quality tracking.
+- A versioned environmental feature catalog.
+- Temporal aggregation and feature runs.
+- Agricultural knowledge packs.
+- Crop candidate generation.
+- Constraint-based crop rotation optimization.
+- Multi-objective evaluation.
+- Explainability and rotation interfaces.
+
+The previously reported verification baseline is 314 passing tests, with M5 browser E2E verification.
+
+These figures are historical starting references, NOT proof of the current repository state.
+
+Your task is to inspect and independently verify the actual implementation, then deepen its scientific, agricultural, mathematical, geospatial, data-engineering, and software-engineering foundations.
+
+**The objective is to increase the intellectual and technical depth of the existing system before expanding its functionality.**
+
+Do not rewrite working components merely for architectural preference.
+
+Do not add superficial features.
+
+Do not invent agricultural values, environmental thresholds, scientific references, or confidence scores.
+
+Every substantive improvement must be supported by an explicit technical or scientific rationale.
+
+# 2. EXECUTION PHILOSOPHY
+
+Apply the following principles throughout the work.
+
+## 2.1 Evidence over assumptions
+
+Every scientific claim, formula, crop property, and decision rule must have identifiable evidence.
+
+Distinguish:
+
+- Direct field measurement.
+- Laboratory measurement.
+- Farmer-reported information.
+- Satellite-derived estimate.
+- Climate reanalysis.
+- Statistical model prediction.
+- Published reference value.
+- Expert-validated local rule.
+- Synthetic testing data.
+
+These evidence types must never be silently treated as interchangeable.
+
+## 2.2 Scientific accuracy over apparent completeness
+
+A missing value is preferable to a fabricated agricultural recommendation.
+
+A system that correctly reports insufficient evidence is better than a system that always produces a confident-looking answer.
+
+## 2.3 Reproducibility
+
+Every feature calculation, candidate assessment, optimization run, and comparison must be reproducible using:
+
+- Input data snapshot.
+- Data source and product versions.
+- Knowledge pack version.
+- Feature specification version.
+- Algorithm version.
+- Configuration.
+- Relevant calculation assumptions.
+
+## 2.4 Global architecture, locally validated decisions
+
+Global software support does not imply universal agronomic validity.
+
+Every regional recommendation must be supported by locally applicable crop knowledge, calendars, environmental evidence, and relevant constraints.
+
+## 2.5 Implementation discipline
+
+Inspect first, document findings, define corrections, then implement incrementally.
+
+Preserve existing APIs and data wherever possible.
+
+Introduce additive migrations and explicit version changes for scientific or algorithmic changes.
+
+Do not silently change the meaning of existing features or scores.
+
+# 3. PHASE A — AS-BUILT REPOSITORY AND ARCHITECTURE AUDIT
+
+Inspect the complete repository before modifying it.
+
+Review:
+
+- Backend modules.
+- Frontend modules.
+- Database schema and all migrations.
+- ORM relationships.
+- Pydantic contracts.
+- Data provider interfaces.
+- Data ingestion and normalization.
+- Processing pipelines.
+- Feature catalog.
+- Agricultural knowledge models.
+- Crop candidate generation.
+- OR-Tools implementation.
+- Scenario evaluation.
+- Provenance implementation.
+- Offline synchronization.
+- Authentication and authorization.
+- Existing tests.
+- Documentation.
+- ADRs.
+- Deployment configuration.
+
+Produce an as-built architecture diagram reflecting actual code rather than the intended architecture alone.
+
+For each major module, document:
+
+1. Its responsibility.
+2. Inputs and outputs.
+3. Dependencies.
+4. Database interactions.
+5. Scientific assumptions.
+6. Known limitations.
+7. Existing test coverage.
+8. Architectural coupling.
+9. Potential failure modes.
+
+Identify duplicated logic, inconsistent schemas, implicit assumptions, and business logic leaking across boundaries.
+
+Do not assume that documentation matches implementation.
+
+# 4. PHASE B — ENVIRONMENTAL DATA SCIENCE AUDIT
+
+This phase reviews the scientific semantics and limitations of all existing environmental providers.
+
+## 4.1 Open-Meteo / ERA5 / ERA5-Land
+
+Verify:
+
+- Exact product identity.
+- Product-specific variable availability.
+- Native spatial and temporal resolution.
+- Units and conversion formulas.
+- Timestamp conventions.
+- Time-zone behavior.
+- Reanalysis limitations.
+- Historical data coverage.
+- Missing-value semantics.
+- Source attribution.
+- Product-version provenance.
+
+Explicitly distinguish ERA5 from ERA5-Land.
+
+Do not treat reanalysis as direct local station measurement.
+
+Investigate whether environmental data used in different features are derived from related upstream sources, and document dependencies.
+
+Verify that source selection prevents accidental mixing of incompatible products in one feature calculation.
+
+## 4.2 CHIRPS v3
+
+Audit:
+
+- Preliminary versus final products.
+- Pentad, daily, dekad, monthly, and annual products.
+- Temporal accumulation semantics.
+- Date boundaries.
+- Variable-length end-of-month pentads.
+- Missing and NoData values.
+- Spatial support.
+- Polygon masking.
+- Small-field extraction.
+- Native-resolution limitations.
+- Product lineage.
+
+A particularly important issue:
+
+CHIRPS v3 daily products may be derived by distributing pentad rainfall totals using ERA5-based or IMERG-based daily information.
+
+Document the dependency structure.
+
+Do not treat CHIRPS RNL and ERA5 as fully independent evidence when comparing their daily temporal patterns.
+
+Do not double-count overlapping precipitation products.
+
+Validate pentad-to-month and pentad-to-season aggregation independently.
+
+## 4.3 SoilGrids
+
+Review:
+
+- Actual WCS request and response structure.
+- Coverage identifiers.
+- Variable encoding.
+- Units.
+- Depth intervals.
+- Quantile interpretation.
+- Mean versus median.
+- Spatial masking.
+- Partial-pixel inclusion.
+- Sub-grid fallback.
+- NoData handling.
+- Field-level representativeness.
+
+Distinguish:
+
+- Soil property concentration.
+- Soil property stock.
+- Volumetric measurements.
+- Gravimetric measurements.
+- Prediction uncertainty.
+- Measurement uncertainty.
+
+Specifically verify Soil Organic Carbon:
+
+A concentration value in g/kg is not an organic-carbon stock in t/ha.
+
+Calculating stocks may require soil depth, bulk density, coarse fragments, and appropriate spatial assumptions.
+
+Do not derive a root-zone profile from a single 0–5 cm layer.
+
+### Spatial aggregation requirements
+
+Investigate whether the current field extraction method should support fractional pixel-area weighting instead of relying exclusively on all-touched or center-based inclusion.
+
+Preserve the native resolution of every input.
+
+If a field is smaller than a source grid cell, explicitly document that the extracted value may represent the surrounding grid cell rather than a true field-specific measurement.
+
+For SoilGrids prediction quantiles, investigate appropriate uncertainty propagation when aggregating several pixels to a field.
+
+Do not simply average per-pixel lower and upper quantiles and automatically label the results as a formal 90% field-level prediction interval.
+
+## 4.4 Farmer-provided observations
+
+Review:
+
+- CSV schema.
+- Units.
+- Sampling depth.
+- Sampling method.
+- Date semantics.
+- Missing observations.
+- Duplicate detection.
+- File checksums.
+- Row-level provenance.
+- Idempotency.
+- Farmer-reported versus independently measured evidence.
+
+Preserve the distinction between reported, measured, estimated, and synthetic information.
+
+# 5. PHASE C — CLIMATE SCIENCE AND M4 FEATURE DEEPENING
+
+Audit every existing feature definition, calculation, aggregation method, and quality policy.
+
+Create a complete feature review table containing:
+
+- Feature code.
+- Scientific definition.
+- Mathematical formula.
+- Input variables.
+- Unit.
+- Required temporal resolution.
+- Required spatial resolution.
+- Minimum coverage.
+- Missing-data behavior.
+- Baseline methodology.
+- Uncertainty methodology.
+- Known limitations.
+- Reference.
+- Test cases.
+- Current implementation status.
+
+Review all 26 existing features individually.
+
+Do not replace a feature merely because an alternative metric exists.
+
+## 5.1 Rainfall analytics
+
+Deepen:
+
+- Seasonal rainfall totals.
+- Rainfall anomalies.
+- Rainfall variability.
+- Dry-spell detection.
+- Consecutive dry periods.
+- Extreme precipitation.
+- Rainfall concentration.
+- Seasonal onset and cessation.
+- Temporal distribution of precipitation.
+
+Evaluate alternative drought indicators where technically appropriate:
+
+- SPI.
+- SPEI.
+- Standardized soil-moisture anomalies.
+- Other suitable agricultural drought indicators.
+
+For each candidate indicator, specify required inputs, reference period, temporal scale, assumptions, and limitations.
+
+## 5.2 Temperature and heat analytics
+
+Review:
+
+- Mean daily temperature.
+- Maximum and minimum temperatures.
+- Frost days.
+- Tropical nights.
+- Summer days.
+- Generic hot-day thresholds.
+- Consecutive heat periods.
+- Temperature anomalies.
+- Seasonal temperature variation.
+
+Distinguish internationally defined climate indices from user-defined or application-specific thresholds.
+
+Do not apply one generic hot-temperature threshold to every crop.
+
+Crop-specific heat-stress thresholds must come from a relevant, sourced crop knowledge record and be applicable to the relevant crop stage and region.
+
+## 5.3 Climate normal methodology
+
+Review the existing five-year minimum requirement for anomaly calculations.
+
+Five years may support a limited exploratory historical reference, but it does not constitute a WMO climatological standard normal.
+
+Support explicit baseline classifications, such as:
+
+- Standard climatological normal.
+- Historical reference baseline.
+- Short-record exploratory baseline.
+- Insufficient baseline.
+
+Do not automatically label all five-year baselines as climatology.
+
+Support appropriate reference-period configuration and record the reference period in every generated result.
+
+Investigate how missing years, incomplete seasons, leap days, and changing observation coverage affect baselines.
+
+## 5.4 Seasonal and temporal aggregation
+
+Audit:
+
+- UTC versus field-local time.
+- Daily bucket assignment.
+- Monthly aggregation.
+- Seasonal aggregation.
+- Crop-season boundaries.
+- Cross-year seasons.
+- Southern versus Northern Hemisphere handling.
+- Tropical and equatorial seasonality.
+- Missing intervals.
+- Offset invariance.
+
+Do not use hemisphere alone as a substitute for a locally applicable crop calendar.
+
+A crop season may cross calendar years or follow rainfall rather than the traditional four-season calendar.
+
+## 5.5 Derived climate indicators
+
+Review the scientific meaning of:
+
+- P - ET0.
+- Soil Moisture Anomaly.
+- Rainfall Anomaly.
+- Dry Spell Length.
+- Heat Stress Days.
+- Seasonal Coefficient of Variation.
+
+For example, P - ET0 may be an indicative climatic balance, but it must not be labeled as a crop-specific irrigation requirement.
+
+Preserve distinctions between:
+
+- Meteorological drought.
+- Agricultural drought.
+- Hydrological drought.
+- Soil-water deficit.
+- Crop physiological water stress.
+
+# 6. PHASE D — DEEP AGRICULTURAL KNOWLEDGE ENGINEERING
+
+This is one of the highest-priority workstreams.
+
+The existing crop knowledge foundation must evolve from a basic property catalog into a structured, traceable agricultural knowledge system.
+
+Do not bulk-import large amounts of unverified crop information.
+
+First define the scientific knowledge model.
+
+## 6.1 Crop taxonomy
+
+Support:
+
+- Scientific names.
+- Common names.
+- Synonyms.
+- Botanical families.
+- Genus and species.
+- Cultivars and varieties when data exists.
+- Crop lifecycle.
+- Growth habit.
+- Crop use.
+- Commercial and cover-crop classification.
+
+Avoid merging crop varieties that have materially different growth duration, climate response, or water requirements.
+
+## 6.2 Crop phenology and development
+
+Expand crop knowledge to include:
+
+- Germination.
+- Emergence.
+- Vegetative development.
+- Flowering.
+- Pollination.
+- Grain or fruit formation.
+- Maturity.
+- Harvest.
+
+Where supported, represent:
+
+- Growth-stage durations.
+- Growing Degree Days.
+- Base temperature.
+- Upper temperature.
+- Photoperiod response.
+- Vernalization requirements.
+- Development-rate sensitivity.
+- Phenological uncertainty.
+
+Do not assume one universal duration for every cultivar or region.
+
+## 6.3 Crop water physiology
+
+Investigate:
+
+- Crop coefficient Kc.
+- Initial, development, mid-season, and late-season coefficients.
+- Single and dual crop coefficient methodologies.
+- Growth-stage water sensitivity.
+- Root-zone water extraction.
+- Crop rooting depth development.
+- Crop water productivity.
+
+Use FAO-56 as a primary methodological reference where applicable.
+
+Core FAO-56 relationship:
+
+ETc = Kc × ET0
+
+Reference:
+https://www.fao.org/4/x0490e/x0490e0a.htm
+
+Review the assumptions behind standard Kc values, local climatic adjustments, wetting frequency, ground cover, crop height, and growth stage.
+
+Do not fabricate missing Kc values.
+
+## 6.4 Nitrogen fixation and nutrient cycling
+
+Deepen the knowledge model for legume crops.
+
+Distinguish:
+
+- Biological nitrogen fixation.
+- Total crop nitrogen uptake.
+- Nitrogen contained in biomass.
+- Grain nitrogen export.
+- Residue retention.
+- Residue removal.
+- Net nitrogen contribution.
+- Nitrogen availability to subsequent crops.
+- Mineralization and immobilization.
+
+A legume crop must not automatically receive a fixed positive nitrogen contribution merely because it belongs to a nitrogen-fixing family.
+
+Record the conditions and assumptions supporting any estimate.
+
+## 6.5 Soil compatibility and crop tolerance
+
+Support evidence-backed information on:
+
+- Soil pH response.
+- Salinity tolerance.
+- Soil texture preferences.
+- Drainage requirements.
+- Compaction sensitivity.
+- Root development.
+- Waterlogging sensitivity.
+- Water-holding characteristics.
+- Nutrient requirements.
+
+Keep species, cultivar, growth-stage, soil, and region applicability explicit.
+
+## 6.6 Crop residues and cover crops
+
+Develop deeper knowledge models for:
+
+- Crop residue quantity.
+- Residue carbon-to-nitrogen ratio.
+- Residue decomposition.
+- Biomass incorporation.
+- Residue removal.
+- Cover crop biomass.
+- Soil cover duration.
+- Water competition.
+- Nutrient scavenging.
+- Erosion protection.
+
+Do not assume a cover crop always improves the following cash crop.
+
+Consider residual soil water and the risk of competition, particularly in semi-arid environments.
+
+## 6.7 Pest and disease knowledge
+
+Replace broad assumptions with evidence-based relationships between:
+
+- Host crop.
+- Pest or pathogen.
+- Crop species or cultivar.
+- Regional occurrence.
+- Survival mechanism.
+- Host range.
+- Alternative hosts.
+- Rotation-break duration.
+- Management practices.
+- Evidence reference.
+
+A crop-family relationship alone must not generate a universal rotation restriction.
+
+## 6.8 Knowledge provenance
+
+Every trait and rule should support:
+
+- Scientific reference.
+- Author or institution.
+- Publication year.
+- Edition or dataset version.
+- DOI or official URL.
+- Relevant page, chapter, table, or formula.
+- Units.
+- Regional applicability.
+- Cultivar applicability.
+- Environmental assumptions.
+- Evidence classification.
+- Confidence or uncertainty metadata.
+- Review status.
+- License and attribution.
+
+Distinguish:
+
+- Published reference.
+- Derived calculation.
+- Regional expert-reviewed rule.
+- Locally validated rule.
+- Farmer-reported observation.
+
+Keep unverified regional knowledge unverified.
+
+# 7. PHASE E — SOIL SCIENCE DEEPENING
+
+Review whether the current knowledge model represents soil conditions sufficiently.
+
+Develop a scientific soil ontology covering:
+
+## Physical properties
+
+- Texture.
+- Sand, silt, clay.
+- Bulk density.
+- Porosity.
+- Compaction.
+- Soil structure.
+- Infiltration.
+- Available water capacity.
+
+## Chemical properties
+
+- pH.
+- Electrical conductivity.
+- Organic carbon.
+- Total nitrogen.
+- Available phosphorus.
+- Exchangeable potassium.
+- Cation exchange capacity.
+- Salinity and sodicity where data exists.
+
+## Biological properties
+
+- Microbial activity.
+- Biological nitrogen fixation.
+- Soil organic matter decomposition.
+- Soil biodiversity.
+- Biological indicators where measured.
+
+## Hydrological properties
+
+- Field capacity.
+- Permanent wilting point.
+- Saturated hydraulic conductivity.
+- Infiltration.
+- Root-zone moisture.
+- Deep drainage.
+
+Review the different soil analytical methods.
+
+Do not silently compare pH measured using different laboratory methods as though they were identical.
+
+Distinguish EC of a saturated paste extract from other conductivity measurement procedures.
+
+Distinguish soil organic carbon concentration from soil organic carbon stocks.
+
+Evaluate soil profile depth and measurement comparability.
+
+If soil properties are unavailable, explicitly identify which indicators cannot be evaluated.
+
+# 8. PHASE F — MATHEMATICAL AND OPTIMIZATION AUDIT
+
+Audit the actual crop-rotation CP-SAT model.
+
+## 8.1 Decision model
+
+Document:
+
+- Decision variables.
+- Domains.
+- Seasonal assignment model.
+- Crop eligibility.
+- Crop sequencing.
+- Planning horizon.
+- Objective terms.
+- Hard constraints.
+- Soft constraints.
+- Integer scaling.
+- Solver configuration.
+
+## 8.2 Constraint verification
+
+Verify that the model correctly handles:
+
+- Growing-window feasibility.
+- Crop duration and overlapping seasons.
+- Water allocation.
+- Crop-history dependencies.
+- Evidence-backed rotation breaks.
+- Equipment restrictions.
+- Market restrictions.
+- Missing knowledge.
+- Regional validity.
+
+Constraints must support explicit statuses:
+
+- Satisfied.
+- Violated.
+- Not evaluated.
+- Not configured.
+- Not applicable.
+
+An absent rule must not become a satisfied biological constraint.
+
+## 8.3 Mathematical treatment of missing information
+
+Missing economics must not be treated as zero profit.
+
+Unknown water allocations must not mean unlimited water.
+
+Unavailable crop traits must not become zero-valued traits.
+
+Incomplete baselines must not be ranked as equivalent to fully evaluated candidates.
+
+## 8.4 Pareto optimization
+
+Review whether the implementation truly constructs and validates a non-dominated set.
+
+Test:
+
+- Pairwise dominance.
+- Duplicate solutions.
+- Weighted objective behavior.
+- Integer scaling.
+- Trade-off visibility.
+- Missing objectives.
+- Solutions with incompatible evidence coverage.
+
+If the algorithm uses weighted-sum optimization, document its mathematical limitations and whether it can miss non-convex regions of a Pareto frontier.
+
+Use a suitable multi-objective strategy, such as repeated epsilon-constraint optimization where appropriate.
+
+Do not claim that a single solver status proves that an entire Pareto frontier is optimal.
+
+## 8.5 Solver status semantics
+
+Correctly distinguish:
+
+- OPTIMAL.
+- FEASIBLE.
+- INFEASIBLE.
+- MODEL_INVALID.
+- UNKNOWN.
+
+A feasible solution is not proof of optimality.
+
+Where possible, improve constraint-conflict explanations using solver-supported assumptions, and document the limitations of the returned conflict set.
+
+Reference:
+https://developers.google.com/optimization/cp/cp_solver
+
+## 8.6 Economic evaluation
+
+Audit the current economic scoring methodology.
+
+Separate:
+
+- Gross revenue.
+- Variable costs.
+- Fixed costs where relevant.
+- Gross margin.
+- Net farm income.
+- Market price.
+- Yield estimate.
+- Yield measurement.
+- Currency.
+- Year of valuation.
+- Inflation and price comparability.
+- Harvest and storage losses where supported.
+
+Do not advertise an economically optimized crop rotation until the required economic data and methodology exist.
+
+# 9. PHASE G — GLOBAL GEOSPATIAL AND TEMPORAL ENGINEERING
+
+Review the global applicability of the current spatial and calendar architecture.
+
+Check:
+
+- Coordinate reference systems.
+- Spatial indexing.
+- Equal-area calculations.
+- Field area accuracy.
+- Raster/vector intersection.
+- Antimeridian handling.
+- Multipolygon handling.
+- High-latitude geometry.
+- Grid-cell area weighting.
+- Raster edge effects.
+- Sub-pixel field limitations.
+- Missing spatial coverage.
+- Regional time zones.
+- Crop-season calendars.
+
+Use appropriate equal-area methods when comparing field areas or calculating area-weighted environmental features.
+
+Preserve native spatial resolution and source geometry.
+
+A Global system must not claim field-level precision that the underlying raster dataset cannot support.
+
+Agricultural calendars must support actual locally defined seasons rather than relying only on hemisphere-based seasonal assumptions.
+
+# 10. PHASE H — SCIENTIFIC BENCHMARKING AND TESTING
+
+The existing 314-test history is a baseline, not a substitute for independent scientific validation.
+
+Build a Scientific Benchmark Suite.
+
+## 10.1 Golden numerical tests
+
+For each important formula:
+
+- Define a documented reference case.
+- Calculate an independently verified expected result.
+- Compare implementation output.
+- Test unit conversions.
+- Test boundary conditions.
+- Test numerical tolerances.
+- Explain the source of the expected result.
+
+Where possible, use official worked examples or independently implemented reference calculations.
+
+## 10.2 Property-based tests
+
+Test mathematical properties, not only fixed examples.
+
+Examples:
+
+- Increasing effective rainfall under unchanged assumptions must not increase net irrigation demand.
+- Increasing available water allocation must not make a previously feasible strategy infeasible solely because of that change.
+- Invalid hard constraints must never be silently relaxed.
+- A dominated strategy must never appear as non-dominated.
+- Unit conversions must preserve physical quantities.
+- Identical input snapshots and configurations should reproduce identical deterministic outputs.
+
+These properties must be qualified by the assumptions of the underlying calculation.
+
+## 10.3 Metamorphic testing
+
+Test system behavior when:
+
+- Units change but physical quantities remain equivalent.
+- Polygon coordinates are transformed into another valid CRS.
+- Records are reordered.
+- Irrelevant observations are added.
+- Missing intervals are introduced.
+- Data products are switched.
+- Knowledge pack versions change.
+- Optimization weights change.
+
+## 10.4 Cross-component integration
+
+Validate that:
+
+- Provenance survives every processing stage.
+- Feature snapshots reference correct observations.
+- Knowledge versions are attached to evaluations.
+- Optimization runs preserve the correct feature snapshots.
+- Frontend labels match backend meanings.
+- Synthetic data never masquerades as measured evidence.
+- Tenant isolation remains enforced.
+
+## 10.5 Performance and operational validation
+
+Review:
+
+- Large field datasets.
+- Many years of observations.
+- Raster extraction memory usage.
+- Background job reliability.
+- Database query patterns.
+- Spatial index usage.
+- API pagination.
+- Retry behavior.
+- Provider health degradation.
+- Long-running optimization jobs.
+
+Do not introduce unnecessary infrastructure or distributed services without a demonstrated need.
+
+# 11. PHASE I — TRUST, EXPLAINABILITY AND USER-FACING SEMANTICS
+
+Review every user-facing status, score, warning, and explanation.
+
+Explicitly separate:
+
+1. Data completeness.
+2. Data quality.
+3. Evidence coverage.
+4. Measurement uncertainty.
+5. Model uncertainty.
+6. Agronomic validation status.
+7. Solver status.
+8. Recommendation feasibility.
+
+Do not compress them into a single confidence value.
+
+A user must be able to understand:
+
+- Which data was used.
+- What its original source was.
+- Its native resolution.
+- Which calculations were applied.
+- Which evidence was unavailable.
+- Why a candidate was excluded.
+- Which constraints remain unevaluated.
+- Why one strategy differs from another.
+- What requires local expert confirmation.
+
+Verify that Simple Mode remains understandable without hiding material scientific limitations.
+
+Expert Mode must expose technical details rather than merely adding decorative charts.
+
+# 12. REQUIRED SCIENTIFIC REFERENCE STARTING POINTS
+
+Use authoritative and primary sources wherever possible.
+
+These are mandatory starting references, not an exhaustive bibliography:
+
+### Climate and environmental data
+
+- ECMWF ERA5-Land:
+  https://www.ecmwf.int/en/era5-land
+
+- CHIRPS v3:
+  https://www.chc.ucsb.edu/data/chirps3
+
+- SoilGrids documentation:
+  https://docs.isric.org/globaldata/soilgrids/
+
+- SoilGrids variables, units, depths, and quantiles:
+  https://docs.isric.org/globaldata/soilgrids/SoilGrids_faqs_01.html
+
+- WMO Climatological Normals:
+  https://community.wmo.int/site/knowledge-hub/programmes-and-initiatives/climate-services/wmo-climatological-normals
+
+- ETCCDI / Copernicus Indices Dictionary:
+  https://surfobs.climate.copernicus.eu/userguidance/indicesdictionary.php
+
+### Agricultural and soil science
+
+- FAO-56 Crop Evapotranspiration:
+  https://www.fao.org/4/x0490e/x0490e00.htm
+
+- FAO Soil Organic Cover:
+  https://www.fao.org/conservation-agriculture/in-practice/soil-organic-cover/en/
+
+- FAO GAEZ:
+  https://www.fao.org/gaez/gaezv4/en
+
+### Optimization
+
+- Google OR-Tools CP-SAT:
+  https://developers.google.com/optimization/cp/cp_solver
+
+For every scientific reference used, record its exact relevance, publication/version, applicable formula or finding, and limitations.
+
+Where multiple credible sources disagree, document the disagreement instead of silently choosing one.
+
+Do not invent DOI identifiers, publication metadata, page references, or source claims.
+
+If a source cannot be verified, mark it as unverified.
+
+# 13. REQUIRED DELIVERABLES
+
+Produce and maintain the following documents:
+
+docs/deepening/
+    AS_BUILT_ARCHITECTURE.md
+    SCIENTIFIC_AUDIT.md
+    ENVIRONMENTAL_SOURCE_AUDIT.md
+    FEATURE_SCIENTIFIC_SPECIFICATIONS.md
+    AGRONOMIC_KNOWLEDGE_AUDIT.md
+    SOIL_SCIENCE_METHODOLOGY.md
+    CLIMATE_METHODOLOGY.md
+    ROTATION_MATHEMATICAL_SPECIFICATION.md
+    OPTIMIZATION_VALIDATION.md
+    UNCERTAINTY_AND_EVIDENCE_POLICY.md
+    GLOBAL_SPATIAL_AND_CALENDAR_AUDIT.md
+    SCIENTIFIC_BENCHMARKS.md
+    KNOWLEDGE_GAPS_AND_RESEARCH_BACKLOG.md
+    REMEDIATION_REPORT.md
+    DEEPENING_EXIT_REPORT.md
+
+Update where relevant:
+
+- README.md.
+- Architecture documentation.
+- Data dictionary.
+- Knowledge pack documentation.
+- Feature catalog.
+- TEST_MATRIX.md.
+- ADRs.
+- API contracts.
+
+# 14. FINDING CLASSIFICATION
+
+Every finding must include:
+
+- Finding ID.
+- Severity.
+- Affected component.
+- Existing behavior.
+- Expected scientific or technical behavior.
+- Evidence/reference.
+- Reproducible example.
+- Impact.
+- Recommended correction.
+- Required regression tests.
+- Implementation status.
+
+Use these severity levels:
+
+**Critical:** Can produce materially incorrect results, misleading recommendations, invalid constraints, data leakage, or incorrect physical quantities.
+
+**High:** Weakens scientific validity, reproducibility, core decision logic, or global applicability.
+
+**Medium:** Reduces reliability, interpretability, completeness, maintainability, or performance.
+
+**Low:** Documentation, usability, or non-blocking improvement.
+
+# 15. IMPLEMENTATION PROTOCOL
+
+Execute in controlled stages.
+
+### Stage 1 — Repository inspection
+
+Inspect the complete implementation and reproduce the existing test baseline.
+
+### Stage 2 — Audit and research
+
+Identify scientific, mathematical, geospatial, and architectural gaps.
+
+Do not make large code changes before producing the gap analysis.
+
+### Stage 3 — Prioritized remediation plan
+
+Group issues by severity and dependency.
+
+Identify which issues require:
+
+- Code changes.
+- Database migrations.
+- New scientific references.
+- Additional datasets.
+- Expert validation.
+- Documentation.
+- New benchmarks.
+
+### Stage 4 — Scientific and technical corrections
+
+Implement high-priority corrections incrementally.
+
+Preserve backward compatibility where possible.
+
+Use explicit version changes when formulas, thresholds, knowledge, or algorithm semantics change.
+
+Do not erase historical results. Preserve old version provenance.
+
+### Stage 5 — Knowledge enrichment
+
+Expand only knowledge that has credible, attributable evidence.
+
+Prioritize improving the depth and validity of existing crop profiles rather than maximizing the number of crop records.
+
+### Stage 6 — Benchmarking
+
+Run the independent scientific benchmark suite, regression tests, API contract tests, geospatial tests, optimizer tests, and E2E tests.
+
+### Stage 7 — Browser and product verification
+
+Verify that the user-facing experience represents scientific results, missing data, uncertainty, and validation status correctly.
+
+### Stage 8 — Final review
+
+Produce an updated audit report containing:
+
+- Original finding.
+- Correction.
+- Relevant files.
+- Added tests.
+- Test result.
+- Scientific reference.
+- Remaining limitation.
+- Final status.
+
+# 16. STRICT EXIT CRITERIA
+
+This program is not complete merely because all software tests pass.
+
+Do not advance to M6 until:
+
+1. All Critical findings are resolved.
+2. High-priority mathematical and scientific issues are resolved or explicitly blocked by unavailable external evidence.
+3. All 26 existing features have documented definitions and tested calculation semantics.
+4. All existing crop traits have traceable references or explicitly documented missing-evidence status.
+5. Every knowledge rule has appropriate applicability and validation metadata.
+6. Rotation constraints distinguish unknown, unevaluated, not configured, satisfied, and violated.
+7. Pareto calculations have independent dominance tests.
+8. Reproducibility has been demonstrated.
+9. Scientific benchmark cases have passed.
+10. Data provenance survives all existing processing and optimization paths.
+11. Frontend status and confidence language are scientifically honest.
+12. The full regression suite passes.
+13. Browser verification has been completed.
+14. Remaining limitations are documented and assigned to a future research or field-validation backlog.
+
+External agronomic validation must not be falsely marked complete merely because the software is technically correct.
+
+# 17. FINAL STRATEGIC RESTRICTION
+
+**Do not start M6, Water Intelligence, Soil Health Engine expansion, Climate Simulation expansion, or additional major product features during this deepening program.**
+
+Improve the scientific and technical foundations of M1–M5 first.
+
+We want FieldShift to become a system that can defend why it made a decision, not merely a system that can produce one.
+
+Work as a multidisciplinary scientific and engineering team.
+
+Inspect the existing code, verify the science, deepen the knowledge, correct the implementation, test the mathematics, and document what cannot yet be validated.
+
+The final result must be a substantially more rigorous FieldShift foundation, ready to support the next engineering roadmap with fewer scientific and architectural assumptions.

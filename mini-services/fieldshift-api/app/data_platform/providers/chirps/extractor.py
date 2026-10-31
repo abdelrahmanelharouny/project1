@@ -202,7 +202,55 @@ def extract_field_precipitation(
             details=[{"field": "valid_cells", "reason": f"0 of {total_cells} cells valid"}],
         )
 
-    mean_value = float(np.mean(valid_values)) * scale_factor + offset_factor
+    # Deepening F-13: fractional pixel-AREA weighting. Centre-inclusion gives
+    # a partially-covered cell the same weight as a fully-covered one, which
+    # biases small-field means on the ~5.6 km grid. Each selected cell now
+    # contributes in proportion to the field area it actually covers; weights
+    # are renormalized over VALID cells only (nodata stays excluded and the
+    # value is never biased by empty cells).
+    area_weights: np.ndarray | None = None
+    if total_cells > 1 and geom.is_valid:
+        from shapely.geometry import box as _box
+
+        touching = geometry_mask(
+            [json.loads(json.dumps(field_geometry_geojson))],
+            out_shape=band.shape,
+            transform=transform,
+            invert=True,
+            all_touched=True,
+        )
+        if int(touching.sum()) > 1:
+            weights_2d = np.zeros(band.shape, dtype=float)
+            rows_idx, cols_idx = np.nonzero(touching)
+            for r, c in zip(rows_idx.tolist(), cols_idx.tolist()):
+                x0, y0 = transform * (c, r)
+                x1, y1 = transform * (c + 1, r + 1)
+                cell = _box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+                inter = cell.intersection(geom)
+                if not inter.is_empty:
+                    weights_2d[r, c] = inter.area / cell.area
+            flat = weights_2d[in_field]
+            valid_flat = np.isfinite(
+                values.compressed() if np.ma.isMaskedArray(values) else np.asarray(values)
+            ) if False else None
+            # align weights with the valid-value ordering used above:
+            sel_weights = weights_2d[in_field]
+            if np.ma.isMaskedArray(values):
+                keep = ~np.ma.getmaskarray(values)
+                sel_weights = sel_weights[keep]
+                sel_weights = sel_weights[np.isfinite(np.asarray(values)[keep])]
+            else:
+                sel_weights = sel_weights[np.isfinite(np.asarray(values))]
+            if sel_weights.size == valid_count and sel_weights.sum() > 0:
+                area_weights = sel_weights
+
+    if area_weights is not None:
+        mean_value = float(np.sum(valid_values * area_weights) / np.sum(area_weights))
+        mean_method = "area_weighted_mean"
+    else:
+        mean_value = float(np.mean(valid_values))
+        mean_method = "unweighted_mean"
+    mean_value = mean_value * scale_factor + offset_factor
     coverage_ratio = valid_count / max(1, total_cells)
 
     flags: list[dict[str, Any]] = []
@@ -254,7 +302,12 @@ def extract_field_precipitation(
         "nodata_cells": nodata_count,
         "total_cells": total_cells,
         "valid_cell_ratio": round(coverage_ratio, 4),
-        "field_mean_method": "unweighted mean of valid cells intersecting the boundary",
+        "field_mean_method": (
+            "fractional pixel-area weighted mean of valid cells (deepening F-13)"
+            if area_weights is not None
+            else "unweighted mean of valid cells intersecting the boundary"
+        ),
+        "field_mean_weighting": mean_method,
         **raster_meta,
     }
 
@@ -277,7 +330,7 @@ def extract_field_precipitation(
                 uncertainty_type="unknown",
                 evidence_class=EvidenceClass.satellite_derived_estimate,
                 is_synthetic=False,
-                processing_version="chirps-extractor-v1",
+                processing_version="chirps-extractor-v2",
                 metadata=metadata,
                 quality_flags=flags,
             )

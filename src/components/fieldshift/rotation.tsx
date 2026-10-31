@@ -243,7 +243,7 @@ function CandidateRow({ assessment }: { assessment: CandidateAssessment }) {
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="truncate text-sm font-medium text-stone-900">{assessment.crop_code}</span>
           <CandidateStatusBadge status={assessment.status} />
-          {assessment.water_requirement_mm !== null && (
+          {assessment.water_requirement_mm != null && (
             <Badge variant="outline" className="border-sky-200 bg-sky-50 font-normal text-sky-800">
               ≈{fmt(assessment.water_requirement_mm, 0)} mm water
             </Badge>
@@ -390,9 +390,9 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
           </CardTitle>
           <div className="flex items-center gap-2 text-xs text-stone-500">
             {strategy.objective_value !== null && <span>objective {fmt(strategy.objective_value, 3)}</span>}
-            {strategy.evidence_coverage !== null && (
+            {strategy.evidence_coverage != null && (
               <Badge variant="outline" className="border-stone-300 font-normal">
-                evidence {Math.round(strategy.evidence_coverage * 100)}%
+                evidence-backed criteria {Math.round(strategy.evidence_coverage * 100)}%
               </Badge>
             )}
           </div>
@@ -850,8 +850,8 @@ export function Rotation() {
               <CardTitle className="text-base">Planning seasons</CardTitle>
               <CardDescription>
                 Up to four seasons per run. Climate evidence comes from the field&apos;s
-                latest feature run as a month-of-year climatology — a historical proxy,
-                never a forecast.
+                latest feature run as a month-of-year baseline — a short-record
+                historical proxy (not a WMO climatological normal, never a forecast).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">

@@ -193,6 +193,10 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
                 "license_name": r.license_name,
                 "attribution_text": r.attribution_text,
                 "documentation_url": r.documentation_url,
+                # Honesty (deepening F-01): the synthetic flag travels with the
+                # product identity so the UI can label rows instead of assuming.
+                "is_synthetic": bool(r.is_synthetic),
+                "evidence_class": evidence_class,
             },
             "warnings": [],
         }

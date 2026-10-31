@@ -434,13 +434,16 @@ export function Observations() {
     [items, effectiveTableVariable],
   )
 
+  // Deepening F-17: charts must never silently blend synthetic fixtures with
+  // real observations — each series carries a synthetic flag and the chart
+  // states the mix explicitly.
   const tempSeries = useMemo(
     () =>
       items
         .filter((o) => o.variable_code === 'air_temperature_mean' && o.value !== null)
         .slice()
         .sort((a, b) => (a.observed_at < b.observed_at ? -1 : 1))
-        .map((o) => ({ date: o.observed_at.slice(0, 10), value: o.value })),
+        .map((o) => ({ date: o.observed_at.slice(0, 10), value: o.value, synthetic: o.is_synthetic })),
     [items],
   )
   const precipSeries = useMemo(
@@ -449,9 +452,17 @@ export function Observations() {
         .filter((o) => o.variable_code === 'precipitation' && o.value !== null)
         .slice()
         .sort((a, b) => (a.observed_at < b.observed_at ? -1 : 1))
-        .map((o) => ({ date: o.observed_at.slice(0, 10), value: o.value })),
+        .map((o) => ({ date: o.observed_at.slice(0, 10), value: o.value, synthetic: o.is_synthetic })),
     [items],
   )
+  const chartProvenanceNote = (series: { synthetic: boolean }[]) => {
+    if (series.length === 0) return undefined
+    const nSynthetic = series.filter((p) => p.synthetic).length
+    if (nSynthetic === 0) return undefined
+    return nSynthetic === series.length
+      ? 'All plotted values are SYNTHETIC fixture data — demonstration only, never real measurements.'
+      : `Mixed provenance: ${nSynthetic} of ${series.length} plotted values are SYNTHETIC fixture rows (see the table for per-row labels).`
+  }
 
   // ------------------------------------------------------------------ render
 
@@ -774,7 +785,11 @@ export function Observations() {
               <ChartCard
                 title="Air temperature (mean)"
                 unit="°C"
-                note={tempSeries.length === 0 ? 'No temperature_mean data in this window.' : undefined}
+                note={
+                  tempSeries.length === 0
+                    ? 'No temperature_mean data in this window.'
+                    : chartProvenanceNote(tempSeries)
+                }
               >
                 {tempSeries.length > 0 ? (
                   <ResponsiveContainer width="100%" height={190}>
@@ -795,7 +810,11 @@ export function Observations() {
               <ChartCard
                 title="Precipitation"
                 unit="mm"
-                note={precipSeries.length === 0 ? 'No precipitation data in this window.' : undefined}
+                note={
+                  precipSeries.length === 0
+                    ? 'No precipitation data in this window.'
+                    : chartProvenanceNote(precipSeries)
+                }
               >
                 {precipSeries.length > 0 ? (
                   <ResponsiveContainer width="100%" height={190}>

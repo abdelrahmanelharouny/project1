@@ -130,10 +130,24 @@ def list_crops(
     families = {
         f.id: f for f in db.scalars(select(dbm.CropFamily)).all()
     }
-    items = []
+    # Deepening F-9: when the same crop_code exists in several ACTIVE packs,
+    # the read model must resolve deterministically like load_knowledge does
+    # (latest (pack_version, pack_code) wins) — not on arbitrary row order.
+    pack_meta = {
+        p.id: (p.pack_code, p.pack_version)
+        for p in db.scalars(select(dbm.KnowledgePack)).all()
+    }
+    by_code: dict[str, tuple[tuple[str, str], Any]] = {}
     for c in crops:
         if str(c.pack_id) not in active_pack_ids:
             continue
+        meta = pack_meta.get(c.pack_id, ("", ""))
+        key = (meta[1], meta[0])
+        if c.crop_code not in by_code or key > by_code[c.crop_code][0]:
+            by_code[c.crop_code] = (key, c)
+    items = []
+    for crop_code in sorted(by_code):
+        c = by_code[crop_code][1]
         trait_rows = db.scalars(
             select(dbm.CropTrait).where(dbm.CropTrait.crop_id == c.id)
         ).all()
@@ -184,7 +198,23 @@ def crop_detail(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
-    crop = db.scalar(select(dbm.Crop).where(dbm.Crop.crop_code == crop_code))
+    # Deepening F-9: resolve through ACTIVE packs with the same deterministic
+    # latest-version-wins rule as load_knowledge; an unfiltered first-row pick
+    # could return a retired pack's row or depend on arbitrary DB order.
+    crop = db.scalar(
+        select(dbm.Crop)
+        .join(dbm.KnowledgePack, dbm.Crop.pack_id == dbm.KnowledgePack.id)
+        .where(
+            dbm.Crop.crop_code == crop_code,
+            dbm.Crop.status == "active",
+            dbm.KnowledgePack.status == "active",
+        )
+        .order_by(
+            dbm.KnowledgePack.pack_version.desc(),
+            dbm.KnowledgePack.pack_code.desc(),
+        )
+        .limit(1)
+    )
     if crop is None:
         raise NotFound("Crop not found in the knowledge base.")
     pack = db.get(dbm.KnowledgePack, crop.pack_id)
@@ -359,11 +389,11 @@ def import_knowledge_pack(
         db,
         body.pack,
         activate=body.activate,
-        imported_by=getattr(principal, "user_id", None),
+        imported_by=principal.id,
     )
     db.add(
         dbm.AuditEvent(
-            actor_id=getattr(principal, "user_id", None),
+            actor_id=principal.id,
             entity_type="knowledge_pack",
             entity_id=str(pack_row.id),
             action="imported" if created else "reimported",
@@ -407,7 +437,7 @@ def activate_pack(
     pack.status = "active" if body.activate else "retired"
     db.add(
         dbm.AuditEvent(
-            actor_id=getattr(principal, "user_id", None),
+            actor_id=principal.id,
             entity_type="knowledge_pack",
             entity_id=str(pack.id),
             action="activated" if body.activate else "retired",

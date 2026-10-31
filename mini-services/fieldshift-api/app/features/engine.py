@@ -54,6 +54,11 @@ class DailySeries:
     cells: dict[date, DailyCell] = field(default_factory=dict)
     duplicate_assignments: int = 0
     excluded_time_supports: dict[str, int] = field(default_factory=dict)
+    # Deepening F-02: observations whose quality_status is not 'valid' never
+    # contribute values. They are counted per status so the exclusion is
+    # visible in run warnings (a suspect value is not silently averaged in,
+    # and not silently dropped either).
+    excluded_quality_statuses: dict[str, int] = field(default_factory=dict)
 
 
 def build_daily_series(observations: list[dict[str, Any]], variable: str, tz: ZoneInfo) -> DailySeries:
@@ -79,8 +84,17 @@ def build_daily_series(observations: list[dict[str, Any]], variable: str, tz: Zo
             series.duplicate_assignments += 1
             continue  # first (earliest) wins; deterministic
         value = obs.get("value")
-        if obs.get("quality_status") == "missing" or value is None:
+        quality = obs.get("quality_status") or "valid"
+        # F-02: only contract-VALID observations contribute to aggregates.
+        # 'missing' stays missing (the day counts as uncovered); 'suspect' and
+        # 'invalid' rows are excluded from values and reported per status.
+        if value is None or quality == "missing":
             continue  # missing stays missing; the day counts as uncovered
+        if quality not in VALID_STATUSES:
+            series.excluded_quality_statuses[quality] = (
+                series.excluded_quality_statuses.get(quality, 0) + 1
+            )
+            continue
         series.cells[local_day] = DailyCell(
             value=float(value),
             obs_id=str(obs["id"]),
@@ -88,7 +102,7 @@ def build_daily_series(observations: list[dict[str, Any]], variable: str, tz: Zo
             processing_version=obs.get("processing_version") or "unknown",
             evidence_class=obs.get("evidence_class") or "unknown",
             is_synthetic=bool(obs.get("is_synthetic")),
-            quality_status=obs.get("quality_status") or "valid",
+            quality_status=quality,
         )
     return series
 
@@ -429,6 +443,12 @@ def _baseline_by_calendar_month(
         return None
     mean = sum(values) / len(values)
     sd = statistics.stdev(values) if len(values) >= 2 else 0.0
+    # Deepening F-11: baselines are CLASSIFIED, never silently called
+    # "climatology". WMO climatological normals require standard 30-year
+    # reference periods; anything shorter is an exploratory short-record
+    # baseline. The baseline also includes the evaluated year(s) of this run
+    # window — recorded explicitly because that slightly shrinks anomalies.
+    baseline_class = "long_record_reference" if len(years) >= 30 else "short_record_exploratory"
     return {
         "calendar_month": month,
         "window_years": sorted(years),
@@ -436,6 +456,8 @@ def _baseline_by_calendar_month(
         "mean": round(mean, 4),
         "sd": round(sd, 4),
         "min_years_required": BASELINE_MIN_YEARS,
+        "baseline_class": baseline_class,
+        "includes_evaluated_period": True,
     }
 
 
@@ -469,8 +491,9 @@ def _derived_draft(
     if baseline is None:
         draft.provenance = {
             "reason": (
-                f"Baseline climatology requires >= {BASELINE_MIN_YEARS} distinct years of this "
-                "calendar month within the run window."
+                f"A baseline requires >= {BASELINE_MIN_YEARS} distinct years of this "
+                "calendar month within the run window (below that, only "
+                "'insufficient_baseline' — never a climatological normal)."
             ),
             "engine_version": calendar_meta["engine_version"],
         }
@@ -551,6 +574,12 @@ def compute_feature_drafts(
             warnings.append(
                 f"{variable}: {count} observations with time_support '{ts}' were excluded from "
                 "daily-bucket aggregation (temporal resolutions are never mixed)."
+            )
+        for status, count in series.excluded_quality_statuses.items():
+            warnings.append(
+                f"{variable}: {count} observations with quality_status '{status}' were excluded "
+                "from aggregation (only contract-valid observations contribute values; "
+                "exclusions are reported, never silently averaged in)."
             )
 
     drafts: list[FeatureDraft] = []

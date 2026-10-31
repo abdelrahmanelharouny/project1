@@ -101,7 +101,13 @@ def _evidence(**kw):
         feature_run_id="run-1", is_synthetic=False,
         season_precipitation_mm=120.0, season_mean_temp_degC=18.0,
         season_mean_tmax_degC=None, season_hot_days_35c=2.0, season_et0_mm=420.0,
-        monthly_et0=((2025, 5, 150.0), (2025, 6, 140.0), (2025, 7, 130.0)),
+        # Deepening F-07: the estimator refuses partial ET0 coverage (a month
+        # dropped from the total would under-report the requirement), so the
+        # fixture provides EVERY month of the May 1 - Sep 15 season.
+        monthly_et0=(
+            (2025, 5, 150.0), (2025, 6, 140.0), (2025, 7, 130.0),
+            (2025, 8, 120.0), (2025, 9, 90.0),
+        ),
         coverage_ratio=1.0,
     )
     base.update(kw)
@@ -312,8 +318,10 @@ class TestOptimizerConstraints:
             _crop("thirsty", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.4, 1.2, 0.6)),
             _crop("frugal", "fabaceae", duration=110, windows=[_window("05-01", "06-01")], kc=(0.3, 1.0, 0.3), legume=True),
         ]
-        # 10 ha: frugal needs ~290 mm → ~29,000 m3; thirsty ~380 mm → ~38,000 m3.
-        problem = _problem(crops, allocation=35000.0)
+        # 10 ha with FULL season ET0 (F-07 fixture): frugal ≈386.6 mm →
+        # ≈38,659 m3; thirsty ≈497.8 mm → ≈49,780 m3. The allocation sits
+        # strictly between the two so only the frugal crop is feasible.
+        problem = _problem(crops, allocation=45000.0)
         assert problem.candidates["s2025"]["thirsty"].water_requirement_mm > problem.candidates["s2025"]["frugal"].water_requirement_mm
         from app.rotation.optimizer import optimize_strategy, PROFILE_WEIGHTS
         solution = optimize_strategy(problem, "water_priority", dict(PROFILE_WEIGHTS["water_priority"]))

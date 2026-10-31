@@ -41,6 +41,31 @@ from app.core.database import SessionLocal, engine  # noqa: E402
 from app.db.models import Base  # noqa: E402
 from app.main import app  # noqa: E402
 
+
+def _migrate_test_database() -> None:
+    """Bring an EXISTING test database up to head (create_all alone cannot
+    change indexes/constraints on tables that already exist — deepening F-3/F-18
+    rely on migration 0005's index definitions)."""
+    import os as _os
+
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(_os.path.join(ROOT, "alembic.ini"))
+    cfg.set_main_option("script_location", _os.path.join(ROOT, "migrations"))
+    # A database previously built by create_all has tables but no alembic
+    # bookkeeping — stamp it to the pre-deepening revision, then migrate.
+    with engine.connect() as conn:
+        has_version = conn.execute(
+            text("SELECT to_regclass('alembic_version')")
+        ).scalar() is not None
+        has_users = conn.execute(text("SELECT to_regclass('users')")).scalar() is not None
+    if not has_version and has_users:
+        command.stamp(cfg, "0004_knowledge_rotation")
+    command.upgrade(cfg, "head")
+
+
+_migrate_test_database()
 Base.metadata.create_all(bind=engine)
 
 

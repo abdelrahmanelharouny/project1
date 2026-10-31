@@ -15,7 +15,7 @@ Units follow the canonical variable catalog: degC, mm, m/s, m3/m3.
 from dataclasses import dataclass, field
 
 FEATURE_ENGINE_VERSION = "feature-engine-1.0.0"
-FEATURE_CATALOG_VERSION = "featurespec-2026.11.0-m4"
+FEATURE_CATALOG_VERSION = "featurespec-2026.11.1-d1"
 
 # Minimum-coverage policy defaults. Accumulations (sums) demand near-full
 # coverage because a missing day under-counts the total; means tolerate
@@ -280,7 +280,7 @@ FEATURE_CATALOG: dict[str, FeatureSpec] = {
         FeatureSpec(
             feature_code="precipitation_anomaly_monthly",
             name="Monthly precipitation anomaly",
-            description="Departure of monthly precipitation from the baseline climatology of the same calendar month.",
+            description="Departure of monthly precipitation from the run-window baseline of the same calendar month (short-record exploratory reference, not a WMO normal).",
             unit="mm",
             category="climate",
             aggregation_levels=("monthly",),
@@ -289,7 +289,10 @@ FEATURE_CATALOG: dict[str, FeatureSpec] = {
             formula_reference=(
                 "value - baseline_mean, where the baseline is the mean of the same calendar "
                 f"month across the run window; requires >= {BASELINE_MIN_YEARS} distinct years of "
-                "that month, otherwise not evaluated. Baseline statistics are embedded in the value provenance."
+                "that month, otherwise not evaluated. Baseline statistics (mean, sd, window "
+                "years, baseline_class, includes_evaluated_period) are embedded in the value "
+                "provenance. A short-record baseline is an exploratory reference, NOT a WMO "
+                "climatological normal."
             ),
             strategy="anomaly",
             strategy_params={"base_feature": "precipitation_total_monthly"},
@@ -297,7 +300,7 @@ FEATURE_CATALOG: dict[str, FeatureSpec] = {
         FeatureSpec(
             feature_code="precipitation_anomaly_z_monthly",
             name="Monthly precipitation anomaly (standardized)",
-            description="Standardized precipitation anomaly (z-score) against baseline month climatology.",
+            description="Standardized precipitation anomaly (z-score) against the run-window baseline of the same calendar month.",
             unit="sd",
             category="climate",
             aggregation_levels=("monthly",),
@@ -314,7 +317,7 @@ FEATURE_CATALOG: dict[str, FeatureSpec] = {
         FeatureSpec(
             feature_code="air_temperature_anomaly_monthly",
             name="Monthly air temperature anomaly",
-            description="Departure of monthly mean temperature from the baseline climatology of the same calendar month.",
+            description="Departure of monthly mean temperature from the run-window baseline of the same calendar month (short-record exploratory reference, not a WMO normal).",
             unit="degC",
             category="climate",
             aggregation_levels=("monthly",),

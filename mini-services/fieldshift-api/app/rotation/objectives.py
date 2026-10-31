@@ -44,6 +44,22 @@ def _assigned(problem: RotationProblem, assignment: dict[str, str | None]):
         yield season, assignment.get(season.label)
 
 
+def _refs_for_traits(
+    problem: RotationProblem, assignment: dict[str, str | None], trait_code: str
+) -> tuple[dict[str, Any], ...]:
+    """Deepening F-10: per-criterion evidence citations collected from the
+    assigned crops' knowledge traits (deduplicated by pack+source)."""
+    refs: dict[tuple[str, str], dict[str, Any]] = {}
+    for _season, crop_code in _assigned(problem, assignment):
+        crop = problem.knowledge.crops.get(crop_code or "")
+        if crop is None:
+            continue
+        ref = _source_ref(crop, trait_code)
+        if ref is not None:
+            refs[(ref["pack_version"], ref["source_key"])] = ref
+    return tuple(refs.values())
+
+
 def criterion_water(
     problem: RotationProblem, assignment: dict[str, str | None]
 ) -> CriterionResult:
@@ -77,6 +93,7 @@ def criterion_water(
         evaluable=True,
         derivation="Mean per-season FAO-56 single-Kc screening ETc over the planning "
         "seasons (ADR-0017); lower is better.",
+        source_refs=_refs_for_traits(problem, assignment, "stage_mid_days"),
     )
 
 
@@ -140,6 +157,10 @@ def criterion_soil_health(
         missing_evidence=tuple(missing),
         derivation="Mean of available soil-health sub-indicators per season "
         "(legume flag, cover capability, root depth, N-fixation capacity).",
+        source_refs=(
+            _refs_for_traits(problem, assignment, "root_depth_effective_m")
+            + _refs_for_traits(problem, assignment, "n_fixation_capacity_kg_ha")
+        ),
     )
 
 
@@ -272,6 +293,7 @@ def criterion_resilience(
         missing_evidence=tuple(missing),
         derivation="Fraction of seasons with temperature evidence inside the crop's "
         "sourced optimum range (candidate-generation outcome).",
+        source_refs=_refs_for_traits(problem, assignment, "temp_opt_min_degC"),
     )
 
 
@@ -313,6 +335,7 @@ def criterion_erosion(
         missing_evidence=tuple(missing),
         derivation="Soil-cover PROXY: mean crop-duration coverage of the season "
         "(a living-cover proxy; residue management data not yet ingested).",
+        source_refs=_refs_for_traits(problem, assignment, "duration_days_total"),
     )
 
 

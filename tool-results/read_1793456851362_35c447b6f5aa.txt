@@ -1,0 +1,705 @@
+     1→"""Feature-run orchestration (Milestone 4).
+     2→
+     3→A feature run is a reproducible computation: the run row records the resolved
+     4→source selection (ONE dataset product per variable — synthetic and real data
+     5→are never blended), the calendar basis, the window, the engine and catalog
+     6→versions, and every warning. Values are written once by the run; comparison
+     7→across runs is the supported way to observe change.
+     8→
+     9→Honesty rules enforced here:
+    10→- Source selection never mixes providers for the same variable inside a run.
+    11→- Runs over synthetic data are flagged `is_synthetic` end to end.
+    12→- Missing source variables drop the dependent features with an explicit
+    13→  reason — they are never silently skipped nor computed from substitutes.
+    14→- Crop-season windows are user-supplied; no crop calendar knowledge is
+    15→  invented here (the sourced knowledge base arrives in a later milestone).
+    16→"""
+    17→
+    18→import logging
+    19→import uuid
+    20→from datetime import UTC, date, datetime, timedelta
+    21→from typing import Any
+    22→
+    23→from sqlalchemy import Boolean, Integer, func, select
+    24→from sqlalchemy.exc import IntegrityError
+    25→from sqlalchemy.orm import Session
+    26→
+    27→from app.core.errors import InsufficientData, NotFound, ValidationFailed
+    28→from app.data_platform.contracts.variables import VARIABLE_CATALOG
+    29→from app.db.models import (
+    30→    DatasetProduct,
+    31→    DataSource,
+    32→    FeatureDefinition,
+    33→    FeatureRun,
+    34→    FeatureValue,
+    35→    Field,
+    36→    Observation,
+    37→)
+    38→from app.features import engine as fengine
+    39→from app.features.calendar import resolve_timezone
+    40→from app.features.catalog import (
+    41→    FEATURE_CATALOG,
+    42→    FEATURE_CATALOG_VERSION,
+    43→    FEATURE_ENGINE_VERSION,
+    44→)
+    45→
+    46→logger = logging.getLogger("fieldshift.features")
+    47→
+    48→ALLOWED_AGGREGATION_LEVELS = ("daily", "monthly", "seasonal", "crop_season")
+    49→MAX_WINDOW_YEARS = 31
+    50→MAX_DAILY_WINDOW_DAYS = 1100  # ~3 years, protects the daily-value volume
+    51→MAX_CROP_SEASONS = 20
+    52→
+    53→
+    54→def ensure_feature_definitions(db: Session) -> None:
+    55→    """Seed the versioned feature definitions table from the code catalog."""
+    56→    from app.features.catalog import catalog_payload
+    57→
+    58→    existing = {
+    59→        (row.feature_code, row.definition_version)
+    60→        for row in db.scalars(
+    61→            select(FeatureDefinition).where(
+    62→                FeatureDefinition.definition_version == FEATURE_CATALOG_VERSION
+    63→            )
+    64→        ).all()
+    65→    }
+    66→    created = False
+    67→    for item in catalog_payload():
+    68→        key = (item["feature_code"], item["definition_version"])
+    69→        if key in existing:
+    70→            continue
+    71→        db.add(
+    72→            FeatureDefinition(
+    73→                feature_code=item["feature_code"],
+    74→                name=item["name"],
+    75→                description=item["description"],
+    76→                unit=item["unit"],
+    77→                category=item["category"],
+    78→                aggregation_levels=item["aggregation_levels"],
+    79→                required_variables=item["required_variables"],
+    80→                min_coverage_ratio=item["min_coverage_ratio"],
+    81→                definition_version=item["definition_version"],
+    82→                formula_reference=item["formula_reference"],
+    83→                is_active=True,
+    84→            )
+    85→        )
+    86→        created = True
+    87→    if created:
+    88→        db.commit()
+    89→
+    90→
+    91→def resolve_source_selection(
+    92→    db: Session,
+    93→    *,
+    94→    field_id: uuid.UUID,
+    95→    variables: list[str],
+    96→    overrides: dict[str, str] | None = None,
+    97→    window_start: datetime | None = None,
+    98→    window_end: datetime | None = None,
+    99→) -> tuple[dict[str, dict[str, Any]], list[str], bool]:
+   100→    """Pick ONE dataset product per variable for the run.
+   101→
+   102→    Preference (window-aware): real (non-synthetic) products first, then the
+   103→    product with the most valid observations INSIDE the run window, then the
+   104→    best overall valid ratio, then the most recent retrieval. A real product
+   105→    with no data in the window is therefore not preferred over a synthetic
+   106→    fixture that actually covers the window — the fallback is warned about and
+   107→    the run is flagged `is_synthetic`. Overrides pin a specific product and
+   108→    are validated against the field's actual observations.
+   109→    """
+   110→    overrides = overrides or {}
+   111→    stmt = (
+   112→        select(
+   113→            Observation.variable_code,
+   114→            Observation.dataset_product_id,
+   115→            func.count().label("n"),
+   116→            func.sum(func.cast(Observation.value.is_not(None), Integer)).label("valid_n"),
+   117→            func.max(Observation.retrieved_at).label("last_retrieval"),
+   118→            func.cast(func.bool_or(Observation.is_synthetic), Boolean).label("has_synthetic"),
+   119→        )
+   120→        .where(Observation.field_id == field_id, Observation.variable_code.in_(variables))
+   121→        .group_by(Observation.variable_code, Observation.dataset_product_id)
+   122→    )
+   123→    if window_start is not None and window_end is not None:
+   124→        # in-window counts drive the preference; keep a margin of one day on
+   125→        # both sides for daily periods that straddle the window boundary
+   126→        margin = timedelta(days=1)
+   127→        stmt = stmt.where(
+   128→            Observation.observed_at >= window_start - margin,
+   129→            Observation.observed_at <= window_end + margin,
+   130→        )
+   131→    rows = db.execute(stmt).all()
+   132→
+   133→    if not rows:
+   134→        raise InsufficientData(
+   135→            "No observations are available for the requested variables on this field.",
+   136→            details=[{"field": "variables", "reason": ", ".join(sorted(variables))}],
+   137→        )
+   138→
+   139→    products = {
+   140→        p.id: p
+   141→        for p in db.scalars(
+   142→            select(DatasetProduct).where(
+   143→                DatasetProduct.id.in_([r.dataset_product_id for r in rows])
+   144→            )
+   145→        ).all()
+   146→    }
+   147→
+   148→    grouped: dict[str, list[dict[str, Any]]] = {}
+   149→    for r in rows:
+   150→        product = products.get(r.dataset_product_id)
+   151→        if product is None:
+   152→            continue
+   153→        meta = product.metadata or {}
+   154→        grouped.setdefault(r.variable_code, []).append(
+   155→            {
+   156→                "dataset_product_id": str(product.id),
+   157→                "product_code": product.product_code,
+   158→                "product_version": product.product_version,
+   159→                "is_synthetic": bool(meta.get("is_synthetic")) or bool(r.has_synthetic),
+   160→                "n": int(r.n),
+   161→                "valid_n": int(r.valid_n or 0),
+   162→                "last_retrieval": r.last_retrieval,
+   163→            }
+   164→        )
+   165→
+   166→    selection: dict[str, dict[str, Any]] = {}
+   167→    warnings: list[str] = []
+   168→    for variable in variables:
+   169→        candidates = grouped.get(variable) or []
+   170→        if not candidates:
+   171→            continue
+   172→        override_id = overrides.get(variable)
+   173→        if override_id:
+   174→            chosen = next(
+   175→                (c for c in candidates if c["dataset_product_id"] == str(override_id)), None
+   176→            )
+   177→            if chosen is None:
+   178→                raise ValidationFailed(
+   179→                    f"Source override for '{variable}' does not match any product with "
+   180→                    "observations on this field.",
+   181→                    details=[{"field": "source_overrides", "reason": variable}],
+   182→                )
+   183→        else:
+   184→            chosen = sorted(
+   185→                candidates,
+   186→                key=lambda c: (
+   187→                    c["is_synthetic"],
+   188→                    -(c["valid_n"]),
+   189→                    -(c["valid_n"] / max(1, c["n"])),
+   190→                    -(c["last_retrieval"].timestamp() if c["last_retrieval"] else 0),
+   191→                ),
+   192→            )[0]
+   193→        selection[variable] = {
+   194→            "dataset_product_id": chosen["dataset_product_id"],
+   195→            "product_code": chosen["product_code"],
+   196→            "product_version": chosen["product_version"],
+   197→            "is_synthetic": chosen["is_synthetic"],
+   198→        }
+   199→        skipped = [c for c in candidates if c["dataset_product_id"] != chosen["dataset_product_id"]]
+   200→        for c in skipped:
+   201→            if chosen["is_synthetic"] and not c["is_synthetic"]:
+   202→                warnings.append(
+   203→                    f"{variable}: real product '{c['product_code']}' ({c['product_version']}) has no "
+   204→                    "observations inside the run window; the synthetic fixture was selected instead "
+   205→                    "(the run is flagged synthetic). Products are never blended."
+   206→                )
+   207→            else:
+   208→                warnings.append(
+   209→                    f"{variable}: observations from product '{c['product_code']}' "
+   210→                    f"({c['product_version']}) were not selected for this run; one source per "
+   211→                    "variable is used so products are never blended."
+   212→                )
+   213→
+   214→    is_synthetic = any(s["is_synthetic"] for s in selection.values())
+   215→    return selection, warnings, is_synthetic
+   216→
+   217→
+   218→def start_feature_run(
+   219→    db: Session,
+   220→    *,
+   221→    field: Field,
+   222→    payload: dict[str, Any],
+   223→    created_by: Any = None,
+   224→) -> FeatureRun:
+   225→    """Validate the request, create (or return) the run, execute it inline."""
+   226→    ensure_feature_definitions(db)
+   227→
+   228→    idempotency_key = payload.get("idempotency_key")
+   229→    if idempotency_key:
+   230→        existing = db.scalar(select(FeatureRun).where(FeatureRun.idempotency_key == idempotency_key))
+   231→        if existing is not None:
+   232→            return existing
+   233→
+   234→    start_date: date = payload["start_date"]
+   235→    end_date: date = payload["end_date"]
+   236→    if start_date > end_date:
+   237→        raise ValidationFailed(
+   238→            "start_date must be on or before end_date.",
+   239→            details=[{"field": "start_date", "reason": str(start_date)}],
+   240→        )
+   241→    if (end_date - start_date).days > MAX_WINDOW_YEARS * 366:
+   242→        raise ValidationFailed(
+   243→            f"Feature run window exceeds {MAX_WINDOW_YEARS} years.",
+   244→            details=[{"field": "end_date", "reason": "window too long"}],
+   245→        )
+   246→
+   247→    levels = payload.get("aggregation_levels") or ["monthly"]
+   248→    unknown_levels = [l for l in levels if l not in ALLOWED_AGGREGATION_LEVELS]
+   249→    if unknown_levels:
+   250→        raise ValidationFailed(
+   251→            "Unknown aggregation levels.",
+   252→            details=[{"field": "aggregation_levels", "reason": ", ".join(unknown_levels)}],
+   253→        )
+   254→    if "daily" in levels and (end_date - start_date).days > MAX_DAILY_WINDOW_DAYS:
+   255→        raise ValidationFailed(
+   256→            f"Daily aggregation is limited to {MAX_DAILY_WINDOW_DAYS} days per run.",
+   257→            details=[{"field": "end_date", "reason": "window too long for daily level"}],
+   258→        )
+   259→
+   260→    hemisphere = payload.get("hemisphere") or "north"
+   261→    if hemisphere not in ("north", "south"):
+   262→        raise ValidationFailed(
+   263→            "hemisphere must be 'north' or 'south'.",
+   264→            details=[{"field": "hemisphere", "reason": hemisphere}],
+   265→        )
+   266→
+   267→    calendar_timezone = payload.get("calendar_timezone") or field.farm.timezone or "UTC"
+   268→    try:
+   269→        tz = resolve_timezone(calendar_timezone)
+   270→    except ValueError as exc:
+   271→        raise ValidationFailed(str(exc), details=[{"field": "calendar_timezone"}]) from None
+   272→
+   273→    crop_seasons_raw = payload.get("crop_seasons") or []
+   274→    if crop_seasons_raw and "crop_season" not in levels:
+   275→        raise ValidationFailed(
+   276→            "crop_seasons supplied but the 'crop_season' aggregation level is not requested.",
+   277→            details=[{"field": "aggregation_levels", "reason": "add 'crop_season'"}],
+   278→        )
+   279→    if len(crop_seasons_raw) > MAX_CROP_SEASONS:
+   280→        raise ValidationFailed(
+   281→            f"Too many crop-season windows (max {MAX_CROP_SEASONS}).",
+   282→            details=[{"field": "crop_seasons"}],
+   283→        )
+   284→    crop_seasons: list[dict[str, Any]] = []
+   285→    seen_labels: set[str] = set()
+   286→    for cs in crop_seasons_raw:
+   287→        label = str(cs.get("label") or "").strip()
+   288→        if not label or len(label) > 40:
+   289→            raise ValidationFailed(
+   290→                "Crop-season labels must be 1-40 characters.",
+   291→                details=[{"field": "crop_seasons", "reason": str(cs)[:80]}],
+   292→            )
+   293→        if label in seen_labels:
+   294→            raise ValidationFailed(
+   295→                f"Duplicate crop-season label '{label}'.",
+   296→                details=[{"field": "crop_seasons", "reason": label}],
+   297→            )
+   298→        seen_labels.add(label)
+   299→        try:
+   300→            cs_start = date.fromisoformat(str(cs["start_date"]))
+   301→            cs_end = date.fromisoformat(str(cs["end_date"]))
+   302→        except (KeyError, ValueError):
+   303→            raise ValidationFailed(
+   304→                "Crop seasons need start_date and end_date (ISO dates).",
+   305→                details=[{"field": "crop_seasons", "reason": label}],
+   306→            ) from None
+   307→        if cs_start > cs_end:
+   308→            raise ValidationFailed(
+   309→                f"Crop season '{label}' start_date is after end_date.",
+   310→                details=[{"field": "crop_seasons", "reason": label}],
+   311→            )
+   312→        crop_seasons.append({"label": label, "start_date": cs_start, "end_date": cs_end})
+   313→
+   314→    # Feature specs to compute.
+   315→    requested_codes = payload.get("feature_codes")
+   316→    if requested_codes:
+   317→        unknown = [c for c in requested_codes if c not in FEATURE_CATALOG]
+   318→        if unknown:
+   319→            raise ValidationFailed(
+   320→                "Unknown feature codes.",
+   321→                details=[{"field": "feature_codes", "reason": ", ".join(sorted(unknown))}],
+   322→            )
+   323→        specs = [FEATURE_CATALOG[c] for c in sorted(set(requested_codes))]
+   324→    else:
+   325→        specs = [
+   326→            s
+   327→            for s in FEATURE_CATALOG.values()
+   328→            if any(level in s.aggregation_levels for level in levels)
+   329→        ]
+   330→    if not specs:
+   331→        raise ValidationFailed(
+   332→            "No features match the requested aggregation levels.",
+   333→            details=[{"field": "feature_codes"}],
+   334→        )
+   335→
+   336→    variables = payload.get("variables")
+   337→    required_vars = sorted({v for spec in specs for v in spec.required_variables})
+   338→    if variables:
+   339→        unknown_vars = [v for v in variables if v not in VARIABLE_CATALOG]
+   340→        if unknown_vars:
+   341→            raise ValidationFailed(
+   342→                "Unknown variable codes in request.",
+   343→                details=[{"field": "variables", "reason": ", ".join(unknown_vars)}],
+   344→            )
+   345→        # Restrict features to what the requested variables can supply.
+   346→        allowed = set(variables)
+   347→        specs = [s for s in specs if set(s.required_variables) <= allowed]
+   348→        if not specs:
+   349→            raise ValidationFailed(
+   350→                "None of the catalog features can be computed from the requested variables.",
+   351→                details=[{"field": "variables", "reason": ", ".join(sorted(variables))}],
+   352→            )
+   353→        required_vars = sorted({v for spec in specs for v in spec.required_variables})
+   354→
+   355→    window_start = (
+   356→        datetime(start_date.year, start_date.month, start_date.day, tzinfo=tz).astimezone(UTC)
+   357→    )
+   358→    window_end = (
+   359→        datetime(end_date.year, end_date.month, end_date.day, tzinfo=tz) + timedelta(days=1)
+   360→    ).astimezone(UTC) - timedelta(seconds=1)
+   361→
+   362→    overrides = payload.get("source_overrides") or {}
+   363→    selection, selection_warnings, is_synthetic = resolve_source_selection(
+   364→        db,
+   365→        field_id=field.id,
+   366→        variables=required_vars,
+   367→        overrides=overrides,
+   368→        window_start=window_start,
+   369→        window_end=window_end,
+   370→    )
+   371→
+   372→    missing_vars = [v for v in required_vars if v not in selection]
+   373→    resolvable_specs = [s for s in specs if set(s.required_variables) <= set(selection)]
+   374→    not_evaluated: dict[str, str] = {
+   375→        f"variable:{v}": "Required input variable has no observations on this field."
+   376→        for v in missing_vars
+   377→    }
+   378→    dropped_codes = sorted({s.feature_code for s in specs} - {s.feature_code for s in resolvable_specs})
+   379→
+   380→    request_parameters = {
+   381→        "start_date": start_date.isoformat(),
+   382→        "end_date": end_date.isoformat(),
+   383→        "aggregation_levels": levels,
+   384→        "hemisphere": hemisphere,
+   385→        "calendar_timezone": calendar_timezone,
+   386→        "crop_seasons": [
+   387→            {"label": cs["label"], "start_date": cs["start_date"].isoformat(), "end_date": cs["end_date"].isoformat()}
+   388→            for cs in crop_seasons
+   389→        ],
+   390→        "feature_codes": sorted(s.feature_code for s in specs),
+   391→        "source_overrides": {k: str(v) for k, v in overrides.items()},
+   392→    }
+   393→
+   394→    run = FeatureRun(
+   395→        field_id=field.id,
+   396→        status="queued",
+   397→        calendar_timezone=calendar_timezone,
+   398→        hemisphere=hemisphere,
+   399→        period_start=window_start,
+   400→        period_end=window_end,
+   401→        aggregation_levels=levels,
+   402→        requested_variables=required_vars,
+   403→        source_selection=selection,
+   404→        crop_seasons=request_parameters["crop_seasons"],
+   405→        feature_engine_version=FEATURE_ENGINE_VERSION,
+   406→        feature_catalog_version=FEATURE_CATALOG_VERSION,
+   407→        is_synthetic=is_synthetic,
+   408→        request_parameters=request_parameters,
+   409→        warnings=list(selection_warnings),
+   410→        not_evaluated_reasons=not_evaluated,
+   411→        idempotency_key=idempotency_key,
+   412→        created_by=created_by,
+   413→    )
+   414→    db.add(run)
+   415→    try:
+   416→        db.commit()
+   417→    except IntegrityError:
+   418→        db.rollback()
+   419→        if idempotency_key:
+   420→            existing = db.scalar(select(FeatureRun).where(FeatureRun.idempotency_key == idempotency_key))
+   421→            if existing is not None:
+   422→                return existing
+   423→        raise
+   424→
+   425→    if not resolvable_specs:
+   426→        run.status = "failed"
+   427→        run.error_summary = "None of the requested features have their input variables available."
+   428→        run.completed_at = datetime.now(UTC)
+   429→        db.commit()
+   430→        return run
+   431→
+   432→    _execute_run(
+   433→        db,
+   434→        run,
+   435→        specs=resolvable_specs,
+   436→        tz=tz,
+   437→        window_start=window_start,
+   438→        window_end=window_end,
+   439→        crop_seasons=crop_seasons,
+   440→        not_evaluated=not_evaluated,
+   441→        dropped_codes=dropped_codes,
+   442→    )
+   443→    return run
+   444→
+   445→
+   446→def _execute_run(
+   447→    db: Session,
+   448→    run: FeatureRun,
+   449→    *,
+   450→    specs: list,
+   451→    tz,
+   452→    window_start: datetime,
+   453→    window_end: datetime,
+   454→    crop_seasons: list[dict[str, Any]],
+   455→    not_evaluated: dict[str, str],
+   456→    dropped_codes: list[str],
+   457→) -> None:
+   458→    run.status = "running"
+   459→    run.started_at = datetime.now(UTC)
+   460→    db.commit()
+   461→
+   462→    try:
+   463→        selected_ids = [s["dataset_product_id"] for s in run.source_selection.values()]
+   464→        margin = timedelta(days=2)
+   465→        obs_rows = db.execute(
+   466→            select(Observation)
+   467→            .where(
+   468→                Observation.field_id == run.field_id,
+   469→                Observation.dataset_product_id.in_(selected_ids),
+   470→                Observation.observed_at >= run.period_start - margin,
+   471→                Observation.observed_at <= run.period_end + margin,
+   472→            )
+   473→            .order_by(Observation.period_start, Observation.variable_code)
+   474→        ).scalars().all()
+   475→
+   476→        observations = [
+   477→            {
+   478→                "id": str(o.id),
+   479→                "variable_code": o.variable_code,
+   480→                "value": o.value,
+   481→                "unit": o.unit,
+   482→                "quality_status": o.quality_status,
+   483→                "observed_at": o.observed_at,
+   484→                "period_start": o.period_start,
+   485→                "period_end": o.period_end,
+   486→                "time_support": o.time_support,
+   487→                "is_synthetic": o.is_synthetic,
+   488→                "processing_version": o.processing_version,
+   489→                "evidence_class": o.evidence_class,
+   490→                "dataset_product_id": str(o.dataset_product_id),
+   491→            }
+   492→            for o in obs_rows
+   493→        ]
+   494→
+   495→        crop_windows = [
+   496→            {
+   497→                "label": cs["label"],
+   498→                "start": datetime(
+   499→                    cs["start_date"].year, cs["start_date"].month, cs["start_date"].day, tzinfo=tz
+   500→                ).astimezone(UTC),
+   501→                "end": (
+   502→                    datetime(
+   503→                        cs["end_date"].year, cs["end_date"].month, cs["end_date"].day, tzinfo=tz
+   504→                    )
+   505→                    + timedelta(days=1)
+   506→                ).astimezone(UTC)
+   507→                - timedelta(seconds=1),
+   508→            }
+   509→            for cs in crop_seasons
+   510→        ]
+   511→
+   512→        drafts, engine_not_evaluated, engine_warnings = fengine.compute_feature_drafts(
+   513→            observations=observations,
+   514→            specs=specs,
+   515→            tz=tz,
+   516→            hemisphere=run.hemisphere,
+   517→            window_start=window_start,
+   518→            window_end=window_end,
+   519→            aggregation_levels=list(run.aggregation_levels),
+   520→            crop_seasons=crop_windows,
+   521→            engine_version=run.feature_engine_version,
+   522→            definition_version=run.feature_catalog_version,
+   523→        )
+   524→
+   525→        all_warnings = list(run.warnings) + list(engine_warnings)
+   526→        if dropped_codes:
+   527→            all_warnings.append(
+   528→                "Features without their required inputs were not computed: "
+   529→                + ", ".join(dropped_codes)
+   530→                + "."
+   531→            )
+   532→        if run.is_synthetic:
+   533→            all_warnings.insert(
+   534→                0,
+   535→                "This feature run is computed from SYNTHETIC fixture data — values are for "
+   536→                "pipeline demonstration and testing only, never for real-world conclusions.",
+   537→            )
+   538→
+   539→        written = 0
+   540→        for draft in drafts:
+   541→            row = draft.to_row()
+   542→            db.add(
+   543→                FeatureValue(
+   544→                    run_id=run.id,
+   545→                    field_id=run.field_id,
+   546→                    feature_code=row["feature_code"],
+   547→                    aggregation_level=row["aggregation_level"],
+   548→                    period_label=row["period_label"],
+   549→                    period_start=row["period_start"],
+   550→                    period_end=row["period_end"],
+   551→                    value=row["value"],
+   552→                    unit=row["unit"],
+   553→                    coverage_ratio=row["coverage_ratio"],
+   554→                    n_input=row["n_input"],
+   555→                    n_missing=row["n_missing"],
+   556→                    quality_status=row["quality_status"],
+   557→                    uncertainty_value=row["uncertainty_value"],
+   558→                    uncertainty_type=row["uncertainty_type"],
+   559→                    baseline_reference=row["baseline_reference"],
+   560→                    provenance=row["provenance"],
+   561→                )
+   562→            )
+   563→            written += 1
+   564→            if written % 500 == 0:
+   565→                db.flush()
+   566→
+   567→        merged_reasons = dict(not_evaluated)
+   568→        for code, reason in engine_not_evaluated.items():
+   569→            merged_reasons.setdefault(code, reason)
+   570→
+   571→        run.status = "succeeded"
+   572→        run.records_written = written
+   573→        run.warnings = all_warnings[:100]
+   574→        run.not_evaluated_reasons = merged_reasons
+   575→        run.completed_at = datetime.now(UTC)
+   576→        db.commit()
+   577→    except Exception as exc:  # noqa: BLE001 — run lifecycle must capture failures
+   578→        db.rollback()
+   579→        run.status = "failed"
+   580→        run.error_summary = f"{type(exc).__name__}: {exc}"
+   581→        run.completed_at = datetime.now(UTC)
+   582→        db.commit()
+   583→        logger.exception("feature run failed", extra={"run_id": str(run.id)})
+   584→
+   585→
+   586→def get_run_for_principal(db: Session, run_id: uuid.UUID, principal) -> FeatureRun:
+   587→    run = db.get(FeatureRun, run_id)
+   588→    if run is None:
+   589→        raise NotFound("Feature run not found.")
+   590→    from app.domains.identity.service import get_field_for_principal
+   591→
+   592→    get_field_for_principal(db, principal, run.field_id)
+   593→    return run
+   594→
+   595→
+   596→def run_payload(run: FeatureRun) -> dict[str, Any]:
+   597→    # Display the period in the run's calendar basis, not UTC: the farmer chose
+   598→    # local dates, so "2015-01-01" must not drift back to "2014-12-31".
+   599→    try:
+   600→        run_tz = resolve_timezone(run.calendar_timezone)
+   601→        period_start_date = run.period_start.astimezone(run_tz).date().isoformat()
+   602→        period_end_date = run.period_end.astimezone(run_tz).date().isoformat()
+   603→    except Exception:  # noqa: BLE001 — display fallback only
+   604→        period_start_date = run.period_start.date().isoformat()
+   605→        period_end_date = run.period_end.date().isoformat()
+   606→    return {
+   607→        "run_id": str(run.id),
+   608→        "field_id": str(run.field_id),
+   609→        "status": run.status,
+   610→        "calendar_timezone": run.calendar_timezone,
+   611→        "hemisphere": run.hemisphere,
+   612→        "period": {
+   613→            "start": period_start_date,
+   614→            "end": period_end_date,
+   615→        },
+   616→        "aggregation_levels": run.aggregation_levels,
+   617→        "requested_variables": run.requested_variables,
+   618→        "source_selection": run.source_selection,
+   619→        "crop_seasons": run.crop_seasons,
+   620→        "feature_engine_version": run.feature_engine_version,
+   621→        "feature_catalog_version": run.feature_catalog_version,
+   622→        "is_synthetic": run.is_synthetic,
+   623→        "warnings": run.warnings,
+   624→        "not_evaluated_reasons": run.not_evaluated_reasons,
+   625→        "records_written": run.records_written,
+   626→        "error_summary": run.error_summary,
+   627→        "started_at": run.started_at.isoformat() if run.started_at else None,
+   628→        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+   629→        "status_url": f"/api/v1/feature-runs/{run.id}",
+   630→    }
+   631→
+   632→
+   633→def value_payload(v: FeatureValue) -> dict[str, Any]:
+   634→    return {
+   635→        "id": str(v.id),
+   636→        "feature_code": v.feature_code,
+   637→        "aggregation_level": v.aggregation_level,
+   638→        "period_label": v.period_label,
+   639→        "period_start": v.period_start.date().isoformat(),
+   640→        "period_end": v.period_end.date().isoformat(),
+   641→        "value": v.value,
+   642→        "unit": v.unit,
+   643→        "coverage_ratio": v.coverage_ratio,
+   644→        "n_input": v.n_input,
+   645→        "n_missing": v.n_missing,
+   646→        "quality_status": v.quality_status,
+   647→        "uncertainty_value": v.uncertainty_value,
+   648→        "uncertainty_type": v.uncertainty_type,
+   649→        "baseline_reference": v.baseline_reference,
+   650→        "provenance": v.provenance,
+   651→    }
+   652→
+   653→
+   654→def compare_runs(
+   655→    db: Session, run: FeatureRun, against: FeatureRun
+   656→) -> dict[str, Any]:
+   657→    """Compare two runs on matching (feature_code, aggregation_level, period_label)."""
+   658→    left_rows = db.scalars(select(FeatureValue).where(FeatureValue.run_id == run.id)).all()
+   659→    right_rows = db.scalars(select(FeatureValue).where(FeatureValue.run_id == against.id)).all()
+   660→    right_by_key = {
+   661→        (v.feature_code, v.aggregation_level, v.period_label): v for v in right_rows
+   662→    }
+   663→    deltas: list[dict[str, Any]] = []
+   664→    matched = 0
+   665→    only_in_run = 0
+   666→    for left in left_rows:
+   667→        key = (left.feature_code, left.aggregation_level, left.period_label)
+   668→        right = right_by_key.get(key)
+   669→        if right is None:
+   670→            only_in_run += 1
+   671→            continue
+   672→        if left.value is None or right.value is None:
+   673→            continue
+   674→        matched += 1
+   675→        delta = round(left.value - right.value, 4)
+   676→        delta_pct = (
+   677→            round((left.value - right.value) / abs(right.value), 4) if right.value != 0 else None
+   678→        )
+   679→        deltas.append(
+   680→            {
+   681→                "feature_code": left.feature_code,
+   682→                "aggregation_level": left.aggregation_level,
+   683→                "period_label": left.period_label,
+   684→                "unit": left.unit,
+   685→                "run_value": left.value,
+   686→                "against_value": right.value,
+   687→                "delta": delta,
+   688→                "delta_pct": delta_pct,
+   689→                "quality_run": left.quality_status,
+   690→                "quality_against": right.quality_status,
+   691→            }
+   692→        )
+   693→    return {
+   694→        "run_id": str(run.id),
+   695→        "against_run_id": str(against.id),
+   696→        "matched_periods": matched,
+   697→        "only_in_run": only_in_run,
+   698→        "deltas": deltas,
+   699→        "note": (
+   700→            "Deltas compare two independent runs on matching periods. Runs may use different "
+   701→            "source selections, calendar bases or engine versions — check run metadata before "
+   702→            "interpreting deltas."
+   703→        ),
+   704→    }
+   705→

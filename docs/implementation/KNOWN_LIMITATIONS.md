@@ -63,3 +63,22 @@ Honest record of what this slice does NOT do. Nothing here is claimed to work.
   with the water intelligence milestone.
 - Variety-level traits are representable (model + tests) but the seed pack is
   species-level; no cultivar data is bundled.
+
+
+## Deepening program additions (2026-10-31)
+
+- SoilGrids "uncertainty" is the mean of per-pixel Q05–Q95 half-widths —
+  explicitly NOT a field-level 90% prediction interval (F-08; S-1 backlog).
+- Feature baselines < 30 years are labelled `short_record_exploratory`, never
+  WMO climatological normals (F-11).
+- CHIRPS daily products may be pentad totals disaggregated with ERA5/IMERG
+  daily information — CHIRPS-daily and ERA5-daily are not independent
+  evidence (F-12).
+- Solver statuses: MODEL_INVALID/UNKNOWN are reported as solver failures, not
+  infeasibility; run-level "optimal" requires every profile proven optimal
+  (F-04).
+- Roles are defined but not yet enforced on routes (B-1); knowledge imports
+  are audited but not role-gated.
+- External agronomic validation remains OUTSTANDING for all seed knowledge
+  (zero confirmed_regional rules by design).
+- Full backlog: `docs/deepening/KNOWLEDGE_GAPS_AND_RESEARCH_BACKLOG.md`.

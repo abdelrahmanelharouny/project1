@@ -211,6 +211,7 @@ def build_explanations(
                 "evaluable": c.evaluable,
                 "missing_evidence": list(c.missing_evidence),
                 "derivation": c.derivation,
+                "source_refs": list(c.source_refs),
             }
             for c in solution.criteria
         ],

@@ -65,3 +65,10 @@ src/components/fieldshift/        frontend workspace components
 src/lib/api.ts, types.ts          typed transport (XTransformPort gateway) + contract types
 db/pgenv, db/pgdata               user-space PostgreSQL+PostGIS runtime & cluster (gitignored)
 ```
+
+## Scientific deepening (Pre-M6)
+
+The M1–M5 implementation was audited and hardened before roadmap expansion:
+findings register, as-built architecture, feature specifications, climate/soil
+methodology, rotation mathematics, uncertainty policy, benchmarks and the
+remediation record live in [`docs/deepening/`](docs/deepening/DEEPENING_EXIT_REPORT.md).

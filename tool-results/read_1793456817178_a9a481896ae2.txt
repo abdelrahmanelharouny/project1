@@ -1,0 +1,914 @@
+     1→'use client'
+     2→
+     3→import { useState } from 'react'
+     4→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+     5→import { toast } from 'sonner'
+     6→import {
+     7→  AlertTriangle,
+     8→  BookOpen,
+     9→  CheckCircle2,
+    10→  ChevronRight,
+    11→  GitCompareArrows,
+    12→  Info,
+    13→  Loader2,
+    14→  Scale,
+    15→  Sprout,
+    16→  XCircle,
+    17→} from 'lucide-react'
+    18→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+    19→import { Badge } from '@/components/ui/badge'
+    20→import { Button } from '@/components/ui/button'
+    21→import {
+    22→  Card,
+    23→  CardContent,
+    24→  CardDescription,
+    25→  CardHeader,
+    26→  CardTitle,
+    27→} from '@/components/ui/card'
+    28→import {
+    29→  Accordion,
+    30→  AccordionContent,
+    31→  AccordionItem,
+    32→  AccordionTrigger,
+    33→} from '@/components/ui/accordion'
+    34→import { Checkbox } from '@/components/ui/checkbox'
+    35→import { Input } from '@/components/ui/input'
+    36→import { Label } from '@/components/ui/label'
+    37→import {
+    38→  Select,
+    39→  SelectContent,
+    40→  SelectItem,
+    41→  SelectTrigger,
+    42→  SelectValue,
+    43→} from '@/components/ui/select'
+    44→import {
+    45→  Table,
+    46→  TableBody,
+    47→  TableCell,
+    48→  TableHead,
+    49→  TableHeader,
+    50→  TableRow,
+    51→} from '@/components/ui/table'
+    52→import { FieldPicker } from '@/components/fieldshift/field-picker'
+    53→import { SyntheticBadge } from '@/components/fieldshift/badges'
+    54→import {
+    55→  useCropHistory,
+    56→  useKnowledgeCrops,
+    57→  useKnowledgePacks,
+    58→  useKnowledgePackSources,
+    59→  useRotationComparison,
+    60→  useRotationRules,
+    61→  useRotationRun,
+    62→  useRotationRuns,
+    63→} from '@/hooks/use-fieldshift'
+    64→import {
+    65→  addCropHistory,
+    66→  createRotationRun,
+    67→  describeError,
+    68→  generateCropCandidates,
+    69→} from '@/lib/api'
+    70→import { useFieldShiftUi, type SelectedField } from '@/lib/store'
+    71→import type {
+    72→  CandidateAssessment,
+    73→  CandidateSeason,
+    74→  RotationStrategy,
+    75→} from '@/lib/types'
+    76→import { cn } from '@/lib/utils'
+    77→
+    78→const PROFILE_OPTIONS = [
+    79→  { value: 'water_priority', label: 'Water priority' },
+    80→  { value: 'soil_health_priority', label: 'Soil health priority' },
+    81→  { value: 'balanced', label: 'Balanced' },
+    82→  { value: 'economic_priority', label: 'Economic priority' },
+    83→] as const
+    84→
+    85→interface SeasonWindow {
+    86→  label: string
+    87→  start: string
+    88→  end: string
+    89→}
+    90→
+    91→function fmt(value: number | null | undefined, digits = 2): string {
+    92→  if (value === null || value === undefined) return '—'
+    93→  return value.toLocaleString(undefined, { maximumFractionDigits: digits })
+    94→}
+    95→
+    96→function CandidateStatusBadge({ status }: { status: CandidateAssessment['status'] }) {
+    97→  const map: Record<CandidateAssessment['status'], { cls: string; label: string }> = {
+    98→    eligible: { cls: 'border-emerald-200 bg-emerald-50 text-emerald-800', label: 'Eligible' },
+    99→    conditionally_eligible: { cls: 'border-amber-200 bg-amber-50 text-amber-900', label: 'Conditional' },
+   100→    excluded: { cls: 'border-red-200 bg-red-50 text-red-800', label: 'Excluded' },
+   101→    unevaluated: { cls: 'border-stone-300 bg-stone-100 text-stone-600', label: 'Unevaluated' },
+   102→  }
+   103→  const it = map[status]
+   104→  return (
+   105→    <Badge variant="outline" className={cn('font-normal', it.cls)}>
+   106→      {it.label}
+   107→    </Badge>
+   108→  )
+   109→}
+   110→
+   111→// --------------------------------------------------------- crop history
+   112→
+   113→function CropHistoryCard({ selectedField }: { selectedField: SelectedField }) {
+   114→  const history = useCropHistory(selectedField.id)
+   115→  const queryClient = useQueryClient()
+   116→  const [cropCode, setCropCode] = useState('')
+   117→  const [label, setLabel] = useState('')
+   118→  const [sowing, setSowing] = useState('')
+   119→  const [harvest, setHarvest] = useState('')
+   120→  const [seasonLabel, setSeasonLabel] = useState('')
+   121→
+   122→  const crops = useKnowledgeCrops()
+   123→
+   124→  const addMutation = useMutation({
+   125→    mutationFn: () =>
+   126→      addCropHistory(selectedField.id, {
+   127→        crop_code: cropCode || null,
+   128→        crop_label: label || cropCode || 'Unnamed crop',
+   129→        sowing_date: sowing || null,
+   130→        harvest_date: harvest || null,
+   131→        season_label: seasonLabel || null,
+   132→      }),
+   133→    onSuccess: () => {
+   134→      toast.success('Crop history entry added.')
+   135→      setCropCode('')
+   136→      setLabel('')
+   137→      setSowing('')
+   138→      setHarvest('')
+   139→      setSeasonLabel('')
+   140→      void queryClient.invalidateQueries({ queryKey: ['crop-history', selectedField.id] })
+   141→    },
+   142→    onError: (err) => {
+   143→      const d = describeError(err)
+   144→      toast.error(d.title, { description: d.description })
+   145→    },
+   146→  })
+   147→
+   148→  const items = history.data?.items ?? []
+   149→
+   150→  return (
+   151→    <Card>
+   152→      <CardHeader className="pb-3">
+   153→        <CardTitle className="flex items-center gap-2 text-base">
+   154→          <Sprout className="h-4 w-4 text-emerald-700" aria-hidden />
+   155→          Crop history (rotation baseline)
+   156→        </CardTitle>
+   157→        <CardDescription>
+   158→          What actually grew here. The current rotation is preserved as the labelled
+   159→          baseline in every optimization run.
+   160→        </CardDescription>
+   161→      </CardHeader>
+   162→      <CardContent className="space-y-3">
+   163→        {history.isLoading ? (
+   164→          <div className="flex items-center gap-2 text-sm text-stone-500">
+   165→            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…
+   166→          </div>
+   167→        ) : items.length === 0 ? (
+   168→          <p className="text-sm text-stone-500">
+   169→            No crop history recorded — the baseline will be empty until you add entries.
+   170→          </p>
+   171→        ) : (
+   172→          <ul className="max-h-40 space-y-1.5 overflow-y-auto pr-1 text-sm scrollbar-thin">
+   173→            {items.map((item) => (
+   174→              <li key={item.id} className="flex flex-wrap items-center gap-2">
+   175→                <Badge variant="outline" className="border-stone-300 font-normal text-stone-700">
+   176→                  {item.crop_code ?? item.crop_label}
+   177→                </Badge>
+   178→                <span className="text-xs text-stone-500">
+   179→                  {item.season_label ?? '—'} · {item.sowing_date ?? '?'} → {item.harvest_date ?? '?'}
+   180→                </span>
+   181→                <Badge variant="outline" className="font-normal text-[10px] text-stone-500">
+   182→                  {item.evidence_class}
+   183→                </Badge>
+   184→              </li>
+   185→            ))}
+   186→          </ul>
+   187→        )}
+   188→        <div className="grid grid-cols-2 gap-2 border-t border-stone-100 pt-3 sm:grid-cols-5">
+   189→          <div className="col-span-2 sm:col-span-1">
+   190→            <Label className="text-xs text-stone-500">Crop</Label>
+   191→            <Select value={cropCode} onValueChange={setCropCode}>
+   192→              <SelectTrigger className="h-9 text-sm">
+   193→                <SelectValue placeholder="Knowledge crop…" />
+   194→              </SelectTrigger>
+   195→              <SelectContent className="max-h-72">
+   196→                {(crops.data?.crops ?? []).map((c) => (
+   197→                  <SelectItem key={c.id} value={c.crop_code}>
+   198→                    {c.crop_code}
+   199→                  </SelectItem>
+   200→                ))}
+   201→              </SelectContent>
+   202→            </Select>
+   203→          </div>
+   204→          <div className="col-span-2 sm:col-span-1">
+   205→            <Label className="text-xs text-stone-500">Label (free text)</Label>
+   206→            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Maize" className="h-9 text-sm" />
+   207→          </div>
+   208→          <div>
+   209→            <Label className="text-xs text-stone-500">Sowing</Label>
+   210→            <Input type="date" value={sowing} onChange={(e) => setSowing(e.target.value)} className="h-9 text-sm" />
+   211→          </div>
+   212→          <div>
+   213→            <Label className="text-xs text-stone-500">Harvest</Label>
+   214→            <Input type="date" value={harvest} onChange={(e) => setHarvest(e.target.value)} className="h-9 text-sm" />
+   215→          </div>
+   216→          <div className="flex items-end gap-2">
+   217→            <div className="flex-1">
+   218→              <Label className="text-xs text-stone-500">Season</Label>
+   219→              <Input value={seasonLabel} onChange={(e) => setSeasonLabel(e.target.value)} placeholder="summer_2023" className="h-9 text-sm" />
+   220→            </div>
+   221→            <Button size="sm" className="h-9" onClick={() => addMutation.mutate()} disabled={addMutation.isPending || (!cropCode && !label)}>
+   222→              {addMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : 'Add'}
+   223→            </Button>
+   224→          </div>
+   225→        </div>
+   226→      </CardContent>
+   227→    </Card>
+   228→  )
+   229→}
+   230→
+   231→// ------------------------------------------------------------ candidates
+   232→
+   233→function CandidateRow({ assessment }: { assessment: CandidateAssessment }) {
+   234→  const [open, setOpen] = useState(false)
+   235→  return (
+   236→    <li className="rounded-lg border border-stone-200 bg-white">
+   237→      <button
+   238→        type="button"
+   239→        onClick={() => setOpen((v) => !v)}
+   240→        className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2 text-left"
+   241→        aria-expanded={open}
+   242→      >
+   243→        <span className="flex min-w-0 flex-wrap items-center gap-2">
+   244→          <span className="truncate text-sm font-medium text-stone-900">{assessment.crop_code}</span>
+   245→          <CandidateStatusBadge status={assessment.status} />
+   246→          {assessment.water_requirement_mm !== null && (
+   247→            <Badge variant="outline" className="border-sky-200 bg-sky-50 font-normal text-sky-800">
+   248→              ≈{fmt(assessment.water_requirement_mm, 0)} mm water
+   249→            </Badge>
+   250→          )}
+   251→        </span>
+   252→        <ChevronRight className={cn('h-4 w-4 shrink-0 text-stone-400 transition-transform', open && 'rotate-90')} aria-hidden />
+   253→      </button>
+   254→      {open && (
+   255→        <div className="space-y-2 border-t border-stone-100 px-3 py-2 text-xs text-stone-600">
+   256→          {assessment.reasons.map((r, i) => (
+   257→            <p key={i} className="leading-relaxed">
+   258→              <span
+   259→                className={cn(
+   260→                  'mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle',
+   261→                  r.severity === 'hard' ? 'bg-red-500' : r.severity === 'conditional' ? 'bg-amber-500' : 'bg-emerald-500',
+   262→                )}
+   263→                aria-hidden
+   264→              />
+   265→              {r.message}
+   266→              {r.source_refs?.map((ref, j) => {
+   267→                const typed = ref as { citation_text?: string; source_key?: string }
+   268→                return typed.citation_text ? (
+   269→                  <span key={j} className="ml-1 text-stone-400">[{typed.source_key}]</span>
+   270→                ) : null
+   271→              })}
+   272→            </p>
+   273→          ))}
+   274→          {assessment.unevaluated_dimensions.map((d, i) => (
+   275→            <p key={i} className="leading-relaxed text-stone-500">
+   276→              <Info className="mr-1 inline h-3 w-3 align-[-2px]" aria-hidden />
+   277→              Not evaluated — {d.message}
+   278→            </p>
+   279→          ))}
+   280→          {assessment.water_estimate_assumptions.length > 0 && (
+   281→            <p className="text-stone-400">Water estimate assumptions: {assessment.water_estimate_assumptions.join(' ')}</p>
+   282→          )}
+   283→        </div>
+   284→      )}
+   285→    </li>
+   286→  )
+   287→}
+   288→
+   289→function CandidatesCard({
+   290→  selectedField,
+   291→  seasons,
+   292→}: {
+   293→  selectedField: SelectedField
+   294→  seasons: SeasonWindow[]
+   295→}) {
+   296→  const [result, setResult] = useState<{
+   297→    seasons: CandidateSeason[]
+   298→    warnings: string[]
+   299→    counts: Record<string, Record<string, number>>
+   300→  } | null>(null)
+   301→
+   302→  const mutation = useMutation({
+   303→    mutationFn: () =>
+   304→      generateCropCandidates(selectedField.id, {
+   305→        seasons: seasons.map((s) => ({ label: s.label, start_date: s.start, end_date: s.end })),
+   306→        hemisphere: 'north',
+   307→      }),
+   308→    onSuccess: (data) => {
+   309→      setResult({
+   310→        seasons: data.seasons,
+   311→        warnings: data.warnings,
+   312→        counts: data.counts_by_season,
+   313→      })
+   314→    },
+   315→    onError: (err) => {
+   316→      const d = describeError(err)
+   317→      toast.error(d.title, { description: d.description })
+   318→    },
+   319→  })
+   320→
+   321→  return (
+   322→    <Card>
+   323→      <CardHeader className="pb-3">
+   324→        <CardTitle className="text-base">Candidate crops per season</CardTitle>
+   325→        <CardDescription>
+   326→          Every knowledge-base crop evaluated against the planning seasons: calendar
+   327→          windows, duration, climate ranges, soil, water estimability and rotation
+   328→          knowledge. Missing evidence is reported, never filled.
+   329→        </CardDescription>
+   330→      </CardHeader>
+   331→      <CardContent className="space-y-3">
+   332→        <Button
+   333→          size="sm"
+   334→          onClick={() => mutation.mutate()}
+   335→          disabled={mutation.isPending || seasons.length === 0}
+   336→        >
+   337→          {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Sprout className="h-4 w-4" aria-hidden />}
+   338→          Generate candidates
+   339→        </Button>
+   340→        {result?.warnings.map((w, i) => (
+   341→          <Alert key={i} className={w.includes('SYNTHETIC') ? 'border-amber-200 bg-amber-50' : undefined}>
+   342→            <AlertTriangle className="h-4 w-4" aria-hidden />
+   343→            <AlertDescription className="text-xs">{w}</AlertDescription>
+   344→          </Alert>
+   345→        ))}
+   346→        {result?.seasons.map((season) => {
+   347→          const counts = result.counts[season.season_label] ?? {}
+   348→          return (
+   349→            <div key={season.season_label} className="space-y-2">
+   350→              <div className="flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+   351→                <span className="font-semibold text-stone-700">{season.season_label}</span>
+   352→                <Badge variant="outline" className="border-emerald-200 font-normal text-emerald-800">{counts.eligible ?? 0} eligible</Badge>
+   353→                <Badge variant="outline" className="border-amber-200 font-normal text-amber-900">{counts.conditionally_eligible ?? 0} conditional</Badge>
+   354→                <Badge variant="outline" className="border-red-200 font-normal text-red-800">{counts.excluded ?? 0} excluded</Badge>
+   355→                <Badge variant="outline" className="border-stone-300 font-normal text-stone-600">{counts.unevaluated ?? 0} unevaluated</Badge>
+   356→              </div>
+   357→              <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1 scrollbar-thin">
+   358→                {season.candidates.map((c) => (
+   359→                  <CandidateRow key={c.crop_code} assessment={c} />
+   360→                ))}
+   361→              </ul>
+   362→            </div>
+   363→          )
+   364→        })}
+   365→      </CardContent>
+   366→    </Card>
+   367→  )
+   368→}
+   369→
+   370→// ----------------------------------------------------------- strategies
+   371→
+   372→function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
+   373→  const exp = strategy.explanations
+   374→  const rec = exp.recommendation
+   375→  return (
+   376→    <Card className={cn(strategy.is_baseline && 'border-dashed')}>
+   377→      <CardHeader className="pb-2">
+   378→        <div className="flex flex-wrap items-center justify-between gap-2">
+   379→          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+   380→            {strategy.strategy_key}
+   381→            {strategy.is_baseline && <Badge variant="outline" className="font-normal text-stone-600">Baseline</Badge>}
+   382→            {strategy.pareto.on_front && !strategy.is_baseline && (
+   383→              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 font-normal text-emerald-800">Pareto front</Badge>
+   384→            )}
+   385→            {!strategy.pareto.on_front && !strategy.is_baseline && (
+   386→              <Badge variant="outline" className="border-stone-300 font-normal text-stone-500">
+   387→                Dominated by {strategy.pareto.dominated_by.join(', ')}
+   388→              </Badge>
+   389→            )}
+   390→          </CardTitle>
+   391→          <div className="flex items-center gap-2 text-xs text-stone-500">
+   392→            {strategy.objective_value !== null && <span>objective {fmt(strategy.objective_value, 3)}</span>}
+   393→            {strategy.evidence_coverage !== null && (
+   394→              <Badge variant="outline" className="border-stone-300 font-normal">
+   395→                evidence {Math.round(strategy.evidence_coverage * 100)}%
+   396→              </Badge>
+   397→            )}
+   398→          </div>
+   399→        </div>
+   400→        <CardDescription>{rec.message}</CardDescription>
+   401→      </CardHeader>
+   402→      <CardContent className="space-y-3">
+   403→        <div className="flex flex-wrap gap-1.5">
+   404→          {strategy.assignment.map((a) => (
+   405→            <Badge
+   406→              key={a.season_label}
+   407→              variant="outline"
+   408→              className={cn(
+   409→                'font-normal',
+   410→                a.crop_code ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-stone-300 text-stone-500',
+   411→              )}
+   412→            >
+   413→              {a.season_label}: {a.crop_code ?? '—'}
+   414→            </Badge>
+   415→          ))}
+   416→        </div>
+   417→
+   418→        <div className="overflow-x-auto scrollbar-thin">
+   419→          <Table>
+   420→            <TableHeader>
+   421→              <TableRow>
+   422→                <TableHead className="text-xs">Criterion</TableHead>
+   423→                <TableHead className="text-xs">Raw</TableHead>
+   424→                <TableHead className="text-xs">Norm.</TableHead>
+   425→                <TableHead className="text-xs">Dir.</TableHead>
+   426→              </TableRow>
+   427→            </TableHeader>
+   428→            <TableBody>
+   429→              {strategy.criteria.map((c) => (
+   430→                <TableRow key={c.criterion_code}>
+   431→                  <TableCell className="text-xs">
+   432→                    {c.criterion_code}
+   433→                    {!c.evaluable && (
+   434→                      <span className="ml-1 text-stone-400" title={c.missing_evidence.join('; ')}>
+   435→                        (not evaluated)
+   436→                      </span>
+   437→                    )}
+   438→                  </TableCell>
+   439→                  <TableCell className="text-xs">
+   440→                    {c.evaluable ? `${fmt(c.raw_value)} ${c.unit}` : <span className="text-stone-400">—</span>}
+   441→                  </TableCell>
+   442→                  <TableCell className="text-xs">{c.normalized !== null ? fmt(c.normalized, 2) : '—'}</TableCell>
+   443→                  <TableCell className="text-xs text-stone-500">{c.direction}</TableCell>
+   444→                </TableRow>
+   445→              ))}
+   446→            </TableBody>
+   447→          </Table>
+   448→        </div>
+   449→
+   450→        <Accordion type="single" collapsible>
+   451→          <AccordionItem value={`why-${strategy.id}`} className="border-stone-100">
+   452→            <AccordionTrigger className="py-2 text-xs text-stone-600">Why this strategy</AccordionTrigger>
+   453→            <AccordionContent className="space-y-2 text-xs text-stone-600">
+   454→              <p>{exp.why_generated}</p>
+   455→              {exp.expected_benefits.length > 0 && (
+   456→                <div>
+   457→                  <p className="font-semibold text-emerald-800">Expected benefits</p>
+   458→                  <ul className="list-disc pl-4">
+   459→                    {exp.expected_benefits.map((b, i) => <li key={i}>{b}</li>)}
+   460→                  </ul>
+   461→                </div>
+   462→              )}
+   463→              {exp.risks_trade_offs.length > 0 && (
+   464→                <div>
+   465→                  <p className="font-semibold text-amber-800">Risks & trade-offs</p>
+   466→                  <ul className="list-disc pl-4">
+   467→                    {exp.risks_trade_offs.map((b, i) => <li key={i}>{b}</li>)}
+   468→                  </ul>
+   469→                </div>
+   470→              )}
+   471→            </AccordionContent>
+   472→          </AccordionItem>
+   473→          <AccordionItem value={`constraints-${strategy.id}`} className="border-stone-100">
+   474→            <AccordionTrigger className="py-2 text-xs text-stone-600">Constraints checked</AccordionTrigger>
+   475→            <AccordionContent className="space-y-2 text-xs text-stone-600">
+   476→              {exp.constraints_checked.map((c, i) => (
+   477→                <p key={i} className="leading-relaxed">
+   478→                  <span
+   479→                    className={cn(
+   480→                      'mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle',
+   481→                      c.status === 'satisfied' ? 'bg-emerald-500' : c.status === 'violated' ? 'bg-red-500' : 'bg-stone-400',
+   482→                    )}
+   483→                    aria-hidden
+   484→                  />
+   485→                  <span className="font-medium">{c.constraint_code}</span> [{c.status}] {c.detail}
+   486→                </p>
+   487→              ))}
+   488→            </AccordionContent>
+   489→          </AccordionItem>
+   490→          <AccordionItem value={`evidence-${strategy.id}`} className="border-stone-100">
+   491→            <AccordionTrigger className="py-2 text-xs text-stone-600">Evidence & data limitations</AccordionTrigger>
+   492→            <AccordionContent className="space-y-2 text-xs text-stone-600">
+   493→              {exp.data_limitations.map((l, i) => (
+   494→                <p key={i} className="leading-relaxed text-amber-800">{l}</p>
+   495→              ))}
+   496→              <details className="text-stone-500">
+   497→                <summary className="cursor-pointer">References ({exp.evidence_references.length})</summary>
+   498→                <ul className="mt-1 list-disc pl-4">
+   499→                  {exp.evidence_references.map((r, i) => {
+   500→                    const typed = r as { type?: string; citation_text?: string; pack_version?: string; source_key?: string }
+   501→                    return (
+   502→                      <li key={i}>
+   503→                        {typed.type}: {typed.citation_text ?? typed.pack_version ?? typed.source_key}
+   504→                      </li>
+   505→                    )
+   506→                  })}
+   507→                </ul>
+   508→              </details>
+   509→            </AccordionContent>
+   510→          </AccordionItem>
+   511→          <AccordionItem value={`validation-${strategy.id}`} className="border-stone-100">
+   512→            <AccordionTrigger className="py-2 text-xs text-stone-600">Local expert validation required</AccordionTrigger>
+   513→            <AccordionContent className="space-y-1.5 text-xs text-stone-600">
+   514→              {exp.local_expert_validation_required.length === 0 ? (
+   515→                <p className="text-stone-400">None — all applied knowledge is regionally confirmed.</p>
+   516→              ) : (
+   517→                <ul className="list-disc pl-4">
+   518→                  {exp.local_expert_validation_required.map((v, i) => <li key={i}>{v}</li>)}
+   519→                </ul>
+   520→              )}
+   521→            </AccordionContent>
+   522→          </AccordionItem>
+   523→        </Accordion>
+   524→
+   525→        <p className="text-[10px] text-stone-400">
+   526→          checksum {strategy.checksum_sha256?.slice(0, 16)}…
+   527→          {Object.keys(strategy.skipped_weights).length > 0 && (
+   528→            <> · skipped weights: {Object.keys(strategy.skipped_weights).join(', ')}</>
+   529→          )}
+   530→        </p>
+   531→      </CardContent>
+   532→    </Card>
+   533→  )
+   534→}
+   535→
+   536→function RunOptimizerCard({
+   537→  selectedField,
+   538→  seasons,
+   539→}: {
+   540→  selectedField: SelectedField
+   541→  seasons: SeasonWindow[]
+   542→}) {
+   543→  const queryClient = useQueryClient()
+   544→  const [profiles, setProfiles] = useState<string[]>(['balanced'])
+   545→  const [allocation, setAllocation] = useState('')
+   546→  const runs = useRotationRuns(selectedField.id)
+   547→  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+   548→  const runDetail = useRotationRun(selectedRunId)
+   549→  const comparison = useRotationComparison(selectedRunId)
+   550→
+   551→  const toggleProfile = (p: string) =>
+   552→    setProfiles((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
+   553→
+   554→  const runMutation = useMutation({
+   555→    mutationFn: () =>
+   556→      createRotationRun(selectedField.id, {
+   557→        seasons: seasons.map((s) => ({ label: s.label, start_date: s.start, end_date: s.end })),
+   558→        hemisphere: 'north',
+   559→        strategy_profiles: profiles.length ? profiles : ['balanced'],
+   560→        water_allocation_m3: allocation ? Number(allocation) : null,
+   561→        idempotency_key: `ui-${selectedField.id}-${Date.now()}`,
+   562→      }),
+   563→    onSuccess: (run) => {
+   564→      toast.success(
+   565→        run.solver_status === 'infeasible'
+   566→          ? 'Run finished: no feasible assignment (see conflicts).'
+   567→          : 'Rotation run finished.',
+   568→      )
+   569→      setSelectedRunId(run.id)
+   570→      void queryClient.invalidateQueries({ queryKey: ['rotation-runs', selectedField.id] })
+   571→    },
+   572→    onError: (err) => {
+   573→      const d = describeError(err)
+   574→      toast.error(d.title, { description: d.description })
+   575→    },
+   576→  })
+   577→
+   578→  const strategies = runDetail.data?.strategies ?? []
+   579→  const infeasibleProfiles = runDetail.data?.infeasibility_details?.profiles ?? []
+   580→
+   581→  return (
+   582→    <Card>
+   583→      <CardHeader className="pb-3">
+   584→        <CardTitle className="flex items-center gap-2 text-base">
+   585→          <Scale className="h-4 w-4 text-emerald-700" aria-hidden />
+   586→          Constraint-based optimization
+   587→        </CardTitle>
+   588→        <CardDescription>
+   589→          CP-SAT over admissible candidates. Hard constraints are never relaxed;
+   590→          infeasible requests are reported with their conflicting constraints.
+   591→        </CardDescription>
+   592→      </CardHeader>
+   593→      <CardContent className="space-y-3">
+   594→        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+   595→          {PROFILE_OPTIONS.map((p) => (
+   596→            <label key={p.value} className="flex items-center gap-2 rounded-lg border border-stone-200 px-2 py-2 text-xs text-stone-700">
+   597→              <Checkbox checked={profiles.includes(p.value)} onCheckedChange={() => toggleProfile(p.value)} />
+   598→              {p.label}
+   599→            </label>
+   600→          ))}
+   601→        </div>
+   602→        <div className="flex flex-wrap items-end gap-2">
+   603→          <div>
+   604→            <Label className="text-xs text-stone-500">Water allocation per season (m³, optional)</Label>
+   605→            <Input
+   606→              type="number"
+   607→              min="1"
+   608→              value={allocation}
+   609→              onChange={(e) => setAllocation(e.target.value)}
+   610→              placeholder="e.g. 1450000"
+   611→              className="h-9 w-48 text-sm"
+   612→            />
+   613→          </div>
+   614→          <Button size="sm" className="h-9" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || seasons.length === 0}>
+   615→            {runMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <GitCompareArrows className="h-4 w-4" aria-hidden />}
+   616→            Optimize rotation
+   617→          </Button>
+   618→        </div>
+   619→
+   620→        {runs.data && runs.data.runs.length > 0 && (
+   621→          <div>
+   622→            <Label className="text-xs text-stone-500">Past runs</Label>
+   623→            <Select value={selectedRunId ?? undefined} onValueChange={setSelectedRunId}>
+   624→              <SelectTrigger className="h-9 text-sm">
+   625→                <SelectValue placeholder="Select a run…" />
+   626→              </SelectTrigger>
+   627→              <SelectContent className="max-h-72">
+   628→                {runs.data.runs.map((r) => (
+   629→                  <SelectItem key={r.id} value={r.id}>
+   630→                    {r.id.slice(0, 8)} · {r.solver_status ?? r.status} · {r.n_strategies} strategies
+   631→                  </SelectItem>
+   632→                ))}
+   633→              </SelectContent>
+   634→            </Select>
+   635→          </div>
+   636→        )}
+   637→
+   638→        {infeasibleProfiles.length > 0 && (
+   639→          <Alert className="border-red-200 bg-red-50">
+   640→            <XCircle className="h-4 w-4 text-red-700" aria-hidden />
+   641→            <AlertTitle className="text-sm text-red-900">Infeasible profile(s)</AlertTitle>
+   642→            <AlertDescription className="text-xs text-red-800">
+   643→              {infeasibleProfiles.map((p, i) => (
+   644→                <div key={i}>
+   645→                  <span className="font-semibold">{p.strategy_key}</span>: {p.conflicts.map((c) => `${c.constraint} — ${c.detail}`).join(' | ')}
+   646→                </div>
+   647→              ))}
+   648→            </AlertDescription>
+   649→          </Alert>
+   650→        )}
+   651→
+   652→        {runDetail.data?.warnings.map((w, i) => (
+   653→          <Alert key={i} className={w.includes('SYNTHETIC') ? 'border-amber-200 bg-amber-50' : undefined}>
+   654→            <AlertTriangle className="h-4 w-4" aria-hidden />
+   655→            <AlertDescription className="text-xs">{w}</AlertDescription>
+   656→          </Alert>
+   657→        ))}
+   658→
+   659→        {comparison.data && (
+   660→          <p className="text-xs text-stone-500">{comparison.data.note}</p>
+   661→        )}
+   662→
+   663→        <div className="space-y-3">
+   664→          {strategies.map((s) => (
+   665→            <StrategyCard key={s.id} strategy={s} />
+   666→          ))}
+   667→        </div>
+   668→      </CardContent>
+   669→    </Card>
+   670→  )
+   671→}
+   672→
+   673→// ---------------------------------------------------- knowledge browser
+   674→
+   675→function KnowledgeBrowser() {
+   676→  const packs = useKnowledgePacks()
+   677→  const crops = useKnowledgeCrops()
+   678→  const rules = useRotationRules()
+   679→  const [selectedPack, setSelectedPack] = useState<string | null>(null)
+   680→  const sources = useKnowledgePackSources(selectedPack)
+   681→
+   682→  return (
+   683→    <div className="space-y-4">
+   684→      <Card>
+   685→        <CardHeader className="pb-3">
+   686→          <CardTitle className="flex items-center gap-2 text-base">
+   687→            <BookOpen className="h-4 w-4 text-emerald-700" aria-hidden />
+   688→            Knowledge packs
+   689→          </CardTitle>
+   690→          <CardDescription>
+   691→            Versioned, source-cited crop knowledge. Reference values are pending
+   692→            regional validation — nothing is confirmed just because it is published.
+   693→          </CardDescription>
+   694→        </CardHeader>
+   695→        <CardContent className="space-y-2">
+   696→          {packs.data?.packs.map((p) => (
+   697→            <div key={p.id} className="rounded-lg border border-stone-200 p-3">
+   698→              <div className="flex flex-wrap items-center justify-between gap-2">
+   699→                <div className="min-w-0">
+   700→                  <p className="truncate text-sm font-medium text-stone-900">
+   701→                    {p.pack_code} <span className="text-stone-400">{p.pack_version}</span>
+   702→                  </p>
+   703→                  <p className="text-xs text-stone-500">{p.description}</p>
+   704→                </div>
+   705→                <div className="flex flex-wrap items-center gap-1.5">
+   706→                  <Badge variant="outline" className="font-normal text-stone-600">{p.status}</Badge>
+   707→                  <Badge variant="outline" className="font-normal text-stone-600">
+   708→                    {p.counts.crops} crops · {p.counts.traits} traits · {p.counts.rotation_rules} rules
+   709→                  </Badge>
+   710→                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedPack(selectedPack === p.id ? null : p.id)}>
+   711→                    {selectedPack === p.id ? 'Hide sources' : 'Sources'}
+   712→                  </Button>
+   713→                </div>
+   714→              </div>
+   715→              {p.digitization_note && (
+   716→                <p className="mt-2 text-xs text-amber-800">{p.digitization_note}</p>
+   717→              )}
+   718→              <p className="mt-1 text-xs text-stone-500">{p.attribution_text}</p>
+   719→              {selectedPack === p.id && (
+   720→                <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto border-t border-stone-100 pt-2 text-xs text-stone-600 scrollbar-thin">
+   721→                  {(sources.data?.sources ?? []).map((s) => (
+   722→                    <li key={s.source_key}>
+   723→                      <span className="font-medium">{s.source_key}</span> — {s.citation_text}
+   724→                      {s.url && (
+   725→                        <a href={s.url} target="_blank" rel="noreferrer" className="ml-1 text-emerald-700 underline">
+   726→                          link
+   727→                        </a>
+   728→                      )}
+   729→                    </li>
+   730→                  ))}
+   731→                </ul>
+   732→              )}
+   733→            </div>
+   734→          ))}
+   735→        </CardContent>
+   736→      </Card>
+   737→
+   738→      <Card>
+   739→        <CardHeader className="pb-3">
+   740→          <CardTitle className="text-base">Crops ({crops.data?.total ?? 0})</CardTitle>
+   741→          <CardDescription>Deliberate gaps stay gaps: no sourced trait → no row.</CardDescription>
+   742→        </CardHeader>
+   743→        <CardContent>
+   744→          <div className="overflow-x-auto scrollbar-thin">
+   745→            <Table>
+   746→              <TableHeader>
+   747→                <TableRow>
+   748→                  <TableHead className="text-xs">Crop</TableHead>
+   749→                  <TableHead className="text-xs">Family</TableHead>
+   750→                  <TableHead className="text-xs">Legume</TableHead>
+   751→                  <TableHead className="text-xs">Kc</TableHead>
+   752→                  <TableHead className="text-xs">Traits</TableHead>
+   753→                </TableRow>
+   754→              </TableHeader>
+   755→              <TableBody>
+   756→                {(crops.data?.crops ?? []).map((c) => (
+   757→                  <TableRow key={c.id}>
+   758→                    <TableCell className="text-xs font-medium text-stone-800">{c.crop_code}</TableCell>
+   759→                    <TableCell className="text-xs text-stone-600">{c.family_key ?? '—'}</TableCell>
+   760→                    <TableCell className="text-xs">{c.is_legume ? 'yes' : '—'}</TableCell>
+   761→                    <TableCell className="text-xs">
+   762→                      {c.has_kc_parameters ? (
+   763→                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="has Kc" />
+   764→                      ) : (
+   765→                        <span className="text-stone-400">none</span>
+   766→                      )}
+   767→                    </TableCell>
+   768→                    <TableCell className="text-xs text-stone-500">{c.trait_codes.length}</TableCell>
+   769→                  </TableRow>
+   770→                ))}
+   771→              </TableBody>
+   772→            </Table>
+   773→          </div>
+   774→        </CardContent>
+   775→      </Card>
+   776→
+   777→      <Card>
+   778→        <CardHeader className="pb-3">
+   779→          <CardTitle className="text-base">Rotation rules ({rules.data?.total ?? 0})</CardTitle>
+   780→          <CardDescription>{rules.data?.note}</CardDescription>
+   781→        </CardHeader>
+   782→        <CardContent className="space-y-2">
+   783→          {(rules.data?.rules ?? []).map((r) => (
+   784→            <div key={r.rule_code} className="rounded-lg border border-stone-200 p-3 text-xs">
+   785→              <div className="flex flex-wrap items-center gap-2">
+   786→                <span className="font-medium text-stone-800">{r.rule_code}</span>
+   787→                <Badge variant="outline" className="font-normal text-stone-600">{r.rule_type}</Badge>
+   788→                <Badge
+   789→                  variant="outline"
+   790→                  className={cn(
+   791→                    'font-normal',
+   792→                    r.hard_enforceable ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-900',
+   793→                  )}
+   794→                >
+   795→                  {r.validation_status}
+   796→                </Badge>
+   797→                {r.min_break_seasons > 0 && (
+   798→                  <Badge variant="outline" className="font-normal text-stone-600">break ≥ {r.min_break_seasons}</Badge>
+   799→                )}
+   800→              </div>
+   801→              <p className="mt-1.5 leading-relaxed text-stone-600">{r.mechanism}</p>
+   802→              <p className="mt-1 text-stone-400">[{r.source.citation_text}]</p>
+   803→            </div>
+   804→          ))}
+   805→        </CardContent>
+   806→      </Card>
+   807→    </div>
+   808→  )
+   809→}
+   810→
+   811→// ------------------------------------------------------------------ main
+   812→
+   813→export function Rotation() {
+   814→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   815→  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+   816→  const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
+   817→  const [seasons, setSeasons] = useState<SeasonWindow[]>([
+   818→    { label: 'summer_2026', start: '2026-05-01', end: '2026-09-15' },
+   819→  ])
+   820→
+   821→  const hasField = !!selectedField
+   822→
+   823→  const updateSeason = (idx: number, patch: Partial<SeasonWindow>) =>
+   824→    setSeasons((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
+   825→
+   826→  return (
+   827→    <div className="space-y-4">
+   828→      {!hasField ? (
+   829→        <Card>
+   830→          <CardContent className="py-10 text-center text-sm text-stone-500">
+   831→            <div className="flex flex-wrap items-center justify-center gap-2">
+   832→              <span>Pick a field to plan its rotation. Knowledge browsing is available below.</span>
+   833→              <FieldPicker
+   834→                value={null}
+   835→                onValueChange={setSelectedField}
+   836→                emptyHint={
+   837→                  <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
+   838→                    Create a farm and field first
+   839→                  </Button>
+   840→                }
+   841→              />
+   842→            </div>
+   843→          </CardContent>
+   844→        </Card>
+   845→      ) : (
+   846→        <>
+   847→          <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
+   848→          <Card>
+   849→            <CardHeader className="pb-3">
+   850→              <CardTitle className="text-base">Planning seasons</CardTitle>
+   851→              <CardDescription>
+   852→                Up to four seasons per run. Climate evidence comes from the field&apos;s
+   853→                latest feature run as a month-of-year climatology — a historical proxy,
+   854→                never a forecast.
+   855→              </CardDescription>
+   856→            </CardHeader>
+   857→            <CardContent className="space-y-2">
+   858→              {seasons.map((s, i) => (
+   859→                <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+   860→                  <Input
+   861→                    value={s.label}
+   862→                    onChange={(e) => updateSeason(i, { label: e.target.value })}
+   863→                    placeholder="Label"
+   864→                    className="h-9 text-sm"
+   865→                    aria-label={`Season ${i + 1} label`}
+   866→                  />
+   867→                  <Input
+   868→                    type="date"
+   869→                    value={s.start}
+   870→                    onChange={(e) => updateSeason(i, { start: e.target.value })}
+   871→                    className="h-9 text-sm"
+   872→                    aria-label={`Season ${i + 1} start`}
+   873→                  />
+   874→                  <Input
+   875→                    type="date"
+   876→                    value={s.end}
+   877→                    onChange={(e) => updateSeason(i, { end: e.target.value })}
+   878→                    className="h-9 text-sm"
+   879→                    aria-label={`Season ${i + 1} end`}
+   880→                  />
+   881→                  <Button
+   882→                    variant="ghost"
+   883→                    size="sm"
+   884→                    className="h-9 text-xs text-stone-500"
+   885→                    onClick={() => setSeasons((prev) => prev.filter((_, j) => j !== i))}
+   886→                    disabled={seasons.length === 1}
+   887→                  >
+   888→                    Remove
+   889→                  </Button>
+   890→                </div>
+   891→              ))}
+   892→              <Button
+   893→                variant="outline"
+   894→                size="sm"
+   895→                className="text-xs"
+   896→                onClick={() => setSeasons((prev) => [...prev, { label: `season_${prev.length + 1}`, start: '2026-05-01', end: '2026-09-15' }])}
+   897→                disabled={seasons.length >= 4}
+   898→              >
+   899→                Add season
+   900→              </Button>
+   901→            </CardContent>
+   902→          </Card>
+   903→
+   904→          <CropHistoryCard selectedField={selectedField} />
+   905→          <CandidatesCard selectedField={selectedField} seasons={seasons} />
+   906→          <RunOptimizerCard selectedField={selectedField} seasons={seasons} />
+   907→        </>
+   908→      )}
+   909→
+   910→      <KnowledgeBrowser />
+   911→    </div>
+   912→  )
+   913→}
+   914→

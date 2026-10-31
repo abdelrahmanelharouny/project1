@@ -183,6 +183,37 @@ Gap analysis: `docs/implementation/M5_GAP_ANALYSIS.md` · ADRs 0014–0018 in `D
 - ✅ Zero console/page errors; desktop 1366 px footer flush on short page and naturally pushed on long pages; mobile 390 px: no horizontal overflow, tab strip scrolls, footer intact
 - Note: intermittent blank screenshots mid-session were agent-browser daemon restarts (page reloaded to about:blank); every fresh load rendered and behaved correctly — the app itself stayed healthy (200s, zero page errors)
 
+## Pre-M6 deepening program — scientific & technical hardening (2026-10-31)
+
+Full deliverable set: `docs/deepening/` (15 documents) · findings register:
+`docs/deepening/SCIENTIFIC_AUDIT.md` · exit scorecard:
+`docs/deepening/DEEPENING_EXIT_REPORT.md`.
+
+| Task | Status | Notes |
+|---|---|---|
+| As-built architecture audit (backend, frontend, DB, routes, tests) | ✅ | 3 parallel audits + core reads; 21 classified findings (1 Critical, 7 High, 11 Medium, 2 Low) |
+| Critical: real passport products falsely badged "Synthetic" | ✅ fixed | flag-driven badge; payload carries is_synthetic; synthetic/real variants never merge |
+| Feature engine quality filter | ✅ fixed | only contract-valid observations aggregate; per-status exclusion warnings (F-02) |
+| Cross-tenant idempotency replay | ✅ fixed | composite (field_id, key) unique (migration 0005); all lookup paths scoped (F-03) |
+| Solver status semantics | ✅ fixed | MODEL_INVALID/UNKNOWN never reported infeasible; run "optimal" only when every profile proved it (F-04) |
+| Partial Kc anchors zero-fill | ✅ fixed | anchor vocabulary enforced; incomplete sets rejected; loader never zero-fills (F-05) |
+| Deep rotation-break rules under-enforced | ✅ fixed | lookbacks derived from deepest confirmed rule in both layers (F-06) |
+| Water estimate silently dropped missing-ET0 months | ✅ fixed | estimate refused rather than under-reported (F-07) |
+| SoilGrids PI mislabel | ✅ fixed | honest "mean of per-pixel Q05–Q95 half-width, NOT a field-level 90% PI" (F-08) |
+| Non-deterministic pack-collision winner | ✅ fixed | deterministic ordering incl. API read paths (F-09) |
+| Criteria evidence citations | ✅ fixed | criterion-level source_refs populated + persisted (F-10) |
+| "Climatology" mislabel of short baselines | ✅ fixed | baseline_class + includes_evaluated_period; catalog v2026.11.1-d1 (F-11) |
+| CHIRPS v3 daily dependency structure | ✅ documented | pentad→daily disaggregation with ERA5/IMERG; no product blending (F-12) |
+| Raster extraction area weighting | ✅ fixed (CHIRPS) | fractional pixel-area weighted mean (v2) + golden test; SoilGrids rationale G-2 (F-13) |
+| Audit-trail actor/org NULLs | ✅ fixed (F-14) | principal.id + farm org |
+| DB indexes + model drift | ✅ fixed | migration 0005 additive (F-15); NULLS NOT DISTINCT Kc uniqueness (F-18) |
+| Error envelope + deprecated constant | ✅ fixed (F-16) | StarletteHTTPException handler; 422 constant renamed |
+| Frontend honesty defects | ✅ fixed | "0 obs"→"— obs", NaN guards, chart provenance notes, "evidence-backed criteria NN%", truncation notice, baseline wording (F-17) |
+| Precipitation partial-month warning | ✅ fixed (F-19) | under-count explicitly warned |
+| Knowledge enrichment decision | ✅ documented | depth over breadth: nothing added without a verifiable source; backlog K/C/S/M/B/G series |
+| Benchmark suite | ✅ | golden + property + metamorphic tests; suite 314 → 343, all green |
+| Browser re-verification | ✅ | passport badges, rotation labels, "— obs", new catalog version; zero page errors; mobile clean |
+
 ## Not implemented (next milestones — deliberately)
 
 - ✅ Open-Meteo historical provider (Milestone 3 — done)

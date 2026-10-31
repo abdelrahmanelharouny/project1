@@ -175,7 +175,7 @@ def update_field_boundary(
     db.add(
         AuditEvent(
             actor_id=principal.id,
-            organization_id=None,
+            organization_id=field.farm.organization_id,
             entity_type="field_boundary",
             entity_id=str(field.id),
             action="new_version",

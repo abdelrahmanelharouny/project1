@@ -111,7 +111,7 @@ def add_crop_history(
     db.add(row)
     db.add(
         dbm.AuditEvent(
-            actor_id=getattr(principal, "user_id", None),
+            actor_id=principal.id,
             entity_type="crop_history",
             entity_id=None,
             action="created",

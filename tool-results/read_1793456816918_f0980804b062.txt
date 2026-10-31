@@ -1,0 +1,1025 @@
+     1→"""SQLAlchemy ORM models — first vertical slice schema.
+     2→
+     3→Covers (Master Engineering Prompt §17): identity/tenancy, farms/fields +
+     4→boundary versions, data registry (sources/products), ingestion jobs, canonical
+     5→observations + quality flags, and audit events.
+     6→
+     7→Later milestones extend this file with soil, crop knowledge, water, rotation,
+     8→scenario, journal and review tables (Part V).
+     9→"""
+    10→
+    11→import uuid
+    12→from datetime import date, datetime
+    13→from typing import Any
+    14→
+    15→from geoalchemy2 import Geometry, WKBElement
+    16→from sqlalchemy import (
+    17→    Boolean,
+    18→    CheckConstraint,
+    19→    Date,
+    20→    DateTime,
+    21→    Float,
+    22→    ForeignKey,
+    23→    Index,
+    24→    Integer,
+    25→    String,
+    26→    Text,
+    27→    UniqueConstraint,
+    28→    func,
+    29→    text as text_,
+    30→)
+    31→from sqlalchemy.dialects.postgresql import JSONB, UUID
+    32→from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+    33→
+    34→
+    35→def _uuid() -> uuid.UUID:
+    36→    return uuid.uuid4()
+    37→
+    38→
+    39→class Base(DeclarativeBase):
+    40→    pass
+    41→
+    42→
+    43→class TimestampMixin:
+    44→    created_at: Mapped[datetime] = mapped_column(
+    45→        DateTime(timezone=True), nullable=False, server_default=func.now()
+    46→    )
+    47→    updated_at: Mapped[datetime] = mapped_column(
+    48→        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    49→    )
+    50→
+    51→
+    52→# ---------------------------------------------------------------- identity
+    53→class User(Base, TimestampMixin):
+    54→    __tablename__ = "users"
+    55→
+    56→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    57→    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    58→    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    59→    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    60→    preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+    61→    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
+    62→    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    63→
+    64→    memberships: Mapped[list["Membership"]] = relationship(back_populates="user")
+    65→    tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user")
+    66→
+    67→    __table_args__ = (Index("uq_users_email_lower", func.lower(email), unique=True),)
+    68→
+    69→
+    70→class Organization(Base, TimestampMixin):
+    71→    __tablename__ = "organizations"
+    72→
+    73→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    74→    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    75→    organization_type: Mapped[str] = mapped_column(String(50), nullable=False, default="farm")
+    76→    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    77→
+    78→    memberships: Mapped[list["Membership"]] = relationship(back_populates="organization")
+    79→    farms: Mapped[list["Farm"]] = relationship(back_populates="organization")
+    80→
+    81→
+    82→class Membership(Base, TimestampMixin):
+    83→    __tablename__ = "memberships"
+    84→
+    85→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    86→    organization_id: Mapped[uuid.UUID] = mapped_column(
+    87→        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    88→    )
+    89→    user_id: Mapped[uuid.UUID] = mapped_column(
+    90→        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    91→    )
+    92→    role_code: Mapped[str] = mapped_column(String(40), nullable=False, default="owner")
+    93→    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    94→
+    95→    organization: Mapped[Organization] = relationship(back_populates="memberships")
+    96→    user: Mapped[User] = relationship(back_populates="memberships")
+    97→
+    98→    __table_args__ = (
+    99→        UniqueConstraint("organization_id", "user_id", name="uq_membership_org_user"),
+   100→        CheckConstraint(
+   101→            "role_code IN ('owner','manager','agronomist','viewer')", name="ck_membership_role"
+   102→        ),
+   103→    )
+   104→
+   105→
+   106→class AuthToken(Base):
+   107→    __tablename__ = "auth_tokens"
+   108→
+   109→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   110→    user_id: Mapped[uuid.UUID] = mapped_column(
+   111→        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+   112→    )
+   113→    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+   114→    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   115→    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   116→    created_at: Mapped[datetime] = mapped_column(
+   117→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   118→    )
+   119→
+   120→    user: Mapped[User] = relationship(back_populates="tokens")
+   121→
+   122→    __table_args__ = (Index("uq_auth_tokens_hash", token_hash, unique=True),)
+   123→
+   124→
+   125→# ---------------------------------------------------------- farms / fields
+   126→class Farm(Base, TimestampMixin):
+   127→    __tablename__ = "farms"
+   128→
+   129→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   130→    organization_id: Mapped[uuid.UUID] = mapped_column(
+   131→        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+   132→    )
+   133→    name: Mapped[str] = mapped_column(String(200), nullable=False)
+   134→    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+   135→    admin_region: Mapped[str | None] = mapped_column(String(200), nullable=True)
+   136→    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
+   137→    currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+   138→    unit_system: Mapped[str] = mapped_column(String(20), nullable=False, default="metric")
+   139→    preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+   140→
+   141→    organization: Mapped[Organization] = relationship(back_populates="farms")
+   142→    fields: Mapped[list["Field"]] = relationship(back_populates="farm", cascade="all, delete-orphan")
+   143→
+   144→    __table_args__ = (
+   145→        CheckConstraint("unit_system IN ('metric','imperial')", name="ck_farm_unit_system"),
+   146→        Index("ix_farms_organization", organization_id),
+   147→    )
+   148→
+   149→
+   150→class Field(Base, TimestampMixin):
+   151→    __tablename__ = "fields"
+   152→
+   153→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   154→    farm_id: Mapped[uuid.UUID] = mapped_column(
+   155→        UUID(as_uuid=True), ForeignKey("farms.id", ondelete="CASCADE"), nullable=False
+   156→    )
+   157→    name: Mapped[str] = mapped_column(String(200), nullable=False)
+   158→    area_ha: Mapped[float] = mapped_column(Float, nullable=False)
+   159→    # User boundary stored as validated MULTIPOLYGON in EPSG:4326 (Master §17.2).
+   160→    boundary: Mapped[WKBElement] = mapped_column(
+   161→        Geometry(geometry_type="MULTIPOLYGON", srid=4326, spatial_index=True), nullable=False
+   162→    )
+   163→    boundary_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+   164→    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+   165→
+   166→    farm: Mapped[Farm] = relationship(back_populates="fields")
+   167→    boundary_versions: Mapped[list["FieldBoundaryVersion"]] = relationship(
+   168→        back_populates="field", cascade="all, delete-orphan", order_by="FieldBoundaryVersion.version_number"
+   169→    )
+   170→    observations: Mapped[list["Observation"]] = relationship(back_populates="field")
+   171→
+   172→    __table_args__ = (
+   173→        CheckConstraint("area_ha > 0", name="ck_field_area_positive"),
+   174→        Index("ix_fields_farm", farm_id),
+   175→    )
+   176→
+   177→
+   178→class FieldBoundaryVersion(Base):
+   179→    __tablename__ = "field_boundary_versions"
+   180→
+   181→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   182→    field_id: Mapped[uuid.UUID] = mapped_column(
+   183→        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+   184→    )
+   185→    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+   186→    boundary: Mapped[WKBElement] = mapped_column(
+   187→        Geometry(geometry_type="MULTIPOLYGON", srid=4326, spatial_index=False), nullable=False
+   188→    )
+   189→    area_ha: Mapped[float] = mapped_column(Float, nullable=False)
+   190→    change_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+   191→    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   192→    created_at: Mapped[datetime] = mapped_column(
+   193→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   194→    )
+   195→
+   196→    field: Mapped[Field] = relationship(back_populates="boundary_versions")
+   197→
+   198→    __table_args__ = (UniqueConstraint("field_id", "version_number", name="uq_boundary_version"),)
+   199→
+   200→
+   201→# ------------------------------------------------------ data registry
+   202→class DataSource(Base, TimestampMixin):
+   203→    __tablename__ = "data_sources"
+   204→
+   205→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   206→    provider_code: Mapped[str] = mapped_column(String(60), nullable=False)
+   207→    provider_name: Mapped[str] = mapped_column(String(200), nullable=False)
+   208→    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+   209→    license_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+   210→    license_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+   211→    attribution_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+   212→    documentation_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+   213→    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+   214→    known_limitations: Mapped[str | None] = mapped_column(Text, nullable=True)
+   215→
+   216→    products: Mapped[list["DatasetProduct"]] = relationship(back_populates="source")
+   217→
+   218→    __table_args__ = (Index("uq_data_sources_provider", provider_code, unique=True),)
+   219→
+   220→
+   221→class DatasetProduct(Base, TimestampMixin):
+   222→    __tablename__ = "dataset_products"
+   223→
+   224→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   225→    source_id: Mapped[uuid.UUID] = mapped_column(
+   226→        UUID(as_uuid=True), ForeignKey("data_sources.id", ondelete="CASCADE"), nullable=False
+   227→    )
+   228→    product_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   229→    product_version: Mapped[str] = mapped_column(String(40), nullable=False)
+   230→    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+   231→    spatial_resolution_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+   232→    temporal_resolution: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   233→    coverage_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   234→    coverage_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   235→    metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   236→
+   237→    source: Mapped[DataSource] = relationship(back_populates="products")
+   238→    observations: Mapped[list["Observation"]] = relationship(back_populates="dataset_product")
+   239→
+   240→    __table_args__ = (
+   241→        UniqueConstraint("source_id", "product_code", "product_version", name="uq_dataset_product"),
+   242→    )
+   243→
+   244→
+   245→# ------------------------------------------------------------- ingestion
+   246→class IngestionJob(Base, TimestampMixin):
+   247→    __tablename__ = "ingestion_jobs"
+   248→
+   249→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   250→    field_id: Mapped[uuid.UUID] = mapped_column(
+   251→        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+   252→    )
+   253→    provider_code: Mapped[str] = mapped_column(String(60), nullable=False)
+   254→    job_type: Mapped[str] = mapped_column(String(60), nullable=False, default="environmental_ingestion")
+   255→    request_parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   256→    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+   257→    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+   258→    records_received: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+   259→    records_rejected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+   260→    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   261→    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+   262→    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   263→    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   264→    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   265→
+   266→    __table_args__ = (
+   267→        CheckConstraint(
+   268→            "status IN ('queued','running','succeeded','failed','cancelled','retrying')",
+   269→            name="ck_ingestion_job_status",
+   270→        ),
+   271→        Index("uq_ingestion_idempotency", idempotency_key, unique=True,
+   272→               postgresql_where=text_("idempotency_key IS NOT NULL")),
+   273→    )
+   274→
+   275→
+   276→# ---------------------------------------------------------- observations
+   277→class Observation(Base):
+   278→    """Canonical observation row (Master Engineering Prompt §13.1 / §17.3)."""
+   279→
+   280→    __tablename__ = "observations"
+   281→
+   282→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   283→    field_id: Mapped[uuid.UUID] = mapped_column(
+   284→        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+   285→    )
+   286→    dataset_product_id: Mapped[uuid.UUID] = mapped_column(
+   287→        UUID(as_uuid=True), ForeignKey("dataset_products.id", ondelete="RESTRICT"), nullable=False
+   288→    )
+   289→    variable_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   290→    value: Mapped[float | None] = mapped_column(Float, nullable=True)  # null = missing/nodata
+   291→    unit: Mapped[str] = mapped_column(String(30), nullable=False)
+   292→    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   293→    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   294→    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   295→    time_support: Mapped[str] = mapped_column(String(20), nullable=False, default="daily")
+   296→    spatial_support_type: Mapped[str] = mapped_column(String(30), nullable=False, default="field_intersection")
+   297→    spatial_resolution_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+   298→    quality_status: Mapped[str] = mapped_column(String(20), nullable=False, default="valid")
+   299→    # Evidence class from the canonical contract, persisted per row (M3 audit):
+   300→    # providers that emit mixed evidence classes stay representable, and the
+   301→    # passport never depends on inference alone. Nullable for legacy rows.
+   302→    evidence_class: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   303→    uncertainty_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+   304→    uncertainty_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   305→    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+   306→    # Job that produced this row (M3 audit): completes the job→observation→
+   307→    # feature provenance chain. Nullable for legacy rows; jobs are never
+   308→    # hard-deleted.
+   309→    ingestion_job_id: Mapped[uuid.UUID | None] = mapped_column(
+   310→        UUID(as_uuid=True), ForeignKey("ingestion_jobs.id", ondelete="SET NULL"), nullable=True
+   311→    )
+   312→    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   313→    processing_version: Mapped[str] = mapped_column(String(40), nullable=False, default="v1")
+   314→    metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   315→    created_at: Mapped[datetime] = mapped_column(
+   316→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   317→    )
+   318→
+   319→    field: Mapped[Field] = relationship(back_populates="observations")
+   320→    dataset_product: Mapped[DatasetProduct] = relationship(back_populates="observations")
+   321→    quality_flags: Mapped[list["ObservationQualityFlag"]] = relationship(
+   322→        back_populates="observation", cascade="all, delete-orphan"
+   323→    )
+   324→
+   325→    __table_args__ = (
+   326→        CheckConstraint(
+   327→            "quality_status IN ('valid','suspect','invalid','missing','estimated','not_assessed')",
+   328→            name="ck_observation_quality",
+   329→        ),
+   330→        CheckConstraint(
+   331→            "time_support IN ('instant','hourly','daily','pentadal','dekadal','monthly','seasonal','annual')",
+   332→            name="ck_observation_time_support",
+   333→        ),
+   334→        CheckConstraint(
+   335→            "spatial_support_type IN ('point','grid_cell','polygon_average','field_intersection','station','lab_sample')",
+   336→            name="ck_observation_spatial_support",
+   337→        ),
+   338→        # Natural-key dedupe: makes provider ingestion idempotent on retry.
+   339→        UniqueConstraint(
+   340→            "field_id",
+   341→            "dataset_product_id",
+   342→            "variable_code",
+   343→            "observed_at",
+   344→            "time_support",
+   345→            "spatial_support_type",
+   346→            name="uq_observation_natural_key",
+   347→        ),
+   348→        Index("ix_observations_field_variable_time", field_id, variable_code, observed_at),
+   349→    )
+   350→
+   351→
+   352→class ObservationQualityFlag(Base):
+   353→    __tablename__ = "observation_quality_flags"
+   354→
+   355→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   356→    observation_id: Mapped[uuid.UUID] = mapped_column(
+   357→        UUID(as_uuid=True), ForeignKey("observations.id", ondelete="CASCADE"), nullable=False
+   358→    )
+   359→    flag_code: Mapped[str] = mapped_column(String(60), nullable=False)
+   360→    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
+   361→    message: Mapped[str] = mapped_column(Text, nullable=False)
+   362→    details: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   363→    created_at: Mapped[datetime] = mapped_column(
+   364→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   365→    )
+   366→
+   367→    observation: Mapped[Observation] = relationship(back_populates="quality_flags")
+   368→
+   369→    __table_args__ = (
+   370→        CheckConstraint("severity IN ('info','warning','error')", name="ck_quality_flag_severity"),
+   371→        Index("ix_oqf_observation", observation_id),
+   372→    )
+   373→
+   374→
+   375→# ------------------------------------------------------------------ audit
+   376→class AuditEvent(Base):
+   377→    __tablename__ = "audit_events"
+   378→
+   379→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   380→    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   381→    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   382→    entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
+   383→    entity_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+   384→    action: Mapped[str] = mapped_column(String(80), nullable=False)
+   385→    before_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+   386→    after_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+   387→    created_at: Mapped[datetime] = mapped_column(
+   388→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   389→    )
+   390→
+   391→
+   392→class FarmConstraint(Base, TimestampMixin):
+   393→    """Farmer-defined constraints table (Master §17.7) — minimal slice subset."""
+   394→
+   395→    __tablename__ = "farm_constraints"
+   396→
+   397→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   398→    farm_id: Mapped[uuid.UUID] = mapped_column(
+   399→        UUID(as_uuid=True), ForeignKey("farms.id", ondelete="CASCADE"), nullable=False
+   400→    )
+   401→    constraint_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   402→    value_numeric: Mapped[float | None] = mapped_column(Float, nullable=True)
+   403→    value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+   404→    unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
+   405→    is_hard_constraint: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+   406→    source: Mapped[str] = mapped_column(String(30), nullable=False, default="farmer")
+   407→
+   408→
+   409→# ------------------------------------------------------- feature engineering
+   410→class FeatureDefinition(Base, TimestampMixin):
+   411→    """Versioned feature definition (Milestone 4).
+   412→
+   413→    Feature codes, units, coverage policy and formula references are data, not
+   414→    code smell: every computed value links to the definition version it was
+   415→    produced with, so historical feature values remain interpretable when the
+   416→    catalog evolves. Thresholds used by count-style indicators cite their
+   417→    source convention (WMO / ETCCDI) and are explicitly NOT crop-specific.
+   418→    """
+   419→
+   420→    __tablename__ = "feature_definitions"
+   421→
+   422→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   423→    feature_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   424→    name: Mapped[str] = mapped_column(String(200), nullable=False)
+   425→    description: Mapped[str] = mapped_column(Text, nullable=False)
+   426→    unit: Mapped[str] = mapped_column(String(30), nullable=False)
+   427→    category: Mapped[str] = mapped_column(String(40), nullable=False, default="climate")
+   428→    aggregation_levels: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   429→    required_variables: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   430→    min_coverage_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.8)
+   431→    definition_version: Mapped[str] = mapped_column(String(40), nullable=False)
+   432→    formula_reference: Mapped[str] = mapped_column(Text, nullable=False)
+   433→    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+   434→
+   435→    __table_args__ = (
+   436→        UniqueConstraint("feature_code", "definition_version", name="uq_feature_definition"),
+   437→        Index("ix_feature_definitions_code", feature_code),
+   438→    )
+   439→
+   440→
+   441→class FeatureRun(Base, TimestampMixin):
+   442→    """A reproducible feature computation over one field (Milestone 4).
+   443→
+   444→    The run records EVERYTHING needed to reproduce it: the resolved source
+   445→    selection (one dataset product per variable — synthetic and real data are
+   446→    never blended), the calendar timezone and hemisphere, the period window,
+   447→    the engine version and the feature-definition version. Values are written
+   448→    once by a run; comparing runs is the supported way to see change.
+   449→    """
+   450→
+   451→    __tablename__ = "feature_runs"
+   452→
+   453→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   454→    field_id: Mapped[uuid.UUID] = mapped_column(
+   455→        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+   456→    )
+   457→    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+   458→    calendar_timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
+   459→    hemisphere: Mapped[str] = mapped_column(String(10), nullable=False, default="north")
+   460→    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   461→    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   462→    aggregation_levels: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   463→    requested_variables: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   464→    source_selection: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   465→    crop_seasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   466→    feature_engine_version: Mapped[str] = mapped_column(String(40), nullable=False)
+   467→    feature_catalog_version: Mapped[str] = mapped_column(String(40), nullable=False)
+   468→    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+   469→    request_parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   470→    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   471→    not_evaluated_reasons: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   472→    records_written: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+   473→    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+   474→    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   475→    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   476→    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+   477→    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   478→
+   479→    values: Mapped[list["FeatureValue"]] = relationship(
+   480→        back_populates="run", cascade="all, delete-orphan"
+   481→    )
+   482→
+   483→    __table_args__ = (
+   484→        CheckConstraint(
+   485→            "status IN ('queued','running','succeeded','failed','cancelled')",
+   486→            name="ck_feature_run_status",
+   487→        ),
+   488→        CheckConstraint("hemisphere IN ('north','south')", name="ck_feature_run_hemisphere"),
+   489→        Index(
+   490→            "uq_feature_run_idempotency",
+   491→            idempotency_key,
+   492→            unique=True,
+   493→            postgresql_where=text_("idempotency_key IS NOT NULL"),
+   494→        ),
+   495→        Index("ix_feature_runs_field", field_id),
+   496→    )
+   497→
+   498→
+   499→class FeatureValue(Base):
+   500→    """One derived feature value for one calendar period (Milestone 4).
+   501→
+   502→    `value` is NULL exactly when the value could not be honestly computed
+   503→    (coverage below the definition's minimum, or a required baseline/input
+   504→    missing) — missing observations are never treated as zero (Master rule 11).
+   505→    Provenance links the value back to the contributing observations, their
+   506→    dataset products, processing versions and evidence classes.
+   507→    """
+   508→
+   509→    __tablename__ = "feature_values"
+   510→
+   511→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   512→    run_id: Mapped[uuid.UUID] = mapped_column(
+   513→        UUID(as_uuid=True), ForeignKey("feature_runs.id", ondelete="CASCADE"), nullable=False
+   514→    )
+   515→    field_id: Mapped[uuid.UUID] = mapped_column(
+   516→        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+   517→    )
+   518→    feature_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   519→    aggregation_level: Mapped[str] = mapped_column(String(20), nullable=False)
+   520→    period_label: Mapped[str] = mapped_column(String(40), nullable=False)
+   521→    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   522→    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+   523→    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+   524→    unit: Mapped[str] = mapped_column(String(30), nullable=False)
+   525→    coverage_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+   526→    n_input: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+   527→    n_missing: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+   528→    quality_status: Mapped[str] = mapped_column(String(24), nullable=False, default="valid")
+   529→    uncertainty_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+   530→    uncertainty_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   531→    baseline_reference: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+   532→    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   533→    created_at: Mapped[datetime] = mapped_column(
+   534→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   535→    )
+   536→
+   537→    run: Mapped[FeatureRun] = relationship(back_populates="values")
+   538→
+   539→    __table_args__ = (
+   540→        CheckConstraint(
+   541→            "quality_status IN ('valid','partial','insufficient_coverage','missing','not_evaluated')",
+   542→            name="ck_feature_value_quality",
+   543→        ),
+   544→        CheckConstraint(
+   545→            "aggregation_level IN ('daily','monthly','seasonal','crop_season')",
+   546→            name="ck_feature_value_aggregation",
+   547→        ),
+   548→        UniqueConstraint(
+   549→            "run_id", "feature_code", "aggregation_level", "period_label",
+   550→            name="uq_feature_value_period",
+   551→        ),
+   552→        Index(
+   553→            "ix_feature_values_field_feature_period",
+   554→            field_id, feature_code, aggregation_level, period_start,
+   555→        ),
+   556→    )
+   557→
+   558→
+   559→# ==========================================================================
+   560→# Milestone 5 — agricultural knowledge base & decision intelligence
+   561→# (docs/architecture/knowledge-model.md; ADR-0014..0018)
+   562→# ==========================================================================
+   563→
+   564→class KnowledgePack(Base, TimestampMixin):
+   565→    """A versioned, source-cited container of agricultural knowledge.
+   566→
+   567→    Packs are platform-level (not tenant-scoped) and independent of
+   568→    environmental providers. A pack import is validated as a whole and stores
+   569→    its checksum so identical inputs are idempotent. `status` governs use:
+   570→    only `active` packs feed candidate generation and optimization; `draft`
+   571→    packs are inspectable but inert; `retired` packs are history.
+   572→    """
+   573→
+   574→    __tablename__ = "knowledge_packs"
+   575→
+   576→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   577→    pack_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   578→    pack_version: Mapped[str] = mapped_column(String(40), nullable=False)
+   579→    name: Mapped[str] = mapped_column(String(200), nullable=False)
+   580→    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+   581→    region_scope: Mapped[str] = mapped_column(String(80), nullable=False, default="global")
+   582→    license_name: Mapped[str] = mapped_column(String(200), nullable=False)
+   583→    attribution_text: Mapped[str] = mapped_column(Text, nullable=False)
+   584→    license_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+   585→    digitization_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+   586→    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+   587→    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+   588→    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   589→    imported_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   590→    imported_at: Mapped[datetime] = mapped_column(
+   591→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   592→    )
+   593→
+   594→    __table_args__ = (
+   595→        CheckConstraint("status IN ('draft','active','retired')", name="ck_knowledge_pack_status"),
+   596→        UniqueConstraint("pack_code", "pack_version", name="uq_knowledge_pack_version"),
+   597→        Index("ix_knowledge_packs_code", pack_code),
+   598→    )
+   599→
+   600→
+   601→class KnowledgeSource(Base, TimestampMixin):
+   602→    """A citable reference backing knowledge attributes (Master §17.13)."""
+   603→
+   604→    __tablename__ = "knowledge_sources"
+   605→
+   606→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   607→    pack_id: Mapped[uuid.UUID] = mapped_column(
+   608→        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+   609→    )
+   610→    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+   611→    publisher: Mapped[str] = mapped_column(String(200), nullable=False)
+   612→    title: Mapped[str] = mapped_column(Text, nullable=False)
+   613→    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+   614→    publication_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+   615→    license: Mapped[str | None] = mapped_column(String(200), nullable=True)
+   616→    citation_text: Mapped[str] = mapped_column(Text, nullable=False)
+   617→
+   618→    __table_args__ = (
+   619→        UniqueConstraint("pack_id", "source_key", name="uq_knowledge_source_key"),
+   620→    )
+   621→
+   622→
+   623→class CropFamily(Base, TimestampMixin):
+   624→    """Botanical family (taxonomy backbone for rotation relationships)."""
+   625→
+   626→    __tablename__ = "crop_families"
+   627→
+   628→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   629→    pack_id: Mapped[uuid.UUID] = mapped_column(
+   630→        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+   631→    )
+   632→    family_key: Mapped[str] = mapped_column(String(80), nullable=False)
+   633→    scientific_name: Mapped[str] = mapped_column(String(120), nullable=False)
+   634→    common_names: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   635→
+   636→    __table_args__ = (
+   637→        UniqueConstraint("pack_id", "family_key", name="uq_crop_family_key"),
+   638→        Index("ix_crop_families_pack", pack_id),
+   639→    )
+   640→
+   641→
+   642→class Crop(Base, TimestampMixin):
+   643→    """A crop species. Broad flags are descriptors, never agronomic conclusions."""
+   644→
+   645→    __tablename__ = "crops"
+   646→
+   647→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   648→    pack_id: Mapped[uuid.UUID] = mapped_column(
+   649→        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+   650→    )
+   651→    crop_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   652→    family_id: Mapped[uuid.UUID | None] = mapped_column(
+   653→        UUID(as_uuid=True), ForeignKey("crop_families.id", ondelete="SET NULL"), nullable=True
+   654→    )
+   655→    scientific_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+   656→    common_names: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   657→    crop_category: Mapped[str | None] = mapped_column(String(60), nullable=True)
+   658→    life_cycle_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   659→    is_legume: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+   660→    is_cover_crop_capable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+   661→    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+   662→
+   663→    family: Mapped[CropFamily | None] = relationship()
+   664→
+   665→    __table_args__ = (
+   666→        CheckConstraint("status IN ('active','draft','retired')", name="ck_crop_status"),
+   667→        UniqueConstraint("pack_id", "crop_code", name="uq_crop_code_per_pack"),
+   668→        Index("ix_crops_code", crop_code),
+   669→    )
+   670→
+   671→
+   672→class CropVariety(Base, TimestampMixin):
+   673→    """Cultivar-level record; traits MAY be attached at variety level when the
+   674→    source is variety-specific (species-level traits stay on `crops`)."""
+   675→
+   676→    __tablename__ = "crop_varieties"
+   677→
+   678→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   679→    crop_id: Mapped[uuid.UUID] = mapped_column(
+   680→        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=False
+   681→    )
+   682→    variety_name: Mapped[str] = mapped_column(String(160), nullable=False)
+   683→    region_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+   684→    maturity_group: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   685→    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   686→
+   687→
+   688→class CropTrait(Base, TimestampMixin):
+   689→    """One sourced attribute value for one crop (or variety) under one region /
+   690→    management / growth-stage context. Multiple rows per trait_code are
+   691→    EXPECTED (different contexts) — conflicts must be detectable, not merged."""
+   692→
+   693→    __tablename__ = "crop_traits"
+   694→
+   695→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   696→    pack_id: Mapped[uuid.UUID] = mapped_column(
+   697→        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+   698→    )
+   699→    crop_id: Mapped[uuid.UUID | None] = mapped_column(
+   700→        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=True
+   701→    )
+   702→    crop_variety_id: Mapped[uuid.UUID | None] = mapped_column(
+   703→        UUID(as_uuid=True), ForeignKey("crop_varieties.id", ondelete="CASCADE"), nullable=True
+   704→    )
+   705→    trait_code: Mapped[str] = mapped_column(String(80), nullable=False)
+   706→    value_numeric: Mapped[float | None] = mapped_column(Float, nullable=True)
+   707→    value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+   708→    value_low: Mapped[float | None] = mapped_column(Float, nullable=True)
+   709→    value_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+   710→    unit: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   711→    region_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+   712→    management_context: Mapped[str | None] = mapped_column(String(120), nullable=True)
+   713→    growth_stage: Mapped[str | None] = mapped_column(String(60), nullable=True)
+   714→    conditions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   715→    source_id: Mapped[uuid.UUID] = mapped_column(
+   716→        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+   717→    )
+   718→    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False)
+   719→    confidence: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+   720→    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+   721→    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+   722→    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+   723→    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+   724→
+   725→    source: Mapped[KnowledgeSource] = relationship()
+   726→
+   727→    __table_args__ = (
+   728→        CheckConstraint(
+   729→            "(crop_id IS NOT NULL)::int + (crop_variety_id IS NOT NULL)::int = 1",
+   730→            name="ck_crop_trait_owner",
+   731→        ),
+   732→        CheckConstraint(
+   733→            "(value_numeric IS NOT NULL)::int + (value_text IS NOT NULL)::int + "
+   734→            "(value_low IS NOT NULL)::int >= 1",
+   735→            name="ck_crop_trait_value",
+   736→        ),
+   737→        CheckConstraint(
+   738→            "confidence IN ('high','moderate','low','unknown')", name="ck_crop_trait_confidence"
+   739→        ),
+   740→        CheckConstraint(
+   741→            "validation_status IN ('reference','locally_validated','confirmed_regional','retired')",
+   742→            name="ck_crop_trait_validation",
+   743→        ),
+   744→        Index("ix_crop_traits_crop_code", crop_id, trait_code),
+   745→    )
+   746→
+   747→
+   748→class CropCalendarWindow(Base, TimestampMixin):
+   749→    """Sowing/harvest window for a crop in a region & hemisphere.
+   750→
+   751→    Dates are month-day strings (MM-DD) so windows recur annually; a window
+   752→    whose start exceeds its end wraps across the year boundary."""
+   753→
+   754→    __tablename__ = "crop_calendar_windows"
+   755→
+   756→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   757→    pack_id: Mapped[uuid.UUID] = mapped_column(
+   758→        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+   759→    )
+   760→    crop_id: Mapped[uuid.UUID] = mapped_column(
+   761→        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=False
+   762→    )
+   763→    region_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+   764→    hemisphere: Mapped[str] = mapped_column(String(10), nullable=False, default="north")
+   765→    season_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
+   766→    planting_start: Mapped[str] = mapped_column(String(5), nullable=False)
+   767→    planting_end: Mapped[str] = mapped_column(String(5), nullable=False)
+   768→    harvest_start: Mapped[str | None] = mapped_column(String(5), nullable=True)
+   769→    harvest_end: Mapped[str | None] = mapped_column(String(5), nullable=True)
+   770→    source_id: Mapped[uuid.UUID] = mapped_column(
+   771→        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+   772→    )
+   773→    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False)
+   774→    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+   775→    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+   776→
+   777→    __table_args__ = (
+   778→        CheckConstraint("hemisphere IN ('north','south')", name="ck_calendar_hemisphere"),
+   779→        Index("ix_crop_calendar_crop", crop_id),
+   780→    )
+   781→
+   782→
+   783→class CropWaterParameter(Base, TimestampMixin):
+   784→    """Growth-stage Kc (or other water parameter) — NEVER guessed. A crop with
+   785→    no verified parameter row stays unsupported for water calculations."""
+   786→
+   787→    __tablename__ = "crop_water_parameters"
+   788→
+   789→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   790→    pack_id: Mapped[uuid.UUID] = mapped_column(
+   791→        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+   792→    )
+   793→    crop_id: Mapped[uuid.UUID] = mapped_column(
+   794→        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=False
+   795→    )
+   796→    crop_variety_id: Mapped[uuid.UUID | None] = mapped_column(
+   797→        UUID(as_uuid=True), ForeignKey("crop_varieties.id", ondelete="CASCADE"), nullable=True
+   798→    )
+   799→    growth_stage: Mapped[str] = mapped_column(String(40), nullable=False)
+   800→    kc_value: Mapped[float] = mapped_column(Float, nullable=False)
+   801→    kc_method: Mapped[str] = mapped_column(String(20), nullable=False, default="single")
+   802→    stage_length_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+   803→    valid_region: Mapped[str | None] = mapped_column(String(80), nullable=True)
+   804→    climate_context: Mapped[str | None] = mapped_column(String(120), nullable=True)
+   805→    source_id: Mapped[uuid.UUID] = mapped_column(
+   806→        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+   807→    )
+   808→    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False)
+   809→    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+   810→    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+   811→
+   812→    __table_args__ = (
+   813→        CheckConstraint("kc_method IN ('single','dual')", name="ck_kc_method"),
+   814→        UniqueConstraint(
+   815→            "crop_id", "crop_variety_id", "growth_stage", "kc_method", "valid_region",
+   816→            name="uq_crop_water_param",
+   817→        ),
+   818→        Index("ix_crop_water_crop", crop_id),
+   819→    )
+   820→
+   821→
+   822→class RotationRule(Base, TimestampMixin):
+   823→    """A structured agronomic relationship rule (Master §17.13 knowledge_rules
+   824→    specialised for rotation reasoning). Hard enforcement requires
+   825→    validation_status='confirmed_regional'; reference rules inform explanations
+   826→    and conditional eligibility only."""
+   827→
+   828→    __tablename__ = "rotation_rules"
+   829→
+   830→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   831→    pack_id: Mapped[uuid.UUID] = mapped_column(
+   832→        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+   833→    )
+   834→    rule_code: Mapped[str] = mapped_column(String(120), nullable=False)
+   835→    rule_type: Mapped[str] = mapped_column(String(40), nullable=False)
+   836→    # {predecessor:{crop|family:key}, successor:{crop|family:key},
+   837→    #  min_break_seasons:int, mechanism:str, severity:str}
+   838→    rule_definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+   839→    applies_to_regions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   840→    source_id: Mapped[uuid.UUID] = mapped_column(
+   841→        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+   842→    )
+   843→    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+   844→    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="advisory")
+   845→    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+   846→    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+   847→
+   848→    source: Mapped[KnowledgeSource] = relationship()
+   849→
+   850→    __table_args__ = (
+   851→        CheckConstraint(
+   852→            "rule_type IN ('rotation_break','succession_compatibility','cover_crop_suitability',"
+   853→            "'residue_management','soil_cover','host_pathogen','host_pest')",
+   854→            name="ck_rotation_rule_type",
+   855→        ),
+   856→        CheckConstraint(
+   857→            "validation_status IN ('reference','locally_validated','confirmed_regional','retired')",
+   858→            name="ck_rotation_rule_validation",
+   859→        ),
+   860→        CheckConstraint("severity IN ('advisory','recommended','required')", name="ck_rule_severity"),
+   861→        UniqueConstraint("pack_id", "rule_code", name="uq_rotation_rule_code"),
+   862→        Index("ix_rotation_rules_type", rule_type),
+   863→    )
+   864→
+   865→
+   866→class AgronomistReview(Base, TimestampMixin):
+   867→    """Review workflow records that upgrade reference knowledge to locally
+   868→    validated / regionally confirmed states (Master §17.13)."""
+   869→
+   870→    __tablename__ = "agronomist_reviews"
+   871→
+   872→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   873→    target_type: Mapped[str] = mapped_column(String(60), nullable=False)
+   874→    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+   875→    review_status: Mapped[str] = mapped_column(String(40), nullable=False)
+   876→    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+   877→    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   878→    reviewed_at: Mapped[datetime] = mapped_column(
+   879→        DateTime(timezone=True), nullable=False, server_default=func.now()
+   880→    )
+   881→
+   882→    __table_args__ = (
+   883→        Index("ix_agronomist_reviews_target", target_type, target_id),
+   884→    )
+   885→
+   886→
+   887→# ------------------------------------------------- crop history / preferences
+   888→class CropHistory(Base, TimestampMixin):
+   889→    """What actually grew on a field (Master §17.8) — the rotation baseline."""
+   890→
+   891→    __tablename__ = "crop_history"
+   892→
+   893→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   894→    field_id: Mapped[uuid.UUID] = mapped_column(
+   895→        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+   896→    )
+   897→    crop_id: Mapped[uuid.UUID | None] = mapped_column(
+   898→        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="SET NULL"), nullable=True
+   899→    )
+   900→    crop_label: Mapped[str] = mapped_column(String(160), nullable=False)
+   901→    variety_id: Mapped[uuid.UUID | None] = mapped_column(
+   902→        UUID(as_uuid=True), ForeignKey("crop_varieties.id", ondelete="SET NULL"), nullable=True
+   903→    )
+   904→    sowing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+   905→    harvest_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+   906→    season_label: Mapped[str | None] = mapped_column(String(60), nullable=True)
+   907→    area_ha: Mapped[float | None] = mapped_column(Float, nullable=True)
+   908→    source: Mapped[str] = mapped_column(String(40), nullable=False, default="farmer")
+   909→    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False, default="farmer_reported_record")
+   910→
+   911→    __table_args__ = (
+   912→        Index("ix_crop_history_field", field_id, sowing_date),
+   913→    )
+   914→
+   915→
+   916→class FarmerPreference(Base, TimestampMixin):
+   917→    """Farm-level objectives & strategy style (Master §17.7)."""
+   918→
+   919→    __tablename__ = "farmer_preferences"
+   920→
+   921→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   922→    farm_id: Mapped[uuid.UUID] = mapped_column(
+   923→        UUID(as_uuid=True), ForeignKey("farms.id", ondelete="CASCADE"), nullable=False
+   924→    )
+   925→    objective_weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   926→    risk_tolerance: Mapped[str | None] = mapped_column(String(30), nullable=True)
+   927→    preferred_strategy_style: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   928→
+   929→    __table_args__ = (
+   930→        Index("ix_farmer_preferences_farm", farm_id),
+   931→    )
+   932→
+   933→
+   934→# ------------------------------------------------------- rotation runs (M5)
+   935→class RotationRun(Base, TimestampMixin):
+   936→    """A reproducible rotation optimization over one field.
+   937→
+   938→    Snapshots EVERYTHING needed to reproduce: planning seasons, strategy
+   939→    profiles/weights, active knowledge-pack versions + checksums, feature-run
+   940→    ids consumed, crop-history ids, engine + solver versions, seed. Values are
+   941→    written once; the baseline is preserved as a labelled strategy."""
+   942→
+   943→    __tablename__ = "rotation_runs"
+   944→
+   945→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+   946→    field_id: Mapped[uuid.UUID] = mapped_column(
+   947→        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+   948→    )
+   949→    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+   950→    solver_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+   951→    seasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   952→    strategy_profiles: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   953→    water_allocation_m3: Mapped[float | None] = mapped_column(Float, nullable=True)
+   954→    knowledge_pack_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   955→    feature_run_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   956→    crop_history_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   957→    rotation_engine_version: Mapped[str] = mapped_column(String(40), nullable=False)
+   958→    solver_name: Mapped[str] = mapped_column(String(60), nullable=False, default="cp-sat")
+   959→    solver_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+   960→    random_seed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+   961→    infeasibility_details: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   962→    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+   963→    not_evaluated: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   964→    request_parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+   965→    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+   966→    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+   967→    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   968→    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+   969→    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+   970→
+   971→    strategies: Mapped[list["RotationStrategy"]] = relationship(
+   972→        back_populates="run", cascade="all, delete-orphan"
+   973→    )
+   974→
+   975→    __table_args__ = (
+   976→        CheckConstraint(
+   977→            "status IN ('queued','running','succeeded','failed','cancelled')",
+   978→            name="ck_rotation_run_status",
+   979→        ),
+   980→        CheckConstraint(
+   981→            "solver_status IN ('optimal','feasible','infeasible','unknown',"
+   982→            "'model_invalid','not_attempted') OR solver_status IS NULL",
+   983→            name="ck_rotation_solver_status",
+   984→        ),
+   985→        Index(
+   986→            "uq_rotation_run_idempotency",
+   987→            idempotency_key,
+   988→            unique=True,
+   989→            postgresql_where=text_("idempotency_key IS NOT NULL"),
+   990→        ),
+   991→        Index("ix_rotation_runs_field", field_id),
+   992→    )
+   993→
+   994→
+   995→class RotationStrategy(Base, TimestampMixin):
+   996→    """One candidate strategy of a run: assignment + full evaluation evidence."""
+   997→
+   998→    __tablename__ = "rotation_strategies"
+   999→
+  1000→    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+  1001→    run_id: Mapped[uuid.UUID] = mapped_column(
+  1002→        UUID(as_uuid=True), ForeignKey("rotation_runs.id", ondelete="CASCADE"), nullable=False
+  1003→    )
+  1004→    strategy_key: Mapped[str] = mapped_column(String(60), nullable=False)
+  1005→    strategy_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="optimized")
+  1006→    is_baseline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+  1007→    profile_weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+  1008→    assignment: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+  1009→    objective_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+  1010→    criteria: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+  1011→    constraints_checked: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+  1012→    pareto: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+  1013→    explanations: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+  1014→    evidence_coverage: Mapped[float | None] = mapped_column(Float, nullable=True)
+  1015→    checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+  1016→
+  1017→    run: Mapped[RotationRun] = relationship(back_populates="strategies")
+  1018→
+  1019→    __table_args__ = (
+  1020→        CheckConstraint(
+  1021→            "strategy_kind IN ('optimized','baseline')", name="ck_rotation_strategy_kind"
+  1022→        ),
+  1023→        UniqueConstraint("run_id", "strategy_key", name="uq_rotation_strategy_key"),
+  1024→    )
+  1025→

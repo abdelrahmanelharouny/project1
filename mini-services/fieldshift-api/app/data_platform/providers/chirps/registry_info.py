@@ -19,6 +19,12 @@ def documented_limitations(period_kind: str = "daily") -> str:
             " Daily products (especially downscaled fields) must not be used as "
             " unquestioned evidence for daily rainfall extremes; prefer pentadal or "
             " monthly products for climate summaries."
+            " Dependency structure (CHC documentation): CHIRPS v3 daily fields may be"
+            " produced by distributing pentad rainfall totals using daily information"
+            " from models such as ERA5 or IMERG. CHIRPS daily and ERA5 daily are"
+            " therefore NOT fully independent evidence — agreement between them must"
+            " not be read as independent validation, and overlapping precipitation"
+            " products are never blended in one feature calculation."
         )
     return base
 

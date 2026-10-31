@@ -408,6 +408,11 @@ class SoilGridsProvider:
                 value = value / factor
                 conversion_desc = f"{native_unit} -> {vdef.unit if vdef else vcode}: divide by {factor}"
 
+        # Deepening F-8: these are the MEANS OF PER-PIXEL 5th/95th quantiles —
+        # NOT a formal field-level 90% prediction interval (averaging per-pixel
+        # intervals ignores spatial error correlation and within-field
+        # variability). The uncertainty_type below states exactly what the
+        # number is; no stronger statistical claim is made.
         uncertainty: float | None = None
         low, high = quantile_means.get("Q0.05"), quantile_means.get("Q0.95")
         if low is not None and high is not None:
@@ -460,11 +465,13 @@ class SoilGridsProvider:
             quality_status=QualityStatus.valid,
             uncertainty_value=uncertainty,
             uncertainty_type=(
-                "prediction_interval_90_halfwidth" if uncertainty is not None else "unknown"
+                "mean_of_pixel_q05_q95_halfwidth_not_a_field_level_pi"
+                if uncertainty is not None
+                else "unknown"
             ),
             evidence_class=EvidenceClass.global_soil_prediction,
             is_synthetic=False,
-            processing_version="soilgrids-wcs-normalizer-v2",
+            processing_version="soilgrids-wcs-normalizer-v3",
             metadata={
                 "property_coverage": coverage_family,
                 "map_file": f"/map/{map_stem}.map",
@@ -476,6 +483,10 @@ class SoilGridsProvider:
                 "quantile_means": {
                     k: (None if v is None else round(v, 4)) for k, v in quantile_means.items()
                 },
+                "uncertainty_semantics": (
+                    "half-width of the mean of per-pixel Q0.05..Q0.95 ranges; "
+                    "NOT a formal field-level 90% prediction interval"
+                ),
                 "native_unit": native_unit,
                 "conversion": conversion_desc,
                 "cells": cell_stats,

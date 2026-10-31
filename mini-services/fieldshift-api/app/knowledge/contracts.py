@@ -90,7 +90,11 @@ class CalendarWindowIn(BaseModel):
 
 class WaterParameterIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    growth_stage: str = Field(min_length=2, max_length=40)
+    # Deepening F-05: only the three FAO-56 single-Kc ANCHOR stages are valid
+    # here (initial/mid/late — development is a linear ramp with no anchor and
+    # its length is a trait, not a water parameter). Restricting the stage
+    # vocabulary prevents malformed rows that would silently become zeros.
+    growth_stage: Literal["initial", "mid", "late"]
     kc_value: float = Field(ge=0, le=3)
     kc_method: Literal["single", "dual"] = "single"
     stage_length_days: int | None = Field(default=None, ge=0)
@@ -247,6 +251,22 @@ def validate_pack_cross_references(pack: KnowledgePackIn) -> PackValidationRepor
             report.errors.append(
                 f"crop '{crop.crop_code}': duplicate water-parameter growth_stage"
             )
+        # F-05 (continued): a partial anchor set can never drive the FAO-56
+        # curve — the water estimator requires all three anchors, so a pack
+        # that ships fewer is rejected instead of being zero-filled later.
+        if crop.water_parameters:
+            groups: dict[tuple[str, str | None], set[str]] = {}
+            for wp in crop.water_parameters:
+                groups.setdefault((wp.kc_method, wp.valid_region), set()).add(wp.growth_stage)
+            for (method, region), stages in sorted(groups.items()):
+                absent = {"initial", "mid", "late"} - stages
+                if absent:
+                    report.errors.append(
+                        f"crop '{crop.crop_code}': incomplete Kc anchor set for "
+                        f"method '{method}' region '{region or 'global'}' — missing "
+                        f"{', '.join(sorted(absent))} (partial anchors are never "
+                        "zero-filled at load time, so the pack must ship all three)"
+                    )
 
     for ctx, values in context_values.items():
         if len(values) > 1:

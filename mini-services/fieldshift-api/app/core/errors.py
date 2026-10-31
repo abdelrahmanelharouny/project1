@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -41,22 +42,22 @@ class FieldShiftError(Exception):
 
 
 class ValidationFailed(FieldShiftError):
-    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "VALIDATION_FAILED"
 
 
 class InvalidGeometry(FieldShiftError):
-    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "INVALID_GEOMETRY"
 
 
 class UnsupportedVariable(FieldShiftError):
-    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "UNSUPPORTED_VARIABLE"
 
 
 class InvalidDateRange(FieldShiftError):
-    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "INVALID_DATE_RANGE"
 
 
@@ -81,7 +82,7 @@ class Conflict(FieldShiftError):
 
 
 class InsufficientData(FieldShiftError):
-    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "INSUFFICIENT_DATA"
 
 
@@ -137,8 +138,24 @@ def install_error_handlers(app: FastAPI) -> None:
             for err in exc.errors()
         ]
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content=_error_payload("VALIDATION_FAILED", "Request payload failed validation.", details, request_id),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        # Deepening F-16: framework-raised HTTP errors (unmatched path 404,
+        # wrong method 405, malformed multipart, ...) previously bypassed the
+        # structured envelope. They now use the same shape with a request id.
+        request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(
+            exc.status_code, "HTTP_ERROR"
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_error_payload(code, str(exc.detail), None, request_id),
         )
 
     @app.exception_handler(SQLAlchemyError)

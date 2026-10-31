@@ -4,7 +4,7 @@ All results below were actually executed. Latest full-suite run: **2026-10-31** 
 
 ```
 .venv/bin/python -m pytest tests
-# => 314 passed in ~3.5 min (M1–M2: 157 · M3: +27 · M4: +59 · M5: +71)
+# => 343 passed in ~4 min (M1–M2: 157 · M3: +27 · M4: +59 · M5: +71 · deepening: +29)
 ```
 
 Frontend lint (from repository root):
@@ -361,6 +361,38 @@ Mapped to the 13 mandated test categories:
 | E20 | Infeasible: allocation 1000 m³ → run infeasible with named water_allocation conflict | ✅ |
 | E21 | Mobile 390px: scrollWidth == clientWidth (no horizontal overflow), footer flush; desktop 1366px footer flush | ✅ |
 | E22 | Zero page errors | ✅ |
+
+## Pre-M6 deepening program (+29 tests, 2026-10-31)
+
+Findings register: `docs/deepening/SCIENTIFIC_AUDIT.md` (F-01..F-21) ·
+remediation evidence: `docs/deepening/REMEDIATION_REPORT.md` · benchmarks:
+`docs/deepening/SCIENTIFIC_BENCHMARKS.md`.
+
+Unit regressions (`tests/unit/test_deepening_regressions.py`, 21):
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| D-U1 | suspect/invalid observations never contribute values; exclusions warned | F-02 | ✅ |
+| D-U2 | incomplete Kc anchor set rejected at import; invalid stage vocabulary rejected; complete set accepted | F-05 | ✅ |
+| D-U3 | missing season month refuses the water estimate (never under-reports) | F-07 | ✅ |
+| D-U4 | confirmed rule k=5 enforced by checker (beyond old cap 3) and optimizer (beyond old window 4) | F-06 | ✅ |
+| D-U5 | solver failure statuses distinct from infeasible; feasibility-only solve works | F-04 | ✅ |
+| D-U6 | criteria carry source citations (water/soil/erosion); farmer margin carries none | F-10 | ✅ |
+| D-U7 | baseline_class + includes_evaluated_period recorded; catalog no longer says "climatology" | F-11 | ✅ |
+| D-U8 | Pareto: dominated never on front; duplicates both on front; disjoint sets non-comparable; neutral normalization; skipped weights | Phase H | ✅ |
+| D-U9 | determinism (same inputs → same assignment/objective); baseline never claims solver status | Phase H | ✅ |
+
+Integration regressions (`tests/integration/test_deepening_api.py`, 6):
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| D-I1 | passport product payload carries is_synthetic + evidence_class | F-01 | ✅ |
+| D-I2 | idempotency key on another field / another tenant never replays | F-03 | ✅ |
+| D-I3 | later pack version wins deterministically (API read paths too) | F-09 | ✅ |
+| D-I4 | audit rows carry actor + organization | F-14 | ✅ |
+| D-I5 | duplicate species-level Kc anchor rejected by DB (NULLS NOT DISTINCT) | F-18 | ✅ |
+
+E2E (browser re-verification): E23–E26 in `docs/deepening/DEEPENING_EXIT_REPORT.md` §7.
 
 ## Known warnings in test output
 

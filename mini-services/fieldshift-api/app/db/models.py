@@ -97,6 +97,7 @@ class Membership(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("organization_id", "user_id", name="uq_membership_org_user"),
+        Index("ix_memberships_user", user_id),
         CheckConstraint(
             "role_code IN ('owner','manager','agronomist','viewer')", name="ck_membership_role"
         ),
@@ -270,6 +271,7 @@ class IngestionJob(Base, TimestampMixin):
         ),
         Index("uq_ingestion_idempotency", idempotency_key, unique=True,
                postgresql_where=text_("idempotency_key IS NOT NULL")),
+        Index("ix_ingestion_jobs_field", field_id),
     )
 
 
@@ -346,6 +348,8 @@ class Observation(Base):
             name="uq_observation_natural_key",
         ),
         Index("ix_observations_field_variable_time", field_id, variable_code, observed_at),
+        Index("ix_observations_ingestion_job", ingestion_job_id),
+        Index("ix_observations_dataset_product", dataset_product_id),
     )
 
 
@@ -388,6 +392,11 @@ class AuditEvent(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    __table_args__ = (
+        Index("ix_audit_events_entity", entity_type, entity_id, created_at),
+        Index("ix_audit_events_organization", organization_id),
+    )
+
 
 class FarmConstraint(Base, TimestampMixin):
     """Farmer-defined constraints table (Master §17.7) — minimal slice subset."""
@@ -404,6 +413,11 @@ class FarmConstraint(Base, TimestampMixin):
     unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
     is_hard_constraint: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source: Mapped[str] = mapped_column(String(30), nullable=False, default="farmer")
+
+    __table_args__ = (
+        # Deepening F-15: queried on every rotation run (farm constraint load).
+        Index("ix_farm_constraints_farm", farm_id),
+    )
 
 
 # ------------------------------------------------------- feature engineering
@@ -488,6 +502,7 @@ class FeatureRun(Base, TimestampMixin):
         CheckConstraint("hemisphere IN ('north','south')", name="ck_feature_run_hemisphere"),
         Index(
             "uq_feature_run_idempotency",
+            field_id,
             idempotency_key,
             unique=True,
             postgresql_where=text_("idempotency_key IS NOT NULL"),
@@ -684,6 +699,10 @@ class CropVariety(Base, TimestampMixin):
     maturity_group: Mapped[str | None] = mapped_column(String(40), nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
+    __table_args__ = (
+        Index("ix_crop_varieties_crop", crop_id),
+    )
+
 
 class CropTrait(Base, TimestampMixin):
     """One sourced attribute value for one crop (or variety) under one region /
@@ -811,9 +830,13 @@ class CropWaterParameter(Base, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint("kc_method IN ('single','dual')", name="ck_kc_method"),
+        # Deepening F-18: NULLS NOT DISTINCT — species-level rows (NULL
+        # variety) were previously treated as distinct by PostgreSQL, allowing
+        # duplicate Kc anchor rows that only the import validator caught.
         UniqueConstraint(
             "crop_id", "crop_variety_id", "growth_stage", "kc_method", "valid_region",
             name="uq_crop_water_param",
+            postgresql_nulls_not_distinct=True,
         ),
         Index("ix_crop_water_crop", crop_id),
     )
@@ -984,6 +1007,7 @@ class RotationRun(Base, TimestampMixin):
         ),
         Index(
             "uq_rotation_run_idempotency",
+            field_id,
             idempotency_key,
             unique=True,
             postgresql_where=text_("idempotency_key IS NOT NULL"),

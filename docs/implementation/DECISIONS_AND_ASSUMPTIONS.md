@@ -153,3 +153,36 @@ Records architectural decisions (ADR-style, lightweight). Each entry: context �
 **Context.** M5.5 forbids invented confidence scores; criterion availability varies with data.
 
 **Decision.** Each strategy retains RAW criterion values, min-max normalized scores computed within the evaluated candidate set of the run (normalization documented per criterion), strategy weights (renormalized over evaluable criteria with the skipped ones listed), trade-off notes vs the best-in-criterion and vs baseline, missing-evidence lists, and the knowledge-pack/feature-run/engine/solver versions used. The only aggregate transparency metric is `evidence_coverage` — the fraction of criteria evaluable from evidence — explicitly NOT a confidence score. Pareto dominance is computed over evaluable criteria only; solutions with different evaluable-criterion sets are never compared as if commensurable (dominance restricted to the shared evaluable set, restriction recorded).
+
+
+---
+
+## ADR-0019 — Baselines are classified, never called "climatology" (deepening F-11)
+
+WMO climatological normals require standard reference periods and dense
+records. FieldShift run windows hold ≤10 years, so every baseline records
+`baseline_class` (`short_record_exploratory` / `long_record_reference`) and
+`includes_evaluated_period: true`. Catalog version bumped to
+`featurespec-2026.11.1-d1`; historical runs keep their original provenance.
+**Consequence**: anomaly wording everywhere states the exploratory nature;
+SPI/SPEI stay unimplemented until ≥30-year records exist (backlog C-2).
+
+## ADR-0020 — Solver failures are not infeasibility (deepening F-04)
+
+CP-SAT outcomes map to distinct reported states: INFEASIBLE (with assumption
+conflicts) is the ONLY state reported as an agronomic infeasibility;
+MODEL_INVALID and UNKNOWN are solver failures (`infeasibility_details
+.solver_failures`). Run-level `optimal` is claimed only when EVERY optimized
+profile proved optimality (a FEASIBLE time-limited result reports `feasible`).
+**Consequence**: no false negative agronomic claim can be produced by a solver
+breakdown; conflict sets remain sufficient-not-minimal (documented).
+
+## ADR-0021 — Raster field means are area-weighted where the grid is coarse (deepening F-13)
+
+CHIRPS extraction (0.05° grid) weights each valid cell by the fraction of
+field area it covers (v2 extractor; sub-grid all-touched fallback unchanged
+and flagged). SoilGrids (250 m) keeps the unweighted mean: at that resolution
+the correction is marginal for the fields served, the fallback already
+discloses widening, and per-quantile weighting triples intersection work
+(backlog G-2). **Consequence**: small-field means on the CHIRPS grid lose the
+partial-cell bias; extraction provenance records the method per value.

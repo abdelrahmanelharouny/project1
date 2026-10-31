@@ -449,6 +449,9 @@ export interface PassportDatasetProduct {
   license_name: string
   attribution_text: string
   documentation_url: string
+  /** Honesty flag (deepening F-01): synthetic entries never share a card with real ones. */
+  is_synthetic?: boolean
+  evidence_class?: string | null
 }
 
 export interface PassportVariable {

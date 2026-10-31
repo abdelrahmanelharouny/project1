@@ -227,7 +227,15 @@ def start_feature_run(
 
     idempotency_key = payload.get("idempotency_key")
     if idempotency_key:
-        existing = db.scalar(select(FeatureRun).where(FeatureRun.idempotency_key == idempotency_key))
+        # Deepening F-3: the replay lookup is scoped to THIS field — a global
+        # key lookup could return another tenant's run if a key collided or
+        # was guessed (cross-tenant information disclosure).
+        existing = db.scalar(
+            select(FeatureRun).where(
+                FeatureRun.idempotency_key == idempotency_key,
+                FeatureRun.field_id == field.id,
+            )
+        )
         if existing is not None:
             return existing
 
@@ -416,8 +424,15 @@ def start_feature_run(
         db.commit()
     except IntegrityError:
         db.rollback()
+        # Deepening F-3: race recovery is ALSO field-scoped — a duplicate-key
+        # collision with another field's run must never serialize that run.
         if idempotency_key:
-            existing = db.scalar(select(FeatureRun).where(FeatureRun.idempotency_key == idempotency_key))
+            existing = db.scalar(
+                select(FeatureRun).where(
+                    FeatureRun.idempotency_key == idempotency_key,
+                    FeatureRun.field_id == field.id,
+                )
+            )
             if existing is not None:
                 return existing
         raise

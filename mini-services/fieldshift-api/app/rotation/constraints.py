@@ -125,11 +125,15 @@ def check_rotation_breaks(
     country = problem.farm.country_code
     history_codes = [h.get("crop_code") for h in problem.farm.history if h.get("crop_code")]
     if seasons_back is None:
-        max_break = max(
+        # Deepening F-06: the lookback is DERIVED from the deepest confirmed
+        # rule — the old fixed cap (3) silently under-enforced rules with
+        # min_break_seasons >= 4. A rule with min_break_seasons=k binds when
+        # gap < k and gap = back - 1, so exactly `max_break` seasons back are
+        # needed (predecessor at idx - back, back in 1..max_break).
+        seasons_back = max(
             (r.min_break_seasons for r in knowledge.rules if r.is_hard_enforceable),
             default=0,
         )
-        seasons_back = min(max(max_break, 1), 3)
 
     for idx, season in enumerate(problem.seasons):
         crop_code = assignment.get(season.label)
