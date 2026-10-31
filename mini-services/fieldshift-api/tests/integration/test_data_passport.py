@@ -75,9 +75,14 @@ class TestFilledPassport:
         assert water["status"] == "blocked"
         assert "crop_water_parameters" in water["missing_inputs"]
         assert any("not yet available" in r or "milestone" in r.lower() for r in water["reasons"])
-        # Rotation optimization not implemented in slice — must be blocked, never faked.
-        assert by_code["rotation_optimization"]["status"] == "blocked"
-        assert "constraint_solver" in by_code["rotation_optimization"]["missing_inputs"]
+        # Rotation optimization (M5): the solver exists; the gate is now the
+        # field-level evidence (knowledge pack, crop history, feature runs).
+        rot = by_code["rotation_optimization"]
+        assert rot["status"] == "blocked"
+        assert "crop_history" in rot["missing_inputs"]
+        assert "feature_runs" in rot["missing_inputs"]
+        assert "crop_knowledge_base" not in rot["missing_inputs"]  # seed pack is active
+        assert "constraint_solver" not in rot["missing_inputs"]
 
     def test_quality_warnings_surface(self, client, farm_with_field):
         headers = farm_with_field["headers"]

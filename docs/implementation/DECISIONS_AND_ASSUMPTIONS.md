@@ -115,3 +115,41 @@ Records architectural decisions (ADR-style, lightweight). Each entry: context �
 **Decision.** Passport entries are per (variable_code, dataset_product, processing_version), each carrying its own evidence class, license, attribution, period, warnings and support. Analysis readiness gates on the best entry per variable (real sources preferred on ties). The observations-table provenance badge and the coverage view follow the same per-source rule.
 
 **Consequences.** The UI shows duplicate variable cards when sources overlap, by design; downstream feature runs (Milestone 4) will need an explicit source-selection policy per variable.
+
+## ADR-0014 — Agricultural knowledge is a versioned PACK of source-cited attribute rows, not hard-coded rules
+
+**Context.** Master §17.5/§17.13 and M5 require every knowledge attribute to carry source, reference, unit, validity region, conditions, evidence class, confidence and version; the same trait may hold multiple values under different regions, varieties, growth stages or management systems. Hard-coding crop rules in optimizer code would make knowledge unreviewable and unversioned.
+
+**Decision.** Knowledge lives in versioned **knowledge packs** (`knowledge_packs` + `knowledge_sources` + crop/family/variety/traits/calendar/water-parameters/rotation-rules rows). Traits are attribute ROWS (trait_code, value_numeric/value_text + optional value_low/value_high range, unit, region, management context, growth stage, source reference, evidence class, confidence, validation status, validity period) — not wide columns — so multiple coexisting values are explicit, and conflicts can be detected and reported instead of silently overwritten. Pack import is a validation workflow: a pack missing license/attribution or a trait without a resolvable source is rejected; the pack stores sha256 + import checksum so identical inputs are idempotent. Packs are independent of environmental providers.
+
+**Consequences.** The optimizer never contains crop constants; every number it consumes can be traced to (pack version → trait row → source citation). Review workflow (agronomist_reviews + validation_status) is the only path to "confirmed regional" knowledge.
+
+## ADR-0015 — The rotation optimizer is a pure library; CP-SAT is an adapter behind it
+
+**Context.** Master M6/M5 require the optimizer to stay independent of HTTP, frontend and ORM; algorithms and runs must be reproducible and versioned.
+
+**Decision.** `app/rotation/` exposes pure dataclasses (`RotationProblem` → `StrategySolution`) and functions with zero FastAPI/SQLAlchemy imports. OR-Tools CP-SAT is used by one adapter (`optimizer.py`) with `num_search_workers=1` and a fixed recorded seed — identical inputs produce identical assignments and checksums (tested). Hard constraints are pre-declared, checked by a solver-independent validator, and never silently relaxed: infeasibility returns an explicit INFEASIBLE status with CP-SAT's sufficient-assumption conflict set mapped back to named constraints. Baseline (current crop history) is always reported as a labelled strategy even when it violates constraints.
+
+**Consequences.** Deterministic, testable without a database; solver and engine versions are recorded on every run; the API layer only serializes.
+
+## ADR-0016 — Candidate generation treats unevaluated as a first-class outcome; optimization admits only evaluated candidates
+
+**Context.** Master rule 11 (missing ≠ zero) and M5.3 require distinguishing eligible / conditionally eligible / excluded / unevaluated candidates with explanations.
+
+**Decision.** A crop enters optimization ONLY if it is eligible or conditionally eligible AND every dimension the active hard constraints need is evaluable (e.g. with a hard water allocation, a crop whose ETc cannot be estimated from real ET0 + sourced Kc evidence is excluded from optimization with that reason — a partial check is never labelled as full compliance). Exclusions carry the rule/evidence that produced them; unevaluated dimensions are listed with missing-input reasons. Synthetic-labelled feature evidence is consumed but flagged end-to-end ("historical proxy, synthetic — never real farm evidence").
+
+**Consequences.** No silent zero-fill, no guessed water coefficients, no fake precision; the honest cost is smaller feasible sets when evidence is thin, which the UI explains.
+
+## ADR-0017 — Water requirement is a documented screening estimate (single Kc × ET0), only when both evidences exist
+
+**Context.** M5.4 needs a water-allocation hard constraint; M7 will deliver the full FAO-56 daily water balance. Available evidence today: monthly ET0 totals from feature runs + FAO-56 stage Kc tables.
+
+**Decision.** Crop evapotranspiration is estimated as Σ_months (Kc(month) × ET0_total(month)) with Kc(month) derived from FAO-56 stage lengths assuming sowing at the planning-season start (assumption recorded in the run and the UI). The estimate is labelled `screening_estimate`, and superseded by M7's daily water balance. With no ET0 evidence, no Kc table, or no water allocation constraint, water criteria are unevaluated — never approximated.
+
+**Consequences.** The allocation constraint is only enforced over crops with estimable ETc; others are held out of allocation-constrained runs (ADR-0016) with the reason surfaced.
+
+## ADR-0018 — Multi-objective evaluation normalizes against the generated candidate set and reports evidence coverage, not confidence
+
+**Context.** M5.5 forbids invented confidence scores; criterion availability varies with data.
+
+**Decision.** Each strategy retains RAW criterion values, min-max normalized scores computed within the evaluated candidate set of the run (normalization documented per criterion), strategy weights (renormalized over evaluable criteria with the skipped ones listed), trade-off notes vs the best-in-criterion and vs baseline, missing-evidence lists, and the knowledge-pack/feature-run/engine/solver versions used. The only aggregate transparency metric is `evidence_coverage` — the fraction of criteria evaluable from evidence — explicitly NOT a confidence score. Pareto dominance is computed over evaluable criteria only; solutions with different evaluable-criterion sets are never compared as if commensurable (dominance restricted to the shared evaluable set, restriction recorded).

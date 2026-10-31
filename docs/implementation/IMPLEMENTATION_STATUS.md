@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-10-31 (Milestone 3 audit + Milestone 4 — processing & feature engineering)
+Last updated: 2026-10-31 (Milestone 5 — global agricultural knowledge base & decision intelligence)
 
 Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 
@@ -147,16 +147,52 @@ Regression suite grew 157 → 184 tests (SoilGrids request-shape/masking/unit te
 - ✅ Zero page errors; mobile 390px and desktop 1366px: no horizontal overflow; footer flush (`mt-auto`) on long content
 - ✅ Display fix: run period shown in the farm calendar (was drifting to UTC dates, e.g. 2014-12-31)
 
+## Milestone 5 — Global agricultural knowledge base & decision intelligence (2026-10-31)
+
+Gap analysis: `docs/implementation/M5_GAP_ANALYSIS.md` · ADRs 0014–0018 in `DECISIONS_AND_ASSUMPTIONS.md` · architecture: `docs/architecture/knowledge-model.md`.
+
+| Task | Status | Notes |
+|---|---|---|
+| M5.1 Versioned knowledge model | ✅ | `knowledge_packs` (+checksum, draft/active/retired lifecycle), `knowledge_sources`, `crop_families`, `crops`, `crop_varieties`, `crop_traits` (row-per-context with value range, evidence class, confidence, validation status, validity period — migration 0004); multiple values per trait under different regions/contexts supported by construction |
+| M5.1 Import & validation workflow | ✅ | strict Pydantic pack schema + cross-referential validation (unknown sources/crops/families, conflicting trait values, break-rule semantics, license/attribution/citation required); idempotent by (code, version) with checksum conflict detection; bundled seed pack auto-bootstraps (same lazy pattern as data registry); audit events on import/activate |
+| M5.1 Seed pack honesty | ✅ | 4 real sources (FAO-56 1998, FAO EcoCrop, Agrios 2005, Herridge et al. 2008), 11 crops / 141 traits / 13 calendar windows (declared `reference_synthesized`) / 30 Kc rows; NO invented drought/heat scores; faba bean deliberately has NO Kc (water stays unevaluated); NOTHING confirmed_regional |
+| M5.2 Crop relationship & rotation knowledge | ✅ | structured `rotation_rules` (rotation_break / host_pathogen / succession_compatibility / cover_crop_suitability) with crop/family scoping, region lists, severity, source citations; family-scoped rules only where the cited mechanism justifies; region gating (rules scoped to other regions never apply) |
+| M5.2 Validation-status gating | ✅ | hard enforcement ONLY at `confirmed_regional` (seed pack ships zero — demonstrated honestly in UI and tests); reference rules inform conditional eligibility + explanations + "local expert validation required" blocks |
+| M5.3 Candidate generation | ✅ | per-season evaluation of every KB crop: calendar-window overlap (year-wrapping), duration vs season (+14 d spill tolerance), EcoCrop temperature/precipitation ranges vs season climatology, soil pH w/ evidence class, farmer market exclusions + equipment limits, rotation-history rules; four first-class statuses (eligible / conditionally_eligible / excluded / unevaluated) each with reasons + cited evidence; missing evidence ≠ zero ≠ exclusion |
+| M5.4 CP-SAT optimizer | ✅ | OR-Tools 9.14.6206 adapter (`app/rotation/optimizer.py`); hard constraints (exactly-one, admissible-only pool, confirmed rotation breaks pairwise + history boundary, per-season water allocation) registered as solver ASSUMPTIONS → INFEASIBLE returns named conflicting constraints (verified live in the browser); never silently relaxed; baseline always preserved & labelled |
+| M5.4 Soft objectives | ✅ | water efficiency, soil-health composite (legume/cover/root/N-fixation — missing sub-indicators skipped), economic margin (farmer-supplied ONLY, otherwise skipped with reason), family diversity (alternation term), climate resilience (temperature-in-optimum fraction), erosion proxy (duration coverage), cover-crop opportunity |
+| M5.5 Multi-objective evaluation | ✅ | 4 profiles + custom weights; raw criterion values + min-max normalization WITHIN the run's strategy set; weights renormalized over evaluable criteria with skipped weights reported; Pareto dominance over SHARED evaluable set (non-comparable pairs recorded); `evidence_coverage` = transparency metric, NOT a confidence score |
+| M5.6 Explainability | ✅ | every strategy: why_generated, recommendation (front/dominated/baseline), constraint checks w/ statuses, criterion-level evaluation, evidence references (pack versions + citations + feature-run ids), data limitations (synthetic flag, SoilGrids prediction class, screening-estimate caveat, zero-confirmed-rules note), expected benefits, risks/trade-offs vs other strategies, local expert validation requirements |
+| Water screening estimate (ADR-0017) | ✅ | FAO-56 single-Kc curve (linear ramps) × monthly ET0 climatology; sowing-at-season-start assumption recorded; only when BOTH ET0 evidence and sourced Kc exist; with a hard allocation, water-unevaluable crops are held OUT of optimization (never partial compliance labelled as full) |
+| Climate evidence bridge (M4→M5) | ✅ | month-of-year climatology from the field's latest succeeded feature run — historical proxy explicitly labelled "NOT a forecast"; ≥90% month coverage else unevaluated; synthetic flag propagated into every candidate reason + run warnings |
+| Reproducible runs | ✅ | `rotation_runs`/`rotation_strategies` snapshot seasons, profiles, pack refs+checksums, feature-run ids, crop-history ids, engine version, solver seed; identical inputs → identical assignment + sha256 strategy checksums (unit + browser-verified); idempotency keys |
+| API endpoints | ✅ | knowledge: GET packs/sources/crops/crop detail/rotation-rules, POST packs/import, POST activate · rotation: GET/POST crop-history, POST crop-candidates, POST/GET rotation-runs, GET strategies, GET comparison; 202 job pattern + idempotency; tenant-scoped runs (cross-tenant 403 verified) |
+| Passport readiness fix | ✅ | `rotation_optimization` gate now queries reality (active pack w/ crops, crop history, succeeded feature run) — stale "constraint_solver (later milestone)" removed; available→"Rotation runs exist…" |
+| Tests | ✅ | +71 new: knowledge contracts (schema, cross-refs, conflicts, checksum, regional keys, deliberate gaps), rotation core (candidates calendar/duration/climate/soil/water/history, confirmed-vs-reference rule gating, determinism, water infeasible+conflicts, pairwise + family + history-boundary breaks, Pareto/preference changes, missing economics), integration (import workflow idempotency/conflicts, crops/rules API, candidates API, full runs, no-relaxation, infeasible, comparison, reproducibility, custom weights, tenant isolation, passport readiness) — suite total **314 passed** |
+| UI: Rotation tab | ✅ | planning seasons editor, crop-history form, per-season candidate lists with status chips + expandable reasons/citations, optimizer card (profiles, water allocation, past runs) with infeasible-conflict alerts + SYNTHETIC banner, strategy cards (Pareto badges, criteria tables with honest "(not evaluated)", accordions: why/constraints/evidence+limitations/validation-required, checksums), knowledge browser (packs+sources, crops table with Kc gap column, rules with enforceability badges) |
+
+### Browser end-to-end verification — Milestone 5 (agent-browser, 2026-10-31)
+
+- ✅ Auth gate → demo workspace → new **Rotation** tab visible and functional
+- ✅ Knowledge browser live: pack card (active, 11 crops · 141 traits · 6 rules, digitization note in amber, FAO/EcoCrop/Agrios/Herridge attributions, expandable sources), crops table (faba_bean honestly shows NO Kc), rules cards with `reference` validation badges + citations
+- ✅ Golden path: field picker → crop history (maize 2023 via form) → candidates for summer_2026 — statuses with cited reasons; SYNTHETIC warning surfaced
+- ✅ After ingesting T/P/ET0 (Observations) + monthly feature run (M4 flow): candidates gain climate evidence + water estimates (maize ≈664 mm, tomato ≈686 mm)
+- ✅ Optimization run ce949614 · optimal · 4 strategies: baseline (empty assignment shown honestly) + water_priority/soil_health_priority/balanced with Pareto-front badges, objective values, evidence coverage (14%→86%), criteria tables where `economic_margin_index` shows "(not evaluated)" — never a fake number
+- ✅ Accordion "Constraints checked": one_crop_per_season ✓, candidate_admissibility ✓, rotation_break [satisfied] with "0 confirmed rule(s) loaded overall", water_allocation [not_applicable] "never invented"
+- ✅ Infeasible case live: allocation 1 000 m³ → run 428cbc08 reported `infeasible · 1 strategies` with named conflict `water_allocation — Season summer_2026: … (1000 m3)` — no silent relaxation
+- ✅ Zero console/page errors; desktop 1366 px footer flush on short page and naturally pushed on long pages; mobile 390 px: no horizontal overflow, tab strip scrolls, footer intact
+- Note: intermittent blank screenshots mid-session were agent-browser daemon restarts (page reloaded to about:blank); every fresh load rendered and behaved correctly — the app itself stayed healthy (200s, zero page errors)
+
 ## Not implemented (next milestones — deliberately)
 
 - ✅ Open-Meteo historical provider (Milestone 3 — done)
 - ✅ CHIRPS v3 import/extraction (Milestone 3 — done)
 - ✅ SoilGrids WCS optional provider (Milestone 3 — done; WebDAV variant not needed)
 - ✅ CSV observations import (Milestone 3 — done; soil-lab CSV waits for M4 soil history)
-- ⬜ FAO GAEZ / crop-calendar reference imports (Milestone 3+, licensing review)
+- ⬜ FAO GAEZ / crop-calendar reference imports (licensing review; seed pack uses FAO-56 + EcoCrop citations instead)
 - ⬜ SoilGrids other depth intervals (soil measurement history — later milestone)
 - ✅ Feature runs / climate features / temporal aggregation (Milestone 4 — done)
-- ⬜ Crop knowledge base (Milestone 5)
+- ✅ Crop knowledge base + candidate generation + rotation optimization + Pareto evaluation (Milestone 5 — done)
 - ⬜ Rotation optimizer + water intelligence + soil ledger (Milestones 6–7)
 - ⬜ Stress testing lab (Milestone 8)
 - ⬜ Farmer journal, advisor review, offline sync (Milestone 9)

@@ -9,7 +9,7 @@ scenario, journal and review tables (Part V).
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from geoalchemy2 import Geometry, WKBElement
@@ -553,4 +553,472 @@ class FeatureValue(Base):
             "ix_feature_values_field_feature_period",
             field_id, feature_code, aggregation_level, period_start,
         ),
+    )
+
+
+# ==========================================================================
+# Milestone 5 — agricultural knowledge base & decision intelligence
+# (docs/architecture/knowledge-model.md; ADR-0014..0018)
+# ==========================================================================
+
+class KnowledgePack(Base, TimestampMixin):
+    """A versioned, source-cited container of agricultural knowledge.
+
+    Packs are platform-level (not tenant-scoped) and independent of
+    environmental providers. A pack import is validated as a whole and stores
+    its checksum so identical inputs are idempotent. `status` governs use:
+    only `active` packs feed candidate generation and optimization; `draft`
+    packs are inspectable but inert; `retired` packs are history.
+    """
+
+    __tablename__ = "knowledge_packs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    pack_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    region_scope: Mapped[str] = mapped_column(String(80), nullable=False, default="global")
+    license_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    attribution_text: Mapped[str] = mapped_column(Text, nullable=False)
+    license_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    digitization_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    imported_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','active','retired')", name="ck_knowledge_pack_status"),
+        UniqueConstraint("pack_code", "pack_version", name="uq_knowledge_pack_version"),
+        Index("ix_knowledge_packs_code", pack_code),
+    )
+
+
+class KnowledgeSource(Base, TimestampMixin):
+    """A citable reference backing knowledge attributes (Master §17.13)."""
+
+    __tablename__ = "knowledge_sources"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    publisher: Mapped[str] = mapped_column(String(200), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publication_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    license: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    citation_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("pack_id", "source_key", name="uq_knowledge_source_key"),
+    )
+
+
+class CropFamily(Base, TimestampMixin):
+    """Botanical family (taxonomy backbone for rotation relationships)."""
+
+    __tablename__ = "crop_families"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    family_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    scientific_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    common_names: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+
+    __table_args__ = (
+        UniqueConstraint("pack_id", "family_key", name="uq_crop_family_key"),
+        Index("ix_crop_families_pack", pack_id),
+    )
+
+
+class Crop(Base, TimestampMixin):
+    """A crop species. Broad flags are descriptors, never agronomic conclusions."""
+
+    __tablename__ = "crops"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    crop_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    family_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crop_families.id", ondelete="SET NULL"), nullable=True
+    )
+    scientific_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    common_names: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    crop_category: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    life_cycle_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    is_legume: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_cover_crop_capable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+
+    family: Mapped[CropFamily | None] = relationship()
+
+    __table_args__ = (
+        CheckConstraint("status IN ('active','draft','retired')", name="ck_crop_status"),
+        UniqueConstraint("pack_id", "crop_code", name="uq_crop_code_per_pack"),
+        Index("ix_crops_code", crop_code),
+    )
+
+
+class CropVariety(Base, TimestampMixin):
+    """Cultivar-level record; traits MAY be attached at variety level when the
+    source is variety-specific (species-level traits stay on `crops`)."""
+
+    __tablename__ = "crop_varieties"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    crop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=False
+    )
+    variety_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    region_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    maturity_group: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class CropTrait(Base, TimestampMixin):
+    """One sourced attribute value for one crop (or variety) under one region /
+    management / growth-stage context. Multiple rows per trait_code are
+    EXPECTED (different contexts) — conflicts must be detectable, not merged."""
+
+    __tablename__ = "crop_traits"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    crop_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=True
+    )
+    crop_variety_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crop_varieties.id", ondelete="CASCADE"), nullable=True
+    )
+    trait_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    value_numeric: Mapped[float | None] = mapped_column(Float, nullable=True)
+    value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    value_low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    value_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    region_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    management_context: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    growth_stage: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    conditions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False)
+    confidence: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    source: Mapped[KnowledgeSource] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "(crop_id IS NOT NULL)::int + (crop_variety_id IS NOT NULL)::int = 1",
+            name="ck_crop_trait_owner",
+        ),
+        CheckConstraint(
+            "(value_numeric IS NOT NULL)::int + (value_text IS NOT NULL)::int + "
+            "(value_low IS NOT NULL)::int >= 1",
+            name="ck_crop_trait_value",
+        ),
+        CheckConstraint(
+            "confidence IN ('high','moderate','low','unknown')", name="ck_crop_trait_confidence"
+        ),
+        CheckConstraint(
+            "validation_status IN ('reference','locally_validated','confirmed_regional','retired')",
+            name="ck_crop_trait_validation",
+        ),
+        Index("ix_crop_traits_crop_code", crop_id, trait_code),
+    )
+
+
+class CropCalendarWindow(Base, TimestampMixin):
+    """Sowing/harvest window for a crop in a region & hemisphere.
+
+    Dates are month-day strings (MM-DD) so windows recur annually; a window
+    whose start exceeds its end wraps across the year boundary."""
+
+    __tablename__ = "crop_calendar_windows"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    crop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=False
+    )
+    region_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    hemisphere: Mapped[str] = mapped_column(String(10), nullable=False, default="north")
+    season_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    planting_start: Mapped[str] = mapped_column(String(5), nullable=False)
+    planting_end: Mapped[str] = mapped_column(String(5), nullable=False)
+    harvest_start: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    harvest_end: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False)
+    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("hemisphere IN ('north','south')", name="ck_calendar_hemisphere"),
+        Index("ix_crop_calendar_crop", crop_id),
+    )
+
+
+class CropWaterParameter(Base, TimestampMixin):
+    """Growth-stage Kc (or other water parameter) — NEVER guessed. A crop with
+    no verified parameter row stays unsupported for water calculations."""
+
+    __tablename__ = "crop_water_parameters"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    crop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="CASCADE"), nullable=False
+    )
+    crop_variety_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crop_varieties.id", ondelete="CASCADE"), nullable=True
+    )
+    growth_stage: Mapped[str] = mapped_column(String(40), nullable=False)
+    kc_value: Mapped[float] = mapped_column(Float, nullable=False)
+    kc_method: Mapped[str] = mapped_column(String(20), nullable=False, default="single")
+    stage_length_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    valid_region: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    climate_context: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False)
+    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("kc_method IN ('single','dual')", name="ck_kc_method"),
+        UniqueConstraint(
+            "crop_id", "crop_variety_id", "growth_stage", "kc_method", "valid_region",
+            name="uq_crop_water_param",
+        ),
+        Index("ix_crop_water_crop", crop_id),
+    )
+
+
+class RotationRule(Base, TimestampMixin):
+    """A structured agronomic relationship rule (Master §17.13 knowledge_rules
+    specialised for rotation reasoning). Hard enforcement requires
+    validation_status='confirmed_regional'; reference rules inform explanations
+    and conditional eligibility only."""
+
+    __tablename__ = "rotation_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    pack_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    rule_code: Mapped[str] = mapped_column(String(120), nullable=False)
+    rule_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    # {predecessor:{crop|family:key}, successor:{crop|family:key},
+    #  min_break_seasons:int, mechanism:str, severity:str}
+    rule_definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    applies_to_regions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    validation_status: Mapped[str] = mapped_column(String(40), nullable=False, default="reference")
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="advisory")
+    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    source: Mapped[KnowledgeSource] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "rule_type IN ('rotation_break','succession_compatibility','cover_crop_suitability',"
+            "'residue_management','soil_cover','host_pathogen','host_pest')",
+            name="ck_rotation_rule_type",
+        ),
+        CheckConstraint(
+            "validation_status IN ('reference','locally_validated','confirmed_regional','retired')",
+            name="ck_rotation_rule_validation",
+        ),
+        CheckConstraint("severity IN ('advisory','recommended','required')", name="ck_rule_severity"),
+        UniqueConstraint("pack_id", "rule_code", name="uq_rotation_rule_code"),
+        Index("ix_rotation_rules_type", rule_type),
+    )
+
+
+class AgronomistReview(Base, TimestampMixin):
+    """Review workflow records that upgrade reference knowledge to locally
+    validated / regionally confirmed states (Master §17.13)."""
+
+    __tablename__ = "agronomist_reviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    target_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    review_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_agronomist_reviews_target", target_type, target_id),
+    )
+
+
+# ------------------------------------------------- crop history / preferences
+class CropHistory(Base, TimestampMixin):
+    """What actually grew on a field (Master §17.8) — the rotation baseline."""
+
+    __tablename__ = "crop_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    crop_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crops.id", ondelete="SET NULL"), nullable=True
+    )
+    crop_label: Mapped[str] = mapped_column(String(160), nullable=False)
+    variety_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crop_varieties.id", ondelete="SET NULL"), nullable=True
+    )
+    sowing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    harvest_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    season_label: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    area_ha: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="farmer")
+    evidence_class: Mapped[str] = mapped_column(String(60), nullable=False, default="farmer_reported_record")
+
+    __table_args__ = (
+        Index("ix_crop_history_field", field_id, sowing_date),
+    )
+
+
+class FarmerPreference(Base, TimestampMixin):
+    """Farm-level objectives & strategy style (Master §17.7)."""
+
+    __tablename__ = "farmer_preferences"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    farm_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("farms.id", ondelete="CASCADE"), nullable=False
+    )
+    objective_weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    risk_tolerance: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    preferred_strategy_style: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    __table_args__ = (
+        Index("ix_farmer_preferences_farm", farm_id),
+    )
+
+
+# ------------------------------------------------------- rotation runs (M5)
+class RotationRun(Base, TimestampMixin):
+    """A reproducible rotation optimization over one field.
+
+    Snapshots EVERYTHING needed to reproduce: planning seasons, strategy
+    profiles/weights, active knowledge-pack versions + checksums, feature-run
+    ids consumed, crop-history ids, engine + solver versions, seed. Values are
+    written once; the baseline is preserved as a labelled strategy."""
+
+    __tablename__ = "rotation_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    solver_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    seasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    strategy_profiles: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    water_allocation_m3: Mapped[float | None] = mapped_column(Float, nullable=True)
+    knowledge_pack_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    feature_run_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    crop_history_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    rotation_engine_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    solver_name: Mapped[str] = mapped_column(String(60), nullable=False, default="cp-sat")
+    solver_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    random_seed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    infeasibility_details: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    not_evaluated: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    request_parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    strategies: Mapped[list["RotationStrategy"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled')",
+            name="ck_rotation_run_status",
+        ),
+        CheckConstraint(
+            "solver_status IN ('optimal','feasible','infeasible','unknown',"
+            "'model_invalid','not_attempted') OR solver_status IS NULL",
+            name="ck_rotation_solver_status",
+        ),
+        Index(
+            "uq_rotation_run_idempotency",
+            idempotency_key,
+            unique=True,
+            postgresql_where=text_("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_rotation_runs_field", field_id),
+    )
+
+
+class RotationStrategy(Base, TimestampMixin):
+    """One candidate strategy of a run: assignment + full evaluation evidence."""
+
+    __tablename__ = "rotation_strategies"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("rotation_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    strategy_key: Mapped[str] = mapped_column(String(60), nullable=False)
+    strategy_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="optimized")
+    is_baseline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    profile_weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    assignment: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    objective_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    criteria: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    constraints_checked: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    pareto: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    explanations: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    evidence_coverage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    run: Mapped[RotationRun] = relationship(back_populates="strategies")
+
+    __table_args__ = (
+        CheckConstraint(
+            "strategy_kind IN ('optimized','baseline')", name="ck_rotation_strategy_kind"
+        ),
+        UniqueConstraint("run_id", "strategy_key", name="uq_rotation_strategy_key"),
     )

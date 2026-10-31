@@ -20,7 +20,13 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.data_platform.contracts.variables import VARIABLE_CATALOG
-from app.db.models import DatasetProduct, DataSource, Observation, ObservationQualityFlag
+from app.db.models import (
+    DatasetProduct,
+    DataSource,
+    FeatureRun,
+    Observation,
+    ObservationQualityFlag,
+)
 
 # Analysis readiness rules for the slice. Each rule lists required variable
 # codes (with minimum valid daily coverage ratio) plus extra non-variable gates.
@@ -59,14 +65,9 @@ ANALYSIS_RULES: list[dict[str, Any]] = [
         "analysis_code": "rotation_optimization",
         "name": "Crop rotation optimization",
         "required_variables": {},
-        "extra_requirements": [
-            "crop_knowledge_base",     # Milestone 5+
-            "crop_history",            # Milestone 5+
-            "feature_runs",            # Milestone 4+
-            "constraint_solver",       # Milestone 6+
-        ],
-        "description": "Rotation candidate generation and constrained optimization. "
-        "Not implemented in this slice; reported as blocked, never simulated.",
+        "extra_requirements": [],  # filled dynamically below (M5)
+        "description": "Rotation candidate generation and constrained optimization over "
+        "versioned knowledge packs, crop history and feature-run evidence.",
     },
     {
         "analysis_code": "soil_analysis",
@@ -266,7 +267,55 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
                     f"{entry['dataset_product']['provider_code']}) is below the required "
                     f"{min_ratio} for this analysis."
                 )
-        for extra in rule.get("extra_requirements", []):
+        extra_requirements = list(rule.get("extra_requirements", []))
+        if rule["analysis_code"] == "rotation_optimization":
+            # Dynamic readiness (M5): query what actually exists for this field.
+            from app.db.models import Crop, CropHistory, KnowledgePack, RotationRun
+
+            pack_exists = db.scalar(
+                select(KnowledgePack.id).where(
+                    KnowledgePack.status == "active",
+                    KnowledgePack.id.in_(select(Crop.pack_id)),
+                )
+            )
+            history_count = db.scalar(
+                select(func.count())
+                .select_from(CropHistory)
+                .where(CropHistory.field_id == field_id)
+            )
+            feature_run_count = db.scalar(
+                select(func.count())
+                .select_from(FeatureRun)
+                .where(FeatureRun.field_id == field_id, FeatureRun.status == "succeeded")
+            )
+            rotation_run_count = db.scalar(
+                select(func.count())
+                .select_from(RotationRun)
+                .where(RotationRun.field_id == field_id)
+            )
+            if pack_exists is None:
+                missing_inputs.append("crop_knowledge_base")
+                reasons.append(
+                    "No active knowledge pack with crops — import and activate a pack."
+                )
+            if not history_count:
+                missing_inputs.append("crop_history")
+                reasons.append(
+                    "No crop history recorded for this field — the rotation baseline "
+                    "cannot be reconstructed."
+                )
+            if not feature_run_count:
+                missing_inputs.append("feature_runs")
+                reasons.append(
+                    "No succeeded feature run for this field — climate evidence for "
+                    "candidate generation is missing."
+                )
+            if rotation_run_count:
+                reasons.append(
+                    "Rotation runs exist for this field; see the Rotation tab for "
+                    "strategies and evidence."
+                )
+        for extra in extra_requirements:
             missing_inputs.append(extra)
             reasons.append(f"'{extra}' is not yet available (later milestone).")
         if missing_inputs:

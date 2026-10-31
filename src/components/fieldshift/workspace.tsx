@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardCheck, FlaskConical, LayoutDashboard, LogOut, Map, Sigma, Sprout } from 'lucide-react'
+import { ClipboardCheck, FlaskConical, LayoutDashboard, LogOut, Map, RotateCcw, Sigma, Sprout } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -11,6 +11,7 @@ import { FarmsFields } from '@/components/fieldshift/farms-fields'
 import { Observations } from '@/components/fieldshift/observations'
 import { Features } from '@/components/fieldshift/features'
 import { DataPassport } from '@/components/fieldshift/data-passport'
+import { Rotation } from '@/components/fieldshift/rotation'
 import { useHealth } from '@/hooks/use-fieldshift'
 import { getMe, getToken, setToken } from '@/lib/api'
 import { useFieldShiftUi, type WorkspaceTab } from '@/lib/store'
@@ -23,6 +24,7 @@ const TAB_ITEMS: { value: WorkspaceTab; label: string; icon: React.ReactNode }[]
   { value: 'farms', label: 'Farms & Fields', icon: <Map className="h-4 w-4" aria-hidden /> },
   { value: 'observations', label: 'Observations', icon: <FlaskConical className="h-4 w-4" aria-hidden /> },
   { value: 'features', label: 'Features', icon: <Sigma className="h-4 w-4" aria-hidden /> },
+  { value: 'rotation', label: 'Rotation', icon: <RotateCcw className="h-4 w-4" aria-hidden /> },
   { value: 'passport', label: 'Data Passport', icon: <ClipboardCheck className="h-4 w-4" aria-hidden /> },
 ]
 
@@ -172,6 +174,9 @@ export function Workspace() {
           </TabsContent>
           <TabsContent value="features" className="mt-4">
             <Features />
+          </TabsContent>
+          <TabsContent value="rotation" className="mt-4">
+            <Rotation />
           </TabsContent>
           <TabsContent value="passport" className="mt-4">
             <DataPassport />

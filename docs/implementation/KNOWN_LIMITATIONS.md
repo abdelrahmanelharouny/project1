@@ -40,3 +40,26 @@ Honest record of what this slice does NOT do. Nothing here is claimed to work.
 
 - Any real-world agricultural recommendation, yield guarantee, or prescription.
 - Any use of synthetic observations as evidence for agronomic conclusions.
+
+## Milestone 5 (knowledge base & rotation intelligence)
+
+- Seed-pack trait values are hand-transcriptions of the cited printed tables
+  (FAO-56, EcoCrop); every value is `validation_status="reference"` pending the
+  agronomist review workflow. Transcription errors are possible — the citation
+  is always shown next to the value.
+- Calendar windows are `reference_synthesized` coarse contexts (not station
+  data) and require regional calibration before operational use.
+- No rule in the seed pack is `confirmed_regional`; rotation breaks are
+  therefore advisory everywhere until a regional expert confirms them.
+- Crop water figures are FAO-56 single-Kc screening estimates (sowing assumed
+  at season start; monthly ET0 climatology as a historical proxy) — superseded
+  by the M7 daily water balance.
+- Economics is evaluated only from farmer-supplied margin indices; the platform
+  never estimates prices or yields.
+- Candidate climate ranges are ANNUAL EcoCrop amplitudes compared against
+  season climatology — a coarse screening signal, documented as such.
+- The decision core is per-field in this slice (crop history and water
+  allocation are field/farm scoped); multi-field farm-level rotation arrives
+  with the water intelligence milestone.
+- Variety-level traits are representable (model + tests) but the seed pack is
+  species-level; no cultivar data is bundled.

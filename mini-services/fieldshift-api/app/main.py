@@ -23,6 +23,11 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_data_registry(db)
+        # Milestone 5: bootstrap the bundled seed knowledge pack (idempotent).
+        from app.knowledge.import_service import seed_default_packs
+
+        seed_default_packs(db)
+        db.commit()
     finally:
         db.close()
     yield

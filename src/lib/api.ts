@@ -447,3 +447,98 @@ export function compareFeatureRuns(runId: string, againstRunId: string): Promise
     `/api/v1/feature-runs/${runId}/comparison?against_run_id=${againstRunId}`,
   )
 }
+
+// =============================================================
+// Milestone 5 — knowledge base & rotation intelligence
+// =============================================================
+
+import type {
+  CropCandidatesInput,
+  CropCandidatesResponse,
+  CropDetailResponse,
+  CropHistoryCreateInput,
+  CropHistoryListResponse,
+  CropHistoryItem,
+  KnowledgeCropListResponse,
+  KnowledgePackImportInput,
+  KnowledgePackImportResponse,
+  KnowledgePackListResponse,
+  KnowledgePackSourcesResponse,
+  RotationRun,
+  RotationRunCreateInput,
+  RotationRunListResponse,
+  RotationRulesResponse,
+  RotationStrategiesResponse,
+  RotationComparisonResponse,
+} from './types'
+
+export function getKnowledgePacks(): Promise<KnowledgePackListResponse> {
+  return request<KnowledgePackListResponse>('/api/v1/knowledge/packs')
+}
+
+export function getKnowledgePackSources(packId: string): Promise<KnowledgePackSourcesResponse> {
+  return request<KnowledgePackSourcesResponse>(`/api/v1/knowledge/packs/${packId}/sources`)
+}
+
+export function getKnowledgeCrops(): Promise<KnowledgeCropListResponse> {
+  return request<KnowledgeCropListResponse>('/api/v1/knowledge/crops')
+}
+
+export function getCropDetail(cropCode: string): Promise<CropDetailResponse> {
+  return request<CropDetailResponse>(`/api/v1/knowledge/crops/${encodeURIComponent(cropCode)}`)
+}
+
+export function getRotationRules(): Promise<RotationRulesResponse> {
+  return request<RotationRulesResponse>('/api/v1/knowledge/rotation-rules')
+}
+
+export function importKnowledgePack(input: KnowledgePackImportInput): Promise<KnowledgePackImportResponse> {
+  return request<KnowledgePackImportResponse>('/api/v1/knowledge/packs/import', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listCropHistory(fieldId: string): Promise<CropHistoryListResponse> {
+  return request<CropHistoryListResponse>(`/api/v1/fields/${fieldId}/crop-history`)
+}
+
+export function addCropHistory(fieldId: string, input: CropHistoryCreateInput): Promise<CropHistoryItem> {
+  return request<CropHistoryItem>(`/api/v1/fields/${fieldId}/crop-history`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function generateCropCandidates(
+  fieldId: string,
+  input: CropCandidatesInput,
+): Promise<CropCandidatesResponse> {
+  return request<CropCandidatesResponse>(`/api/v1/fields/${fieldId}/crop-candidates`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function createRotationRun(fieldId: string, input: RotationRunCreateInput): Promise<RotationRun> {
+  return request<RotationRun>(`/api/v1/fields/${fieldId}/rotation-runs`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listRotationRuns(fieldId: string): Promise<RotationRunListResponse> {
+  return request<RotationRunListResponse>(`/api/v1/fields/${fieldId}/rotation-runs`)
+}
+
+export function getRotationRun(runId: string): Promise<RotationRun> {
+  return request<RotationRun>(`/api/v1/rotation-runs/${runId}`)
+}
+
+export function getRotationStrategies(runId: string): Promise<RotationStrategiesResponse> {
+  return request<RotationStrategiesResponse>(`/api/v1/rotation-runs/${runId}/strategies`)
+}
+
+export function getRotationComparison(runId: string): Promise<RotationComparisonResponse> {
+  return request<RotationComparisonResponse>(`/api/v1/rotation-runs/${runId}/comparison`)
+}

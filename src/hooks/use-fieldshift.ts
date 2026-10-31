@@ -22,6 +22,7 @@ import {
 import type {
   BoundaryVersionListResponse,
   CatalogResponse,
+  CropHistoryListResponse,
   DataCoverageResponse,
   DataPassport,
   Farm,
@@ -34,8 +35,15 @@ import type {
   FieldMapResponse,
   HealthReadyResponse,
   HealthResponse,
+  KnowledgeCropListResponse,
+  KnowledgePackListResponse,
+  KnowledgePackSourcesResponse,
   ObservationListResponse,
   ProvidersHealthResponse,
+  RotationComparisonResponse,
+  RotationRun,
+  RotationRunListResponse,
+  RotationRulesResponse,
 } from '@/lib/types'
 
 /**
@@ -239,5 +247,84 @@ export function useFeatureComparison(
     queryFn: () => compareFeatureRuns(runId as string, againstRunId as string),
     enabled: enabled && Boolean(runId) && Boolean(againstRunId) && runId !== againstRunId,
     staleTime: 30_000,
+  })
+}
+
+// =============================================================
+// Milestone 5 — knowledge base & rotation intelligence
+// =============================================================
+
+import {
+  getKnowledgeCrops,
+  getKnowledgePackSources,
+  getKnowledgePacks,
+  getRotationComparison,
+  getRotationRules,
+  getRotationRun,
+  listCropHistory,
+  listRotationRuns,
+} from '@/lib/api'
+
+export function useKnowledgePacks(enabled = true): UseQueryResult<KnowledgePackListResponse> {
+  return useQuery({
+    queryKey: ['knowledge-packs'],
+    queryFn: getKnowledgePacks,
+    enabled,
+  })
+}
+
+export function useKnowledgePackSources(packId: string | null): UseQueryResult<KnowledgePackSourcesResponse> {
+  return useQuery({
+    queryKey: ['knowledge-pack-sources', packId],
+    queryFn: () => getKnowledgePackSources(packId as string),
+    enabled: !!packId,
+  })
+}
+
+export function useKnowledgeCrops(enabled = true): UseQueryResult<KnowledgeCropListResponse> {
+  return useQuery({
+    queryKey: ['knowledge-crops'],
+    queryFn: getKnowledgeCrops,
+    enabled,
+  })
+}
+
+export function useRotationRules(enabled = true): UseQueryResult<RotationRulesResponse> {
+  return useQuery({
+    queryKey: ['rotation-rules'],
+    queryFn: getRotationRules,
+    enabled,
+  })
+}
+
+export function useCropHistory(fieldId: string | null): UseQueryResult<CropHistoryListResponse> {
+  return useQuery({
+    queryKey: ['crop-history', fieldId],
+    queryFn: () => listCropHistory(fieldId as string),
+    enabled: !!fieldId,
+  })
+}
+
+export function useRotationRuns(fieldId: string | null): UseQueryResult<RotationRunListResponse> {
+  return useQuery({
+    queryKey: ['rotation-runs', fieldId],
+    queryFn: () => listRotationRuns(fieldId as string),
+    enabled: !!fieldId,
+  })
+}
+
+export function useRotationRun(runId: string | null): UseQueryResult<RotationRun> {
+  return useQuery({
+    queryKey: ['rotation-run', runId],
+    queryFn: () => getRotationRun(runId as string),
+    enabled: !!runId,
+  })
+}
+
+export function useRotationComparison(runId: string | null): UseQueryResult<RotationComparisonResponse> {
+  return useQuery({
+    queryKey: ['rotation-comparison', runId],
+    queryFn: () => getRotationComparison(runId as string),
+    enabled: !!runId,
   })
 }
