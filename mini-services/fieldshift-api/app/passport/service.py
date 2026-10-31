@@ -111,6 +111,7 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
             Observation.spatial_resolution_m,
             Observation.is_synthetic,
             Observation.processing_version,
+            Observation.evidence_class,
             func.max(Observation.retrieved_at).label("retrieved_at"),
             Observation.dataset_product_id,
             DatasetProduct.product_code,
@@ -137,6 +138,7 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
             Observation.spatial_resolution_m,
             Observation.is_synthetic,
             Observation.processing_version,
+            Observation.evidence_class,
             Observation.dataset_product_id,
             DatasetProduct.product_code,
             DatasetProduct.product_version,
@@ -154,7 +156,9 @@ def build_data_passport(db: Session, field_id: Any) -> dict[str, Any]:
     entry_key: dict[tuple[Any, Any], int] = {}
     for r in rows:
         product_metadata = r.product_metadata or {}
-        evidence_class = product_metadata.get("evidence_class")
+        # Persisted per-observation evidence class (M3 audit) wins; product
+        # metadata is the fallback for legacy rows written before the column.
+        evidence_class = r.evidence_class or product_metadata.get("evidence_class")
         if evidence_class is None:
             evidence_class = "synthetic_test_data" if r.is_synthetic else "reanalysis_model_estimate"
         key = (r.variable_code, r.dataset_product_id, r.processing_version)

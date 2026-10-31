@@ -242,7 +242,11 @@ class TestModelVariableAvailability:
                 options={"model": "era5_land"},
             )
 
-    def test_wind_with_era5_land_mixed_warns(self, monkeypatch):
+    def test_wind_with_era5_land_mixed_is_never_requested(self, monkeypatch):
+        """Audit regression: variables the selected model does not natively
+        publish must NOT be requested — relying on upstream nulls would ingest
+        ERA5-backed values under the era5_land product label if the archive
+        ever backfills them. Only model-native variables may be fetched."""
         calls = _install_mock(monkeypatch, lambda params: _FakeResponse(sample_payload(START, END)))
         result = OpenMeteoProvider().fetch_observations(
             area_of_interest=AOI,
@@ -254,8 +258,43 @@ class TestModelVariableAvailability:
         assert any(
             "not published by model era5_land" in w and "wind_speed_10m" in w for w in result.warnings
         )
-        # values from the (mocked) payload are still normalized and stored
-        assert any(o.variable_code == "wind_speed_10m" and o.value is not None for o in result.observations)
+        # the non-native series is absent from the upstream request entirely
+        for call in calls:
+            daily = call["params"]["daily"].split(",")
+            assert "wind_speed_10m_mean" not in daily
+            assert "temperature_2m_mean" in daily
+        # and no wind observations are fabricated or recorded
+        assert all(o.variable_code != "wind_speed_10m" for o in result.observations)
+        assert result.coverage["variables_not_requested"] == ["wind_speed_10m"]
+
+    def test_native_variables_requested_for_selected_model(self, monkeypatch):
+        calls = _install_mock(monkeypatch, lambda params: _FakeResponse(sample_payload(START, END)))
+        result = OpenMeteoProvider().fetch_observations(
+            area_of_interest=AOI,
+            variables=["precipitation", "reference_et0", "wind_speed_10m"],
+            start=START,
+            end=END,
+            options={"model": "era5"},
+        )
+        codes = {o.variable_code for o in result.observations}
+        assert {"precipitation", "reference_et0", "wind_speed_10m"} <= codes
+        for call in calls:
+            daily = call["params"]["daily"].split(",")
+            assert "precipitation_sum" in daily
+            assert "et0_fao_evapotranspiration" in daily
+            assert "wind_speed_10m_mean" in daily
+        assert result.coverage["variables_not_requested"] == []
+
+    def test_chunks_never_overlap_nor_gap(self):
+        """Audit regression: aggregation must never double-count overlapping
+        request windows; chunks are contiguous and calendar-aligned."""
+        start = datetime(2015, 3, 14, tzinfo=UTC)
+        end = datetime(2024, 7, 2, tzinfo=UTC)
+        chunks = _year_chunks(start, end, max_years=3)
+        assert chunks[0][0] == start and chunks[-1][1] == end
+        for (s1, e1), (s2, _e2) in zip(chunks, chunks[1:]):
+            assert (s2 - e1).days == 1
+            assert e1 <= s2
 
     def test_models_report_per_model_variables(self):
         items = {m["code"]: set(m["variables"]) for m in OpenMeteoProvider().models()}

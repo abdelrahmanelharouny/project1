@@ -498,3 +498,154 @@ export interface DataPassport {
   analyses: PassportAnalysis[]
   notes: string[]
 }
+
+// ---------------------------------------------------------------------------
+// Feature engineering (Milestone 4)
+// ---------------------------------------------------------------------------
+
+export interface FeatureCatalogEntry {
+  feature_code: string
+  name: string
+  description: string
+  unit: string
+  category: string
+  aggregation_levels: string[]
+  required_variables: string[]
+  min_coverage_ratio: number
+  formula_reference: string
+  strategy: string
+  definition_version: string
+}
+
+export interface FeatureCatalogResponse {
+  feature_catalog_version: string
+  features: FeatureCatalogEntry[]
+  notes: string[]
+}
+
+export interface FeatureRunSourceSelection {
+  dataset_product_id: string
+  product_code: string
+  product_version: string
+  is_synthetic: boolean
+}
+
+export interface FeatureRun {
+  run_id: string
+  field_id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  calendar_timezone: string
+  hemisphere: string
+  period: { start: string; end: string }
+  aggregation_levels: string[]
+  requested_variables: string[]
+  source_selection: Record<string, FeatureRunSourceSelection>
+  crop_seasons: { label: string; start_date: string; end_date: string }[]
+  feature_engine_version: string
+  feature_catalog_version: string
+  is_synthetic: boolean
+  warnings: string[]
+  not_evaluated_reasons: Record<string, string>
+  records_written: number
+  error_summary: string | null
+  started_at: string | null
+  completed_at: string | null
+  status_url: string
+}
+
+export interface FeatureRunListResponse {
+  items: FeatureRun[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface FeatureRunCreateInput {
+  start_date: string
+  end_date: string
+  aggregation_levels: string[]
+  feature_codes?: string[]
+  calendar_timezone?: string
+  hemisphere?: string
+  crop_seasons?: { label: string; start_date: string; end_date: string }[]
+  source_overrides?: Record<string, string>
+  idempotency_key?: string
+}
+
+export interface FeatureValueProvenance {
+  engine_version?: string
+  definition_version?: string
+  calendar?: { timezone: string; hemisphere: string; assignment_rule: string }
+  required_variables?: string[]
+  inputs?: {
+    observation_count: number
+    dataset_products: string[]
+    processing_versions: string[]
+    evidence_classes: string[]
+    is_synthetic: boolean
+  }
+  observation_ids?: string[]
+  observation_count?: number
+  checksum?: string
+  baseline?: {
+    calendar_month?: number
+    season?: string
+    window_years: number[]
+    n_years: number
+    mean: number
+    sd: number
+  }
+  derived_from?: Record<string, { feature_code: string; value: number }>
+  crop_season_window?: { label: string; start: string; end: string; source: string }
+  reason?: string
+  formula?: string
+}
+
+export interface FeatureValue {
+  id: string
+  feature_code: string
+  aggregation_level: 'daily' | 'monthly' | 'seasonal' | 'crop_season'
+  period_label: string
+  period_start: string
+  period_end: string
+  value: number | null
+  unit: string
+  coverage_ratio: number | null
+  n_input: number
+  n_missing: number
+  quality_status: 'valid' | 'partial' | 'insufficient_coverage' | 'missing' | 'not_evaluated'
+  uncertainty_value: number | null
+  uncertainty_type: string | null
+  baseline_reference: Record<string, unknown> | null
+  provenance: FeatureValueProvenance
+}
+
+export interface FeatureValueListResponse {
+  run_id: string
+  items: FeatureValue[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface FeatureRunComparisonDelta {
+  feature_code: string
+  aggregation_level: string
+  period_label: string
+  unit: string
+  run_value: number
+  against_value: number
+  delta: number
+  delta_pct: number | null
+  quality_run: string
+  quality_against: string
+}
+
+export interface FeatureRunComparison {
+  run_id: string
+  against_run_id: string
+  matched_periods: number
+  only_in_run: number
+  deltas: FeatureRunComparisonDelta[]
+  note: string
+}

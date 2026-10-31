@@ -296,9 +296,19 @@ class Observation(Base):
     spatial_support_type: Mapped[str] = mapped_column(String(30), nullable=False, default="field_intersection")
     spatial_resolution_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     quality_status: Mapped[str] = mapped_column(String(20), nullable=False, default="valid")
+    # Evidence class from the canonical contract, persisted per row (M3 audit):
+    # providers that emit mixed evidence classes stay representable, and the
+    # passport never depends on inference alone. Nullable for legacy rows.
+    evidence_class: Mapped[str | None] = mapped_column(String(40), nullable=True)
     uncertainty_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     uncertainty_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Job that produced this row (M3 audit): completes the job→observation→
+    # feature provenance chain. Nullable for legacy rows; jobs are never
+    # hard-deleted.
+    ingestion_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ingestion_jobs.id", ondelete="SET NULL"), nullable=True
+    )
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     processing_version: Mapped[str] = mapped_column(String(40), nullable=False, default="v1")
     metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
@@ -394,3 +404,153 @@ class FarmConstraint(Base, TimestampMixin):
     unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
     is_hard_constraint: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source: Mapped[str] = mapped_column(String(30), nullable=False, default="farmer")
+
+
+# ------------------------------------------------------- feature engineering
+class FeatureDefinition(Base, TimestampMixin):
+    """Versioned feature definition (Milestone 4).
+
+    Feature codes, units, coverage policy and formula references are data, not
+    code smell: every computed value links to the definition version it was
+    produced with, so historical feature values remain interpretable when the
+    catalog evolves. Thresholds used by count-style indicators cite their
+    source convention (WMO / ETCCDI) and are explicitly NOT crop-specific.
+    """
+
+    __tablename__ = "feature_definitions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    feature_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    unit: Mapped[str] = mapped_column(String(30), nullable=False)
+    category: Mapped[str] = mapped_column(String(40), nullable=False, default="climate")
+    aggregation_levels: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    required_variables: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    min_coverage_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.8)
+    definition_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    formula_reference: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("feature_code", "definition_version", name="uq_feature_definition"),
+        Index("ix_feature_definitions_code", feature_code),
+    )
+
+
+class FeatureRun(Base, TimestampMixin):
+    """A reproducible feature computation over one field (Milestone 4).
+
+    The run records EVERYTHING needed to reproduce it: the resolved source
+    selection (one dataset product per variable — synthetic and real data are
+    never blended), the calendar timezone and hemisphere, the period window,
+    the engine version and the feature-definition version. Values are written
+    once by a run; comparing runs is the supported way to see change.
+    """
+
+    __tablename__ = "feature_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    calendar_timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
+    hemisphere: Mapped[str] = mapped_column(String(10), nullable=False, default="north")
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    aggregation_levels: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    requested_variables: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    source_selection: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    crop_seasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    feature_engine_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    feature_catalog_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    request_parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    not_evaluated_reasons: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    records_written: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    values: Mapped[list["FeatureValue"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled')",
+            name="ck_feature_run_status",
+        ),
+        CheckConstraint("hemisphere IN ('north','south')", name="ck_feature_run_hemisphere"),
+        Index(
+            "uq_feature_run_idempotency",
+            idempotency_key,
+            unique=True,
+            postgresql_where=text_("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_feature_runs_field", field_id),
+    )
+
+
+class FeatureValue(Base):
+    """One derived feature value for one calendar period (Milestone 4).
+
+    `value` is NULL exactly when the value could not be honestly computed
+    (coverage below the definition's minimum, or a required baseline/input
+    missing) — missing observations are never treated as zero (Master rule 11).
+    Provenance links the value back to the contributing observations, their
+    dataset products, processing versions and evidence classes.
+    """
+
+    __tablename__ = "feature_values"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("feature_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    feature_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    aggregation_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    period_label: Mapped[str] = mapped_column(String(40), nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit: Mapped[str] = mapped_column(String(30), nullable=False)
+    coverage_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    n_input: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    n_missing: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    quality_status: Mapped[str] = mapped_column(String(24), nullable=False, default="valid")
+    uncertainty_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    uncertainty_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    baseline_reference: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    run: Mapped[FeatureRun] = relationship(back_populates="values")
+
+    __table_args__ = (
+        CheckConstraint(
+            "quality_status IN ('valid','partial','insufficient_coverage','missing','not_evaluated')",
+            name="ck_feature_value_quality",
+        ),
+        CheckConstraint(
+            "aggregation_level IN ('daily','monthly','seasonal','crop_season')",
+            name="ck_feature_value_aggregation",
+        ),
+        UniqueConstraint(
+            "run_id", "feature_code", "aggregation_level", "period_label",
+            name="uq_feature_value_period",
+        ),
+        Index(
+            "ix_feature_values_field_feature_period",
+            field_id, feature_code, aggregation_level, period_start,
+        ),
+    )

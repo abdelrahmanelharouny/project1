@@ -20,6 +20,12 @@ import type {
   FarmCreateInput,
   FarmListResponse,
   FarmPatchInput,
+  FeatureCatalogResponse,
+  FeatureRun,
+  FeatureRunComparison,
+  FeatureRunCreateInput,
+  FeatureRunListResponse,
+  FeatureValueListResponse,
   Field,
   FieldCreateInput,
   FieldCreateResponse,
@@ -399,4 +405,45 @@ export function validateJobWindow(
   const maxYears = bounds?.maxYears ?? MAX_JOB_YEARS
   if (years > maxYears) return `A single job covers at most ${maxYears} years. Split the range.`
   return null
+}
+
+// ---------------------------------------------------------------------------
+// Feature engineering (Milestone 4)
+// ---------------------------------------------------------------------------
+
+export function getFeatureCatalog(): Promise<FeatureCatalogResponse> {
+  return request<FeatureCatalogResponse>('/api/v1/features/catalog')
+}
+
+export function createFeatureRun(fieldId: string, input: FeatureRunCreateInput): Promise<FeatureRun> {
+  return request<FeatureRun>(`/api/v1/fields/${fieldId}/feature-runs`, { method: 'POST', body: input })
+}
+
+export function listFeatureRuns(fieldId: string, limit = 50, offset = 0): Promise<FeatureRunListResponse> {
+  return request<FeatureRunListResponse>(`/api/v1/fields/${fieldId}/feature-runs?limit=${limit}&offset=${offset}`)
+}
+
+export interface FeatureValueQuery {
+  aggregationLevel?: string
+  featureCode?: string
+  qualityStatus?: string
+  limit?: number
+  offset?: number
+}
+
+export function listFeatureValues(runId: string, query: FeatureValueQuery = {}): Promise<FeatureValueListResponse> {
+  const params = new URLSearchParams()
+  if (query.aggregationLevel) params.set('aggregation_level', query.aggregationLevel)
+  if (query.featureCode) params.set('feature_code', query.featureCode)
+  if (query.qualityStatus) params.set('quality_status', query.qualityStatus)
+  if (query.limit !== undefined) params.set('limit', String(query.limit))
+  if (query.offset !== undefined) params.set('offset', String(query.offset))
+  const qs = params.toString()
+  return request<FeatureValueListResponse>(`/api/v1/feature-runs/${runId}/values${qs ? `?${qs}` : ''}`)
+}
+
+export function compareFeatureRuns(runId: string, againstRunId: string): Promise<FeatureRunComparison> {
+  return request<FeatureRunComparison>(
+    `/api/v1/feature-runs/${runId}/comparison?against_run_id=${againstRunId}`,
+  )
 }

@@ -165,3 +165,37 @@ class TestCsvImportEndToEnd:
             select(func.count()).select_from(Observation).where(Observation.field_id == fm.id)
         )
         assert total == 3  # but no duplicates stored
+
+class TestCsvDateBasis:
+    """Audit regression: farmer dates are local calendar dates. Timestamps are
+    rejected (ambiguous without a zone) and the interpretation basis is
+    recorded so M4 aggregation can apply the farm calendar explicitly."""
+
+    def test_timestamp_rows_rejected(self):
+        csv_text = (
+            "date,variable_code,value,unit\n"
+            "2024-03-01T10:30:00,precipitation,12.5,mm\n"
+            "2024-03-02,precipitation,0,mm\n"
+        )
+        result = parse_csv_observations(csv_text, file_name="log.csv")
+        assert len(result.observations) == 1  # only the plain-date row survives
+        assert result.coverage["rows_rejected"] == 1
+        assert any("time component" in w for w in result.warnings)
+
+    def test_space_separated_datetime_rejected(self):
+        csv_text = (
+            "date,variable_code,value,unit\n"
+            "2024-03-01 10:30,precipitation,12.5,mm\n"
+        )
+        result = parse_csv_observations(csv_text, file_name="log.csv")
+        assert result.observations == []
+        assert result.coverage["rows_rejected"] == 1
+
+    def test_date_interpretation_recorded(self):
+        result = parse_csv_observations(VALID_CSV, file_name="log.csv")
+        obs = result.observations[0]
+        assert obs.metadata["date_interpretation"] == "calendar_date_anchored_utc_midnight"
+        assert obs.metadata["original_date"] == "2024-03-01"
+        # anchored at UTC midnight: the calendar day is unambiguous
+        assert obs.observed_at == datetime(2024, 3, 1, tzinfo=UTC)
+        assert obs.period_start == obs.observed_at

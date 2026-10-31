@@ -150,3 +150,94 @@ class TestChirpsExtraction:
         assert obs.time_support == "monthly"
         assert obs.period_start.day == 1 and obs.period_start.month == 2
         assert obs.period_end.day == 29 and obs.period_end.month == 2  # 2024 leap year
+
+
+class TestPentadBounds:
+    """Audit regression: CHIRPS pentads run 1-5, 6-10, 11-15, 16-20, 21-25 and
+    26-END-OF-MONTH (verified against CHC v3 documentation). The last pentad of
+    the month is variable length — start+5d was wrong."""
+
+    def _extract(self, observed: datetime) -> tuple[datetime, datetime]:
+        data = build_geotiff(np.full((10, 10), 1.0))
+        result = extract_field_precipitation(
+            data,
+            file_name="chirps.tif",
+            field_geometry_geojson=FIELD_GEOM,
+            observed_at=observed,
+            period_kind="pentad",
+        )
+        obs = result.observations[0]
+        assert obs.time_support == "pentadal"
+        return obs.period_start, obs.period_end
+
+    def test_early_month_pentad_five_days(self):
+        start, end = self._extract(datetime(2024, 1, 14, tzinfo=UTC))  # 11-15
+        assert (start.day, start.month) == (11, 1)
+        assert (end.day, end.month) == (15, 1)
+
+    def test_last_pentad_january_runs_to_month_end(self):
+        start, end = self._extract(datetime(2024, 1, 27, tzinfo=UTC))
+        assert (start.day, start.month) == (26, 1)
+        assert (end.day, end.month) == (31, 1)  # was Jan 30 with the +5d bug
+
+    def test_last_pentad_february_leap_year(self):
+        start, end = self._extract(datetime(2024, 2, 28, tzinfo=UTC))
+        assert (start.day, start.month) == (26, 2)
+        assert (end.day, end.month) == (29, 2)
+
+    def test_last_pentad_february_non_leap(self):
+        start, end = self._extract(datetime(2023, 2, 27, tzinfo=UTC))
+        assert (start.day, start.month) == (26, 2)
+        assert (end.day, end.month) == (28, 2)
+
+    def test_last_pentad_thirty_day_month(self):
+        start, end = self._extract(datetime(2024, 4, 30, tzinfo=UTC))
+        assert (start.day, start.month) == (26, 4)
+        assert (end.day, end.month) == (30, 4)
+
+    def test_pentad_boundary_day_25_vs_26(self):
+        start, end = self._extract(datetime(2024, 6, 25, tzinfo=UTC))
+        assert (start.day, end.day) == (21, 25)
+        start, end = self._extract(datetime(2024, 6, 26, tzinfo=UTC))
+        assert (start.day, end.day) == (26, 30)
+
+
+class TestSubCellField:
+    """Audit regression: fields smaller than one grid cell fall back to
+    all-touched cells, flagged — never a structured dead end, never silent."""
+
+    def test_subcell_field_uses_all_touched_with_flag(self):
+        # raster cells are 0.002 deg; the field below (~0.001 x 0.0006 deg)
+        # lies strictly inside one cell and away from its centre
+        tiny = {
+            "type": "Polygon",
+            "coordinates": [
+                [[31.4045, 31.1052], [31.4055, 31.1052], [31.4055, 31.1058], [31.4045, 31.1058], [31.4045, 31.1052]]
+            ],
+        }
+        data = build_geotiff(np.full((10, 10), 3.0))
+        result = extract_field_precipitation(
+            data,
+            file_name="chirps.tif",
+            field_geometry_geojson=tiny,
+            observed_at=datetime(2024, 1, 31, tzinfo=UTC),
+        )
+        obs = result.observations[0]
+        assert obs.value == pytest.approx(3.0, abs=1e-6)
+        assert obs.metadata["cell_selection"] == "all_touched (sub-grid field)"
+        assert any(f["flag_code"] == "CHIRPS_SUBCELL_FIELD" for f in obs.quality_flags)
+
+    def test_field_outside_all_cells_still_rejected(self):
+        # field entirely off the raster grid — no cells touch it either
+        far = {
+            "type": "Polygon",
+            "coordinates": [[[50.0, 50.0], [50.01, 50.0], [50.01, 50.01], [50.0, 50.01], [50.0, 50.0]]],
+        }
+        data = build_geotiff(np.full((10, 10), 3.0))
+        with pytest.raises(ValidationFailed):
+            extract_field_precipitation(
+                data,
+                file_name="chirps.tif",
+                field_geometry_geojson=far,
+                observed_at=datetime(2024, 1, 31, tzinfo=UTC),
+            )

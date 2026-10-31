@@ -241,7 +241,7 @@ class OpenMeteoProvider:
             warnings.append(
                 "Variables not published by model "
                 + model_code
-                + " (values will be recorded as missing): "
+                + " were NOT requested (no observations recorded for them): "
                 + ", ".join(unavailable_in_model)
                 + "."
                 + hint
@@ -257,6 +257,12 @@ class OpenMeteoProvider:
                         ),
                     }],
                 )
+        # Never request variables the selected model does not natively publish.
+        # Relying on upstream nulls is fragile: if the archive ever backfills
+        # those series from the other reanalysis, values would be ingested under
+        # the wrong product label — a silent ERA5/ERA5-Land mix. Dropping them
+        # here keeps the product label deterministic.
+        fetch_variables = [v for v in supported if v in MODEL_VARIABLES[model_code]]
 
         start = start.astimezone(UTC)
         end = end.astimezone(UTC)
@@ -297,7 +303,7 @@ class OpenMeteoProvider:
                 start=chunk_start,
                 end=chunk_end,
                 model=model.open_meteo_model_param,
-                variables=supported,
+                variables=fetch_variables,
             )
             grid_info = {
                 "grid_latitude": payload.get("latitude"),
@@ -309,7 +315,7 @@ class OpenMeteoProvider:
             observations.extend(
                 self._to_canonical(
                     payload=payload,
-                    variables=supported,
+                    variables=fetch_variables,
                     model=model,
                     chunk_start=chunk_start,
                     chunk_end=chunk_end,
@@ -337,6 +343,7 @@ class OpenMeteoProvider:
                     for s, e in chunks
                 ],
                 "unsupported_variables_requested": unsupported,
+                "variables_not_requested": unavailable_in_model,
             },
             provider_request_id=f"openmeteo:{model.code}:{start.date()}:{clamped_end.date()}:{lat},{lon}",
             raw_reference=self._base_url,

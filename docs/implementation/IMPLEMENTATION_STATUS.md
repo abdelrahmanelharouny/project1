@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-10-30 (Milestone 3 — alternative data integrations)
+Last updated: 2026-10-31 (Milestone 3 audit + Milestone 4 — processing & feature engineering)
 
 Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 
@@ -104,6 +104,49 @@ Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 - ✅ Live smoke against the real archive API: era5_land (124 rec) + era5 wind (31 rec, km/h→m/s), model mismatch → 422
 - ✅ Zero page errors; mobile 390px: no horizontal overflow on any tab; sticky footer intact
 
+## Milestone 3 — Focused engineering audit (2026-10-31)
+
+| Area | Verdict | Fixes applied |
+|---|---|---|
+| Live-doc verification | ✅ | Open-Meteo model/variable matrix, CHIRPS pentad calendar, SoilGrids WCS naming/CRS all probed against the LIVE services |
+| SoilGrids provider | ❌→✅ **was broken against live service** | live coverage IDs (`<family>_0-5cm_mean/_Q0.05/_Q0.95`), per-property `map` param, WCS 1.0.0 EPSG:4326 path, soc dg/kg ÷10 unit fix, field-polygon masking + cell accounting, CRS validation |
+| CHIRPS extractor | 2 defects | pentad 26–end-of-month bounds (CHC-verified), sub-grid field all_touched fallback with `CHIRPS_SUBCELL_FIELD` flag |
+| Open-Meteo provider | 1 hardening gap | non-native model variables are never requested (no possible silent ERA5/ERA5-Land mix); chunk non-overlap regression test |
+| Farmer CSV | 1 gap | timestamp rows rejected; local calendar-date basis recorded (`date_interpretation` metadata) |
+| Provenance schema | 2 gaps | `observations.evidence_class` + `observations.ingestion_job_id` persisted (migration 0002) and surfaced in API + Data Passport |
+
+Full findings with live-probe evidence: `docs/implementation/M3_AUDIT_GAPS.md`.
+Regression suite grew 157 → 184 tests (SoilGrids request-shape/masking/unit tests, CHIRPS pentad + subcell tests, Open-Meteo gating + chunk tests, CSV date tests, provenance-column integration tests).
+
+## Milestone 4 — Processing & feature engineering (2026-10-31)
+
+| Task | Status | Notes |
+|---|---|---|
+| Versioned feature definitions | ✅ | `FeatureDefinition` table + `featurespec-2026.11.0-m4` catalog: 26 features, each with unit, aggregation levels, required variables, min-coverage policy and cited formula reference; catalog endpoint `/features/catalog` |
+| Reliable aggregation | ✅ | daily / monthly / seasonal / crop-season strategies: identity, accumulation, mean (+SE), ETCCDI-style counts, dry-spell runs, difference (P−ET0), anomaly, z-score, seasonal CV |
+| Explicit timezone & calendar | ✅ | runs carry `calendar_timezone` (farm default) + `hemisphere`; daily observations assigned by documented midpoint rule (`period_midpoint_local_date`); offset-invariance property tested, extreme-offset (Auckland) bucket shift tested |
+| Baselines & anomalies | ✅ | calendar-month climatology embedded per value (`baseline_reference`); ≥5 distinct years required, else `not_evaluated` with the reason in provenance |
+| Rainfall variability / dry-spell / temperature / heat indicators | ✅ | WMO dry-day (<1 mm) spells with gap interruption (a data gap is never assumed dry); ETCCDI FD0/TR20; hot days ≥35 °C explicitly labelled a generic meteorological index |
+| Soil moisture & ET0 features | ✅ | monthly means/anomalies and ET0 totals where a compatible source exists; P−ET0 labelled climatic balance, NOT a crop water budget; crop-specific heat stress stays unevaluated until the sourced knowledge base (M5) |
+| Missing-data & minimum-coverage policies | ✅ | per-definition `min_coverage_ratio` (0.9 sums / 0.8 means); below → NULL + `insufficient_coverage`; missing never zero-filled; totals never scaled up |
+| Uncertainty & quality propagation | ✅ | quality enum valid/partial/insufficient_coverage/missing/not_evaluated; standard error of the mean on mean features; input evidence classes + processing versions carried into value provenance |
+| Feature snapshots & reproducible runs | ✅ | `feature_runs` + `feature_values` (migration 0003); runs record source selection, calendar basis, engine+catalog versions; identical inputs → identical checksums (unit + integration verified in the browser: Δ=0 comparison) |
+| Feature provenance | ✅ | every value links contributing observation ids (capped+counted), dataset products, processing versions, evidence classes, calendar basis, sha256 checksum |
+| API endpoints | ✅ | POST/GET `/fields/{id}/feature-runs`, GET `/feature-runs/{run_id}`, `/values` (filters+paging), `/comparison?against_run_id=`, GET `/features/catalog`; 202 async-style lifecycle like ingestion; idempotency keys |
+| Source selection honesty | ✅ | ONE dataset product per variable (never blended); window-aware preference (real first, in-window coverage next) with explicit fallback warnings; `is_synthetic` flagged end-to-end with the SYNTHETIC banner |
+| Tests | ✅ | unit (28: calendar, engine, reproducibility, tz), integration (22: lifecycle, selection, overrides, isolation, comparison, validation), data-contract (9: provenance completeness, enums, units, checksums, no-zero) — suite total **243 passed** |
+| UI: Features tab | ✅ | run creation (levels, hemisphere, crop-season windows), runs list with status/synthetic badges, values table with quality/coverage chips, run-to-run comparison, catalog browser with formula references |
+
+### Browser end-to-end verification — Milestone 4 (agent-browser, 2026-10-31)
+
+- ✅ Features tab: field picker → run creation → job succeeded → values table populated
+- ✅ Window-aware selection visible in production behaviour: synthetic fixture selected for 2023 with the fallback warning; real era5_land soil moisture used where it covers the window; farmer CSV rows (outside the window) never blended in
+- ✅ Values table: `precipitation_total_monthly 2023-01 = 29.25 mm · 100% · valid · 31 obs`; `hot_days 0 days · 97% · partial` (single synthetic gap flagged); anomalies honestly `not evaluated` (single-year window, ≥5 years required)
+- ✅ Comparison: two identical 2023 runs → matched periods with Δ = 0 (reproducibility, in the browser)
+- ✅ SYNTHETIC badges on runs + amber "never for real-world conclusions" banner
+- ✅ Zero page errors; mobile 390px and desktop 1366px: no horizontal overflow; footer flush (`mt-auto`) on long content
+- ✅ Display fix: run period shown in the farm calendar (was drifting to UTC dates, e.g. 2014-12-31)
+
 ## Not implemented (next milestones — deliberately)
 
 - ✅ Open-Meteo historical provider (Milestone 3 — done)
@@ -111,8 +154,8 @@ Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 - ✅ SoilGrids WCS optional provider (Milestone 3 — done; WebDAV variant not needed)
 - ✅ CSV observations import (Milestone 3 — done; soil-lab CSV waits for M4 soil history)
 - ⬜ FAO GAEZ / crop-calendar reference imports (Milestone 3+, licensing review)
-- ⬜ SoilGrids other depth intervals (Milestone 4 soil measurement history)
-- ⬜ Feature runs / climate features / temporal aggregation (Milestone 4)
+- ⬜ SoilGrids other depth intervals (soil measurement history — later milestone)
+- ✅ Feature runs / climate features / temporal aggregation (Milestone 4 — done)
 - ⬜ Crop knowledge base (Milestone 5)
 - ⬜ Rotation optimizer + water intelligence + soil ledger (Milestones 6–7)
 - ⬜ Stress testing lab (Milestone 8)

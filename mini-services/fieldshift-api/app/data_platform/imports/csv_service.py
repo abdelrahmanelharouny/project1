@@ -110,6 +110,16 @@ def parse_csv_observations(
         notes_raw = cell("notes")
 
         # --- date ---
+        # Farmer records are LOCAL CALENDAR DATES. Timestamps are rejected:
+        # a naive local time cannot be honestly converted to UTC without a
+        # zone, and a silent anchor would shift daily aggregation (M4).
+        if any(c in date_raw for c in ("T", ":", " ")):
+            rejected += 1
+            warnings.append(
+                f"Row {row_number}: date '{date_raw}' includes a time component; "
+                "use a calendar date (YYYY-MM-DD)."
+            )
+            continue
         try:
             observed = datetime.fromisoformat(date_raw).replace(tzinfo=UTC)
         except ValueError:
@@ -174,6 +184,8 @@ def parse_csv_observations(
             "file_sha256": file_sha256,
             "source_row": row_number,
             "original_unit": unit_raw or vdef.unit,
+            "original_date": date_raw,
+            "date_interpretation": "calendar_date_anchored_utc_midnight",
         }
         if notes_raw:
             metadata["notes"] = notes_raw

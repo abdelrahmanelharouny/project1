@@ -78,13 +78,24 @@ def _band_scale_offset(dataset) -> tuple[float, float]:
     return float(scales[0] if scales else 1.0), float(offsets[0] if offsets else 0.0)
 
 
+def _pentad_bounds(day: datetime) -> tuple[datetime, datetime]:
+    """CHIRPS pentad calendar (verified against CHC v3 documentation): pentads
+    run 1-5, 6-10, 11-15, 16-20, 21-25 and 26-end-of-month — the last pentad of
+    the month is variable length and ends on the last calendar day."""
+    start = day - timedelta(days=(day.day - 1) % 5)
+    if day.day >= 26:
+        start = day.replace(day=26)
+        nxt = (start + timedelta(days=32)).replace(day=1)
+        return start, nxt - timedelta(seconds=1)
+    return start, start + timedelta(days=5) - timedelta(seconds=1)
+
+
 def _period_bounds(observed: datetime, period_kind: str) -> tuple[datetime, datetime]:
     day = observed.replace(hour=0, minute=0, second=0, microsecond=0)
     if period_kind == "daily":
         return day, day + timedelta(days=1) - timedelta(seconds=1)
     if period_kind == "pentad":
-        start = day - timedelta(days=(day.day - 1) % 5)
-        return start, start + timedelta(days=5) - timedelta(seconds=1)
+        return _pentad_bounds(day)
     if period_kind == "monthly":
         start = day.replace(day=1)
         nxt = (start + timedelta(days=32)).replace(day=1)
@@ -149,6 +160,19 @@ def extract_field_precipitation(
                 invert=True,
                 all_touched=False,
             )
+            subcell_fallback = False
+            if int(in_field.sum()) == 0:
+                # Sub-grid field (smaller than one cell): fall back to all cells
+                # touching the boundary, explicitly flagged — never silently
+                # widened, never fabricated.
+                in_field = geometry_mask(
+                    [json.loads(json.dumps(field_geometry_geojson))],
+                    out_shape=band.shape,
+                    transform=transform,
+                    invert=True,
+                    all_touched=True,
+                )
+                subcell_fallback = True
             values = band[in_field]
 
             total_cells = int(in_field.sum())
@@ -182,6 +206,18 @@ def extract_field_precipitation(
     coverage_ratio = valid_count / max(1, total_cells)
 
     flags: list[dict[str, Any]] = []
+    if subcell_fallback:
+        flags.append(
+            {
+                "flag_code": "CHIRPS_SUBCELL_FIELD",
+                "severity": "warning",
+                "message": (
+                    "The field is smaller than one native grid cell; the mean uses every cell "
+                    "touching the boundary, including area outside the field."
+                ),
+                "details": {"total_cells": total_cells},
+            }
+        )
     if coverage_ratio < 0.5:
         flags.append(
             {
@@ -213,6 +249,7 @@ def extract_field_precipitation(
         "file_sha256": file_sha256,
         "period_kind": period_kind,
         "product_status": product_status,
+        "cell_selection": "all_touched (sub-grid field)" if subcell_fallback else "cell_centre_in_polygon",
         "valid_cells": valid_count,
         "nodata_cells": nodata_count,
         "total_cells": total_cells,

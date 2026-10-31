@@ -134,3 +134,38 @@ class TestIngestion:
         resp = client.get(f"/api/v1/jobs/{job['job_id']}",
                           headers={"Authorization": f"Bearer {other['token']}"})
         assert resp.status_code == 403
+
+
+class TestObservationProvenanceColumns:
+    """M3 audit regression: evidence class and the producing job are persisted
+    on every observation row and surfaced through the API."""
+
+    def test_evidence_class_and_job_id_persisted(self, client, farm_with_field, db):
+        headers = farm_with_field["headers"]
+        field_id = farm_with_field["field"]["id"]
+        job = _start_job(client, headers, field_id).json()
+        rows = db.scalars(select(Observation).where(Observation.field_id == field_id)).all()
+        assert rows, "ingestion must produce observations"
+        assert all(r.evidence_class == "synthetic_test_data" for r in rows)
+        assert all(r.ingestion_job_id is not None for r in rows)
+        assert all(str(r.ingestion_job_id) == job["job_id"] for r in rows)
+
+    def test_observations_api_exposes_provenance_columns(self, client, farm_with_field):
+        headers = farm_with_field["headers"]
+        field_id = farm_with_field["field"]["id"]
+        job = _start_job(client, headers, field_id).json()
+        payload = client.get(f"/api/v1/fields/{field_id}/observations", headers=headers).json()
+        items = payload["items"]
+        assert items
+        assert all(o["evidence_class"] == "synthetic_test_data" for o in items)
+        assert all(o["ingestion_job_id"] == job["job_id"] for o in items)
+
+    def test_passport_uses_persisted_evidence_class(self, client, farm_with_field):
+        headers = farm_with_field["headers"]
+        field_id = farm_with_field["field"]["id"]
+        _start_job(client, headers, field_id)
+        passport = client.get(f"/api/v1/fields/{field_id}/data-passport", headers=headers).json()
+        entries = [e for e in passport["variables"] if e["variable_code"] == "precipitation"]
+        assert entries
+        assert entries[0]["evidence_class"] == "synthetic_test_data"
+        assert entries[0]["is_synthetic"] is True

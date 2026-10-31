@@ -221,6 +221,8 @@ def list_observations(
             "spatial_support_type": o.spatial_support_type,
             "spatial_resolution_m": o.spatial_resolution_m,
             "quality_status": o.quality_status,
+            "evidence_class": o.evidence_class,
+            "ingestion_job_id": str(o.ingestion_job_id) if o.ingestion_job_id else None,
             "uncertainty_value": o.uncertainty_value,
             "uncertainty_type": o.uncertainty_type,
             "is_synthetic": o.is_synthetic,

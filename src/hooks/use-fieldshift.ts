@@ -3,14 +3,18 @@
 import { useMemo } from 'react'
 import { useQuery, useQueries, type UseQueryResult } from '@tanstack/react-query'
 import {
+  compareFeatureRuns,
   fetchDataCoverage,
   getCatalog,
   getDataPassport,
+  getFeatureCatalog,
   getFieldMap,
   getHealth,
   getHealthReady,
   getProvidersHealth,
   listBoundaryVersions,
+  listFeatureRuns,
+  listFeatureValues,
   listFields,
   listObservations,
   listFarms,
@@ -21,6 +25,10 @@ import type {
   DataCoverageResponse,
   DataPassport,
   Farm,
+  FeatureCatalogResponse,
+  FeatureRunComparison,
+  FeatureRunListResponse,
+  FeatureValueListResponse,
   Field,
   FieldListResponse,
   FieldMapResponse,
@@ -179,6 +187,57 @@ export function useDataCoverage(fieldId: string | null, enabled = true): UseQuer
     queryKey: ['data-coverage', fieldId],
     queryFn: () => fetchDataCoverage(fieldId as string),
     enabled: enabled && Boolean(fieldId),
+    staleTime: 30_000,
+  })
+}
+
+// --- feature engineering (Milestone 4) -------------------------------------
+
+export function useFeatureCatalog(enabled = true): UseQueryResult<FeatureCatalogResponse> {
+  return useQuery({
+    queryKey: ['feature-catalog'],
+    queryFn: getFeatureCatalog,
+    enabled,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useFeatureRuns(fieldId: string | null, enabled = true): UseQueryResult<FeatureRunListResponse> {
+  return useQuery({
+    queryKey: ['feature-runs', fieldId],
+    queryFn: () => listFeatureRuns(fieldId as string),
+    enabled: enabled && Boolean(fieldId),
+    staleTime: 5_000,
+  })
+}
+
+export function useFeatureValues(
+  runId: string | null,
+  query: { aggregationLevel?: string; qualityStatus?: string },
+  enabled = true,
+): UseQueryResult<FeatureValueListResponse> {
+  return useQuery({
+    queryKey: ['feature-values', runId, query.aggregationLevel ?? '', query.qualityStatus ?? ''],
+    queryFn: () =>
+      listFeatureValues(runId as string, {
+        aggregationLevel: query.aggregationLevel,
+        qualityStatus: query.qualityStatus,
+        limit: 500,
+      }),
+    enabled: enabled && Boolean(runId),
+    staleTime: 30_000,
+  })
+}
+
+export function useFeatureComparison(
+  runId: string | null,
+  againstRunId: string | null,
+  enabled = true,
+): UseQueryResult<FeatureRunComparison> {
+  return useQuery({
+    queryKey: ['feature-comparison', runId, againstRunId],
+    queryFn: () => compareFeatureRuns(runId as string, againstRunId as string),
+    enabled: enabled && Boolean(runId) && Boolean(againstRunId) && runId !== againstRunId,
     staleTime: 30_000,
   })
 }

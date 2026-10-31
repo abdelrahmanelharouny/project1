@@ -191,7 +191,7 @@ def seed_data_registry(db: Session) -> None:
         sg_source.id,
         product_code=SG_PRODUCT_CODE,
         product_version=SG_PRODUCT_VERSION,
-        description="SoilGrids 2.0 predicted soil properties (0-5 cm slice-2 depth, Qmean + Q0.05/Q0.95).",
+        description="SoilGrids 2.0 predicted soil properties (0-5 cm slice-2 depth, mean + Q0.05/Q0.95).",
         spatial_resolution_m=250.0,
         temporal_resolution="instant",
         coverage_start=None,
