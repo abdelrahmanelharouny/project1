@@ -1,10 +1,10 @@
 # Test Matrix
 
-All results below were actually executed on 2026-10-30. Command (from `mini-services/fieldshift-api`):
+All results below were actually executed. Latest full-suite run: **2026-10-31** (M4 + M5 included). Command (from `mini-services/fieldshift-api`):
 
 ```
 .venv/bin/python -m pytest tests
-# => 157 passed, 9 warnings in ~17s
+# => 314 passed in ~3.5 min (M1–M2: 157 · M3: +27 · M4: +59 · M5: +71)
 ```
 
 Frontend lint (from repository root):
@@ -176,6 +176,193 @@ Integration:
 | E13 | M3 Passport shows TWO soil-moisture entries: era5_land (CC BY 4.0, reanalysis, grid_cell @ 11132 m) + SYNTHETIC | ✅ |
 | E14 | M3 mobile 390px: no horizontal overflow on any tab, sticky footer intact | ✅ |
 
+## Milestone 4 — feature engine (59 tests)
+
+Unit (`test_feature_engine.py`, 28):
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| M4-U1 | Calendar: UTC-midnight days stay on date; Cairo offset same date; extreme offset shifts | documented midpoint rule | ✅ |
+| M4-U2 | Cairo local-day bounds incl. summer DST | correct local windows | ✅ |
+| M4-U3 | Unknown timezone rejected; farm-timezone binning of local-midnight obs | 422 / correct bucket | ✅ |
+| M4-U4 | Month bounds UTC; DJF season year-wrap; southern-hemisphere swap | correct | ✅ |
+| M4-U5 | Crop-season windows require level + label; window respected | correct | ✅ |
+| M4-U6 | Aggregation enum; unknown level 422 | enforced | ✅ |
+| M4-U7 | Accumulation full month; below min-coverage → NULL + insufficient_coverage, never scaled/zero-filled | no fabrication | ✅ |
+| M4-U8 | Daily values + missing days; daily window cap | correct | ✅ |
+| M4-U9 | Mean carries standard error | SE present | ✅ |
+| M4-U10 | Hot-days count; dry-spell run interrupted by data gap (never assumed dry) | ETCCDI-style | ✅ |
+| M4-U11 | P−ET0; without ET0 → not_evaluated with reason | honest | ✅ |
+| M4-U12 | Anomaly vs baseline; z-standardization; <5 years → not_evaluated | climatology gate | ✅ |
+| M4-U13 | Seasonal total + CV (few years → not evaluated) | honest | ✅ |
+| M4-U14 | Crop-specificity disclaimer on count indices | generic index label | ✅ |
+| M4-U15 | Catalog versioned with formula references; definitions carry formula + version | cited | ✅ |
+| M4-U16 | Identical inputs → identical checksums (value-sensitive, stable) | reproducible | ✅ |
+
+Data contract (`test_feature_value_contract.py`, 9):
+
+| ID | Contract item | Result |
+|---|---|---|
+| M4-C1 | Provenance complete (contributing obs ids capped+counted, products, versions, evidence classes, calendar basis) | ✅ |
+| M4-C2 | Quality enum enforced; missing never zero | ✅ |
+| M4-C3 | Units match canonical variable units | ✅ |
+| M4-C4 | All values within period bounds + labelled | ✅ |
+| M4-C5 | Temporal resolutions never mixed in one value | ✅ |
+| M4-C6 | not_evaluated values always carry a reason | ✅ |
+| M4-C7 | Synthetic run flagged end-to-end | ✅ |
+| M4-C8 | Missing input variable drops dependents with reason | ✅ |
+| M4-C9 | Run-level checksum stable & value-sensitive | ✅ |
+
+Integration (`test_feature_runs.py`, 22):
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| M4-I1 | Create run → 202 lifecycle → values persisted | job pattern | ✅ |
+| M4-I2 | Idempotency key reuses run | no duplicate compute | ✅ |
+| M4-I3 | Duplicate crop labels 422; unknown feature code/level 422 | fail fast | ✅ |
+| M4-I4 | Source override pins product; unknown product rejected | selection honesty | ✅ |
+| M4-I5 | Real product preferred, NEVER blended with synthetic | one product per variable | ✅ |
+| M4-I6 | No observations → structured error | not a silent empty run | ✅ |
+| M4-I7 | Runs scoped to field; run hidden from other tenant | 403 cross-tenant | ✅ |
+| M4-I8 | Comparison endpoint (against_run_id) | matched periods, Δ | ✅ |
+
+## Milestone 5 — knowledge base & rotation intelligence (71 tests)
+
+Mapped to the 13 mandated test categories:
+
+**K1. Knowledge schema & versioning**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K1.1 | Seed pack validates against strict pack schema | structured errors otherwise | ✅ |
+| K1.2 | Pack checksum stable & content-sensitive | version integrity | ✅ |
+| K1.3 | Variety-level trait model exists (species vs cultivar) | distinct rows | ✅ |
+| K1.4 | Trait cannot be both numeric and text | 422 | ✅ |
+| K1.5 | Invalid confidence rejected | 422 | ✅ |
+| K1.6 | Cross-refs: unknown crop code / family / rule crop rejected | 422 | ✅ |
+| K1.7 | Import idempotent by (code, version); conflicting same-version rejected | 409 conflict | ✅ |
+| K1.8 | Draft pack inert until activated | no side effects | ✅ |
+| K1.9 | Seed pack ships ZERO confirmed_regional rules | honesty invariant | ✅ |
+
+**K2. Trait provenance & regional applicability**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K2.1 | Every seed trait carries source + citation | no uncited value | ✅ |
+| K2.2 | Every seed Kc row carries source + confidence | no uncited water param | ✅ |
+| K2.3 | Region-scoped trait keys are distinct rows (multi-value per trait) | same trait, several contexts | ✅ |
+| K2.4 | Crops API lists trait provenance; crop detail carries citations | provenance surfaced | ✅ |
+
+**K3. Missing / conflicting agronomic evidence**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K3.1 | Conflicting trait values in one pack rejected | 422 | ✅ |
+| K3.2 | Deliberate gaps stay gaps (faba_bean has NO Kc; no invented drought scores) | absent ≠ zero | ✅ |
+| K3.3 | Unevaluated candidate cannot enter optimizer | validator rejects | ✅ |
+| K3.4 | Missing license / attribution rejected at import | 422 | ✅ |
+
+**K4. Crop eligibility & exclusion**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K4.1 | Confirmed-regional break rule excludes candidate | hard exclusion | ✅ |
+| K4.2 | Farmer market exclusion is hard | excluded | ✅ |
+| K4.3 | Temperature below absolute minimum → excluded (EcoCrop range, cited) | excluded | ✅ |
+| K4.4 | Duration exceeding season → excluded; within 14-d spill → conditional | tolerance documented | ✅ |
+| K4.5 | Soil pH outside optimum → conditional WITH evidence class | not excluded silently | ✅ |
+| K4.6 | Candidates API returns all four statuses + explanations | eligible/conditional/excluded/unevaluated | ✅ |
+
+**K5. Crop calendar boundaries**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K5.1 | Calendar exclusion cites the known window (e.g. faba_bean 10-15..12-15) | cited reason | ✅ |
+| K5.2 | No window for hemisphere → unevaluated (not excluded) | honest unknown | ✅ |
+
+**K6. Rotation ordering constraints**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K6.1 | Confirmed break enforced pairwise between planned seasons | solver-level | ✅ |
+| K6.2 | Confirmed break enforced across crop-history boundary | baseline respected | ✅ |
+| K6.3 | Baseline violation detected WITHOUT solver | pure-layer check | ✅ |
+| K6.4 | min_break_seasons respected | gap required | ✅ |
+
+**K7. Water budget constraints**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K7.1 | Water allocation respected when feasible | within quota | ✅ |
+| K7.2 | Water estimate present ONLY when both Kc and ET0 evidence exist | never invented | ✅ |
+| K7.3 | Farmer economics evaluated only when supplied; never zero-filled | honest skip | ✅ |
+
+**K8. Crop-family & pathogen-specific rotation rules**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K8.1 | Family-scoped rule applied only where cited mechanism justifies | no blanket family rule | ✅ |
+| K8.2 | Region-scoped rule does not apply to other regions | region gating | ✅ |
+| K8.3 | Reference rule → conditional (never excluded, never binds solver) | validation-status gating | ✅ |
+| K8.4 | Confirmed rule binds; reference rules reported as enforceability metadata | two-tier semantics | ✅ |
+
+**K9. Infeasible optimization cases**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K9.1 | Allocation too small → INFEASIBLE with named conflicting constraint | no silent relaxation | ✅ |
+| K9.2 | API surfaces infeasible status + conflict block | explicit state | ✅ |
+| K9.3 | API: hard constraints never relaxed to force a solution | verified | ✅ |
+
+**K10. Pareto ranking & preference changes**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K10.1 | Dominated solution marked; front membership computed on SHARED evaluable set | Pareto honest | ✅ |
+| K10.2 | Weight change changes ranking | preference-sensitive | ✅ |
+| K10.3 | Legume strategy wins soil-health profile | domain sanity | ✅ |
+| K10.4 | Custom weights honored; skipped weights reported | ADR-0018 | ✅ |
+
+**K11. Deterministic reproducibility**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K11.1 | Same inputs → same solver assignment (fixed seed) | deterministic | ✅ |
+| K11.2 | Re-run API → identical strategy checksums | reproducible runs | ✅ |
+
+**K12. Synthetic / real evidence separation**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K12.1 | Synthetic evidence labelled on EVERY candidate reason | never presented as real | ✅ |
+| K12.2 | Run-level synthetic warning surfaced | banner + warnings | ✅ |
+
+**K13. Tenant isolation & API contract**
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| K13.1 | Crop history + runs hidden cross-tenant | 403 | ✅ |
+| K13.2 | Pack import requires auth | 401 | ✅ |
+| K13.3 | Unknown crop 404 (not 403); unknown profile 422 | contract | ✅ |
+| K13.4 | Packs listed with license + counts | attribution visible | ✅ |
+| K13.5 | Passport rotation readiness flips to available with real inputs | no stale "later milestone" | ✅ |
+| K13.6 | Full run: strategies + complete explanation blocks (why/constraints/evidence/limitations/validation) | M5.6 contract | ✅ |
+| K13.7 | Comparison endpoint for runs | delta view | ✅ |
+
+### M5 E2E (browser, agent-browser — re-verified 2026-10-31)
+
+| ID | Flow | Result |
+|---|---|---|
+| E15 | Rotation tab: knowledge browser (pack card w/ license + digitization note, crops table with Kc-gap column — faba_bean "none", rules with reference badges + citations) | ✅ |
+| E16 | Field picker → planning seasons → crop history (maize baseline) → candidates: 6 conditional / 5 excluded, statuses + cited reasons, water estimates ≈585–686 mm, SYNTHETIC banner | ✅ |
+| E17 | Candidate detail: duration spill conditional [fao56_1998], EcoCrop climate window, annual-rainfall caveat, REFERENCE rule NOT enforced [agrios_2005], soil pH "not evaluated" | ✅ |
+| E18 | Optimizer: run optimal · baseline (honest empty assignment, evidence 14%) + strategies with Pareto badges, criteria tables with "(not evaluated)" economics, skipped weights, per-strategy checksums | ✅ |
+| E19 | Constraints accordion: one_crop_per_season ✓, admissibility ✓, rotation_break "0 confirmed rules loaded", water_allocation not_applicable "never invented" | ✅ |
+| E20 | Infeasible: allocation 1000 m³ → run infeasible with named water_allocation conflict | ✅ |
+| E21 | Mobile 390px: scrollWidth == clientWidth (no horizontal overflow), footer flush; desktop 1366px footer flush | ✅ |
+| E22 | Zero page errors | ✅ |
+
 ## Known warnings in test output
 
 - Starlette deprecation: `HTTP_422_UNPROCESSABLE_ENTITY` renamed to `HTTP_422_UNPROCESSABLE_CONTENT` (cosmetic; aligned with FastAPI 0.162).
+- React Router/Sonner: benign Radix Select controlled/uncontrolled notice in dev console (cosmetic; no functional impact).
