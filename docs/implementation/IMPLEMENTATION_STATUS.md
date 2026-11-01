@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-10-31 (Milestone 6A — advanced water intelligence engine)
+Last updated: 2026-11-01 (Milestone 7.1 — field state foundation & snapshot hygiene)
 
 Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 
@@ -209,6 +209,26 @@ Full design: `M6A_DESIGN.md` · readiness matrix: `M6A_READINESS_MATRIX.md` · v
 - ✅ Zero console/page errors; desktop 1366 px footer flush on short page and naturally pushed on long pages; mobile 390 px: no horizontal overflow, tab strip scrolls, footer intact
 - Note: intermittent blank screenshots mid-session were agent-browser daemon restarts (page reloaded to about:blank); every fresh load rendered and behaved correctly — the app itself stayed healthy (200s, zero page errors)
 
+## Milestone 7.1 — Field state foundation & snapshot hygiene (2026-11-01)
+
+Design/contract/verification docs: `docs/m7/m7_1/` (M7_1_DESIGN, M7_1_FIELD_STATE_CONTRACT,
+M7_1_OBSERVATION_MANIFEST, M7_1_BOUNDARY_VERSIONING, M7_1_API_CONTRACTS,
+M7_1_TEST_AND_VERIFICATION). Basis: M7.0 readiness inspection (CONDITIONAL GO, adjustment A1).
+
+| Task | Status | Notes |
+|---|---|---|
+| Boundary version pinning (H-01/F-01) | ✅ | additive `boundary_version` on `feature_runs` + `water_plans` (NULL = pre-M7.1, never backfilled/guessed); mandatory on `field_states`; historical pins proven stable across boundary edits |
+| Observation manifest (H-02/F-31) | ✅ | `field-observation-manifest-1` document + deterministic SHA-256 stored BY VALUE on runs (uncapped full resolved input set) and copied verbatim onto states; re-ingestion cannot alter a stored manifest |
+| Field state object | ✅ | `field_states` table — immutable by-reference composition (boundary version, env run, water plan, rotation run, crop history as-of, pack refs, manifest copy); field-scoped idempotent replay; FK RESTRICT on referenced artifacts |
+| Period compatibility (F-02) | ✅ | per-dimension overlap records; env zero-overlap refused (422); water zero-overlap recorded `period_mismatch` + warning — never silently mixed |
+| Honest missing domains (C3/H-03) | ✅ | soil & management always `not_implemented` with the M7.0 reasons; no generic completeness score |
+| Water-plan deletion policy (F-13) | ✅ | 409 when referenced by any state; FK RESTRICT backstop |
+| Ingestion idempotency (F-30) | ✅ | composite (field_id, key) unique index + field-scoped replay + optional request key (migration 0007) |
+| Provenance surfacing (F-09/F-20/F-32) | ✅ | `created_by` in feature/water/rotation payloads; `solver_version` now written per rotation run; water plans gained `started_at`/`completed_at` |
+| Field State API | ✅ | POST/GET per field, GET detail (+`?include_manifest=true`), verify, manifest, compare (same-field, ≥2, explicit non-interchangeability note) |
+| Field State UI (8th tab) | ✅ | assemble (label + optional period), snapshot list, honest domain grid, verify report, pairwise compare; soil/management rendered "not implemented" |
+| Verification | ✅ | 490/490 backend tests (441 pre-existing regression + 16 manifest unit + 31 field-state integration + 2 migration tests); migration up/down on dev + scratch DBs; lint exit 0; browser E2E desktop + 390 px, zero console errors |
+
 ## Pre-M6 deepening program — scientific & technical hardening (2026-10-31)
 
 Full deliverable set: `docs/deepening/` (15 documents) · findings register:
@@ -251,6 +271,15 @@ Full deliverable set: `docs/deepening/` (15 documents) · findings register:
 - ✅ Feature runs / climate features / temporal aggregation (Milestone 4 — done)
 - ✅ Crop knowledge base + candidate generation + rotation optimization + Pareto evaluation (Milestone 5 — done)
 - ✅ Water intelligence engine (Milestone 6A — done)
+- ✅ M7.0 readiness inspection (done — CONDITIONAL GO; `docs/m7/readiness/`)
+- ✅ Field state foundation & snapshot hygiene (Milestone 7.1 — done; `docs/m7/m7_1/`)
+- ⬜ Scenario domain & immutable scenario definitions (Milestone 7.2 — next GO-approved increment)
+- ⬜ Historical & user-defined stress transformations (Milestone 7.3)
+- ⬜ Sensitivity & uncertainty analysis (Milestone 7.4)
+- ⬜ Multi-scenario rotation evaluation (Milestone 7.5)
+- ⬜ Robustness & decision-stability analysis (Milestone 7.6)
+- ⬜ Digital twin timeline & visualization (Milestone 7.7)
+- ⬜ External climate projections & forecasts (Milestone 7.8 — data-gated, NO-GO until sourced data exists)
 - ⬜ Rotation optimizer water-scheduling refinements + soil ledger (Milestones 6B–7)
 - ⬜ Stress testing lab (Milestone 8)
 - ⬜ Farmer journal, advisor review, offline sync (Milestone 9)

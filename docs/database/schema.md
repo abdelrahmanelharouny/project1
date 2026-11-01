@@ -30,6 +30,14 @@ PostgreSQL 16 + PostGIS 3.5. All UUID PKs. All timestamps `timestamptz` (UTC). M
 ### Preferences (minimal slice subset)
 - **farm_constraints** — id, farm_id → farms, constraint_code, value_numeric/text, unit, is_hard_constraint, source
 
+### Field state (Milestone 7.1 — migration `0007_field_state_foundation`)
+- **field_states** — id, field_id → fields (CASCADE), status CHECK(running|succeeded|failed), label(120), **boundary_version (NOT NULL — H-01 pin)**, state_reference_time, period_start/end (CHECK end ≥ start), timezone, calendar_context JSONB, environmental_feature_run_id → feature_runs (**RESTRICT**), water_plan_id → water_plans (**RESTRICT**), rotation_run_id → rotation_runs (**RESTRICT**), rotation_strategy_key, crop_history_ids JSONB, knowledge_pack_refs JSONB (copied `pack_ref` entries with checksums), observation_manifest JSONB (verbatim `field-observation-manifest-1` copy), observation_manifest_sha256, manifest_format_version, domain_availability JSONB (per-dimension available|missing|period_mismatch|not_evaluated|not_implemented — soil/management always not_implemented), evidence_summary JSONB, quality_summary JSONB, period_compatibility JSONB, source_versions JSONB, request_parameters JSONB, warnings JSONB, not_evaluated JSONB, error_summary, idempotency_key, checksum_sha256, created_by, started_at/created_at/updated_at/completed_at
+  - INDEX `uq_field_state_idempotency (field_id, idempotency_key) WHERE idempotency_key IS NOT NULL`; INDEX `ix_field_states_field`
+- **feature_runs** += `boundary_version` (nullable — NULL = pre-M7.1 "not recorded"), `observation_manifest` JSONB, `observation_manifest_sha256`
+- **water_plans** += `boundary_version` (nullable), `started_at`, `completed_at`
+- **ingestion_jobs**: legacy key-only `uq_ingestion_idempotency` replaced by **`uq_ingestion_idempotency_v2 (field_id, idempotency_key) WHERE idempotency_key IS NOT NULL`** (F-30 composite fix; downgrade restores the legacy index)
+- RESTRICT rationale (F-13): a field state is an immutable reference to the artifacts it was assembled from — referenced runs/plans cannot be deleted out from under a state (API pre-checks return 409; the FK is the database-level backstop).
+
 ## Design notes
 
 - Geometry stored EPSG:4326 (interchange), validated in the application layer before insert; area stored from PyProj geodesic computation and cross-checked against PostGIS `geography ST_Area` (see ADR-0003).

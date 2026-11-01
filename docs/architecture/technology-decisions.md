@@ -58,3 +58,28 @@ Python: 3.12.16 (sandbox venv, uv-managed).
 | Geometry ops for AOI centroid/bbox | `shapely` (already pinned) | 2.2.0 | Reused from the geometry validation module |
 
 Live-provider facts verified at implementation time (recorded per Master version discipline): the Open-Meteo archive endpoint publishes temperature + 0-7 cm soil moisture for `era5_land`, while derived precipitation/ET0 and wind require `era5`; ISRIC SoilGrids REST is paused, WCS 2.0.1 on `maps.isric.org` is the documented path; CHIRPS v3 is distributed as rasters (no query API), so the workflow is upload + spatial-subset extraction.
+
+## Milestone 7.1 — field state foundation (2026-11-01)
+
+Recorded as **ADR-0022..0024** (full rationale in `docs/m7/m7_1/M7_1_DESIGN.md`):
+
+- **ADR-0022 — Field states compose by reference; RESTRICT protects referenced inputs.**
+  `field_states` stores artifact ids + versions + a verbatim observation-manifest copy and
+  a content checksum; it duplicates no agronomic data. Referenced feature runs / water
+  plans / rotation runs are protected by FK `ON DELETE RESTRICT` (plus an API-level 409 on
+  water-plan DELETE) so a snapshot's input history cannot be silently destroyed (M7.0
+  F-13/H-01). Immutability follows the proven water-plan idiom: new row per assembly,
+  field-scoped idempotency replay, checksum over every material stored field
+  (`created_by`/`created_at` excluded as provenance).
+- **ADR-0023 — Observation manifests are stored by value, hashed canonically.**
+  `field-observation-manifest-1`: canonical JSON (sorted keys, tight separators), entries
+  sorted by (observed_at UTC, id), explicit nulls, ISO-8601 UTC timestamps, stable asset-ref
+  promotion keys; SHA-256 over the whole self-describing document (context included).
+  Captured at the resolution site in the feature service — the exact uncapped input set the
+  engine received — replacing reliance on the mutable query + 400-id provenance cap
+  (M7.0 H-02/F-31).
+- **ADR-0024 — Boundary pinning is additive and never retroactive.** `boundary_version`
+  columns on feature runs / water plans / field states record the version in effect at
+  computation time; pre-M7.1 rows stay NULL ("not recorded") because backfilling would
+  fabricate provenance. Soil (M6B) and management (M6C) dimensions of a state are always
+  reported `not_implemented` with the fixed M7.0 reasons — no proxies, no fabricated records.

@@ -103,11 +103,12 @@ def list_feature_runs(
 @router.get("/feature-runs/{run_id}")
 def get_feature_run(
     run_id: uuid.UUID,
+    include_manifest: bool = False,
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
     run = get_run_for_principal(db, run_id, principal)
-    return run_payload(run)
+    return run_payload(run, include_manifest=include_manifest)
 
 
 @router.get("/feature-runs/{run_id}/values")

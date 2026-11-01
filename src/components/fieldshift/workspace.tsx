@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardCheck, Droplets, FlaskConical, LayoutDashboard, LogOut, Map, RotateCcw, Sigma, Sprout } from 'lucide-react'
+import { ClipboardCheck, Droplets, FlaskConical, Layers, LayoutDashboard, LogOut, Map, RotateCcw, Sigma, Sprout } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -13,6 +13,7 @@ import { Features } from '@/components/fieldshift/features'
 import { DataPassport } from '@/components/fieldshift/data-passport'
 import { Rotation } from '@/components/fieldshift/rotation'
 import { Water } from '@/components/fieldshift/water'
+import { FieldStateView } from '@/components/fieldshift/field-state'
 import { useHealth } from '@/hooks/use-fieldshift'
 import { getMe, getToken, setToken } from '@/lib/api'
 import { useFieldShiftUi, type WorkspaceTab } from '@/lib/store'
@@ -27,6 +28,7 @@ const TAB_ITEMS: { value: WorkspaceTab; label: string; icon: React.ReactNode }[]
   { value: 'features', label: 'Features', icon: <Sigma className="h-4 w-4" aria-hidden /> },
   { value: 'rotation', label: 'Rotation', icon: <RotateCcw className="h-4 w-4" aria-hidden /> },
   { value: 'water', label: 'Water', icon: <Droplets className="h-4 w-4" aria-hidden /> },
+  { value: 'fieldstate', label: 'Field State', icon: <Layers className="h-4 w-4" aria-hidden /> },
   { value: 'passport', label: 'Data Passport', icon: <ClipboardCheck className="h-4 w-4" aria-hidden /> },
 ]
 
@@ -182,6 +184,9 @@ export function Workspace() {
           </TabsContent>
           <TabsContent value="water" className="mt-4">
             <Water />
+          </TabsContent>
+          <TabsContent value="fieldstate" className="mt-4">
+            <FieldStateView />
           </TabsContent>
           <TabsContent value="passport" className="mt-4">
             <DataPassport />

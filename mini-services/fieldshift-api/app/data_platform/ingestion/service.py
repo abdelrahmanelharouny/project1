@@ -76,8 +76,16 @@ def start_ingestion_job(
     slice; the job table preserves state so a future worker queue can take over
     without contract changes (Master §9 async work)."""
     if idempotency_key:
+        # M7.1 F-30: the replay lookup is scoped to THIS field (composite
+        # index uq_ingestion_idempotency_v2). A key-only lookup could return
+        # another tenant's job if a key collided or was guessed — the last
+        # remaining cross-tenant replay edge (same fix pattern as feature
+        # runs in 0005/F-3).
         existing = db.scalar(
-            select(IngestionJob).where(IngestionJob.idempotency_key == idempotency_key)
+            select(IngestionJob).where(
+                IngestionJob.idempotency_key == idempotency_key,
+                IngestionJob.field_id == field.id,
+            )
         )
         if existing is not None:
             return existing
@@ -101,7 +109,10 @@ def start_ingestion_job(
     except IntegrityError:
         db.rollback()
         existing = db.scalar(
-            select(IngestionJob).where(IngestionJob.idempotency_key == idempotency_key)
+            select(IngestionJob).where(
+                IngestionJob.idempotency_key == idempotency_key,
+                IngestionJob.field_id == field.id,
+            )
         )
         if existing is None:
             raise

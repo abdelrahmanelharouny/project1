@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.errors import NotFound
+from app.core.errors import Conflict, NotFound
 from app.db import models as dbm
 from app.domains.identity.service import get_field_for_principal, get_principal
 from app.knowledge.service import load_knowledge
@@ -162,6 +162,25 @@ def delete_water_plan(
     if plan is None:
         raise NotFound("Water plan not found.")
     get_field_for_principal(db, principal, plan.field_id)
+    # M7.1 F-13: a water plan referenced by a field state is part of that
+    # state's immutable input history — deleting it would silently rewrite
+    # historical meaning. Restrict deletion while referenced (FK RESTRICT in
+    # migration 0007 is the database-level backstop; this pre-check gives a
+    # clear 409 instead of an integrity error).
+    from sqlalchemy import func as sa_func
+
+    referenced = db.scalar(
+        select(sa_func.count())
+        .select_from(dbm.FieldState)
+        .where(dbm.FieldState.water_plan_id == plan_id)
+    )
+    if referenced:
+        raise Conflict(
+            f"Water plan is referenced by {referenced} field state(s) and "
+            "cannot be deleted — field-state snapshots are immutable "
+            "references to the plans they were assembled from.",
+            details=[{"field": "water_plan_id", "referenced_by_field_states": referenced}],
+        )
     db.delete(plan)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

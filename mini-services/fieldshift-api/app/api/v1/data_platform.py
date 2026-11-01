@@ -93,6 +93,10 @@ class DataJobRequest(BaseModel):
     profile: str | None = "temperate_seasonal"
     seed: int = 42
     model: str | None = None  # open_meteo product selection (era5_land | era5)
+    # M7.1 F-30: optional field-scoped idempotency key (replay is scoped to
+    # THIS field — a colliding key from another field/tenant can never leak a
+    # foreign job). Matches the feature-run contract.
+    idempotency_key: str | None = None
 
 
 def _provider_options(provider_code: str, payload: DataJobRequest) -> dict[str, Any]:
@@ -138,7 +142,7 @@ def create_data_job(
         start=start_dt,
         end=end_dt + _one_day_minus(),
         options=options,
-        idempotency_key=None,
+        idempotency_key=payload.idempotency_key,
         created_by=principal.id,
     )
     return _job_payload(job)

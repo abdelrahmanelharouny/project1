@@ -477,3 +477,63 @@ E2E (browser, agent-browser 2026-10-31) — M6A additions:
 
 - Starlette deprecation: `HTTP_422_UNPROCESSABLE_ENTITY` renamed to `HTTP_422_UNPROCESSABLE_CONTENT` (cosmetic; aligned with FastAPI 0.162).
 - React Router/Sonner: benign Radix Select controlled/uncontrolled notice in dev console (cosmetic; no functional impact).
+
+## Milestone 7.1 — field state foundation & snapshot hygiene (+49 tests, 2026-11-01)
+
+Latest full-suite run: **2026-11-01** — `490 passed, exit 0` (441 pre-existing + 49 new) in ~5.5 min.
+
+### New unit tests — observation manifest (16, `tests/unit/test_observation_manifest.py`)
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| M1 | Same rows, different query order | identical document + hash | ✅ |
+| M2 | Entry builder over JSON-safe entry | idempotent | ✅ |
+| M3 | Canonical JSON | sorted keys, tight separators | ✅ |
+| M4 | Empty manifest | deterministic, count 0 | ✅ |
+| M5 | Naive/UTC/+02:00 timestamps | identical UTC serialization | ✅ |
+| M6 | ISO string input | normalized | ✅ |
+| M7 | Nulls (value, resolution, evidence) | explicit nulls, keys present, never zero | ✅ |
+| M8 | Format version | `field-observation-manifest-1` in every doc | ✅ |
+| M9 | Context modification | hash changes (context is hashed) | ✅ |
+| M10 | Asset refs promoted from metadata | stable keys only, others ignored | ✅ |
+| M11–M13 | Change detection: value / quality / membership | hash changes each time | ✅ |
+| M14 | Synthetic flag + counts | counted exactly | ✅ |
+| M15 | Spatial support per entry | preserved (grid_cell vs point) | ✅ |
+| M16 | Ordering rule | (observed_at UTC, id) | ✅ |
+
+### New integration tests — field states (31, `tests/integration/test_field_states.py`)
+
+| Area | Coverage | Result |
+|---|---|---|
+| H-02 manifest on runs | hash + document persisted (uncapped >4000 rows), synthetic counts, immutability under re-ingestion, idempotent replay | ✅ |
+| H-01 boundary pinning | runs/plans pinned at creation; historical pin stable across edits; state records current version; verify finds boundary record; old state checksum unchanged after edit | ✅ |
+| Field state lifecycle | 202 create; honest domain map (soil/management `not_implemented` + M7.0 reasons; missing dims with reasons); manifest copy + pack refs; period defaults / mandatory-without-run / zero-overlap 422; water `period_mismatch` + warning; idempotent replay; same-refs → same checksum (reconstruction); list; explicit refs resolved; foreign-field ref 404 | ✅ |
+| Immutability & verification | verify OK; manifest-document tamper detected; stored-hash tamper detected; domain-field tamper detected; F-13 referenced-plan DELETE 409 + unreferenced 204; manifest endpoint | ✅ |
+| Comparison | same-field compare (boundary/manifest consistency, overlap %); <2 ids 422; cross-field 422 | ✅ |
+| F-30 ingestion idempotency | same key different fields → distinct jobs; same field same key → replay; cross-tenant collision → isolated | ✅ |
+| Tenant isolation | foreign user 403 on get/verify/manifest/list/create/compare; unknown state 404 | ✅ |
+| Provenance surfacing | feature run: created_by/boundary_version/manifest hash; water plan: boundary_version/started_at/completed_at/created_by; rotation run: solver_version written (F-20) + created_by | ✅ |
+
+### Migration tests (+2, `tests/integration/test_migrations.py`)
+
+| ID | Scenario | Expected | Result |
+|---|---|---|---|
+| MG-M7.1-a | upgrade head on scratch DB | field_states + 6 additive columns + v2 ingestion index (legacy index absent) + state indexes | ✅ |
+| MG-M7.1-b | downgrade to 0006 | exact reversal incl. legacy index restored, columns dropped, table dropped; re-upgrade OK | ✅ |
+
+### Browser verification (agent-browser, 2026-11-01)
+
+| ID | Scenario | Result |
+|---|---|---|
+| B-M7.1-1 | 8-tab workspace, Field State tab renders | ✅ |
+| B-M7.1-2 | assemble without period on run-less field → honest 422 surfaced; with period → succeeded, boundary v1, checksum | ✅ |
+| B-M7.1-3 | domain grid: soil/management "not implemented" with M7.0 reasons; water/crop_history "missing" | ✅ |
+| B-M7.1-4 | verify → state checksum valid, manifest checksum valid, boundary record exists | ✅ |
+| B-M7.1-5 | second snapshot + compare → consistency matrix, 100% overlap, non-interchangeability note | ✅ |
+| B-M7.1-6 | zero console/page errors across all 8 tabs; desktop 1280 + mobile 390 no horizontal overflow; footer natural | ✅ |
+
+### Environment under test (M7.1 run)
+
+- PostgreSQL 18.6 + PostGIS 3.7.0 (user-space cluster, port 5433) — restored environment
+- Migration head: `0007_field_state_foundation` (code & DB)
+- Frontend lint exit 0; `tsc --noEmit`: no NEW errors (3 pre-existing F-39-class errors in untouched files remain)

@@ -418,6 +418,10 @@ def start_feature_run(
         not_evaluated_reasons=not_evaluated,
         idempotency_key=idempotency_key,
         created_by=created_by,
+        # M7.1 H-01: pin the boundary version in effect at run time. Raster
+        # extraction and aggregation are geometry-dependent; without this pin
+        # a later boundary edit would silently recontextualize the run.
+        boundary_version=field.boundary_version,
     )
     db.add(run)
     try:
@@ -503,9 +507,51 @@ def _execute_run(
                 "processing_version": o.processing_version,
                 "evidence_class": o.evidence_class,
                 "dataset_product_id": str(o.dataset_product_id),
+                "spatial_support_type": o.spatial_support_type,
+                "spatial_resolution_m": o.spatial_resolution_m,
+                "uncertainty_value": o.uncertainty_value,
+                "uncertainty_type": o.uncertainty_type,
+                "metadata": o.metadata,
             }
             for o in obs_rows
         ]
+
+        # M7.1 H-02/F-31: preserve the EXACT resolved input set — the full,
+        # uncapped observation list handed to the engine — as a versioned
+        # manifest document plus deterministic hash. Built here, at the
+        # resolution site, so the manifest cannot drift from what the engine
+        # actually received. Stored on the run at completion below.
+        from app.field_state.manifest import build_manifest, sha256_of_document
+
+        observation_manifest = build_manifest(
+            observations,
+            field_id=str(run.field_id),
+            purpose="feature_run_resolved_inputs",
+            window_start=run.period_start,
+            window_end=run.period_end,
+            variables=[
+                spec.strategy_params.get("variable")
+                for spec in specs
+                if spec.strategy_params.get("variable")
+            ],
+            source_products=[
+                {
+                    "variable": variable,
+                    "dataset_product_id": sel.get("dataset_product_id"),
+                    "product_code": sel.get("product_code"),
+                    "product_version": sel.get("product_version"),
+                }
+                for variable, sel in sorted((run.source_selection or {}).items())
+            ],
+            processing_configuration={
+                "feature_engine_version": run.feature_engine_version,
+                "feature_catalog_version": run.feature_catalog_version,
+                "calendar_timezone": run.calendar_timezone,
+                "hemisphere": run.hemisphere,
+                "resolution_window_margin_days": 2,
+            },
+        )
+        observation_manifest_sha256 = sha256_of_document(observation_manifest)
 
         crop_windows = [
             {
@@ -588,6 +634,11 @@ def _execute_run(
         run.warnings = all_warnings[:100]
         run.not_evaluated_reasons = merged_reasons
         run.completed_at = datetime.now(UTC)
+        # M7.1 H-02: persist the resolved-input manifest + its hash on the run
+        # itself — the manifest survives as long as the run does and cannot be
+        # recomputed from mutable queries later.
+        run.observation_manifest = observation_manifest
+        run.observation_manifest_sha256 = observation_manifest_sha256
         db.commit()
     except Exception as exc:  # noqa: BLE001 — run lifecycle must capture failures
         db.rollback()
@@ -608,7 +659,7 @@ def get_run_for_principal(db: Session, run_id: uuid.UUID, principal) -> FeatureR
     return run
 
 
-def run_payload(run: FeatureRun) -> dict[str, Any]:
+def run_payload(run: FeatureRun, *, include_manifest: bool = False) -> dict[str, Any]:
     # Display the period in the run's calendar basis, not UTC: the farmer chose
     # local dates, so "2015-01-01" must not drift back to "2014-12-31".
     try:
@@ -618,7 +669,7 @@ def run_payload(run: FeatureRun) -> dict[str, Any]:
     except Exception:  # noqa: BLE001 — display fallback only
         period_start_date = run.period_start.date().isoformat()
         period_end_date = run.period_end.date().isoformat()
-    return {
+    data = {
         "run_id": str(run.id),
         "field_id": str(run.field_id),
         "status": run.status,
@@ -641,8 +692,17 @@ def run_payload(run: FeatureRun) -> dict[str, Any]:
         "error_summary": run.error_summary,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        # M7.1 provenance surfacing (F-09) + H-01/H-02 pins:
+        "created_by": str(run.created_by) if run.created_by else None,
+        "boundary_version": run.boundary_version,
+        "observation_manifest_sha256": run.observation_manifest_sha256,
         "status_url": f"/api/v1/feature-runs/{run.id}",
     }
+    if include_manifest:
+        # H-02: the manifest document rides only on the DETAIL payload —
+        # list payloads stay small; ?include_manifest=true retrieves it.
+        data["observation_manifest"] = run.observation_manifest
+    return data
 
 
 def value_payload(v: FeatureValue) -> dict[str, Any]:

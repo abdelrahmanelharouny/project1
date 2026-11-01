@@ -1193,3 +1193,113 @@ export interface WaterPlanCreateInput {
   evidence_run_id?: string | null
   idempotency_key?: string
 }
+
+// ---------------------------------------------------------------------------
+// M7.1 — Field State foundation
+// ---------------------------------------------------------------------------
+
+export type FieldStateDimensionStatus =
+  | 'available'
+  | 'missing'
+  | 'period_mismatch'
+  | 'not_evaluated'
+  | 'not_implemented'
+
+export interface FieldStateDimension {
+  status: FieldStateDimensionStatus
+  reason: string | null
+  snapshot_id: string | null
+}
+
+export interface FieldStatePeriodCompatRecord {
+  status: 'covers_period' | 'partial_cover' | 'outside_period' | 'not_evaluated'
+  reason?: string
+  artifact_period?: { start: string | null; end: string | null }
+  overlap_fraction?: number | null
+}
+
+export interface FieldState {
+  id: string
+  field_id: string
+  status: 'running' | 'succeeded' | 'failed'
+  label: string
+  boundary_version: number
+  state_reference_time: string
+  period: { start: string; end: string }
+  timezone: string
+  calendar_context: Record<string, unknown>
+  environmental_feature_run_id: string | null
+  water_plan_id: string | null
+  rotation_run_id: string | null
+  rotation_strategy_key: string | null
+  crop_history_ids: string[]
+  knowledge_pack_refs: Array<Record<string, unknown>>
+  observation_manifest_sha256: string | null
+  manifest_format_version: string
+  domain_availability: Record<string, FieldStateDimension>
+  evidence_summary: Record<string, unknown>
+  quality_summary: Record<string, unknown>
+  period_compatibility: Record<string, FieldStatePeriodCompatRecord>
+  source_versions: Record<string, unknown>
+  warnings: string[]
+  not_evaluated: Record<string, unknown>
+  error_summary: string | null
+  checksum_sha256: string | null
+  created_by: string | null
+  created_at: string | null
+  completed_at: string | null
+  field_state_assembly_version: string | null
+  verify_url: string
+  manifest_url: string
+}
+
+export interface FieldStateListResponse {
+  items: FieldState[]
+}
+
+export interface FieldStateCreateInput {
+  label?: string
+  state_reference_time?: string
+  period_start?: string
+  period_end?: string
+  environmental_feature_run_id?: string
+  water_plan_id?: string
+  rotation_run_id?: string
+  rotation_strategy_key?: string
+  idempotency_key?: string
+}
+
+export interface FieldStateVerifyResponse {
+  state_id: string
+  checksum_valid: boolean
+  manifest_checksum_valid: boolean
+  referenced_artifacts: Record<string, { exists: boolean; intact: boolean }>
+  boundary_version_record_exists: boolean
+  verified_at: string
+}
+
+export interface FieldStateCompareResponse {
+  state_ids: string[]
+  same_field: boolean
+  field_id: string
+  boundary_versions_consistent: boolean
+  dimension_comparison: Record<
+    string,
+    { consistent: boolean; values: Array<string | number | null> }
+  >
+  pairwise_period_overlap: Array<{
+    state_a: string
+    state_b: string
+    period_overlap_fraction: number | null
+    compatible_periods: boolean
+  }>
+  note: string
+}
+
+export interface ObservationManifest {
+  format_version: string
+  context: Record<string, unknown>
+  observation_count: number
+  synthetic_observation_count: number
+  observations: Array<Record<string, unknown>>
+}

@@ -40,6 +40,12 @@ import type {
   ProvidersHealthResponse,
   RegisterInput,
   SeedDemoResponse,
+  FieldState,
+  FieldStateCreateInput,
+  FieldStateListResponse,
+  FieldStateVerifyResponse,
+  FieldStateCompareResponse,
+  ObservationManifest,
 } from './types'
 
 export const TOKEN_STORAGE_KEY = 'fieldshift_token'
@@ -577,4 +583,45 @@ export function getWaterPlan(planId: string): Promise<WaterPlan> {
 
 export function deleteWaterPlan(planId: string): Promise<void> {
   return request<void>(`/api/v1/water-plans/${planId}`, { method: 'DELETE' })
+}
+
+// =============================================================
+// Milestone 7.1 — field state foundation
+// =============================================================
+
+export function createFieldState(fieldId: string, input: FieldStateCreateInput): Promise<FieldState> {
+  return request<FieldState>(`/api/v1/fields/${fieldId}/field-states`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listFieldStates(fieldId: string): Promise<FieldStateListResponse> {
+  return request<FieldStateListResponse>(`/api/v1/fields/${fieldId}/field-states`)
+}
+
+export function getFieldState(stateId: string, includeManifest = false): Promise<FieldState> {
+  return request<FieldState>(
+    `/api/v1/field-states/${stateId}${includeManifest ? '?include_manifest=true' : ''}`,
+  )
+}
+
+export function verifyFieldState(stateId: string): Promise<FieldStateVerifyResponse> {
+  return request<FieldStateVerifyResponse>(`/api/v1/field-states/${stateId}/verify`)
+}
+
+export function getFieldStateManifest(stateId: string): Promise<{
+  state_id: string
+  manifest_format_version: string
+  observation_manifest_sha256: string | null
+  observation_manifest: ObservationManifest
+}> {
+  return request(`/api/v1/field-states/${stateId}/manifest`)
+}
+
+export function compareFieldStates(stateIds: string[]): Promise<FieldStateCompareResponse> {
+  return request<FieldStateCompareResponse>('/api/v1/field-states/compare', {
+    method: 'POST',
+    body: { state_ids: stateIds },
+  })
 }

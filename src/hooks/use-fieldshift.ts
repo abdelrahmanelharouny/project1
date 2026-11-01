@@ -4,11 +4,13 @@ import { useMemo } from 'react'
 import { useQuery, useQueries, type UseQueryResult } from '@tanstack/react-query'
 import {
   compareFeatureRuns,
+  createFieldState,
   fetchDataCoverage,
   getCatalog,
   getDataPassport,
   getFeatureCatalog,
   getFieldMap,
+  getFieldState,
   getHealth,
   getHealthReady,
   getProvidersHealth,
@@ -18,10 +20,12 @@ import {
   listBoundaryVersions,
   listFeatureRuns,
   listFeatureValues,
+  listFieldStates,
   listFields,
   listObservations,
   listFarms,
   listWaterPlans,
+  verifyFieldState,
 } from '@/lib/api'
 import type {
   BoundaryVersionListResponse,
@@ -33,9 +37,13 @@ import type {
   FeatureCatalogResponse,
   FeatureRunComparison,
   FeatureRunListResponse,
+  FieldState,
+  FieldStateListResponse,
+  FieldStateVerifyResponse,
   FeatureValueListResponse,
   Field,
   FieldListResponse,
+  FarmListResponse,
   FieldMapResponse,
   HealthReadyResponse,
   HealthResponse,
@@ -368,5 +376,33 @@ export function useWaterPlan(planId: string | null): UseQueryResult<WaterPlan> {
     queryKey: ['water-plan', planId],
     queryFn: () => getWaterPlan(planId as string),
     enabled: !!planId,
+  })
+}
+
+// =============================================================
+// Milestone 7.1 — field state foundation
+// =============================================================
+
+export function useFieldStates(fieldId: string | null): UseQueryResult<FieldStateListResponse> {
+  return useQuery({
+    queryKey: ['field-states', fieldId],
+    queryFn: () => listFieldStates(fieldId as string),
+    enabled: !!fieldId,
+  })
+}
+
+export function useFieldState(stateId: string | null): UseQueryResult<FieldState> {
+  return useQuery({
+    queryKey: ['field-state', stateId],
+    queryFn: () => getFieldState(stateId as string),
+    enabled: !!stateId,
+  })
+}
+
+export function useFieldStateVerify(stateId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['field-state-verify', stateId],
+    queryFn: () => verifyFieldState(stateId as string),
+    enabled: !!stateId && enabled,
   })
 }

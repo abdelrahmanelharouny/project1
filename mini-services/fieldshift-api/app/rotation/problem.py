@@ -22,6 +22,18 @@ ROTATION_ENGINE_VERSION = "rotation-engine-1.0.0"
 SOLVER_NAME = "cp-sat"
 RANDOM_SEED = 0
 
+
+def solver_version() -> str:
+    """Resolved OR-Tools version — written per rotation run (M7.1 F-20:
+    the column existed but was never populated; reproducibility diagnostics
+    need the actual solver build)."""
+    try:
+        import ortools
+
+        return str(getattr(ortools, "__version__", "unknown"))
+    except Exception:  # noqa: BLE001 — provenance must never break a solve
+        return "unknown"
+
 # --------------------------------------------------------------- knowledge
 
 

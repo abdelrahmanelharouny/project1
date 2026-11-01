@@ -7,6 +7,7 @@ from app.api.v1 import (
     data_platform,
     farms,
     features,
+    field_states,
     fields,
     health,
     knowledge,
@@ -24,3 +25,4 @@ api_router.include_router(features.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(rotation.router)
 api_router.include_router(water.router)
+api_router.include_router(field_states.router)

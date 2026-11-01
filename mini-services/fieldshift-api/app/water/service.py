@@ -424,6 +424,11 @@ def start_water_plan(
         field_id=field.id,
         status="running",
         label=label,
+        # M7.1 H-01: pin the boundary version in effect (plan results are
+        # computed over the field's geometry — area conversions, PTF texture
+        # aggregation). NULL only for pre-M7.1 rows.
+        boundary_version=field.boundary_version,
+        started_at=datetime.now(UTC),
         seasons=[
             {"label": s.label, "start_date": s.start_date.isoformat(), "end_date": s.end_date.isoformat()}
             for s in season_specs
@@ -649,6 +654,11 @@ def plan_payload(plan: dbm.WaterPlan, *, include_result: bool = True) -> dict[st
         "checksum_sha256": plan.checksum_sha256,
         "error_summary": plan.error_summary,
         "created_at": plan.created_at.isoformat() if plan.created_at else None,
+        # M7.1 run-envelope alignment: lifecycle timestamps + provenance surfacing:
+        "started_at": plan.started_at.isoformat() if plan.started_at else None,
+        "completed_at": plan.completed_at.isoformat() if plan.completed_at else None,
+        "created_by": str(plan.created_by) if plan.created_by else None,
+        "boundary_version": plan.boundary_version,
         "status_url": f"/api/v1/water-plans/{plan.id}",
     }
     if include_result:

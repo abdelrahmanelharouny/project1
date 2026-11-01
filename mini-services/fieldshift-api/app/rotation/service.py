@@ -38,6 +38,7 @@ from app.rotation.problem import (
     StrategySolution,
     ROTATION_ENGINE_VERSION,
     SOLVER_NAME,
+    solver_version,
 )
 
 MAX_SEASONS = 4
@@ -755,6 +756,8 @@ def start_rotation_run(
             )
         run.status = "succeeded"
         run.completed_at = datetime.now(UTC)
+        # M7.1 F-20: record the resolved solver build per run.
+        run.solver_version = solver_version()
         db.flush()
     except ValidationFailed:
         run.status = "failed"
@@ -800,6 +803,8 @@ def run_payload(run: dbm.RotationRun, *, include_strategies: bool = False) -> di
         "error_summary": run.error_summary,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        # M7.1 F-09: surface the acting principal in run payloads.
+        "created_by": str(run.created_by) if run.created_by else None,
         "status_url": f"/api/v1/rotation-runs/{run.id}",
     }
     if include_strategies:

@@ -489,6 +489,15 @@ class FeatureRun(Base, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # M7.1 hygiene (H-01): the field boundary version in effect when the run
+    # executed. NULL only for rows created before M7.1 ("not recorded") —
+    # never guessed retroactively.
+    boundary_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # M7.1 hygiene (H-02/F-31): the resolved observation manifest — the exact
+    # uncapped environmental input set handed to the engine — preserved by
+    # value together with its deterministic SHA-256.
+    observation_manifest: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    observation_manifest_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     values: Mapped[list["FeatureValue"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
@@ -1081,6 +1090,11 @@ class WaterPlan(Base, TimestampMixin):
     checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # M7.1 run-envelope alignment (F-32 partial): lifecycle timestamps and the
+    # H-01 boundary pin. Boundary version is NULL only for pre-M7.1 rows.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    boundary_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -1094,4 +1108,93 @@ class WaterPlan(Base, TimestampMixin):
             postgresql_where=text_("idempotency_key IS NOT NULL"),
         ),
         Index("ix_water_plans_field", field_id),
+    )
+
+
+class FieldState(Base, TimestampMixin):
+    """An immutable, checksummed field-state snapshot (Milestone 7.1).
+
+    A state is a BY-REFERENCE composition of already-versioned artifacts —
+    it never duplicates their data. It pins: the exact boundary version in
+    effect, a temporal reference period, the resolved environmental feature
+    run (+ a verbatim copy of its observation manifest), an optional water
+    plan and rotation run, the resolved knowledge pack set, and crop history
+    ids as of the reference time. Soil (M6B) and management (M6C) domains do
+    not exist in this repository and are represented explicitly as
+    `not_implemented` in `domain_availability` — never fabricated.
+
+    Recomputation creates a NEW row; nothing is rewritten (same immutability
+    contract as water plans).
+    """
+
+    __tablename__ = "field_states"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    label: Mapped[str] = mapped_column(String(120), nullable=False, default="field state")
+    # H-01: exact boundary version in effect at assembly (mandatory).
+    boundary_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Temporal qualification: the instant the state is "as of" and the period
+    # it claims to cover. Cross-domain period compatibility is recorded in
+    # `period_compatibility` — never silently assumed.
+    state_reference_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
+    calendar_context: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # By-reference pins (FK RESTRICT: a referenced artifact cannot be deleted
+    # out from under a state — this is the F-13 enforcement mechanism).
+    environmental_feature_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("feature_runs.id", ondelete="RESTRICT"), nullable=True
+    )
+    water_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("water_plans.id", ondelete="RESTRICT"), nullable=True
+    )
+    rotation_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("rotation_runs.id", ondelete="RESTRICT"), nullable=True
+    )
+    rotation_strategy_key: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    crop_history_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    knowledge_pack_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+
+    # Verbatim copy of the referenced run's observation manifest (H-02) with
+    # its deterministic checksum and the manifest format version.
+    observation_manifest: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    observation_manifest_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    manifest_format_version: Mapped[str] = mapped_column(String(40), nullable=False)
+
+    # Honest per-dimension availability + summaries (no generic score).
+    domain_availability: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    evidence_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    quality_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    period_compatibility: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    source_versions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    request_parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    not_evaluated: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running','succeeded','failed')", name="ck_field_state_status"
+        ),
+        CheckConstraint("period_end >= period_start", name="ck_field_state_period_order"),
+        Index(
+            "uq_field_state_idempotency",
+            field_id,
+            idempotency_key,
+            unique=True,
+            postgresql_where=text_("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_field_states_field", field_id),
     )

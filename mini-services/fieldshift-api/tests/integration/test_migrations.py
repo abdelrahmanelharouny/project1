@@ -87,3 +87,68 @@ class TestMigrations:
         engine.dispose()
         again = _alembic("upgrade", "head")
         assert again.returncode == 0, again.stderr
+
+
+M7_1_EXPECTED_TABLES = {"field_states"}
+M7_1_EXPECTED_COLUMNS = {
+    "feature_runs": {"boundary_version", "observation_manifest", "observation_manifest_sha256"},
+    "water_plans": {"boundary_version", "started_at", "completed_at"},
+}
+
+
+class TestM7_1FieldStateFoundation:
+    """Migration 0007: field_states + H-01/H-02 columns + F-30 index."""
+
+    def test_upgrade_creates_field_state_schema(self, scratch_db):
+        assert _alembic("upgrade", "head").returncode == 0
+        engine = create_engine(SCRATCH_URL)
+        with engine.connect() as conn:
+            tables = {r[0] for r in conn.execute(text(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+            ))}
+            assert M7_1_EXPECTED_TABLES.issubset(tables)
+
+            for table, columns in M7_1_EXPECTED_COLUMNS.items():
+                present = {r[0] for r in conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='{table}'"
+                ))}
+                assert columns.issubset(present), f"{table}: missing {columns - present}"
+
+            indexes = {r[0] for r in conn.execute(text(
+                "SELECT indexname FROM pg_indexes WHERE tablename='ingestion_jobs'"
+            ))}
+            assert "uq_ingestion_idempotency_v2" in indexes
+            assert "uq_ingestion_idempotency" not in indexes
+
+            state_indexes = {r[0] for r in conn.execute(text(
+                "SELECT indexname FROM pg_indexes WHERE tablename='field_states'"
+            ))}
+            assert {"uq_field_state_idempotency", "ix_field_states_field"} <= state_indexes
+        engine.dispose()
+
+    def test_downgrade_to_0006_reverses_m7_1_schema(self, scratch_db):
+        assert _alembic("upgrade", "head").returncode == 0
+        down = _alembic("downgrade", "0006_water_intelligence")
+        assert down.returncode == 0, down.stderr
+        engine = create_engine(SCRATCH_URL)
+        with engine.connect() as conn:
+            tables = {r[0] for r in conn.execute(text(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+            ))}
+            assert "field_states" not in tables
+            for table, columns in M7_1_EXPECTED_COLUMNS.items():
+                present = {r[0] for r in conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='{table}'"
+                ))}
+                assert columns.isdisjoint(present), f"{table}: {columns & present} not dropped"
+
+            indexes = {r[0] for r in conn.execute(text(
+                "SELECT indexname FROM pg_indexes WHERE tablename='ingestion_jobs'"
+            ))}
+            assert "uq_ingestion_idempotency" in indexes, "legacy key-only index restored"
+            assert "uq_ingestion_idempotency_v2" not in indexes
+        engine.dispose()
+        again = _alembic("upgrade", "head")
+        assert again.returncode == 0, again.stderr
