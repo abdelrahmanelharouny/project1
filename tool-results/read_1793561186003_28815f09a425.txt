@@ -1,0 +1,560 @@
+   621→                        className="flex cursor-pointer items-start gap-2 text-sm text-stone-700"
+   622→                      >
+   623→                        <Checkbox
+   624→                          checked={checked}
+   625→                          onCheckedChange={(value) => {
+   626→                            setSelectedVariables((previous) =>
+   627→                              value
+   628→                                ? [...previous, variable.code]
+   629→                                : previous.filter((code) => code !== variable.code),
+   630→                            )
+   631→                          }}
+   632→                          aria-label={`${variable.name} (${variable.code})`}
+   633→                        />
+   634→                        <span className="leading-tight">
+   635→                          {variable.name}
+   636→                          <span className="block text-[11px] text-stone-500">
+   637→                            {variable.code} · {variable.unit}
+   638→                          </span>
+   639→                        </span>
+   640→                      </label>
+   641→                    )
+   642→                  })}
+   643→                </div>
+   644→              )}
+   645→              {selectableVariables.length === 0 && !catalog.isLoading ? (
+   646→                <p className="text-xs text-stone-500">This provider publishes none of the catalog variables.</p>
+   647→              ) : null}
+   648→            </div>
+   649→
+   650→            {provider === 'synthetic' ? (
+   651→              <div className="grid gap-4 sm:grid-cols-2">
+   652→                <div className="space-y-1.5">
+   653→                  <Label htmlFor="obs-profile">Climate profile</Label>
+   654→                  <Select value={profile} onValueChange={(value) => setProfile(value as SyntheticProfile)}>
+   655→                    <SelectTrigger id="obs-profile" className="w-full">
+   656→                      <SelectValue />
+   657→                    </SelectTrigger>
+   658→                    <SelectContent>
+   659→                      {PROFILES.map((entry) => (
+   660→                        <SelectItem key={entry.value} value={entry.value}>
+   661→                          {entry.label}
+   662→                        </SelectItem>
+   663→                      ))}
+   664→                    </SelectContent>
+   665→                  </Select>
+   666→                  <p className="text-xs text-stone-500">Shapes the synthetic seasonality.</p>
+   667→                </div>
+   668→                <div className="space-y-1.5">
+   669→                  <Label htmlFor="obs-seed">Seed</Label>
+   670→                  <Input
+   671→                    id="obs-seed"
+   672→                    type="number"
+   673→                    min={0}
+   674→                    value={seed}
+   675→                    onChange={(event) => setSeed(Number(event.target.value) || 0)}
+   676→                  />
+   677→                  <p className="text-xs text-stone-500">Same seed + same inputs → identical series.</p>
+   678→                </div>
+   679→              </div>
+   680→            ) : null}
+   681→
+   682→            <div className="grid gap-4 sm:grid-cols-2">
+   683→              <div className="space-y-1.5">
+   684→                <Label htmlFor="obs-start">Start date</Label>
+   685→                <Input
+   686→                  id="obs-start"
+   687→                  type="date"
+   688→                  value={jobStart}
+   689→                  onChange={(event) => setJobStart(event.target.value)}
+   690→                />
+   691→              </div>
+   692→              <div className="space-y-1.5">
+   693→                <Label htmlFor="obs-end">End date</Label>
+   694→                <Input
+   695→                  id="obs-end"
+   696→                  type="date"
+   697→                  value={jobEnd}
+   698→                  onChange={(event) => setJobEnd(event.target.value)}
+   699→                />
+   700→              </div>
+   701→            </div>
+   702→            <p className="-mt-2 text-xs text-stone-500">
+   703→              {provider === 'synthetic'
+   704→                ? `Fixture coverage ${COVERAGE_START} → ${COVERAGE_END}; one job spans at most ${MAX_JOB_YEARS} years.`
+   705→                : 'Archive coverage 1940 → present (a few days behind); one job spans at most 10 years per request.'}
+   706→            </p>
+   707→
+   708→            {formError ? (
+   709→              <p className="text-sm font-medium text-red-700" role="alert">
+   710→                {visibleFormError}
+   711→              </p>
+   712→            ) : null}
+   713→
+   714→            <Button
+   715→              className="w-full bg-emerald-700 hover:bg-emerald-800 sm:w-auto"
+   716→              onClick={submitJob}
+   717→              disabled={ingestMutation.isPending}
+   718→            >
+   719→              {ingestMutation.isPending ? (
+   720→                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   721→              ) : (
+   722→                <Database className="h-4 w-4" aria-hidden />
+   723→              )}
+   724→              Run ingestion job
+   725→            </Button>
+   726→          </CardContent>
+   727→
+   728→          {visibleJob ? (
+   729→            <CardFooter className="block border-t border-stone-100 pt-4">
+   730→              <JobFooter job={visibleJob} />
+   731→            </CardFooter>
+   732→          ) : null}
+   733→        </Card>
+   734→
+   735→        {/* ---------------- window + charts ---------------- */}
+   736→        <div className="space-y-4">
+   737→          <Card className="border-stone-200 bg-white shadow-sm">
+   738→            <CardHeader className="pb-3">
+   739→              <CardTitle className="flex items-center gap-2 text-base">
+   740→                <CalendarRange className="h-4 w-4 text-emerald-700" aria-hidden />
+   741→                Loaded window
+   742→              </CardTitle>
+   743→              <CardDescription>
+   744→                Showing {observationsQuery.data ? `${observationsQuery.data.items.length} of ${observationsQuery.data.total}` : '…'}{' '}
+   745→                observations for <strong className="font-medium text-stone-700">{selectedField.name}</strong>.
+   746→              </CardDescription>
+   747→            </CardHeader>
+   748→            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+   749→              <div className="flex-1 space-y-1.5">
+   750→                <Label htmlFor="window-start">From</Label>
+   751→                <Input
+   752→                  id="window-start"
+   753→                  type="date"
+   754→                  value={windowStart}
+   755→                  onChange={(event) => setWindowStart(event.target.value)}
+   756→                />
+   757→              </div>
+   758→              <div className="flex-1 space-y-1.5">
+   759→                <Label htmlFor="window-end">To</Label>
+   760→                <Input
+   761→                  id="window-end"
+   762→                  type="date"
+   763→                  value={windowEnd}
+   764→                  onChange={(event) => setWindowEnd(event.target.value)}
+   765→                />
+   766→              </div>
+   767→              <Button variant="outline" className="border-stone-300" onClick={loadWindow} disabled={observationsQuery.isFetching}>
+   768→                {observationsQuery.isFetching ? (
+   769→                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   770→                ) : (
+   771→                  <RefreshCw className="h-4 w-4" aria-hidden />
+   772→                )}
+   773→                Load
+   774→              </Button>
+   775→            </CardContent>
+   776→          </Card>
+   777→
+   778→          {observationsQuery.isLoading ? (
+   779→            <div className="grid gap-4 sm:grid-cols-2">
+   780→              <Skeleton className="h-56 rounded-lg" />
+   781→              <Skeleton className="h-56 rounded-lg" />
+   782→            </div>
+   783→          ) : (
+   784→            <div className="grid gap-4 sm:grid-cols-2">
+   785→              <ChartCard
+   786→                title="Air temperature (mean)"
+   787→                unit="°C"
+   788→                note={
+   789→                  tempSeries.length === 0
+   790→                    ? 'No temperature_mean data in this window.'
+   791→                    : chartProvenanceNote(tempSeries)
+   792→                }
+   793→              >
+   794→                {tempSeries.length > 0 ? (
+   795→                  <ResponsiveContainer width="100%" height={190}>
+   796→                    <LineChart data={tempSeries} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+   797→                      <CartesianGrid stroke="#e7e5e4" strokeDasharray="3 3" />
+   798→                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} minTickGap={36} />
+   799→                      <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} />
+   800→                      <ReTooltip labelFormatter={(label) => `Date: ${label}`} />
+   801→                      <Line type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} dot={false} />
+   802→                    </LineChart>
+   803→                  </ResponsiveContainer>
+   804→                ) : (
+   805→                  <div className="flex h-[190px] items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-500">
+   806→                    Ingest air_temperature_mean to see the line chart.
+   807→                  </div>
+   808→                )}
+   809→              </ChartCard>
+   810→              <ChartCard
+   811→                title="Precipitation"
+   812→                unit="mm"
+   813→                note={
+   814→                  precipSeries.length === 0
+   815→                    ? 'No precipitation data in this window.'
+   816→                    : chartProvenanceNote(precipSeries)
+   817→                }
+   818→              >
+   819→                {precipSeries.length > 0 ? (
+   820→                  <ResponsiveContainer width="100%" height={190}>
+   821→                    <BarChart data={precipSeries} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+   822→                      <CartesianGrid stroke="#e7e5e4" strokeDasharray="3 3" />
+   823→                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} minTickGap={36} />
+   824→                      <YAxis tick={{ fontSize: 10 }} />
+   825→                      <ReTooltip labelFormatter={(label) => `Date: ${label}`} />
+   826→                      <Bar dataKey="value" fill="#78716c" radius={[2, 2, 0, 0]} />
+   827→                    </BarChart>
+   828→                  </ResponsiveContainer>
+   829→                ) : (
+   830→                  <div className="flex h-[190px] items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-500">
+   831→                    Ingest or import precipitation to see the bar chart.
+   832→                  </div>
+   833→                )}
+   834→              </ChartCard>
+   835→            </div>
+   836→          )}
+   837→        </div>
+   838→      </div>
+   839→
+   840→      {/* ---------------- file imports + coverage ---------------- */}
+   841→      <div className="grid gap-6 lg:grid-cols-2">
+   842→        <Card className="border-stone-200 bg-white shadow-sm">
+   843→          <CardHeader className="pb-3">
+   844→            <CardTitle className="flex items-center gap-2 text-base">
+   845→              <Upload className="h-4 w-4 text-emerald-700" aria-hidden />
+   846→              File imports
+   847→            </CardTitle>
+   848→            <CardDescription>
+   849→              Controlled import pipelines — files are validated row by row and never trusted blindly.
+   850→            </CardDescription>
+   851→          </CardHeader>
+   852→          <CardContent>
+   853→            <Tabs defaultValue="csv">
+   854→              <TabsList className="grid w-full grid-cols-2">
+   855→                <TabsTrigger value="csv">
+   856→                  <FileSpreadsheet className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> CSV observations
+   857→                </TabsTrigger>
+   858→                <TabsTrigger value="chirps">
+   859→                  <Layers className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> CHIRPS raster
+   860→                </TabsTrigger>
+   861→              </TabsList>
+   862→
+   863→              <TabsContent value="csv" className="mt-3 space-y-3">
+   864→                <p className="text-xs text-stone-500">
+   865→                  Upload rain-gauge / farm records as CSV (columns: <code className="rounded bg-stone-100 px-1">date,
+   866→                  variable_code, value, unit, notes</code>). Rows land with the{' '}
+   867→                  <strong>farmer_reported_record</strong> evidence class; blank values are stored as missing, never
+   868→                  zero.
+   869→                </p>
+   870→                <div className="flex flex-wrap items-center gap-2">
+   871→                  <Input
+   872→                    ref={csvInputRef}
+   873→                    type="file"
+   874→                    accept=".csv,text/csv"
+   875→                    className="max-w-xs"
+   876→                    onChange={(event) => setCsvFile(event.target.files?.[0] ?? null)}
+   877→                    aria-label="CSV file to import"
+   878→                  />
+   879→                  <a
+   880→                    href={CSV_TEMPLATE_URL}
+   881→                    className="text-xs font-medium text-emerald-700 underline-offset-2 hover:underline"
+   882→                    download
+   883→                  >
+   884→                    Download template
+   885→                  </a>
+   886→                </div>
+   887→                <Button
+   888→                  className="bg-emerald-700 hover:bg-emerald-800"
+   889→                  disabled={!csvFile || csvImportMutation.isPending}
+   890→                  onClick={() => selectedField && csvImportMutation.mutate(selectedField.id)}
+   891→                >
+   892→                  {csvImportMutation.isPending ? (
+   893→                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   894→                  ) : (
+   895→                    <Upload className="h-4 w-4" aria-hidden />
+   896→                  )}
+   897→                  Import CSV
+   898→                </Button>
+   899→                {visibleCsvJob ? (
+   900→                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+   901→                    <JobFooter job={visibleCsvJob} />
+   902→                  </div>
+   903→                ) : null}
+   904→              </TabsContent>
+   905→
+   906→              <TabsContent value="chirps" className="mt-3 space-y-3">
+   907→                <p className="text-xs text-stone-500">
+   908→                  Upload a CHIRPS v3 GeoTIFF (EPSG:4326) — the service extracts the field-mean rainfall and records
+   909→                  full raster provenance (product variant, nodata cells, sha256).
+   910→                  {chirpsProvider && chirpsProvider.status !== 'active' ? (
+   911→                    <span className="mt-1 block font-medium text-amber-700">
+   912→                      Provider degraded: {String(chirpsProvider.details.degradation_reason ?? 'unavailable')}.
+   913→                    </span>
+   914→                  ) : null}
+   915→                </p>
+   916→                <div className="flex flex-wrap items-center gap-2">
+   917→                  <Input
+   918→                    ref={chirpsInputRef}
+   919→                    type="file"
+   920→                    accept=".tif,.tiff,application/x-geotiff,image/tiff"
+   921→                    className="max-w-xs"
+   922→                    onChange={(event) => setChirpsFile(event.target.files?.[0] ?? null)}
+   923→                    aria-label="CHIRPS GeoTIFF to import"
+   924→                  />
+   925→                </div>
+   926→                <div className="grid gap-3 sm:grid-cols-3">
+   927→                  <div className="space-y-1.5">
+   928→                    <Label htmlFor="chirps-date">Raster date</Label>
+   929→                    <Input
+   930→                      id="chirps-date"
+   931→                      type="date"
+   932→                      value={chirpsDate}
+   933→                      onChange={(event) => setChirpsDate(event.target.value)}
+   934→                    />
+   935→                  </div>
+   936→                  <div className="space-y-1.5">
+   937→                    <Label htmlFor="chirps-kind">Product kind</Label>
+   938→                    <Select value={chirpsKind} onValueChange={(value) => setChirpsKind(value as typeof chirpsKind)}>
+   939→                      <SelectTrigger id="chirps-kind" className="w-full">
+   940→                        <SelectValue />
+   941→                      </SelectTrigger>
+   942→                      <SelectContent>
+   943→                        <SelectItem value="daily">daily</SelectItem>
+   944→                        <SelectItem value="pentad">pentad</SelectItem>
+   945→                        <SelectItem value="monthly">monthly</SelectItem>
+   946→                      </SelectContent>
+   947→                    </Select>
+   948→                  </div>
+   949→                  <div className="space-y-1.5">
+   950→                    <Label htmlFor="chirps-status">Product status</Label>
+   951→                    <Select
+   952→                      value={chirpsStatus}
+   953→                      onValueChange={(value) => setChirpsStatus(value as typeof chirpsStatus)}
+   954→                    >
+   955→                      <SelectTrigger id="chirps-status" className="w-full">
+   956→                        <SelectValue />
+   957→                      </SelectTrigger>
+   958→                      <SelectContent>
+   959→                        <SelectItem value="final">final</SelectItem>
+   960→                        <SelectItem value="preliminary">preliminary</SelectItem>
+   961→                      </SelectContent>
+   962→                    </Select>
+   963→                  </div>
+   964→                </div>
+   965→                <Button
+   966→                  className="bg-emerald-700 hover:bg-emerald-800"
+   967→                  disabled={!chirpsFile || chirpsMutation.isPending}
+   968→                  onClick={() => selectedField && chirpsMutation.mutate(selectedField.id)}
+   969→                >
+   970→                  {chirpsMutation.isPending ? (
+   971→                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   972→                  ) : (
+   973→                    <Upload className="h-4 w-4" aria-hidden />
+   974→                  )}
+   975→                  Extract field rainfall
+   976→                </Button>
+   977→                {visibleChirpsJob ? (
+   978→                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+   979→                    <JobFooter job={visibleChirpsJob} />
+   980→                  </div>
+   981→                ) : null}
+   982→              </TabsContent>
+   983→            </Tabs>
+   984→          </CardContent>
+   985→        </Card>
+   986→
+   987→        <Card className="border-stone-200 bg-white shadow-sm">
+   988→          <CardHeader className="pb-3">
+   989→            <CardTitle className="flex items-center gap-2 text-base">
+   990→              <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
+   991→              Data coverage
+   992→            </CardTitle>
+   993→            <CardDescription>
+   994→              What exists for <strong className="font-medium text-stone-700">{selectedField.name}</strong>, per variable
+   995→              and per provider.
+   996→            </CardDescription>
+   997→          </CardHeader>
+   998→          <CardContent>
+   999→            {coverageQuery.isLoading ? (
+  1000→              <div className="space-y-2">
+  1001→                <Skeleton className="h-8 w-full" />
+  1002→                <Skeleton className="h-8 w-3/4" />
+  1003→              </div>
+  1004→            ) : coverageQuery.isError ? (
+  1005→              <Alert variant="destructive">
+  1006→                <XCircle className="h-4 w-4" />
+  1007→                <AlertTitle>Could not load coverage</AlertTitle>
+  1008→                <AlertDescription>Try again shortly.</AlertDescription>
+  1009→              </Alert>
+  1010→            ) : (coverageQuery.data?.variables.length ?? 0) === 0 ? (
+  1011→              <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
+  1012→                <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />
+  1013→                <p className="mt-2 text-sm text-stone-600">No observations stored for this field yet.</p>
+  1014→              </div>
+  1015→            ) : (
+  1016→              <div className="max-h-80 overflow-y-auto rounded-md border scrollbar-thin">
+  1017→                <Table>
+  1018→                  <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
+  1019→                    <TableRow className="hover:bg-transparent">
+  1020→                      <TableHead>Variable</TableHead>
+  1021→                      <TableHead className="text-right">Rows</TableHead>
+  1022→                      <TableHead className="text-right">Valid</TableHead>
+  1023→                      <TableHead>Period</TableHead>
+  1024→                      <TableHead>Providers</TableHead>
+  1025→                    </TableRow>
+  1026→                  </TableHeader>
+  1027→                  <TableBody>
+  1028→                    {(coverageQuery.data?.variables ?? []).map((entry) => (
+  1029→                      <TableRow key={entry.variable_code}>
+  1030→                        <TableCell>
+  1031→                          <span className="font-medium text-stone-800">{variableName(entry.variable_code)}</span>
+  1032→                          <span className="block text-[11px] text-stone-500">
+  1033→                            {entry.variable_code} · {entry.unit}
+  1034→                          </span>
+  1035→                        </TableCell>
+  1036→                        <TableCell className="text-right tabular-nums">{entry.total}</TableCell>
+  1037→                        <TableCell className="text-right tabular-nums">{entry.valid}</TableCell>
+  1038→                        <TableCell className="whitespace-nowrap text-xs text-stone-600">
+  1039→                          {entry.providers[0]?.first ?? '—'} → {entry.providers[0]?.last ?? '—'}
+  1040→                        </TableCell>
+  1041→                        <TableCell>
+  1042→                          <div className="flex flex-wrap gap-1">
+  1043→                            {entry.providers.map((p) => (
+  1044→                              <Badge
+  1045→                                key={`${entry.variable_code}-${p.provider_code}-${p.product_code}`}
+  1046→                                variant="outline"
+  1047→                                className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-900"
+  1048→                              >
+  1049→                                {p.provider_code}
+  1050→                              </Badge>
+  1051→                            ))}
+  1052→                          </div>
+  1053→                        </TableCell>
+  1054→                      </TableRow>
+  1055→                    ))}
+  1056→                  </TableBody>
+  1057→                </Table>
+  1058→              </div>
+  1059→            )}
+  1060→          </CardContent>
+  1061→        </Card>
+  1062→      </div>
+  1063→
+  1064→      {/* ---------------- observations table ---------------- */}
+  1065→      <Card className="border-stone-200 bg-white shadow-sm">
+  1066→        <CardHeader className="pb-3">
+  1067→          <div className="flex flex-wrap items-center justify-between gap-3">
+  1068→            <div>
+  1069→              <CardTitle className="flex items-center gap-2 text-base">
+  1070→                <BarChart3 className="h-4 w-4 text-emerald-700" aria-hidden />
+  1071→                Observations table
+  1072→              </CardTitle>
+  1073→              <CardDescription>
+  1074→                Window {appliedWindow.start} → {appliedWindow.end}
+  1075→                {observationsQuery.data && observationsQuery.data.total > observationsQuery.data.items.length
+  1076→                  ? ` · showing the first ${observationsQuery.data.items.length} of ${observationsQuery.data.total} rows — narrow the window to see everything`
+  1077→                  : ''}
+  1078→              </CardDescription>
+  1079→            </div>
+  1080→            <div className="w-full sm:w-56">
+  1081→              <Select value={tableVariable} onValueChange={setTableVariable}>
+  1082→                <SelectTrigger aria-label="Filter by variable" className="w-full bg-white">
+  1083→                  <SelectValue placeholder="All variables" />
+  1084→                </SelectTrigger>
+  1085→                <SelectContent>
+  1086→                  <SelectItem value="all">All variables</SelectItem>
+  1087→                  {presentVariables.map((code) => (
+  1088→                    <SelectItem key={code} value={code}>
+  1089→                      {variableName(code)}
+  1090→                    </SelectItem>
+  1091→                  ))}
+  1092→                </SelectContent>
+  1093→              </Select>
+  1094→            </div>
+  1095→          </div>
+  1096→        </CardHeader>
+  1097→        <CardContent>
+  1098→          {observationsQuery.isLoading ? (
+  1099→            <div className="space-y-2">
+  1100→              {Array.from({ length: 6 }).map((_, index) => (
+  1101→                <Skeleton key={index} className="h-9 w-full" />
+  1102→              ))}
+  1103→            </div>
+  1104→          ) : observationsQuery.isError ? (
+  1105→            <Alert variant="destructive">
+  1106→              <XCircle className="h-4 w-4" />
+  1107→              <AlertTitle>Could not load observations</AlertTitle>
+  1108→              <AlertDescription>
+  1109→                {observationsQuery.error instanceof Error ? observationsQuery.error.message : 'Try loading again.'}
+  1110→              </AlertDescription>
+  1111→            </Alert>
+  1112→          ) : filteredItems.length === 0 ? (
+  1113→            <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
+  1114→              <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />
+  1115→              <p className="mt-2 text-sm text-stone-600">
+  1116→                No observations in this window{tableVariable !== 'all' ? ' for this variable' : ''} yet.
+  1117→              </p>
+  1118→              <p className="mt-1 text-xs text-stone-500">
+  1119→                Run an ingestion job or import a file above, or widen the loaded window.
+  1120→              </p>
+  1121→              <div className="mt-3 flex justify-center">
+  1122→                <GoToFarmsButton label="Manage fields" />
+  1123→              </div>
+  1124→            </div>
+  1125→          ) : (
+  1126→            <div className="max-h-96 overflow-y-auto rounded-md border scrollbar-thin">
+  1127→              <Table>
+  1128→                <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
+  1129→                  <TableRow className="hover:bg-transparent">
+  1130→                    <TableHead className="w-28">Date</TableHead>
+  1131→                    <TableHead>Variable</TableHead>
+  1132→                    <TableHead className="text-right">Value</TableHead>
+  1133→                    <TableHead>Quality</TableHead>
+  1134→                    <TableHead>Provenance</TableHead>
+  1135→                  </TableRow>
+  1136→                </TableHeader>
+  1137→                <TableBody>
+  1138→                  {filteredItems.map((observation) => (
+  1139→                    <TableRow key={observation.id}>
+  1140→                      <TableCell className="whitespace-nowrap tabular-nums text-stone-600">
+  1141→                        {observation.observed_at.slice(0, 10)}
+  1142→                      </TableCell>
+  1143→                      <TableCell>
+  1144→                        <span className="font-medium text-stone-800">{variableName(observation.variable_code)}</span>
+  1145→                        <span className="block text-[11px] text-stone-500">{observation.variable_code}</span>
+  1146→                      </TableCell>
+  1147→                      <TableCell className="text-right tabular-nums">
+  1148→                        {observation.value === null ? (
+  1149→                          <span className="text-stone-400">—</span>
+  1150→                        ) : (
+  1151→                          <>
+  1152→                            {observation.value}
+  1153→                            <span className="ml-1 text-xs text-stone-500">{observation.unit}</span>
+  1154→                          </>
+  1155→                        )}
+  1156→                      </TableCell>
+  1157→                      <TableCell>
+  1158→                        <QualityBadge status={observation.quality_status} />
+  1159→                      </TableCell>
+  1160→                      <TableCell>
+  1161→                        {observation.is_synthetic ? (
+  1162→                          <SyntheticBadge />
+  1163→                        ) : (
+  1164→                          <ExternalProvenanceBadge observation={observation} />
+  1165→                        )}
+  1166→                      </TableCell>
+  1167→                    </TableRow>
+  1168→                  ))}
+  1169→                </TableBody>
+  1170→              </Table>
+  1171→            </div>
+  1172→          )}
+  1173→        </CardContent>
+  1174→      </Card>
+  1175→    </div>
+  1176→  )
+  1177→}
+  1178→
+  1179→export default Observations
+  1180→

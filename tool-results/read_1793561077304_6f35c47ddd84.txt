@@ -1,0 +1,682 @@
+     1→"""Candidate generation (Milestone 5.3, ADR-0016; water via M6A engine).
+     2→
+     3→Pure evaluation of knowledge-base crops for the planning seasons of one field.
+     4→Outcomes are first-class: `eligible`, `conditionally_eligible`, `excluded`,
+     5→`unevaluated` — each with the reasons and the evidence that produced them.
+     6→Missing evidence never becomes zero and never becomes an exclusion.
+     7→
+     8→Water requirement is a FAO-56 single-Kc screening estimate (ADR-0017) computed
+     9→only when BOTH monthly ET0 evidence and sourced Kc anchors exist; its
+    10→assumptions are returned with the estimate. M6A adds the NET IRRIGATION
+    11→REQUIREMENT (ETc − Pe, FAO I&D 33 method) when monthly precipitation evidence
+    12→exists; the allocation constraint uses the most precise evaluable demand.
+    13→"""
+    14→
+    15→from __future__ import annotations
+    16→
+    17→from datetime import date
+    18→from typing import Any
+    19→
+    20→from app.rotation.problem import (
+    21→    CandidateAssessment,
+    22→    ClimateEvidence,
+    23→    FarmContext,
+    24→    KnowledgeBaseData,
+    25→    KnowledgeCrop,
+    26→    SeasonSpec,
+    27→    TraitValue,
+    28→)
+    29→from app.water.curve import (
+    30→    KcCurve,
+    31→    build_curve,
+    32→    season_etc_mm,
+    33→)
+    34→from app.water.effective_rainfall import effective_rainfall_mm
+    35→
+    36→DURATION_SPILL_TOLERANCE_DAYS = 14  # documented harvest-spill tolerance
+    37→
+    38→# M6A: the effective-rainfall method used for candidate-level net irrigation
+    39→# requirements (FAO I&D 33 monthly formula; verified during the M6A Phase-0
+    40→# programme). An explicit method parameter per run arrives with the water
+    41→# planner; candidates keep the verified default.
+    42→CANDIDATE_PE_METHOD = "fao_aglw_1986"
+    43→
+    44→
+    45→def _reason(
+    46→    kind: str, code: str, message: str, *, severity: str = "info",
+    47→    source_refs: list[dict[str, Any]] | None = None,
+    48→) -> dict[str, Any]:
+    49→    reason = {"kind": kind, "code": code, "message": message, "severity": severity}
+    50→    if source_refs:
+    51→        reason["source_refs"] = source_refs
+    52→    return reason
+    53→
+    54→
+    55→def _missing_dimension(code: str, message: str) -> dict[str, Any]:
+    56→    return {"code": code, "message": message}
+    57→
+    58→
+    59→def _trait_ref(trait: TraitValue) -> dict[str, Any]:
+    60→    return {
+    61→        "type": "knowledge_trait",
+    62→        "trait_code": trait.trait_code,
+    63→        "pack_code": trait.pack_code,
+    64→        "pack_version": trait.pack_version,
+    65→        "source_key": trait.source_key,
+    66→        "citation_text": trait.citation_text,
+    67→        "evidence_class": trait.evidence_class,
+    68→        "confidence": trait.confidence,
+    69→    }
+    70→
+    71→
+    72→def _mmdd_to_date(year: int, mmdd: str) -> date:
+    73→    month, day = mmdd.split("-")
+    74→    return date(year, int(month), int(day))
+    75→
+    76→
+    77→def _window_planting_overlap(
+    78→    season: SeasonSpec, planting_start: str, planting_end: str
+    79→) -> tuple[date, date] | None:
+    80→    """Overlap of the recurring (MM-DD) planting window with the season,
+    81→    handling year-wrapping windows (start > end)."""
+    82→    y0, y1 = season.start_date.year, season.end_date.year
+    83→    for base_year in (y0, y0 - 1, y0 + 1):
+    84→        try:
+    85→            ws = _mmdd_to_date(base_year, planting_start)
+    86→        except ValueError:
+    87→            continue
+    88→        we_year = base_year + 1 if planting_end <= planting_start else base_year
+    89→        try:
+    90→            we = _mmdd_to_date(we_year, planting_end)
+    91→        except ValueError:
+    92→            continue
+    93→        lo = max(ws, season.start_date)
+    94→        hi = min(we, season.end_date)
+    95→        if lo <= hi:
+    96→            return lo, hi
+    97→    return None
+    98→
+    99→
+   100→def _windows_for_field(crop: KnowledgeCrop, hemisphere: str, country_code: str):
+   101→    return [
+   102→        w
+   103→        for w in crop.calendar_windows
+   104→        if w.hemisphere == hemisphere and (w.region_code is None or w.region_code == country_code)
+   105→    ]
+   106→
+   107→
+   108→def estimate_water_requirement_mm(
+   109→    crop: KnowledgeCrop, evidence: ClimateEvidence, season: SeasonSpec
+   110→) -> tuple[float | None, list[str]]:
+   111→    """FAO-56 single-Kc screening estimate (ADR-0017).
+   112→
+   113→    Returns (mm, assumptions) or (None, [why not evaluable]).
+   114→
+   115→    M6A: the curve construction and season summation live in the versioned
+   116→    water engine (`app.water.curve`) — the arithmetic is shared so the
+   117→    optimizer coefficients and the water planner can never drift apart."""
+   118→    missing: list[str] = []
+   119→    if crop.water_params is None:
+   120→        missing.append("no sourced Kc parameters in the knowledge base — water "
+   121→                       "requirement intentionally not estimated (never guessed)")
+   122→        return None, missing
+   123→    if evidence.season_et0_mm is None or not evidence.monthly_et0:
+   124→        missing.append("no reference ET0 evidence for the season")
+   125→        return None, missing
+   126→
+   127→    stage_lengths = {
+   128→        "initial": crop.numeric_trait("stage_init_days"),
+   129→        "development": crop.numeric_trait("stage_dev_days"),
+   130→        "mid": crop.numeric_trait("stage_mid_days"),
+   131→        "late": crop.numeric_trait("stage_late_days"),
+   132→    }
+   133→    missing_stages = [s for s, v in stage_lengths.items() if v is None]
+   134→    if missing_stages:
+   135→        missing.append("crop stage lengths missing from the knowledge base")
+   136→        return None, missing
+   137→
+   138→    wp = crop.water_params
+   139→    try:
+   140→        curve: KcCurve = build_curve(
+   141→            stage_lengths=stage_lengths,
+   142→            kc_initial=wp.kc_initial,
+   143→            kc_mid=wp.kc_mid,
+   144→            kc_late=wp.kc_late,
+   145→            source_key=wp.source_key,
+   146→            citation_text=wp.citation_text,
+   147→            evidence_class=wp.evidence_class,
+   148→            pack_code=wp.pack_code,
+   149→            pack_version=wp.pack_version,
+   150→        )
+   151→    except ValueError as exc:
+   152→        missing.append(f"curve refused: {exc}")
+   153→        return None, missing
+   154→
+   155→    total, _months_used, absent = season_etc_mm(
+   156→        curve, season.start_date, season.end_date, season.start_date,
+   157→        evidence.monthly_et0,
+   158→    )
+   159→    if total is None:
+   160→        # Deepening F-07: a month of the season without ET0 evidence makes the
+   161→        # whole estimate unevaluable — dropping the month would UNDER-report
+   162→        # the requirement (a silent partial estimate), and partial compliance
+   163→        # must never be labelled as a full estimate.
+   164→        missing.extend(
+   165→            f"ET0 missing for {label} — the screening estimate is refused "
+   166→            "rather than under-reported (no month is silently dropped)"
+   167→            for label in absent
+   168→        )
+   169→        return None, missing
+   170→
+   171→    assumptions = [
+   172→        "Sowing assumed at the planning-season start (no farmer sowing date supplied).",
+   173→        "FAO-56 single-Kc curve reconstructed from sourced stage anchors "
+   174→        "(linear ramp across development and late stages).",
+   175→        "Monthly ET0 totals distributed uniformly within each calendar month "
+   176→        "(screening estimate — computed by the versioned water engine).",
+   177→    ]
+   178→    return total, assumptions
+   179→
+   180→
+   181→def estimate_net_irrigation_mm(
+   182→    crop: KnowledgeCrop, evidence: ClimateEvidence, season: SeasonSpec
+   183→) -> tuple[float | None, str | None, list[str]]:
+   184→    """Net irrigation requirement at candidate level (M6A, ADR-0019/0021).
+   185→
+   186→    NIR = max(0, ETc − Pe) with the FAO I&D Paper 33 effective-rainfall
+   187→    method on monthly precipitation climatology. The soil-water contribution
+   188→    is NOT evaluated at candidate level (no soil inputs here) — the estimate
+   189→    is therefore an upper bound, and its basis string says so.
+   190→
+   191→    Returns (nir_mm | None, basis | None, why_not)."""
+   192→    if not evidence.monthly_precip:
+   193→        return None, None, [
+   194→            "no monthly precipitation evidence in the feature run — the net "
+   195→            "irrigation requirement is not evaluable (rainfall credit unknown, "
+   196→            "never assumed)"
+   197→        ]
+   198→    etc, etc_assumptions = estimate_water_requirement_mm(crop, evidence, season)
+   199→    if etc is None:
+   200→        return None, None, list(etc_assumptions)
+   201→
+   202→    # months of the season
+   203→    months: list[tuple[int, int]] = []
+   204→    y, m = season.start_date.year, season.start_date.month
+   205→    while (y, m) <= (season.end_date.year, season.end_date.month):
+   206→        months.append((y, m))
+   207→        if m == 12:
+   208→            y, m = y + 1, 1
+   209→        else:
+   210→            m += 1
+   211→    p_by_month = {(yy, mm): v for yy, mm, v in evidence.monthly_precip}
+   212→    absent = [f"{yy:04d}-{mm:02d}" for yy, mm in months if (yy, mm) not in p_by_month]
+   213→
+   214→    pe_total = 0.0
+   215→    conservative_months: list[str] = []
+   216→    for yy, mm in months:
+   217→        p = p_by_month.get((yy, mm))
+   218→        if p is None:
+   219→            # no rainfall credit for the month (conservative, disclosed)
+   220→            conservative_months.append(f"{yy:04d}-{mm:02d}")
+   221→            continue
+   222→        pe, _info = effective_rainfall_mm(p, CANDIDATE_PE_METHOD)
+   223→        if pe is not None:
+   224→            pe_total += pe
+   225→
+   226→    nir = max(0.0, etc - pe_total)
+   227→    basis = (
+   228→        f"NIR = max(0, ETc − Pe), Pe via '{CANDIDATE_PE_METHOD}' on monthly "
+   229→        "precipitation climatology; soil-water contribution not evaluated at "
+   230→        "candidate level (upper bound)"
+   231→    )
+   232→    if conservative_months:
+   233→        basis += f"; no rainfall credit for {', '.join(conservative_months)} (evidence missing)"
+   234→    return round(nir, 2), basis, []
+   235→
+   236→
+   237→def assess_crop(
+   238→    crop: KnowledgeCrop,
+   239→    season: SeasonSpec,
+   240→    knowledge: KnowledgeBaseData,
+   241→    farm: FarmContext,
+   242→    evidence: ClimateEvidence | None,
+   243→    previous_crop_code: str | None,
+   244→) -> CandidateAssessment:
+   245→    """Evaluate one crop for one planning season."""
+   246→    country = farm.country_code
+   247→    reasons: list[dict[str, Any]] = []
+   248→    unevaluated: list[dict[str, Any]] = []
+   249→
+   250→    # 0) synthetic-evidence honesty label
+   251→    if evidence is not None and evidence.is_synthetic:
+   252→        reasons.append(
+   253→            _reason(
+   254→                "evidence",
+   255→                "synthetic_climate_evidence",
+   256→                "Climate evidence comes from the SYNTHETIC test fixture — "
+   257→                "never real farm evidence; outcomes are demonstration only.",
+   258→                severity="warning",
+   259→            )
+   260→        )
+   261→
+   262→    # 1) farmer market exclusions (hard, farmer authority)
+   263→    if crop.crop_code in farm.market_exclusions:
+   264→        return CandidateAssessment(
+   265→            crop_code=crop.crop_code,
+   266→            status="excluded",
+   267→            reasons=(
+   268→                _reason(
+   269→                    "farmer_constraint",
+   270→                    "market_exclusion",
+   271→                    "Excluded by an explicit farmer market exclusion.",
+   272→                    severity="hard",
+   273→                ),
+   274→            ),
+   275→        )
+   276→
+   277→    # 2) equipment limits (hard): only when the knowledge base lists a
+   278→    #    requirement trait; absent trait ⇒ no equipment restriction claimed.
+   279→    equipment_trait = crop.trait("equipment_required")
+   280→    if equipment_trait is not None and equipment_trait.value_text:
+   281→        required = equipment_trait.value_text
+   282→        if required in farm.equipment_limits:
+   283→            return CandidateAssessment(
+   284→                crop_code=crop.crop_code,
+   285→                status="excluded",
+   286→                reasons=(
+   287→                    _reason(
+   288→                        "farmer_constraint",
+   289→                        "equipment_restriction",
+   290→                        f"Crop requires '{required}', which the farm flags as unavailable.",
+   291→                        severity="hard",
+   292→                        source_refs=[_trait_ref(equipment_trait)],
+   293→                    ),
+   294→                ),
+   295→            )
+   296→
+   297→    # 3) calendar compatibility
+   298→    windows = _windows_for_field(crop, farm.hemisphere, country)
+   299→    if not windows:
+   300→        unevaluated.append(
+   301→            _missing_dimension(
+   302→                "crop_calendar",
+   303→                f"No calendar window for hemisphere '{farm.hemisphere}' in the active "
+   304→                "knowledge packs — calendar compatibility not evaluated.",
+   305→            )
+   306→        )
+   307→        window_matched = None
+   308→        overlap = None
+   309→    else:
+   310→        window_matched = None
+   311→        overlap = None
+   312→        for w in windows:
+   313→            ov = _window_planting_overlap(season, w.planting_start, w.planting_end)
+   314→            if ov is not None:
+   315→                window_matched = w
+   316→                overlap = ov
+   317→                break
+   318→        if window_matched is None:
+   319→            return CandidateAssessment(
+   320→                crop_code=crop.crop_code,
+   321→                status="excluded",
+   322→                reasons=(
+   323→                    _reason(
+   324→                        "crop_calendar",
+   325→                        "planting_window_outside_season",
+   326→                        "No planting window overlaps this planning season "
+   327→                        f"(known windows: {', '.join(w.planting_start + '..' + w.planting_end for w in windows)}).",
+   328→                        severity="hard",
+   329→                        source_refs=[
+   330→                            {
+   331→                                "type": "crop_calendar_window",
+   332→                                "pack_code": w.pack_code,
+   333→                                "pack_version": w.pack_version,
+   334→                                "source_key": w.source_key,
+   335→                                "citation_text": w.citation_text,
+   336→                                "evidence_class": w.evidence_class,
+   337→                            }
+   338→                            for w in windows
+   339→                        ],
+   340→                    ),
+   341→                ),
+   342→            )
+   343→
+   344→    # 4) duration fit
+   345→    duration = crop.numeric_trait("duration_days_total")
+   346→    duration_trait = crop.resolve_trait("duration_days_total", country)
+   347→    if duration is not None and window_matched is not None:
+   348→        overflow = int(duration) - season.length_days
+   349→        if overflow <= 0:
+   350→            reasons.append(
+   351→                _reason(
+   352→                    "crop_calendar",
+   353→                    "duration_fits",
+   354→                    f"Crop duration {int(duration)} d fits the {season.length_days}-d season.",
+   355→                    source_refs=[_trait_ref(duration_trait)] if duration_trait else None,
+   356→                )
+   357→            )
+   358→        elif overflow <= DURATION_SPILL_TOLERANCE_DAYS:
+   359→            reasons.append(
+   360→                _reason(
+   361→                    "crop_calendar",
+   362→                    "duration_spills",
+   363→                    f"Crop duration {int(duration)} d exceeds the season by {overflow} d "
+   364→                    f"(within the {DURATION_SPILL_TOLERANCE_DAYS}-d harvest-spill tolerance) "
+   365→                    "— conditionally eligible.",
+   366→                    severity="conditional",
+   367→                    source_refs=[_trait_ref(duration_trait)] if duration_trait else None,
+   368→                )
+   369→            )
+   370→        else:
+   371→            return CandidateAssessment(
+   372→                crop_code=crop.crop_code,
+   373→                status="excluded",
+   374→                reasons=(
+   375→                    _reason(
+   376→                        "crop_calendar",
+   377→                        "duration_exceeds_season",
+   378→                        f"Crop duration {int(duration)} d exceeds the {season.length_days}-d "
+   379→                        f"season by {overflow} d (beyond tolerance).",
+   380→                        severity="hard",
+   381→                        source_refs=[_trait_ref(duration_trait)] if duration_trait else None,
+   382→                    ),
+   383→                ),
+   384→            )
+   385→    elif duration is None and window_matched is not None:
+   386→        unevaluated.append(
+   387→            _missing_dimension(
+   388→                "crop_duration",
+   389→                "Crop duration absent from the knowledge base — season fit not verified.",
+   390→            )
+   391→        )
+   392→        reasons.append(
+   393→            _reason(
+   394→                "crop_calendar",
+   395→                "window_matched_duration_unknown",
+   396→                "Planting window overlaps the season; duration unknown.",
+   397→                severity="conditional",
+   398→            )
+   399→        )
+   400→
+   401→    # 5) climate suitability (EcoCrop-style ranges vs season aggregates)
+   402→    if evidence is None:
+   403→        unevaluated.append(
+   404→            _missing_dimension(
+   405→                "climate_evidence",
+   406→                "No feature run available for this field — climate suitability not "
+   407→                "evaluated (missing evidence is never treated as zero).",
+   408→            )
+   409→        )
+   410→    else:
+   411→        temp_opt_min = crop.numeric_trait("temp_opt_min_degC")
+   412→        temp_min_abs = crop.numeric_trait("temp_min_abs_degC")
+   413→        temp_opt_max = crop.numeric_trait("temp_opt_max_degC")
+   414→        mean_t = evidence.season_mean_temp_degC
+   415→        if mean_t is not None and temp_min_abs is not None:
+   416→            t_trait_min = crop.resolve_trait("temp_min_abs_degC", country)
+   417→            if mean_t < temp_min_abs:
+   418→                return CandidateAssessment(
+   419→                    crop_code=crop.crop_code,
+   420→                    status="excluded",
+   421→                    reasons=(
+   422→                        _reason(
+   423→                            "climate",
+   424→                            "temperature_below_absolute_minimum",
+   425→                            f"Season mean temperature {mean_t} degC is below the crop's "
+   426→                            f"absolute minimum {temp_min_abs} degC.",
+   427→                            severity="hard",
+   428→                            source_refs=[
+   429→                                _trait_ref(t_trait_min) if t_trait_min else {"type": "knowledge_trait", "trait_code": "temp_min_abs_degC"}
+   430→                            ],
+   431→                        ),
+   432→                    ),
+   433→                    unevaluated_dimensions=tuple(unevaluated),
+   434→                )
+   435→        if mean_t is not None and temp_opt_min is not None and temp_opt_max is not None:
+   436→            if temp_opt_min <= mean_t <= temp_opt_max:
+   437→                reasons.append(
+   438→                    _reason(
+   439→                        "climate",
+   440→                        "temperature_within_optimum",
+   441→                        f"Season mean temperature {mean_t} degC within the optimum "
+   442→                        f"{temp_opt_min}..{temp_opt_max} degC.",
+   443→                        source_refs=[
+   444→                            _trait_ref(crop.resolve_trait("temp_opt_min_degC", country))
+   445→                        ],
+   446→                    )
+   447→                )
+   448→            else:
+   449→                marginal = mean_t >= temp_min_abs if temp_min_abs is not None else True
+   450→                reasons.append(
+   451→                    _reason(
+   452→                        "climate",
+   453→                        "temperature_outside_optimum",
+   454→                        f"Season mean temperature {mean_t} degC outside the optimum "
+   455→                        f"{temp_opt_min}..{temp_opt_max} degC — marginal, needs local "
+   456→                        "confirmation.",
+   457→                        severity="conditional" if marginal else "warning",
+   458→                        source_refs=[
+   459→                            _trait_ref(crop.resolve_trait("temp_opt_min_degC", country))
+   460→                        ],
+   461→                    )
+   462→                )
+   463→
+   464→        precip_min = crop.numeric_trait("precip_min_annual_mm")
+   465→        precip_max = crop.numeric_trait("precip_max_annual_mm")
+   466→        precip = evidence.season_precipitation_mm
+   467→        if precip is not None and precip_min is not None and precip_max is not None:
+   468→            if precip < precip_min:
+   469→                reasons.append(
+   470→                    _reason(
+   471→                        "climate",
+   472→                        "precipitation_below_reference_range",
+   473→                        f"Season precipitation {precip} mm is below the crop's annual "
+   474→                        f"reference minimum {precip_min} mm — rainfed deficit likely; "
+   475→                        "irrigation-dependent. Compared against an ANNUAL range — a "
+   476→                        "coarse screening signal, not a water budget.",
+   477→                        severity="conditional",
+   478→                        source_refs=[_trait_ref(crop.resolve_trait("precip_min_annual_mm", country))],
+   479→                    )
+   480→                )
+   481→            elif precip > precip_max:
+   482→                reasons.append(
+   483→                    _reason(
+   484→                        "climate",
+   485→                        "precipitation_above_reference_range",
+   486→                        f"Season precipitation {precip} mm exceeds the crop's annual "
+   487→                        f"reference maximum {precip_max} mm — excess-moisture risk.",
+   488→                        severity="conditional",
+   489→                        source_refs=[_trait_ref(crop.resolve_trait("precip_max_annual_mm", country))],
+   490→                    )
+   491→                )
+   492→        # hot days (generic index, NOT crop-specific heat stress)
+   493→        if evidence.season_hot_days_35c:
+   494→            reasons.append(
+   495→                _reason(
+   496→                    "climate",
+   497→                    "hot_days_observed",
+   498→                    f"{evidence.season_hot_days_35c} days >=35 degC in the evidence window "
+   499→                    "(generic meteorological index; crop-specific heat stress needs the "
+   500→                    "sourced crop thresholds — not applied here).",
+   501→                    severity="info",
+   502→                )
+   503→            )
+   504→
+   505→    # 6) soil pH (evidence class surfaced — SoilGrids is a prediction)
+   506→    soil = farm.soil
+   507→    ph_opt_min = crop.numeric_trait("ph_opt_min")
+   508→    ph_opt_max = crop.numeric_trait("ph_opt_max")
+   509→    if soil is not None and soil.ph is not None and ph_opt_min is not None and ph_opt_max is not None:
+   510→        ph_value, ph_evidence_class = soil.ph
+   511→        ph_trait = crop.resolve_trait("ph_opt_min", country)
+   512→        if ph_opt_min <= ph_value <= ph_opt_max:
+   513→            reasons.append(
+   514→                _reason(
+   515→                    "soil",
+   516→                    "ph_within_optimum",
+   517→                    f"Soil pH {ph_value} within crop optimum {ph_opt_min}..{ph_opt_max} "
+   518→                    f"(soil evidence class: {ph_evidence_class}).",
+   519→                    source_refs=[_trait_ref(ph_trait)] if ph_trait else None,
+   520→                )
+   521→            )
+   522→        else:
+   523→            reasons.append(
+   524→                _reason(
+   525→                    "soil",
+   526→                    "ph_outside_optimum",
+   527→                    f"Soil pH {ph_value} outside crop optimum {ph_opt_min}..{ph_opt_max} "
+   528→                    f"— marginal (soil evidence class: {ph_evidence_class}; a 0-5 cm "
+   529→                    "model prediction is not a lab measurement).",
+   530→                    severity="conditional",
+   531→                    source_refs=[_trait_ref(ph_trait)] if ph_trait else None,
+   532→                )
+   533→            )
+   534→    elif soil is None or soil.ph is None:
+   535→        unevaluated.append(
+   536→            _missing_dimension(
+   537→                "soil_ph",
+   538→                "No soil pH evidence for the field — soil suitability not evaluated.",
+   539→            )
+   540→        )
+   541→
+   542→    # 7) water requirement estimate (screening, ADR-0017) + net irrigation
+   543→    #    requirement (M6A, ADR-0019/0021)
+   544→    water_mm: float | None = None
+   545→    water_assumptions: tuple[str, ...] = ()
+   546→    nir_mm: float | None = None
+   547→    demand_basis: str | None = None
+   548→    if evidence is not None:
+   549→        water_mm, why_not = estimate_water_requirement_mm(crop, evidence, season)
+   550→        if water_mm is None:
+   551→            unevaluated.append(
+   552→                _missing_dimension("water_requirement", " ".join(why_not))
+   553→            )
+   554→        else:
+   555→            water_assumptions = tuple(why_not)  # assumptions when estimated
+   556→        nir_mm, demand_basis, nir_why_not = estimate_net_irrigation_mm(
+   557→            crop, evidence, season
+   558→        )
+   559→        if nir_mm is None and water_mm is not None:
+   560→            demand_basis = (
+   561→                "demand basis: ETc screening (net irrigation requirement not "
+   562→                f"evaluable — {' '.join(nir_why_not)}); ETc is a conservative "
+   563→                "upper bound of irrigation need"
+   564→            )
+   565→            water_assumptions = water_assumptions + (demand_basis,)
+   566→
+   567→    # 8) rotation history (rule-gated, region-scoped)
+   568→    if previous_crop_code is not None:
+   569→        from app.knowledge.service import rules_between
+   570→
+   571→        rules = rules_between(knowledge, previous_crop_code, crop.crop_code, country)
+   572→        for rule in rules:
+   573→            if rule.min_break_seasons < 1:
+   574→                reasons.append(
+   575→                    _reason(
+   576→                        "rotation_knowledge",
+   577→                        f"rule_{rule.rule_code}",
+   578→                        f"Favourable succession after {previous_crop_code}: {rule.mechanism}",
+   579→                        source_refs=[{
+   580→                            "type": "rotation_rule",
+   581→                            "rule_code": rule.rule_code,
+   582→                            "validation_status": rule.validation_status,
+   583→                            "source_key": rule.source_key,
+   584→                            "citation_text": rule.citation_text,
+   585→                        }],
+   586→                    )
+   587→                )
+   588→                continue
+   589→            if rule.is_hard_enforceable:
+   590→                return CandidateAssessment(
+   591→                    crop_code=crop.crop_code,
+   592→                    status="excluded",
+   593→                    reasons=(
+   594→                        _reason(
+   595→                            "rotation_knowledge",
+   596→                            f"rule_{rule.rule_code}",
+   597→                            f"Regionally CONFIRMED rotation rule forbids {previous_crop_code} "
+   598→                            f"→ {crop.crop_code} within {rule.min_break_seasons} season(s): "
+   599→                            f"{rule.mechanism}",
+   600→                            severity="hard",
+   601→                            source_refs=[{
+   602→                                "type": "rotation_rule",
+   603→                                "rule_code": rule.rule_code,
+   604→                                "validation_status": rule.validation_status,
+   605→                                "source_key": rule.source_key,
+   606→                                "citation_text": rule.citation_text,
+   607→                            }],
+   608→                        ),
+   609→                    ),
+   610→                )
+   611→            reasons.append(
+   612→                _reason(
+   613→                    "rotation_knowledge",
+   614→                    f"rule_{rule.rule_code}",
+   615→                    f"REFERENCE rule suggests a break after {previous_crop_code} "
+   616→                    f"({rule.mechanism}) — not regionally confirmed; candidate is "
+   617→                    "conditionally eligible and the rule is NOT enforced.",
+   618→                    severity="conditional",
+   619→                    source_refs=[{
+   620→                        "type": "rotation_rule",
+   621→                        "rule_code": rule.rule_code,
+   622→                        "validation_status": rule.validation_status,
+   623→                        "source_key": rule.source_key,
+   624→                        "citation_text": rule.citation_text,
+   625→                    }],
+   626→                )
+   627→            )
+   628→
+   629→    # ---- resolve status
+   630→    hard_excluded = any(r["severity"] == "hard" for r in reasons)
+   631→    if hard_excluded:
+   632→        status = "excluded"
+   633→    elif unevaluated and any(
+   634→        d["code"] == "crop_calendar" for d in unevaluated
+   635→    ):
+   636→        status = "unevaluated"
+   637→    elif any(r["severity"] == "conditional" for r in reasons):
+   638→        status = "conditionally_eligible"
+   639→    else:
+   640→        status = "eligible"
+   641→
+   642→    matched_labels = tuple(
+   643→        f"{w.planting_start}..{w.planting_end}" for w in _windows_for_field(crop, farm.hemisphere, country)
+   644→    )
+   645→    return CandidateAssessment(
+   646→        crop_code=crop.crop_code,
+   647→        status=status,
+   648→        reasons=tuple(r for r in reasons if r is not None),
+   649→        unevaluated_dimensions=tuple(unevaluated),
+   650→        water_requirement_mm=water_mm,
+   651→        water_estimate_assumptions=water_assumptions,
+   652→        net_irrigation_requirement_mm=nir_mm,
+   653→        water_demand_basis=demand_basis,
+   654→        calendar_windows_matched=matched_labels,
+   655→    )
+   656→
+   657→
+   658→def generate_candidates(
+   659→    knowledge: KnowledgeBaseData,
+   660→    farm: FarmContext,
+   661→) -> dict[str, dict[str, CandidateAssessment]]:
+   662→    """Evaluate every knowledge-base crop for EVERY planning season.
+   663→
+   664→    Season 0 checks rotation rules against the last history crop; later
+   665→    seasons have no known predecessor at candidate time — pairwise rotation
+   666→    rules across planned seasons are enforced by the optimizer constraints
+   667→    (confirmed rules only) and surfaced as reference evidence in explanations.
+   668→    """
+   669→    result: dict[str, dict[str, CandidateAssessment]] = {}
+   670→    history_codes = [h.get("crop_code") for h in farm.history if h.get("crop_code")]
+   671→    for idx, season in enumerate(farm.seasons):
+   672→        evidence = farm.climate_by_season.get(season.label)
+   673→        previous_crop = history_codes[-1] if (history_codes and idx == 0) else None
+   674→        assessments: dict[str, CandidateAssessment] = {}
+   675→        for crop_code in sorted(knowledge.crops):
+   676→            crop = knowledge.crops[crop_code]
+   677→            assessments[crop_code] = assess_crop(
+   678→                crop, season, knowledge, farm, evidence, previous_crop
+   679→            )
+   680→        result[season.label] = assessments
+   681→    return result
+   682→

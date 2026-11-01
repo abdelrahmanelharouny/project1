@@ -1,0 +1,1151 @@
+# FIELDSHIFT — M6B MASTER ENGINEERING SPECIFICATION
+## Soil Health, Soil Profile Intelligence & Nutrient Cycling Engine
+
+**Project:** FieldShift — Global Agricultural Decision Intelligence Platform
+
+**Milestone:** M6B — Soil Health & Nutrient Intelligence
+
+**Previous verified milestone:** M6A — Advanced Water Intelligence Engine
+
+**Execution strategy:** Repository-first, research-driven, scientifically grounded, modular implementation.
+
+**Scope restriction:** M6B only. Do not begin M6C, M7, or other major roadmap modules.
+
+---
+
+# 1. PRIMARY MISSION
+
+Build a comprehensive Soil Intelligence System that understands soil properties, manages soil measurements, calculates defensible soil indicators, evaluates nutrient flows, tracks changes across seasons, and integrates scientifically supported soil information into crop rotation decision-making.
+
+This must not become a generic Soil Health Score calculator.
+
+It must be a multi-dimensional soil intelligence platform built around:
+
+1. Soil sampling and profile management.
+2. Physical soil intelligence.
+3. Chemical soil intelligence.
+4. Biological soil indicators.
+5. Soil organic carbon accounting.
+6. Nitrogen, phosphorus, and potassium budgets.
+7. Soil measurement history and comparability.
+8. Management practice tracking.
+9. Evidence and uncertainty propagation.
+10. Explainable integration with the existing rotation optimizer.
+
+The result must be globally extensible while explicitly respecting regional, laboratory, methodological, and crop-specific limitations.
+
+# 2. REQUIRED SPECIALIST PERSPECTIVE
+
+Approach the implementation as a multidisciplinary engineering and scientific team:
+
+- Soil Scientist.
+- Soil Chemist.
+- Soil Physicist.
+- Soil Biologist.
+- Agricultural Nutrient Management Specialist.
+- Agricultural Data Scientist.
+- Geospatial Engineer.
+- Database Architect.
+- Numerical Methods Engineer.
+- UX Engineer.
+- Scientific QA Engineer.
+
+The implementation must combine domain knowledge with independently verifiable calculations.
+
+Do not treat successful software tests as proof of agronomic validity.
+
+# 3. PHASE 0 — REPOSITORY INSPECTION AND READINESS REVIEW
+
+Before writing code:
+
+1. Inspect the actual repository.
+2. Re-run the full regression suite.
+3. Inspect the M6A implementation and water-related database models.
+4. Review the existing soil observation and SoilGrids integration.
+5. Review all documents in `docs/deepening/`.
+6. Review `IMPLEMENTATION_STATUS.md` and `TEST_MATRIX.md`.
+7. Inspect the actual crop knowledge pack and its version.
+8. Review existing provenance, evidence, uncertainty, and unit-handling contracts.
+9. Identify current soil-related schemas, API routes, frontend components, and tests.
+10. Check all existing migrations and database constraints.
+
+Do not trust previous completion claims without inspecting the actual code.
+
+Produce:
+
+`docs/m6b/M6B_GAP_ANALYSIS.md`
+
+The gap analysis must identify:
+
+- Existing reusable components.
+- Missing scientific concepts.
+- Existing schema limitations.
+- Duplicate functionality.
+- Integration risks with M6A.
+- Required migrations.
+- Knowledge gaps.
+- Required references.
+- Critical assumptions.
+
+Do not rewrite working M3–M6A components without a justified technical reason.
+
+# 4. M6B.1 — SOIL PROFILE AND SAMPLING INTELLIGENCE
+
+Build a comprehensive soil sampling and profile management domain.
+
+## 4.1 Soil profile representation
+
+Support multiple soil layers with explicit:
+
+- Top depth.
+- Bottom depth.
+- Depth unit.
+- Layer identity.
+- Sampling support.
+- Measurement type.
+- Source.
+- Validity period.
+
+Support common depth intervals without assuming that all datasets or laboratories use the same intervals.
+
+At minimum, the model should accommodate:
+
+- 0–5 cm.
+- 5–15 cm.
+- 15–30 cm.
+- 30–60 cm.
+- 60–100 cm.
+- 100–200 cm.
+
+These intervals are relevant to SoilGrids and GlobalSoilMap conventions, but field laboratory sampling must preserve its actual sampled depths.
+
+Do not silently convert a 0–5 cm sample into a 0–30 cm profile estimate.
+
+## 4.2 Soil sampling events
+
+Represent sampling as a first-class domain object.
+
+A sampling event should support:
+
+- Field ID.
+- Sampling date.
+- Sampling depth.
+- Sampling method.
+- Sampling purpose.
+- Sampling locations.
+- GPS coordinates.
+- Management zone.
+- Composite versus individual sample.
+- Number of subsamples when recorded.
+- Sampling equipment.
+- Sample handling.
+- Sample preparation.
+- Sampling organization or person.
+- Notes and photographs.
+- Quality status.
+
+Support both:
+
+- Composite soil samples.
+- Individual soil cores or measurements.
+
+Preserve relationships between a composite sample and its constituent subsamples.
+
+Do not assume all sampling points represent the field equally.
+
+## 4.3 Laboratory analysis metadata
+
+Every soil-test result must retain:
+
+- Laboratory.
+- Analytical method.
+- Extraction method.
+- Extractant.
+- Soil-to-solution ratio.
+- Measurement temperature where relevant.
+- Reporting basis.
+- Detection limit.
+- Quantification limit.
+- Result qualifier.
+- Measurement uncertainty when available.
+- Quality-control status.
+- Report reference.
+
+Different laboratory methods must remain distinguishable.
+
+Do not compare analytically different measurements as though they were identical.
+
+## 4.4 Soil Sample Import
+
+Build an extensible soil-laboratory CSV import workflow.
+
+Support:
+
+- Field validation.
+- Sample identification.
+- Depth validation.
+- Soil property mapping.
+- Unit normalization.
+- Analytical method mapping.
+- Detection-limit parsing.
+- Missing-value handling.
+- Duplicate detection.
+- Row-level provenance.
+- File checksum.
+- Idempotency.
+- Import warnings.
+- Rejected-row reporting.
+
+Design the contract so different laboratory templates can be mapped into a common canonical schema.
+
+PDF and image report extraction may be considered a future extension, but never silently accept unverified OCR results as validated laboratory measurements.
+
+# 5. M6B.2 — SOIL PHYSICAL INTELLIGENCE
+
+Develop a physical soil properties knowledge and measurement system.
+
+Support the following indicators when evidence exists:
+
+## Texture
+
+- Sand percentage.
+- Silt percentage.
+- Clay percentage.
+- Soil texture classification.
+- Classification system used.
+- Texture measurement method.
+
+Ensure compatible fractions sum to 100% within defined numerical tolerance.
+
+Support USDA and other documented classification systems without mixing their classification boundaries.
+
+## Bulk density
+
+Represent:
+
+- Whole-soil bulk density.
+- Fine-earth bulk density.
+- Coarse fragment content.
+- Sample depth.
+- Measurement method.
+- Unit.
+- Measurement basis.
+
+Do not assume that bulk density is available merely because SoilGrids provides a prediction.
+
+## Porosity
+
+Where inputs support estimation, calculate total porosity using:
+
+n = 1 - BD / PD
+
+Where:
+
+- n is total porosity.
+- BD is bulk density.
+- PD is particle density.
+
+Never assume particle density without a documented value or justified assumption.
+
+Label calculated porosity as estimated when particle density is inferred.
+
+## Infiltration
+
+Support:
+
+- Infiltration rate.
+- Measurement method.
+- Initial moisture conditions.
+- Surface conditions.
+- Measurement duration.
+- Unit.
+- Repeated measurements.
+
+Do not compare infiltration values from incompatible procedures without a valid normalization or comparison methodology.
+
+## Aggregate stability
+
+Support the distinction between:
+
+- Wet aggregate stability.
+- Dry aggregate stability.
+- Mean weight diameter.
+- Aggregate size distribution.
+
+Store the exact analytical procedure.
+
+## Compaction
+
+Support:
+
+- Penetration resistance.
+- Measurement depth.
+- Cone specification.
+- Soil moisture conditions.
+- Sampling method.
+
+Do not interpret penetration resistance independently of soil water conditions.
+
+## Available Water Capacity
+
+Store and evaluate:
+
+- Water content at field capacity.
+- Water content at permanent wilting point.
+- Water content measurement basis.
+- Matric potential.
+- Soil layer depth.
+- Hydraulic measurement method.
+
+Keep these properties compatible with the existing M6A water-balance domain.
+
+Do not build a separate, inconsistent implementation of soil-water retention.
+
+# 6. M6B.3 — SOIL CHEMICAL INTELLIGENCE
+
+Support a method-aware chemical soil testing framework.
+
+## Core soil properties
+
+- pH.
+- Electrical conductivity.
+- Organic carbon.
+- Total nitrogen.
+- Available nitrogen.
+- Available phosphorus.
+- Extractable potassium.
+- Cation exchange capacity.
+- Exchangeable cations when available.
+- Carbonate content when relevant.
+- Sodium-related indicators where appropriate.
+
+## 6.1 Soil pH
+
+Always store:
+
+- pH value.
+- Extraction medium.
+- Soil-to-solution ratio.
+- Analytical method.
+- Sample depth.
+- Laboratory.
+
+Distinguish pH measured in water, calcium chloride, and other extraction media.
+
+Do not apply a universal crop suitability threshold without considering measurement method, crop, soil, and region.
+
+## 6.2 Soil salinity
+
+Support:
+
+- ECe from saturated paste extract.
+- EC measurements at other soil-to-water ratios.
+- EC measurement temperature.
+- Conversion methodology.
+- Soil texture.
+- Relevant calibration information.
+
+Do not equate EC 1:5 with ECe.
+
+Do not apply a generic conversion across all soil textures.
+
+## 6.3 Nutrient measurements
+
+Distinguish:
+
+- Total nutrient content.
+- Extractable nutrient content.
+- Plant-available nutrient estimates.
+- Nutrient concentration.
+- Nutrient stocks.
+- Fertilizer application amounts.
+
+For phosphorus and potassium, preserve chemical reporting forms and convert oxide units to elemental forms only through explicit, versioned conversion functions.
+
+Do not treat total soil phosphorus as plant-available phosphorus.
+
+Do not interpret a nutrient concentration as a nutrient stock without the required physical soil parameters.
+
+# 7. M6B.4 — SOIL ORGANIC CARBON INTELLIGENCE
+
+This must be a scientifically rigorous, independently tested module.
+
+## 7.1 Distinguish carbon variables
+
+Keep these separate:
+
+- SOC concentration.
+- Organic matter concentration.
+- SOC density.
+- SOC stock.
+- SOC stock by depth.
+- SOC stock change.
+- Carbon inputs.
+- Carbon removals.
+- Estimated carbon sequestration.
+
+Organic matter and organic carbon are not identical.
+
+Do not use a universal organic matter-to-carbon conversion without declaring the method and its applicability.
+
+## 7.2 SOC stock calculation
+
+Implement a documented calculation based on appropriate soil measurements.
+
+Where inputs use the following basis:
+
+- OC: mg C/g fine earth.
+- BDfine: g fine earth/cm³ fine earth.
+- vCF: volumetric coarse-fragment fraction.
+- d: layer thickness in cm.
+
+The FAO/IPCC-style equation is:
+
+SOC stock (Mg C/ha) =
+OC × BDfine × (1 - vCF) × d × 0.1
+
+Verify dimensional consistency and independently test the implementation.
+
+If the bulk-density definition or coarse-fragment basis differs, use the appropriate documented alternative rather than applying this formula mechanically.
+
+Do not double-correct coarse fragments.
+
+Do not compute SOC stock where the required depth, density, concentration, or coarse-fragment information is missing.
+
+In those cases, show available concentration data and mark stock as not evaluated.
+
+## 7.3 Layer-wise stock calculation
+
+Calculate SOC separately for each layer.
+
+The total stock of a profile may be calculated as the sum of compatible layer stocks:
+
+SOC_profile = Σ SOC_layer
+
+Do not add overlapping or duplicated depth intervals.
+
+Validate gaps in the soil profile.
+
+## 7.4 Fixed-depth versus Equivalent Soil Mass
+
+Implement method-aware comparisons.
+
+Support:
+
+- Fixed-depth comparison.
+- Equivalent soil mass comparison when required data exist.
+
+Explain that bulk-density changes can affect fixed-depth stock comparisons.
+
+Do not claim equivalent-soil-mass correction when additional sample depths or mass information are unavailable.
+
+Preserve the comparison method and version in every result.
+
+## 7.5 SoilGrids SOC integration
+
+Use existing SoilGrids provider contracts.
+
+Preserve:
+
+- Native pixel resolution.
+- Depth intervals.
+- Mean.
+- Median.
+- Q0.05.
+- Q0.95.
+- Spatial support.
+- Product version.
+- Prediction uncertainty.
+
+Important:
+
+Pixel-level Q0.05 and Q0.95 layers cannot simply be averaged and relabeled as a field-level 90% prediction interval.
+
+Implement an appropriate field-level uncertainty methodology, or clearly report the uncertainty aggregation as unavailable.
+
+Distinguish mapped estimates from field-measured soil samples.
+
+## 7.6 SOC trend analysis
+
+Compare SOC stocks only when:
+
+- Depth intervals are compatible.
+- Sampling methods are sufficiently comparable.
+- Bulk-density methodology is available.
+- Coarse-fragment treatment is compatible.
+- Sampling locations and spatial support are documented.
+- Analytical methods are comparable.
+
+Expose differences in methodology before showing temporal trends.
+
+# 8. M6B.5 — NUTRIENT CYCLING AND BUDGET ENGINE
+
+Build a season-aware nutrient accounting system for N, P, and K.
+
+## 8.1 Nutrient input records
+
+Support:
+
+- Synthetic fertilizers.
+- Manure.
+- Compost.
+- Organic amendments.
+- Biological nitrogen fixation where estimated using documented methods.
+- Atmospheric nitrogen deposition where supported.
+- Nutrients in irrigation water when measured.
+- Other documented nutrient inputs.
+
+Each input must support:
+
+- Application date.
+- Applied mass.
+- Application area.
+- Product identity.
+- Nutrient grade.
+- Nutrient concentration.
+- Moisture basis.
+- Available fraction when scientifically justified.
+- Application method.
+- Reference and provenance.
+
+## 8.2 Nutrient output records
+
+Support:
+
+- Harvested crop products.
+- Crop residues removed.
+- Other biomass exported.
+
+Calculate nutrient removal using:
+
+Exported biomass × nutrient concentration
+
+Maintain explicit dry-matter versus as-harvest basis.
+
+Do not infer nutrient removal using yield alone without a sourced concentration or defensible estimate.
+
+## 8.3 Nutrient budget
+
+Implement a clearly defined partial or full nutrient budget.
+
+General principle:
+
+Nutrient balance = Total documented inputs - Total documented outputs
+
+Where reliable information exists, include:
+
+- Fertilizer inputs.
+- Manure inputs.
+- Biological nitrogen fixation.
+- Atmospheric N deposition.
+- Irrigation nutrient inputs.
+- Harvest removal.
+- Residue removal.
+- Relevant nutrient losses.
+
+Crucial restrictions:
+
+1. Do not silently treat unmeasured leaching as zero.
+2. Do not treat unknown denitrification or volatilization as zero.
+3. Do not assume all manure nutrients are immediately plant-available.
+4. Do not confuse nutrient application with nutrient uptake.
+5. Do not interpret a partial balance as a full soil nutrient stock change.
+6. Do not calculate nitrogen fixation from legume classification alone.
+
+Return:
+
+- Complete balance.
+- Partial balance.
+- Not evaluated.
+
+Explain which flows are missing.
+
+## 8.4 Nutrient use efficiency
+
+If implemented, every NUE definition must be explicit.
+
+For example, distinguish nutrient output/input ratios from agronomic efficiency and apparent recovery efficiency.
+
+Do not present one efficiency calculation as universally applicable to all nutrient management systems.
+
+## 8.5 Rotation-level nutrient effects
+
+Integrate the nutrient model with crop rotation history.
+
+Consider:
+
+- Nutrient removal by crop.
+- Residue retention or removal.
+- Manure and fertilizer inputs.
+- Legume-related N inputs when documented.
+- Nutrient balance by season.
+- Cumulative nutrient balance.
+- Nutrient management implications.
+
+Do not automatically assign nitrogen credits to all legume crops.
+
+# 9. M6B.6 — BIOLOGICAL SOIL INDICATORS
+
+Build an extensible biological soil indicator framework.
+
+Support measurements when they exist:
+
+- Microbial biomass carbon.
+- Microbial biomass nitrogen.
+- Soil respiration.
+- Potentially mineralizable nitrogen.
+- Earthworm abundance.
+- Soil enzyme activities.
+- Particulate organic matter.
+- Other documented biological indicators.
+
+Preserve each method's:
+
+- Sample handling.
+- Incubation duration.
+- Temperature.
+- Analytical protocol.
+- Unit.
+- Reference.
+- Sampling date.
+
+Do not simulate actual microbial activity from generic soil characteristics without a validated model.
+
+Do not assume that missing biological measurements imply poor soil health.
+
+# 10. M6B.7 — MULTI-DIMENSIONAL SOIL HEALTH ASSESSMENT
+
+Build a multi-domain assessment rather than an opaque universal score.
+
+The main domains should be:
+
+1. Physical.
+2. Chemical.
+3. Biological.
+4. Hydrological.
+5. Organic matter and nutrient cycling.
+
+For each domain, display:
+
+- Available indicators.
+- Missing indicators.
+- Measurement type.
+- Historical trend.
+- Data quality.
+- Reference methodology.
+- Local applicability.
+- Uncertainty.
+- Interpretation.
+
+Do not make an unsupported overall claim such as "excellent soil health".
+
+A composite index may be introduced only if a defensible, validated methodology exists.
+
+If a composite index is used, disclose:
+
+- Indicator definitions.
+- Normalization.
+- Weighting.
+- Missing-data handling.
+- Regional applicability.
+- Sensitivity to weights.
+- Validation status.
+
+The default output should be a transparent profile of soil functions.
+
+# 11. M6B.8 — SOIL MANAGEMENT LEDGER
+
+Connect soil changes with documented farm management events.
+
+Support:
+
+- Crop planting.
+- Harvesting.
+- Fertilizer application.
+- Manure and compost application.
+- Residue retention.
+- Residue removal.
+- Tillage.
+- Cover crop termination.
+- Irrigation.
+- Soil amendments.
+
+Maintain a chronological event history.
+
+The system may identify temporal associations between management events and subsequent measurements.
+
+Do not claim causation from simple temporal correlation.
+
+Provide an "observed change versus expected mechanism" explanation.
+
+Distinguish measured changes from modeled expectations.
+
+# 12. M6B.9 — SOIL INTELLIGENCE & DECISION SUPPORT
+
+Integrate the soil engine with existing FieldShift components.
+
+The system should be capable of explaining how soil conditions affect:
+
+- Crop suitability.
+- Rotation feasibility.
+- Water retention.
+- Salinity sensitivity.
+- Root development.
+- Nutrient availability.
+- Soil organic matter management.
+- Cover-crop suitability when supporting evidence exists.
+
+Implement a soil-based candidate evaluation interface.
+
+For each crop strategy, explain:
+
+- Which soil indicators support its suitability.
+- Which indicators raise concerns.
+- Which soil properties are missing.
+- What measurements would materially improve the decision.
+- Whether local expert validation is required.
+
+Do not introduce universal crop suitability thresholds.
+
+# 13. M6B.10 — VALUE OF INFORMATION / DATA COLLECTION ASSISTANT
+
+Implement a carefully scoped data-readiness improvement.
+
+Identify which missing soil measurements could materially affect a current decision.
+
+For example:
+
+- Soil salinity.
+- Soil organic carbon.
+- Bulk density.
+- Available phosphorus.
+- Soil pH.
+
+Estimate measurement priority based on documented effects on decision uncertainty or candidate feasibility.
+
+This must not invent sampling costs, expected benefits, or statistical confidence.
+
+If data does not support quantitative value-of-information calculations, present an evidence-based qualitative priority ranking.
+
+Allow the farmer or agronomist to record which measurements were subsequently collected.
+
+# 14. DATABASE AND DATA CONTRACT REQUIREMENTS
+
+Inspect existing schemas before creating migrations.
+
+Prefer normalized, extensible models.
+
+Expected logical entities include:
+
+- soil_sampling_events
+- soil_sampling_locations
+- soil_samples
+- soil_sample_layers
+- soil_sample_subsamples
+- soil_laboratories
+- soil_analytical_methods
+- soil_measurements
+- soil_profiles
+- soil_indicators
+- soil_assessments
+- soil_management_events
+- nutrient_products
+- nutrient_applications
+- crop_nutrient_removals
+- nutrient_budget_runs
+- nutrient_budget_entries
+- soc_stock_runs
+- soil_health_assessment_runs
+- soil_methodology_versions
+- soil_evidence_references
+
+Use existing project naming conventions and domain models where possible.
+
+Support:
+
+- UUID identities.
+- Tenant isolation.
+- Field references.
+- Temporal validity.
+- Depth intervals.
+- Unit metadata.
+- Analytical method metadata.
+- Evidence classification.
+- Uncertainty.
+- Source and dataset versions.
+- Immutable calculation snapshots.
+
+Avoid one oversized JSON-only soil record.
+
+Use structured relational data for core properties and JSONB only where flexible metadata is genuinely required.
+
+# 15. API CONTRACTS
+
+Design and document endpoints following the existing `/api/v1/` conventions.
+
+Candidate endpoint groups:
+
+## Sampling
+
+POST `/fields/{field_id}/soil-samples`
+
+GET `/fields/{field_id}/soil-samples`
+
+GET `/soil-samples/{sample_id}`
+
+POST `/soil-samples/import`
+
+## Soil profile
+
+GET `/fields/{field_id}/soil-profile`
+
+GET `/fields/{field_id}/soil-profile/history`
+
+## Soil indicators
+
+GET `/fields/{field_id}/soil-indicators`
+
+POST `/fields/{field_id}/soil-assessments`
+
+GET `/soil-assessments/{assessment_id}`
+
+## Carbon
+
+POST `/fields/{field_id}/soc-stock-runs`
+
+GET `/fields/{field_id}/soc-stock-runs`
+
+## Nutrients
+
+POST `/fields/{field_id}/nutrient-applications`
+
+POST `/fields/{field_id}/nutrient-budget-runs`
+
+GET `/nutrient-budget-runs/{run_id}`
+
+## Soil intelligence
+
+GET `/fields/{field_id}/soil-health`
+
+GET `/fields/{field_id}/soil-data-readiness`
+
+All long-running tasks should support background processing where necessary.
+
+Every response must preserve the distinction between measured, estimated, reference, farmer-reported, and synthetic data.
+
+# 16. FRONTEND AND VISUAL EXPERIENCE
+
+Create a dedicated Soil Intelligence experience with:
+
+## A. Soil Overview
+
+Show the soil profile across physical, chemical, biological, and hydrological domains.
+
+Avoid reducing the profile to a single score.
+
+## B. Soil Profile Explorer
+
+Show soil layers by depth.
+
+Allow users to inspect:
+
+- Available properties.
+- Actual sampling depth.
+- Measurement method.
+- Source.
+- Missing layers.
+- Uncertainty.
+
+## C. Soil Sampling Map
+
+Visualize sampling locations and management zones.
+
+Clearly distinguish direct sample locations from interpolated or gridded estimates.
+
+## D. Laboratory Import Workspace
+
+Provide:
+
+- File upload.
+- Column mapping.
+- Validation preview.
+- Import summary.
+- Rejected-row report.
+- Sample and result history.
+
+## E. Organic Carbon & Nutrient Dashboard
+
+Show:
+
+- SOC concentration.
+- SOC stock when valid.
+- Stock by depth.
+- N/P/K input-output balances.
+- Seasonal changes.
+- Missing-flow warnings.
+
+## F. Soil Health Timeline
+
+Show measurement history.
+
+Do not connect incomparable measurements as a continuous trend without warning.
+
+## G. Expert Mode
+
+Expose:
+
+- Analytical methods.
+- Extraction procedures.
+- Soil depth.
+- Units.
+- Equations.
+- Quality flags.
+- Prediction ranges.
+- Calculation versions.
+- References.
+
+## H. Simple Mode
+
+Translate technical findings into understandable agricultural language without hiding important limitations.
+
+Use colors and warning statuses only when supported by explicit thresholds applicable to the context.
+
+The interface must remain responsive, accessible, and consistent with the existing FieldShift design.
+
+# 17. ENGINEERING-WIDE IMPROVEMENTS TO EVALUATE
+
+During implementation, evaluate opportunities to improve the existing architecture:
+
+- Unit-aware calculations using a compatible measurement library such as Pint, if integration is justified.
+- Shared uncertainty propagation utilities.
+- Consistent domain calculation contracts.
+- Evidence lineage across environmental, soil, water, and rotation calculations.
+- Shared method and formula registry.
+- Stronger audit trails.
+- More detailed feature and knowledge versioning.
+- Spatial data aggregation improvements.
+- Management zone support where spatial evidence is sufficient.
+- Scientific test fixtures and golden reference cases.
+- Structured job monitoring.
+- Query performance and relevant database indexing.
+
+Do not introduce dependencies, services, or architectural complexity without demonstrating a concrete benefit.
+
+Preserve all existing M1–M6A functionality.
+
+# 18. SCIENTIFIC VALIDATION AND TESTING
+
+Build independent numerical benchmarks.
+
+Required testing groups:
+
+## Sampling tests
+
+- Depth interval overlap.
+- Composite sample relationships.
+- Duplicate subsample identification.
+- Sampling date validation.
+- Spatial coordinate validation.
+- Method compatibility.
+
+## Soil chemistry tests
+
+- pH method distinctions.
+- EC extraction distinctions.
+- Unit conversion.
+- Nutrient reporting basis.
+- Missing method handling.
+- Detection-limit handling.
+
+## Soil physical tests
+
+- Texture fractions.
+- Bulk density basis.
+- Porosity.
+- Water retention properties.
+- Depth compatibility.
+
+## SOC tests
+
+- Concentration-to-stock conversion.
+- Coarse fragment correction.
+- Layer-wise calculation.
+- Profile aggregation.
+- Fixed-depth comparison.
+- Equivalent soil mass.
+- Missing bulk density.
+- Inconsistent depth intervals.
+- Uncertainty propagation.
+
+## Nutrient budget tests
+
+- Fertilizer inputs.
+- Manure inputs.
+- Biological nitrogen fixation.
+- Crop nutrient removal.
+- Residue export.
+- Missing nutrient flows.
+- Partial versus full budget.
+- N/P/K unit conversion.
+- Multi-season accounting.
+
+## Soil assessment tests
+
+- Indicator availability.
+- Method compatibility.
+- Local reference applicability.
+- Missing indicators.
+- Conflicting evidence.
+- Historical comparability.
+- No unsupported universal score.
+
+## Integration tests
+
+- M6A interoperability.
+- Rotation evaluation.
+- Provenance propagation.
+- Tenant isolation.
+- Synthetic/real separation.
+- Reproducible runs.
+- Database migration rollback safety.
+
+Add property-based and metamorphic tests wherever mathematically appropriate.
+
+Do not derive expected outputs from the same function being tested.
+
+Use independent reference calculations and authoritative worked examples.
+
+# 19. SCIENTIFIC REFERENCE REQUIREMENTS
+
+Start with these primary or authoritative references:
+
+1. USDA NRCS Soil Health Assessment:
+https://www.nrcs.usda.gov/conservation-basics/soil/soil-health/soil-health-assessment
+
+2. SoilGrids Documentation:
+https://docs.isric.org/globaldata/soilgrids/
+
+3. SoilGrids variables, depths, units, and prediction uncertainty:
+https://docs.isric.org/globaldata/soilgrids/SoilGrids_faqs_01.html
+
+4. FAO Global Soil Organic Carbon MRV Protocol:
+https://www.fao.org/fileadmin/user_upload/GSP/MRV/GSP_MRV_Protocol_A4_EN_002.pdf
+
+5. FAO Soil Salinity Measurement Methodology:
+https://www.fao.org/4/x2002e/x2002e.pdf
+
+6. FAOSTAT Global Cropland Nutrient Budgets — N, P, K:
+https://essd.copernicus.org/articles/16/525/2024/
+
+7. Soil organic carbon stocks and equivalent soil mass considerations:
+https://samples.ccafs.cgiar.org/measurement-methods/chapter-7-methods-for-smallholder-quantification-of-soil-carbon-stocks-and-stock-changes/
+
+References are starting points. Verify the actual publication, edition, method, units, and applicability before using any value or formula.
+
+Do not fabricate citations, DOI identifiers, page numbers, or regional thresholds.
+
+Record exact references in the knowledge base and methodology documentation.
+
+# 20. REQUIRED DOCUMENTATION
+
+Create:
+
+docs/m6b/
+    M6B_AS_BUILT_DESIGN.md
+    M6B_SCIENTIFIC_METHODOLOGY.md
+    M6B_SOIL_DATA_DICTIONARY.md
+    M6B_SAMPLING_AND_LAB_METHODS.md
+    M6B_SOC_STOCK_METHODOLOGY.md
+    M6B_NUTRIENT_BUDGET_METHODOLOGY.md
+    M6B_SOIL_HEALTH_INDICATORS.md
+    M6B_UNCERTAINTY_POLICY.md
+    M6B_API_CONTRACTS.md
+    M6B_DATABASE_DESIGN.md
+    M6B_TEST_AND_BENCHMARK_REPORT.md
+    M6B_RESEARCH_BACKLOG.md
+    M6B_VERIFICATION_REPORT.md
+
+Update:
+
+- IMPLEMENTATION_STATUS.md
+- TEST_MATRIX.md
+- README.md
+- Data dictionary.
+- Relevant ADRs.
+- API documentation.
+- Knowledge-pack documentation.
+
+# 21. EXECUTION SEQUENCE
+
+Execute in these increments:
+
+**Step 1:** Repository inspection and M6B readiness matrix.
+
+**Step 2:** Scientific design and knowledge schema specification.
+
+**Step 3:** Sampling, soil profile, and laboratory data models.
+
+**Step 4:** Physical and chemical indicator engines.
+
+**Step 5:** Organic carbon stock calculations and uncertainty.
+
+**Step 6:** N/P/K nutrient budget engine.
+
+**Step 7:** Soil health multi-domain assessment.
+
+**Step 8:** Management ledger and decision-support integration.
+
+**Step 9:** Soil Intelligence UI and APIs.
+
+**Step 10:** Scientific benchmarks, integration tests, browser E2E, and documentation.
+
+Implement in small increments.
+
+After every increment:
+- Run affected tests.
+- Run relevant regressions.
+- Review scientific assumptions.
+- Update documentation.
+- Check backward compatibility.
+
+# 22. STRICT ACCEPTANCE AND EXIT CRITERIA
+
+M6B must not be considered complete unless:
+
+1. Soil samples and depth layers are stored correctly.
+2. Laboratory methods and analytical metadata are traceable.
+3. Actual measurements remain distinct from mapped predictions.
+4. SOC stock calculations pass independent numerical benchmarks.
+5. Fixed-depth and equivalent-soil-mass methods are distinguished.
+6. Nutrient budgets distinguish complete from partial accounting.
+7. N, P, and K are handled with correct units and reporting bases.
+8. Soil Health is represented as a transparent multi-dimensional assessment.
+9. Missing evidence never becomes zero or a fabricated value.
+10. Uncertainty and provenance propagate through all outputs.
+11. Soil history comparisons reject incompatible methods or depths.
+12. APIs and frontend workflows work end to end.
+13. Existing M1–M6A functionality remains operational.
+14. Full regression, security, database, and browser verification pass.
+15. All scientific limitations and external validation needs are documented.
+
+Do not claim external agronomic validation unless it has actually been performed.
+
+Do not silently convert reference data into regionally confirmed knowledge.
+
+Do not start M6C or M7.
+
+# 23. FINAL EXECUTION DIRECTIVE
+
+First inspect the actual repository and deliver a focused readiness report.
+
+Then implement M6B through small, verifiable increments.
+
+Build a real soil intelligence system, not a collection of attractive soil charts.
+
+Prioritize scientific correctness, physical unit consistency, transparent nutrient accounting, reproducibility, evidence traceability, and useful farmer workflows.
+
+Every soil assessment must explain what was measured, what was estimated, what remains unknown, and what additional information would materially improve the decision.
+
+The final product must integrate with the existing FieldShift Water and Rotation Engines without duplicating their responsibilities.
+
+**Do not merely prepare a plan. Implement the code, benchmark the calculations, run all relevant tests, verify the actual browser experience, and document every remaining limitation.**
