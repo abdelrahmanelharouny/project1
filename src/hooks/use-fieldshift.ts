@@ -26,6 +26,9 @@ import {
   listFarms,
   listWaterPlans,
   verifyFieldState,
+  getScenarioCapabilities,
+  getScenarioTypes,
+  listScenarios,
 } from '@/lib/api'
 import type {
   BoundaryVersionListResponse,
@@ -58,6 +61,9 @@ import type {
   RotationRulesResponse,
   WaterMethodsResponse,
   WaterPlan,
+  ScenarioListResponse,
+  ScenarioTaxonomy,
+  ScenarioCapabilities,
   WaterPlanListResponse,
   WaterReadinessResponse,
 } from '@/lib/types'
@@ -404,5 +410,33 @@ export function useFieldStateVerify(stateId: string | null, enabled: boolean) {
     queryKey: ['field-state-verify', stateId],
     queryFn: () => verifyFieldState(stateId as string),
     enabled: !!stateId && enabled,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Scenarios (M7.2)
+// ---------------------------------------------------------------------------
+
+export function useScenarios(fieldId: string | null): UseQueryResult<ScenarioListResponse> {
+  return useQuery({
+    queryKey: ['scenarios', fieldId],
+    queryFn: () => listScenarios(fieldId as string),
+    enabled: !!fieldId,
+  })
+}
+
+export function useScenarioTypes(): UseQueryResult<ScenarioTaxonomy> {
+  return useQuery({
+    queryKey: ['scenario-types'],
+    queryFn: getScenarioTypes,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useScenarioCapabilities(): UseQueryResult<ScenarioCapabilities> {
+  return useQuery({
+    queryKey: ['scenario-capabilities'],
+    queryFn: getScenarioCapabilities,
+    staleTime: 5 * 60 * 1000,
   })
 }

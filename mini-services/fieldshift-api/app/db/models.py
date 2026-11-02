@@ -1198,3 +1198,164 @@ class FieldState(Base, TimestampMixin):
         ),
         Index("ix_field_states_field", field_id),
     )
+
+
+class Scenario(Base, TimestampMixin):
+    """A hypothetical field scenario DEFINITION (Milestone 7.2).
+
+    A scenario is a validated, versioned, checksummed configuration that
+    references an immutable Field State as its authoritative baseline. It is
+    NOT a simulation result: nothing in M7.2 executes environmental
+    transformations (M7.3 scope does not exist yet).
+
+    Immutability model:
+
+    - draft rows may be edited (PATCH) and re-validated;
+    - finalization freezes the row — enforced by the application AND by the
+      `enforce_scenario_immutability` database trigger (migration 0008), so
+      even a buggy code path cannot silently rewrite a finalized definition;
+    - "updating" a finalized scenario means creating a new version row
+      (`lineage_kind='revision'`, `scenario_version = parent + 1`) or a
+      branch (`lineage_kind='branch'`), linked via `parent_scenario_id`.
+
+    Evidence honesty (M7.0 condition C2): `scenario_type` and
+    `evidence_classification` are bound by a database CHECK — historical
+    observed scenarios are `observed`, hypothetical types are `hypothetical`,
+    and the contract-only climate/forecast types are `not_available`.
+
+    Parent protection: `parent_field_state_id` is FK RESTRICT — a referenced
+    Field State cannot be deleted out from under a scenario (F-13 idiom).
+    The parent's snapshot checksum and boundary version are copied BY VALUE
+    at creation time, so later parent-side changes cannot silently redefine
+    a historical scenario reference.
+    """
+
+    __tablename__ = "scenarios"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    scenario_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    scenario_status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")
+    lineage_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="root")
+    scenario_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # Authoritative baseline reference (M7.2 spec §2 rule 1-2).
+    parent_field_state_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("field_states.id", ondelete="RESTRICT"), nullable=False
+    )
+    # BY-VALUE pins copied from the parent state at creation time.
+    parent_snapshot_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    boundary_version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Lineage: prior version of the same logical scenario, or a branch parent.
+    parent_scenario_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scenarios.id", ondelete="RESTRICT"), nullable=True
+    )
+
+    configuration_schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    canonical_configuration: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    configuration_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    # Temporal/spatial scopes as real columns so DB constraints can enforce
+    # them (the scenario is spatially pinned to the parent's boundary).
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
+
+    evidence_classification: Mapped[str] = mapped_column(String(30), nullable=False)
+    assumption_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    validation_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "scenario_type IN ('historical_observed','historical_perturbation',"
+            "'user_defined_stress','climate_projection','weather_forecast')",
+            name="ck_scenario_type",
+        ),
+        CheckConstraint(
+            "scenario_status IN ('draft','validation_pending','valid','conditionally_valid',"
+            "'invalid','finalized','archived','unsupported')",
+            name="ck_scenario_status",
+        ),
+        CheckConstraint(
+            "lineage_kind IN ('root','revision','branch')", name="ck_scenario_lineage_kind"
+        ),
+        CheckConstraint(
+            "evidence_classification IN ('observed','hypothetical','not_available')",
+            name="ck_scenario_evidence_class",
+        ),
+        # C2 at the database level: type and evidence class can never drift apart.
+        CheckConstraint(
+            "(scenario_type = 'historical_observed' AND evidence_classification = 'observed') "
+            "OR (scenario_type IN ('historical_perturbation','user_defined_stress') "
+            "AND evidence_classification = 'hypothetical') "
+            "OR (scenario_type IN ('climate_projection','weather_forecast') "
+            "AND evidence_classification = 'not_available')",
+            name="ck_scenario_type_evidence_binding",
+        ),
+        CheckConstraint("period_end >= period_start", name="ck_scenario_period_order"),
+        CheckConstraint(
+            "scenario_status != 'finalized' OR finalized_at IS NOT NULL",
+            name="ck_scenario_finalized_at_present",
+        ),
+        # Unavailable types can never imply executable/finalized capability.
+        CheckConstraint(
+            "scenario_type NOT IN ('climate_projection','weather_forecast') "
+            "OR scenario_status NOT IN ('valid','conditionally_valid','finalized')",
+            name="ck_scenario_unavailable_types_never_finalized",
+        ),
+        Index(
+            "uq_scenario_idempotency",
+            field_id,
+            idempotency_key,
+            unique=True,
+            postgresql_where=text_("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_scenarios_field", field_id),
+        Index("ix_scenarios_parent_scenario", parent_scenario_id),
+        Index("ix_scenarios_parent_state", parent_field_state_id),
+    )
+
+
+class ScenarioValidationRecord(Base):
+    """An immutable, append-only validation result (Milestone 7.2).
+
+    One row per validation execution. Records are never updated or deleted
+    (short of deleting the whole scenario row); `validation_summary` on the
+    scenario is a convenience copy of the LATEST record.
+    """
+
+    __tablename__ = "scenario_validation_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    scenario_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scenarios.id", ondelete="CASCADE"), nullable=False
+    )
+    scenario_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    validation_rule_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    validation_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    validation_result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    configuration_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_scenario_validation_scenario", scenario_id),
+        CheckConstraint(
+            "validation_status IN ('valid','invalid','conditionally_valid','unsupported',"
+            "'not_implemented','missing_reference','incompatible_period',"
+            "'insufficient_parent_evidence')",
+            name="ck_scenario_validation_status",
+        ),
+    )

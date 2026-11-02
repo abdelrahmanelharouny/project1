@@ -10,6 +10,7 @@ export type WorkspaceTab =
   | 'rotation'
   | 'water'
   | 'fieldstate'
+  | 'scenarios'
   | 'passport'
 
 export interface SelectedField {
@@ -34,6 +35,7 @@ interface FieldShiftUiState {
   goToObservationsFor: (field: SelectedField) => void
   goToFeaturesFor: (field: SelectedField) => void
   goToFieldStateFor: (field: SelectedField) => void
+  goToScenariosFor: (field: SelectedField) => void
 }
 
 export const useFieldShiftUi = create<FieldShiftUiState>((set) => ({
@@ -62,6 +64,7 @@ export const useFieldShiftUi = create<FieldShiftUiState>((set) => ({
   goToRotationFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'rotation' }),
   goToWaterFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'water' }),
   goToFieldStateFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'fieldstate' }),
+  goToScenariosFor: (field) => set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'scenarios' }),
   goToObservationsFor: (field) =>
     set({ selectedField: field, selectedFarmId: field.farmId, activeTab: 'observations' }),
 }))

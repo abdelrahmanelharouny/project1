@@ -12,6 +12,7 @@ from app.api.v1 import (
     health,
     knowledge,
     rotation,
+    scenarios,
     water,
 )
 
@@ -26,3 +27,4 @@ api_router.include_router(knowledge.router)
 api_router.include_router(rotation.router)
 api_router.include_router(water.router)
 api_router.include_router(field_states.router)
+api_router.include_router(scenarios.router)

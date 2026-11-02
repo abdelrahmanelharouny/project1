@@ -45,6 +45,16 @@ import type {
   FieldStateListResponse,
   FieldStateVerifyResponse,
   FieldStateCompareResponse,
+  Scenario,
+  ScenarioCapabilities,
+  ScenarioCompareResponse,
+  ScenarioCreateInput,
+  ScenarioLineageResponse,
+  ScenarioListResponse,
+  ScenarioTaxonomy,
+  ScenarioValidateResponse,
+  ScenarioVerifyResponse,
+  ScenarioVersionsResponse,
   ObservationManifest,
 } from './types'
 
@@ -624,4 +634,89 @@ export function compareFieldStates(stateIds: string[]): Promise<FieldStateCompar
     method: 'POST',
     body: { state_ids: stateIds },
   })
+}
+
+// ---------------------------------------------------------------------------
+// Scenarios (M7.2) — definitions only; no execution endpoint exists
+// ---------------------------------------------------------------------------
+
+export function getScenarioTypes(): Promise<ScenarioTaxonomy> {
+  return request<ScenarioTaxonomy>('/api/v1/scenarios/types', { anonymous: true })
+}
+
+export function getScenarioCapabilities(): Promise<ScenarioCapabilities> {
+  return request<ScenarioCapabilities>('/api/v1/scenarios/capabilities', { anonymous: true })
+}
+
+export function listScenarios(fieldId: string): Promise<ScenarioListResponse> {
+  return request<ScenarioListResponse>(`/api/v1/fields/${fieldId}/scenarios`)
+}
+
+export function getScenario(
+  scenarioId: string,
+  includeValidationHistory = false
+): Promise<Scenario> {
+  return request<Scenario>(
+    `/api/v1/scenarios/${scenarioId}${includeValidationHistory ? '?include_validation_history=true' : ''}`
+  )
+}
+
+export function createScenario(fieldId: string, input: ScenarioCreateInput): Promise<Scenario> {
+  return request<Scenario>(`/api/v1/fields/${fieldId}/scenarios`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function patchScenario(scenarioId: string, input: Partial<ScenarioCreateInput> & { name?: string; description?: string }): Promise<Scenario> {
+  return request<Scenario>(`/api/v1/scenarios/${scenarioId}`, {
+    method: 'PATCH',
+    body: input,
+  })
+}
+
+export function deleteScenario(scenarioId: string): Promise<{ deleted: boolean; scenario_id: string }> {
+  return request(`/api/v1/scenarios/${scenarioId}`, { method: 'DELETE' })
+}
+
+export function validateScenario(scenarioId: string): Promise<ScenarioValidateResponse> {
+  return request<ScenarioValidateResponse>(`/api/v1/scenarios/${scenarioId}/validate`, {
+    method: 'POST',
+  })
+}
+
+export function finalizeScenario(scenarioId: string): Promise<Scenario> {
+  return request<Scenario>(`/api/v1/scenarios/${scenarioId}/finalize`, { method: 'POST' })
+}
+
+export function archiveScenario(scenarioId: string): Promise<Scenario> {
+  return request<Scenario>(`/api/v1/scenarios/${scenarioId}/archive`, { method: 'POST' })
+}
+
+export function createScenarioVersion(
+  scenarioId: string,
+  input: { scenario_type?: string; name?: string; configuration?: ScenarioCreateInput['configuration']; idempotency_key?: string }
+): Promise<Scenario> {
+  return request<Scenario>(`/api/v1/scenarios/${scenarioId}/versions`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listScenarioVersions(scenarioId: string): Promise<ScenarioVersionsResponse> {
+  return request<ScenarioVersionsResponse>(`/api/v1/scenarios/${scenarioId}/versions`)
+}
+
+export function getScenarioLineage(scenarioId: string): Promise<ScenarioLineageResponse> {
+  return request<ScenarioLineageResponse>(`/api/v1/scenarios/${scenarioId}/lineage`)
+}
+
+export function verifyScenario(scenarioId: string): Promise<ScenarioVerifyResponse> {
+  return request<ScenarioVerifyResponse>(`/api/v1/scenarios/${scenarioId}/verify`)
+}
+
+export function compareScenarios(scenarioId: string, againstId: string): Promise<ScenarioCompareResponse> {
+  return request<ScenarioCompareResponse>(
+    `/api/v1/scenarios/${scenarioId}/compare?against=${encodeURIComponent(againstId)}`
+  )
 }

@@ -1303,3 +1303,264 @@ export interface ObservationManifest {
   synthetic_observation_count: number
   observations: Array<Record<string, unknown>>
 }
+
+// ---------------------------------------------------------------------------
+// Scenario domain (M7.2)
+// ---------------------------------------------------------------------------
+
+export type ScenarioType =
+  | 'historical_observed'
+  | 'historical_perturbation'
+  | 'user_defined_stress'
+  | 'climate_projection'
+  | 'weather_forecast'
+
+export type ScenarioStatus =
+  | 'draft'
+  | 'validation_pending'
+  | 'valid'
+  | 'conditionally_valid'
+  | 'invalid'
+  | 'finalized'
+  | 'archived'
+  | 'unsupported'
+
+export type EvidenceClassification = 'observed' | 'hypothetical' | 'not_available'
+
+export interface ScenarioUnavailableDimension {
+  status: string
+  reason: string
+  dimension?: string
+}
+
+export interface Scenario {
+  id: string
+  field_id: string
+  name: string
+  description: string | null
+  scenario_type: ScenarioType
+  scenario_type_display: string
+  scenario_status: ScenarioStatus
+  lineage_kind: 'root' | 'revision' | 'branch'
+  scenario_version: number
+  parent_scenario_id: string | null
+  parent_field_state_id: string
+  parent_snapshot_checksum: string
+  boundary_version: number
+  configuration_schema_version: string
+  canonical_configuration: Record<string, unknown>
+  configuration_checksum: string
+  period: { start: string; end: string }
+  timezone: string
+  evidence_classification: EvidenceClassification
+  evidence_label: string
+  assumption_metadata: Record<string, unknown>
+  validation_summary: Record<string, unknown>
+  unavailable_dimensions: Record<string, ScenarioUnavailableDimension>
+  created_by: string | null
+  created_at: string | null
+  updated_at: string | null
+  finalized_at: string | null
+  verify_url: string
+  versions_url: string
+  lineage_url: string
+  note: string
+  validation_history?: Array<Record<string, unknown>>
+}
+
+export interface ScenarioListResponse {
+  items: Scenario[]
+}
+
+export interface ScenarioAdjustments {
+  temperature_delta_c?: number | null
+  precipitation_multiplier?: number | null
+  precipitation_delta_mm?: number | null
+  water_allocation_multiplier?: number | null
+  seasonal_timing_shift_days?: number | null
+  rainfall_period_shift_days?: number | null
+}
+
+export interface ScenarioCreateInput {
+  scenario_type: string
+  name?: string
+  description?: string
+  configuration: {
+    type: string
+    parent_field_state_id: string
+    period?: { start: string; end: string }
+    adjustments?: ScenarioAdjustments
+    assumption_metadata?: { origin?: string; status?: string; description?: string }
+  }
+  parent_scenario_id?: string
+  idempotency_key?: string
+}
+
+export interface ScenarioValidationFinding {
+  code: string
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  [key: string]: unknown
+}
+
+export interface ScenarioValidateResponse {
+  scenario_id: string
+  scenario_version: number
+  scenario_status: ScenarioStatus
+  validation_rule_version: string
+  validation_status: string
+  configuration_checksum: string
+  validation_result: {
+    validation_rule_version: string
+    status: string
+    findings: ScenarioValidationFinding[]
+    missing_inputs: string[]
+    unsupported_dimensions: ScenarioUnavailableDimension[]
+    configuration_checksum: string
+    validated_at?: string
+    record_id?: string
+  }
+  record_id: string
+  created_at: string | null
+  note: string
+}
+
+export interface ScenarioVerifyResponse {
+  scenario_id: string
+  configuration_checksum_valid: boolean
+  expected_checksum: string
+  stored_checksum: string
+  parent_state_exists: boolean
+  parent_snapshot_checksum_matches: boolean
+  boundary_version_record_exists: boolean
+  latest_validation: {
+    record_id: string
+    validation_status: string
+    configuration_checksum: string
+    matches_current_configuration: boolean
+  } | null
+  verified_at: string | null
+  note: string
+}
+
+export interface ScenarioTaxonomyType {
+  scenario_type: ScenarioType
+  display_name: string
+  capability: 'implemented' | 'not_implemented'
+  evidence_classification: EvidenceClassification
+  evidence_label: string
+  description: string
+  unavailable_reason: string | null
+}
+
+export interface ScenarioTaxonomy {
+  taxonomy_version: string
+  configuration_schema_version: string
+  validation_rules_version: string
+  types: ScenarioTaxonomyType[]
+  dimensions: Record<string, ScenarioUnavailableDimension>
+  adjustment_bounds: Record<string, [number, number]>
+  lifecycle: {
+    statuses: ScenarioStatus[]
+    legal_transitions: Record<string, string[]>
+  }
+  note: string
+}
+
+export interface ScenarioCapabilities {
+  taxonomy_version: string
+  capabilities: Array<{
+    scenario_type: ScenarioType
+    capability: 'implemented' | 'not_implemented'
+    evidence_classification: EvidenceClassification
+    unavailable_reason: string | null
+  }>
+  dimensions: Record<string, ScenarioUnavailableDimension>
+  execution: { scenario_execution: string; reason: string }
+  digital_twin_level: string
+  note: string
+}
+
+export interface ScenarioVersionsResponse {
+  scenario_id: string
+  chain_length: number
+  latest_version: number
+  items: Array<{
+    id: string
+    scenario_version: number
+    scenario_status: ScenarioStatus
+    configuration_checksum: string
+    configuration_schema_version: string
+    name: string
+    parent_scenario_id: string | null
+    created_at: string | null
+    finalized_at: string | null
+  }>
+}
+
+export interface ScenarioLineageResponse {
+  scenario_id: string
+  lineage_kind: 'root' | 'revision' | 'branch'
+  scenario_version: number
+  ancestors: Array<{
+    id: string
+    name: string
+    scenario_type: ScenarioType
+    scenario_version: number
+    lineage_kind: 'root' | 'revision' | 'branch'
+    scenario_status: ScenarioStatus
+    configuration_checksum: string
+  }>
+  children: Array<{
+    id: string
+    name: string
+    scenario_type: ScenarioType
+    scenario_version: number
+    lineage_kind: 'root' | 'revision' | 'branch'
+    scenario_status: ScenarioStatus
+    configuration_checksum: string
+  }>
+  revision_chain_length: number
+  note: string
+}
+
+export interface ScenarioConfigDiffEntry {
+  path: string
+  kind: 'added' | 'removed' | 'changed'
+  left: unknown
+  right: unknown
+}
+
+export interface ScenarioCompareResponse {
+  scenario_a: {
+    id: string
+    name: string
+    scenario_type: ScenarioType
+    evidence_classification: EvidenceClassification
+    evidence_label: string
+    scenario_version: number
+    scenario_status: ScenarioStatus
+    configuration_checksum: string
+    parent_field_state_id: string
+    parent_snapshot_checksum: string
+    boundary_version: number
+    period: { start: string; end: string }
+  }
+  scenario_b: ScenarioCompareResponse['scenario_a']
+  parents: {
+    same_field: boolean
+    same_parent_state: boolean
+    parent_checksums_equal: boolean
+    boundary_versions: [number, number]
+    boundary_versions_equal: boolean
+  }
+  temporal_comparison: { period_overlap_fraction: number | null; compatible_periods: boolean }
+  configuration_diff: ScenarioConfigDiffEntry[]
+  changed_assumptions: string[]
+  identical_configuration: boolean
+  evidence_classes_differ: boolean
+  unavailable_dimensions: Record<string, ScenarioUnavailableDimension>
+  warnings: string[]
+  compatibility: { parents_compatible: boolean; note: string }
+  note: string
+}
