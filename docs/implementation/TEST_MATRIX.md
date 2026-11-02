@@ -537,3 +537,47 @@ Latest full-suite run: **2026-11-01** — `490 passed, exit 0` (441 pre-existing
 - PostgreSQL 18.6 + PostGIS 3.7.0 (user-space cluster, port 5433) — restored environment
 - Migration head: `0007_field_state_foundation` (code & DB)
 - Frontend lint exit 0; `tsc --noEmit`: no NEW errors (3 pre-existing F-39-class errors in untouched files remain)
+
+## Milestone 7.2 — Scenario domain (2026-11-01)
+
+### Unit tests (45)
+
+| ID | Scenario | Result |
+|---|---|---|
+| U-M7.2-C (26) | contracts: taxonomy honesty, schema validation (bounds/conflicts/empty/extra keys/observed-with-assumptions/unimplementable), canonical serialization determinism, explicit nulls, float stability, checksum materiality (parent pins in; UI metadata out), lifecycle table | ✅ `tests/unit/test_scenario_contracts.py` |
+| U-M7.2-V (19) | validation engine: missing/cross-tenant/mismatched/unsucceeded parents, boundary-record gap → insufficient_parent_evidence, period zero/partial overlap, observed-vs-hypothetical semantics, unlabelled assumptions, unimplemented types, synthetic disclosure (partial + all-synthetic), dimension gaps, result document | ✅ `tests/unit/test_scenario_validation.py` |
+
+### Integration tests (43)
+
+| ID | Scenario | Result |
+|---|---|---|
+| I-M7.2-create | implemented types create; climate/forecast 422 with reasons; invalid/conflicting/unknown configs 422; cross-field parent 422; idempotency replay; taxonomy/capabilities endpoints | ✅ |
+| I-M7.2-lifecycle | validate appends immutable records; finalize requires validation; finalize freezes (PATCH/DELETE/validate → 409; raw SQL trigger); PATCH resets validation; draft delete vs archive; archived terminal | ✅ |
+| I-M7.2-lineage | version of finalized (v2, revision); type mismatch 422; requires finalized; original untouched; branch lineage | ✅ |
+| I-M7.2-protection | parent-state delete RESTRICT; parent unchanged incl. manifest hash; identical definitions → identical checksums; pins by value | ✅ |
+| I-M7.2-compare | identical configs no diffs; changed assumptions paths; different boundaries → warnings; observed vs hypothetical flagged; cross-tenant blocked | ✅ |
+| I-M7.2-security | cross-tenant access 403/404; field-scoped idempotency; unauthenticated 401; enumeration 404; double finalize 409 | ✅ |
+
+### Migration tests (3)
+
+| ID | Scenario | Result |
+|---|---|---|
+| MG-M7.2-a | upgrade head on scratch DB | scenarios + validation records + trigger + C2 CHECKs + indexes | 
+| MG-M7.2-b | trigger freeze via raw SQL | 3 tamper attempts rejected; finalized→archived allowed; archived terminal |
+| MG-M7.2-c | downgrade to 0007 | tables + trigger function dropped; re-upgrade OK |
+
+### Browser verification (agent-browser, 2026-11-01)
+
+| ID | Scenario | Result |
+|---|---|---|
+| B-M7.2-1 | 9-tab workspace, Scenarios tab renders; capability panel (soil/management/climate/forecast unavailable with reasons) | ✅ |
+| B-M7.2-2 | create flow: field → parent state (period auto-prefill) → assumptions with units → draft + evidence badge | ✅ |
+| B-M7.2-3 | validate → conditionally_valid with findings; incompatible period honestly refused in UI | ✅ |
+| B-M7.2-4 | finalize → immutable UI state; new version → v2; verify checksum → valid; compare → diff + warnings | ✅ |
+| B-M7.2-5 | zero console/page errors; desktop 1280 clean; mobile 390 no overflow (break-all fixes); footer sticky | ✅ |
+
+### Environment under test (M7.2 run)
+
+- Migration head: `0008_scenario_domain` (code & DB)
+- Full suite: **581 passed, exit 0** (490 baseline + 91 new)
+- Frontend lint exit 0; tsc clean for M7.2 files

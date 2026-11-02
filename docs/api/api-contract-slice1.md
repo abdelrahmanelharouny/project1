@@ -59,3 +59,21 @@ Codes: `VALIDATION_FAILED` (422), `INVALID_GEOMETRY` (422), `UNSUPPORTED_VARIABL
 ## Notes
 - Every response carries `x-request-id` header; the same id appears inside error envelopes.
 - Pagination exists on observations (`limit/offset` + `total`); farm/field lists are small in this slice and return totals.
+## Scenarios (Milestone 7.2 — definitions only; NO execution endpoint)
+- `POST /fields/{field_id}/scenarios` `{scenario_type, name?, description?, configuration{type, parent_field_state_id, period?, adjustments?, assumption_metadata?}, parent_scenario_id?, idempotency_key?}` → Scenario (draft). Idempotent replay returns the existing row. Unimplemented types → 422 `SCENARIO_TYPE_NOT_IMPLEMENTED` with honest reason. Parent state must belong to the same field, be succeeded, carry a checksum.
+- `GET /fields/{field_id}/scenarios?scenario_type=&scenario_status=` → `{items:[Scenario]}`
+- `GET /scenarios/types` → taxonomy: versioned types with capability/evidence/labels, unavailable-dimension reasons (soil/management/climate/forecast), adjustment bounds, lifecycle transition table
+- `GET /scenarios/capabilities` → capability report: per-type capability, execution `not_implemented` (+ reason), digital twin level "Level 1 — Historical Digital Profile (not predictive)"
+- `GET /scenarios/{id}?include_validation_history=bool` → Scenario (+ immutable validation records)
+- `PATCH /scenarios/{id}` `{name?, description?, configuration?}` → Scenario (non-finalized only; any edit resets validation to draft; finalized → 409 `SCENARIO_IMMUTABLE`)
+- `DELETE /scenarios/{id}` → draft-only (else 409 `SCENARIO_DELETE_RESTRICTED`; archive instead)
+- `POST /scenarios/{id}/validate` → verdict (`valid|conditionally_valid|invalid|…` per 8-value vocabulary) + findings + appended immutable record; note: "No simulation has been executed"
+- `POST /scenarios/{id}/finalize` → Scenario finalized (requires valid/conditionally_valid; stamps `finalized_at`; immutable thereafter — DB-trigger backed)
+- `POST /scenarios/{id}/archive` → Scenario archived (terminal; checksum remains verifiable)
+- `POST /scenarios/{id}/versions` `{configuration?}` → new draft version (revision) of a FINALIZED scenario (same type & parent state enforced)
+- `GET /scenarios/{id}/versions` → revision chain (per-version status/checksums/timestamps)
+- `GET /scenarios/{id}/lineage` → ancestors + children + revision-chain length (archived members included)
+- `GET /scenarios/{id}/verify` → recomputed configuration checksum + parent-state integrity + boundary record + latest-validation match
+- `GET /scenarios/{id}/compare?against={other_id}` → definition-level comparison: parents/boundary/period/evidence-class facts, structural config diff (`adjustments.*` paths), compatibility warnings; explicit note that no simulated outputs exist (M7.3 not implemented)
+
+Every scenario payload carries `evidence_classification` + human `evidence_label` (observed / hypothetical / not-available), `unavailable_dimensions` (soil, management, climate projection, weather forecast — with fixed reasons), and a definition-only note (C2 honesty).

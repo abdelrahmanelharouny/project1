@@ -260,6 +260,27 @@ Full deliverable set: `docs/deepening/` (15 documents) · findings register:
 | Benchmark suite | ✅ | golden + property + metamorphic tests; suite 314 → 343, all green |
 | Browser re-verification | ✅ | passport badges, rotation labels, "— obs", new catalog version; zero page errors; mobile clean |
 
+## Milestone 7.2 — Scenario domain & immutable scenario definitions (2026-11-01)
+
+Design/contract docs: `docs/m7/m7_2/` (12 documents). Basis: M7.0 CONDITIONAL GO (C1–C5) + M7.1
+verified baseline (commit `15013c7`).
+
+| Task | Status | Notes |
+|---|---|---|
+| Versioned scenario taxonomy (5 types) | ✅ | implemented vs not_implemented capability registry; evidence classes bound (C2); climate/forecast contract-only, creation rejected |
+| Strict configuration contracts (`scenario-config-1.0`) | ✅ | Pydantic per-type, `extra="forbid"`, explicit units, bounds, conflict rules, explicit-null canonicalization |
+| Normalized relational model | ✅ | `scenarios` + `scenario_validation_records` (migration 0008); lineage via self-FK + lineage_kind (no over-normalization) |
+| Deterministic configuration checksums | ✅ | SHA-256 over canonical JSON incl. schema version + by-value parent pins; UI metadata excluded (tested) |
+| Immutability after finalization | ✅ | service transitions + DB trigger `enforce_scenario_immutability` (raw-SQL tamper test); archived terminal |
+| Versioning & lineage | ✅ | revisions (new rows, version+1) + branches; parent state RESTRICT-protected; originals untouched (tested) |
+| Pure validation engine | ✅ | no HTTP/ORM imports; 8-value result vocabulary; evidence-aware (synthetic disclosure, dimension gaps); rules version `scenario-validation-rules-1.0` |
+| Definition-level comparison | ✅ | structural config diff + parent/boundary/period/evidence warnings; no simulated outputs (explicit note) |
+| Scenario APIs (15) | ✅ | create/list/get/patch/delete/validate/finalize/archive/versions/lineage/verify/compare/types/capabilities; NO execution endpoint; field-scoped idempotency; tenant-isolated (tested) |
+| Frontend Scenario Workspace | ✅ | 9th tab; capability panel; typed creation with units + period prefill; validate/finalize/version/verify/lineage/compare; evidence badges; no simulation graphs |
+| Migration 0008 verified | ✅ | upgrade/downgrade/re-upgrade on scratch + dev DBs |
+| Tests | ✅ | 91 new (45 unit / 43 integration / 3 migration); full suite **581 passed, exit 0** |
+| Browser E2E | ✅ | golden path incl. incompatible-period honesty, finalize-freeze UI, version, verify, compare; zero console errors; mobile 390px clean |
+
 ## Not implemented (next milestones — deliberately)
 
 - ✅ Open-Meteo historical provider (Milestone 3 — done)
@@ -273,7 +294,7 @@ Full deliverable set: `docs/deepening/` (15 documents) · findings register:
 - ✅ Water intelligence engine (Milestone 6A — done)
 - ✅ M7.0 readiness inspection (done — CONDITIONAL GO; `docs/m7/readiness/`)
 - ✅ Field state foundation & snapshot hygiene (Milestone 7.1 — done; `docs/m7/m7_1/`)
-- ⬜ Scenario domain & immutable scenario definitions (Milestone 7.2 — next GO-approved increment)
+- ✅ Scenario domain & immutable scenario definitions (Milestone 7.2 — done; `docs/m7/m7_2/`)
 - ⬜ Historical & user-defined stress transformations (Milestone 7.3)
 - ⬜ Sensitivity & uncertainty analysis (Milestone 7.4)
 - ⬜ Multi-scenario rotation evaluation (Milestone 7.5)

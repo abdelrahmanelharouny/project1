@@ -83,3 +83,27 @@ Recorded as **ADR-0022..0024** (full rationale in `docs/m7/m7_1/M7_1_DESIGN.md`)
   computation time; pre-M7.1 rows stay NULL ("not recorded") because backfilling would
   fabricate provenance. Soil (M6B) and management (M6C) dimensions of a state are always
   reported `not_implemented` with the fixed M7.0 reasons — no proxies, no fabricated records.
+
+## Milestone 7.2 — scenario domain (2026-11-01)
+
+Recorded as **ADR-0025..0026** (full rationale in `docs/m7/m7_2/M7_2_DOMAIN_DESIGN.md`):
+
+- **ADR-0025 — Versions are rows; lineage is one self-FK.** A revision of a finalized
+  scenario is a NEW `scenarios` row (`lineage_kind='revision'`, `scenario_version = parent+1`,
+  `parent_scenario_id = parent`); a derived experiment is a `branch`. No separate
+  configuration-versions or lineage tables: every scenario row already stores payload,
+  canonical form, schema version, checksum, author, timestamp and parent (spec §5 sanctions
+  this), and one RESTRICT self-FK covers both relationships without over-normalization.
+  Finalized rows are frozen twice: application transitions (409 `SCENARIO_IMMUTABLE`) AND the
+  `enforce_scenario_immutability` BEFORE UPDATE trigger (raw-SQL-proof; only
+  finalized→archived permitted; archived terminal). Parent Field States are pinned by value
+  (checksum + boundary version copied at creation) and RESTRICT-protected — a referenced
+  snapshot can never be deleted or silently reinterpreted.
+- **ADR-0026 — Climate/forecast availability is refused, not simulated.** `climate_projection`
+  and `weather_forecast` exist in the versioned taxonomy with `not_implemented` capability and
+  honest reasons (M7.0 C5), but have no configuration model and creation is rejected (422
+  `SCENARIO_TYPE_NOT_IMPLEMENTED`). A DB CHECK additionally forbids such rows from ever
+  reaching a status implying executable capability. Evidence honesty is enforced at three
+  layers: Pydantic (`assumption_metadata.status` pinned to `hypothetical`; `extra="forbid"`),
+  a type↔evidence-class CHECK constraint (C2), and the pure validation engine (synthetic
+  evidence disclosed with exact shares; hypothetical inputs never presented as observed).

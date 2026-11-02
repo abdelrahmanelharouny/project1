@@ -38,6 +38,17 @@ PostgreSQL 16 + PostGIS 3.5. All UUID PKs. All timestamps `timestamptz` (UTC). M
 - **ingestion_jobs**: legacy key-only `uq_ingestion_idempotency` replaced by **`uq_ingestion_idempotency_v2 (field_id, idempotency_key) WHERE idempotency_key IS NOT NULL`** (F-30 composite fix; downgrade restores the legacy index)
 - RESTRICT rationale (F-13): a field state is an immutable reference to the artifacts it was assembled from — referenced runs/plans cannot be deleted out from under a state (API pre-checks return 409; the FK is the database-level backstop).
 
+### Milestone 7.2 — scenario domain (migration `0008_scenario_domain`)
+
+- **scenarios** — id, field_id → fields (CASCADE), name(120), description, scenario_type CHECK(historical_observed|historical_perturbation|user_defined_stress|climate_projection|weather_forecast), scenario_status CHECK(draft|validation_pending|valid|conditionally_valid|invalid|finalized|archived|unsupported), lineage_kind CHECK(root|revision|branch), scenario_version, **parent_field_state_id → field_states (RESTRICT)**, parent_snapshot_checksum (copied BY VALUE at creation), boundary_version (copied), parent_scenario_id → scenarios (RESTRICT, nullable — one self-FK covers revisions AND branches), configuration_schema_version, canonical_configuration JSONB, configuration_checksum (SHA-256 over canonical JSON; excludes name/description/UI metadata), period_start/end (CHECK end ≥ start), timezone, evidence_classification CHECK(observed|hypothetical|not_available), assumption_metadata JSONB, validation_summary JSONB (latest record copy), created_by, finalized_at, idempotency_key, created_at/updated_at
+  - **CHECK `ck_scenario_type_evidence_binding`** (M7.0 C2 at DB level): historical_observed↔observed; perturbation/stress↔hypothetical; climate_projection/weather_forecast↔not_available
+  - **CHECK `ck_scenario_unavailable_types_never_finalized`**: climate/forecast rows can never reach valid|conditionally_valid|finalized
+  - CHECK `ck_scenario_finalized_at_present` (finalized ⇒ finalized_at NOT NULL)
+  - INDEX `uq_scenario_idempotency (field_id, idempotency_key) WHERE idempotency_key IS NOT NULL`; `ix_scenarios_field/parent_scenario/parent_state`
+  - **TRIGGER `enforce_scenario_immutability`** (BEFORE UPDATE): finalized/archived rows reject ANY content change (raw SQL included); only finalized→archived permitted; archived terminal
+- **scenario_validation_records** — id, scenario_id → scenarios (CASCADE), scenario_version, validation_rule_version, validation_status CHECK(8-value result vocabulary), validation_result JSONB (findings/missing_inputs/unsupported_dimensions), configuration_checksum, created_by, created_at — append-only, never updated
+- RESTRICT rationale (spec §7): a referenced Field State cannot be deleted out from under a scenario; the by-value parent checksum/boundary pins keep historical references meaningful even if upstream rows changed
+
 ## Design notes
 
 - Geometry stored EPSG:4326 (interchange), validated in the application layer before insert; area stored from PyProj geodesic computation and cross-checked against PostGIS `geography ST_Area` (see ADR-0003).
@@ -53,6 +64,7 @@ organizations 1─* farms 1─* fields 1─* field_boundary_versions
                           1─* observations *─1 dataset_products *─1 data_sources
                           1─* ingestion_jobs
 fields 1─* observations 1─* observation_quality_flags
+fields 1─* field_states 1─* scenarios (RESTRICT) 1─* scenario_validation_records
 farms   1─* farm_constraints
 users/organizations 1─* audit_events (soft reference via actor_id/organization_id)
 ```
