@@ -1,0 +1,702 @@
+    56→import {
+    57→  createNutrientBudgetRun,
+    58→  createSocStockRun,
+    59→  importSoilLabCsv,
+    60→  runSoilAssessment,
+    61→} from '@/lib/api'
+    62→import { describeError } from '@/lib/api'
+    63→import { useToast } from '@/hooks/use-toast'
+    64→import type {
+    65→  NutrientBudgetRun,
+    66→  SoilAssessmentResult,
+    67→  SoilDomainRow,
+    68→} from '@/lib/types'
+    69→
+    70→function fmt(value: number | null | undefined, digits = 1): string {
+    71→  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+    72→  return value.toLocaleString(undefined, {
+    73→    minimumFractionDigits: digits,
+    74→    maximumFractionDigits: digits,
+    75→  })
+    76→}
+    77→
+    78→const DOMAIN_LABELS: Record<string, string> = {
+    79→  physical: 'Physical',
+    80→  chemical: 'Chemical',
+    81→  biological: 'Biological',
+    82→  hydrological: 'Hydrological (water retention)',
+    83→  organic_matter_nutrient_cycling: 'Organic matter & nutrient cycling',
+    84→}
+    85→
+    86→const EVIDENCE_BADGES: Record<string, string> = {
+    87→  direct_field_measurement: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+    88→  farmer_reported_record: 'border-amber-300 bg-amber-50 text-amber-800',
+    89→  global_soil_prediction: 'border-orange-300 bg-orange-50 text-orange-800',
+    90→  synthetic_test_data: 'border-stone-400 bg-stone-100 text-stone-600',
+    91→}
+    92→
+    93→function EvidenceBadge({ evidence }: { evidence: string }) {
+    94→  const style = EVIDENCE_BADGES[evidence] ?? 'border-stone-300 bg-stone-50 text-stone-600'
+    95→  const label = evidence.replaceAll('_', ' ')
+    96→  return (
+    97→    <Badge variant="outline" className={`text-[10px] ${style}`}>
+    98→      {label}
+    99→    </Badge>
+   100→  )
+   101→}
+   102→
+   103→// ------------------------------------------------------------- assessment
+   104→
+   105→function DomainCard({ domain, expert }: { domain: SoilDomainRow; expert: boolean }) {
+   106→  return (
+   107→    <Card className="min-w-0">
+   108→      <CardHeader className="pb-2">
+   109→        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+   110→          {DOMAIN_LABELS[domain.domain] ?? domain.domain}
+   111→          <Badge variant="outline" className="text-[10px]">
+   112→            {domain.available_count} available
+   113→          </Badge>
+   114→          {domain.missing_count > 0 && (
+   115→            <Badge variant="outline" className="border-stone-300 bg-stone-50 text-[10px] text-stone-500">
+   116→              {domain.missing_count} missing
+   117→            </Badge>
+   118→          )}
+   119→          {domain.synthetic_flag && (
+   120→            <Badge variant="outline" className="border-stone-400 bg-stone-100 text-[10px] text-stone-600">
+   121→              includes SYNTHETIC
+   122→            </Badge>
+   123→          )}
+   124→        </CardTitle>
+   125→      </CardHeader>
+   126→      <CardContent className="space-y-2">
+   127→        {domain.available.length === 0 ? (
+   128→          <p className="text-xs text-stone-500">
+   129→            No indicators measured — unknown, not poor health.
+   130→          </p>
+   131→        ) : (
+   132→          domain.available.map((indicator) => (
+   133→            <div key={indicator.variable_code} className="rounded-lg border border-stone-200 bg-white px-3 py-2">
+   134→              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+   135→                <span className="font-mono text-xs text-stone-700">{indicator.variable_code}</span>
+   136→                <span className="text-sm font-semibold text-stone-900">
+   137→                  {fmt(indicator.latest_value, 2)} <span className="text-xs font-normal text-stone-500">{indicator.unit}</span>
+   138→                </span>
+   139→              </div>
+   140→              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+   141→                <EvidenceBadge evidence={indicator.evidence_class} />
+   142→                {indicator.method && expert && (
+   143→                  <Badge variant="outline" className="text-[10px] text-stone-500">
+   144→                    {indicator.method}
+   145→                  </Badge>
+   146→                )}
+   147→                {indicator.depth[0] !== null && (
+   148→                  <span className="text-[10px] text-stone-400">
+   149→                    {indicator.depth[0]}–{indicator.depth[1]} cm
+   150→                  </span>
+   151→                )}
+   152→                {indicator.trend && (
+   153→                  <Badge
+   154→                    variant="outline"
+   155→                    className={`text-[10px] ${
+   156→                      indicator.trend.status === 'measured_change'
+   157→                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+   158→                        : 'border-stone-300 bg-stone-50 text-stone-500'
+   159→                    }`}
+   160→                  >
+   161→                    {indicator.trend.status === 'measured_change'
+   162→                      ? `Δ ${fmt(indicator.trend.delta, 2)}`
+   163→                      : 'trend not comparable'}
+   164→                  </Badge>
+   165→                )}
+   166→              </div>
+   167→              {indicator.trend?.status === 'not_comparable' && expert && indicator.trend.reason && (
+   168→                <p className="mt-1 text-[11px] text-stone-500">{indicator.trend.reason}</p>
+   169→              )}
+   170→            </div>
+   171→          ))
+   172→        )}
+   173→        {expert && domain.missing.length > 0 && (
+   174→          <p className="text-[11px] text-stone-400">Missing: {domain.missing.join(', ')}</p>
+   175→        )}
+   176→      </CardContent>
+   177→    </Card>
+   178→  )
+   179→}
+   180→
+   181→function AssessmentSection() {
+   182→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   183→  const [expert, setExpert] = useState(false)
+   184→  const health = useSoilHealth(selectedField?.id ?? null)
+   185→  const queryClient = useQueryClient()
+   186→  const { toast } = useToast()
+   187→
+   188→  const runAssessment = useMutation({
+   189→    mutationFn: () => runSoilAssessment(selectedField!.id),
+   190→    onSuccess: () => {
+   191→      queryClient.invalidateQueries({ queryKey: ['soil-health', selectedField?.id] })
+   192→      toast({ title: 'Assessment snapshot created', description: 'Immutable, checksummed.' })
+   193→    },
+   194→    onError: (error) => {
+   195→      const d = describeError(error)
+   196→      toast({ title: d.title, description: d.description, variant: 'destructive' })
+   197→    },
+   198→  })
+   199→
+   200→  if (!selectedField) return null
+   201→
+   202→  return (
+   203→    <Card className="min-w-0">
+   204→      <CardHeader className="pb-3">
+   205→        <CardTitle className="flex items-center gap-2 text-base">
+   206→          <Sprout className="h-4 w-4 text-emerald-700" aria-hidden />
+   207→          Multi-domain soil profile
+   208→        </CardTitle>
+   209→        <CardDescription>
+   210→          A transparent profile of soil functions — deliberately no single
+   211→          &ldquo;soil health score&rdquo; (no validated weighting methodology).
+   212→        </CardDescription>
+   213→        <div className="flex items-center gap-2 pt-1">
+   214→          <Switch id="soil-expert" checked={expert} onCheckedChange={setExpert} aria-label="Toggle expert mode" />
+   215→          <Label htmlFor="soil-expert" className="text-xs text-stone-600">Expert mode</Label>
+   216→          <Button
+   217→            size="sm"
+   218→            variant="outline"
+   219→            className="ml-auto"
+   220→            disabled={runAssessment.isPending}
+   221→            onClick={() => runAssessment.mutate()}
+   222→          >
+   223→            {runAssessment.isPending ? 'Assessing…' : 'Snapshot assessment'}
+   224→          </Button>
+   225→        </div>
+   226→      </CardHeader>
+   227→      <CardContent>
+   228→        {health.isLoading ? (
+   229→          <p className="text-sm text-stone-500">Loading assessment…</p>
+   230→        ) : health.isError ? (
+   231→          <p className="text-sm text-red-700">Assessment unavailable.</p>
+   232→        ) : health.data ? (
+   233→          <div className="grid min-w-0 gap-4 md:grid-cols-2">
+   234→            {health.data.result.domains.map((domain) => (
+   235→              <DomainCard key={domain.domain} domain={domain} expert={expert} />
+   236→            ))}
+   237→          </div>
+   238→        ) : null}
+   239→      </CardContent>
+   240→    </Card>
+   241→  )
+   242→}
+   243→
+   244→// ------------------------------------------------------------- profile
+   245→
+   246→function ProfileExplorer() {
+   247→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   248→  const profile = useSoilProfile(selectedField?.id ?? null)
+   249→  const indicators = useSoilIndicators(selectedField?.id ?? null)
+   250→
+   251→  if (!selectedField) return null
+   252→
+   253→  return (
+   254→    <Card className="min-w-0">
+   255→      <CardHeader className="pb-3">
+   256→        <CardTitle className="flex items-center gap-2 text-base">
+   257→          <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
+   258→          Soil profile explorer
+   259→        </CardTitle>
+   260→        <CardDescription>
+   261→          Depth-explicit layers — actual sampled intervals, never snapped to a
+   262→          standard grid. Overlaps are never merged; gaps are never interpolated.
+   263→        </CardDescription>
+   264→      </CardHeader>
+   265→      <CardContent>
+   266→        {profile.isLoading ? (
+   267→          <p className="text-sm text-stone-500">Loading profile…</p>
+   268→        ) : profile.isError ? (
+   269→          <p className="text-sm text-red-700">Profile unavailable.</p>
+   270→        ) : profile.data && profile.data.layers.length > 0 ? (
+   271→          <div className="space-y-3">
+   272→            {profile.data.layers.map((layer) => {
+   273→              const indicator = indicators.data?.layers.find(
+   274→                (l) => l.top_cm === layer.top_cm && l.bottom_cm === layer.bottom_cm,
+   275→              )
+   276→              const texture =
+   277→                indicator?.texture && 'class' in indicator.texture ? indicator.texture : null
+   278→              const awc = indicator?.awc && 'awc_mm' in indicator.awc ? indicator.awc : null
+   279→              return (
+   280→                <div key={`${layer.top_cm}-${layer.bottom_cm}-${layer.sample_id ?? 'field'}`} className="rounded-lg border border-stone-200 bg-white p-3">
+   281→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   282→                    <span className="text-sm font-semibold text-stone-800">
+   283→                      {layer.top_cm}–{layer.bottom_cm} cm
+   284→                    </span>
+   285→                    <div className="flex flex-wrap items-center gap-1.5">
+   286→                      {texture && (
+   287→                        <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-800">
+   288→                          USDA {texture.class}
+   289→                        </Badge>
+   290→                      )}
+   291→                      {awc && (
+   292→                        <Badge variant="outline" className="border-sky-200 bg-sky-50 text-[10px] text-sky-800">
+   293→                          AWC {fmt(awc.awc_mm)} mm
+   294→                        </Badge>
+   295→                      )}
+   296→                      {layer.source_kinds.map((kind) => (
+   297→                        <Badge key={kind} variant="outline" className="text-[10px] text-stone-500">
+   298→                          {kind.replaceAll('_', ' ')}
+   299→                        </Badge>
+   300→                      ))}
+   301→                    </div>
+   302→                  </div>
+   303→                  <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+   304→                    {layer.measurements.map((m) => (
+   305→                      <div key={m.id} className="rounded border border-stone-100 bg-stone-50 px-2 py-1.5">
+   306→                        <div className="flex items-baseline justify-between gap-2">
+   307→                          <span className="truncate font-mono text-[11px] text-stone-600">{m.variable_code}</span>
+   308→                          <span className="text-xs font-semibold text-stone-800">
+   309→                            {m.value !== null ? (
+   310→                              <>
+   311→                                {fmt(m.value, 2)} <span className="font-normal text-stone-500">{m.unit}</span>
+   312→                              </>
+   313→                            ) : m.result_qualifier ? (
+   314→                              <span className="text-amber-700">
+   315→                                {m.result_qualifier} {fmt(m.detection_limit, 2)} ({m.unit})
+   316→                              </span>
+   317→                            ) : (
+   318→                              <span className="text-stone-400">(not evaluated)</span>
+   319→                            )}
+   320→                          </span>
+   321→                        </div>
+   322→                        <div className="mt-1 flex flex-wrap items-center gap-1">
+   323→                          <EvidenceBadge evidence={m.evidence_class} />
+   324→                          {m.is_synthetic && (
+   325→                            <Badge variant="outline" className="text-[10px] text-stone-500">synthetic</Badge>
+   326→                          )}
+   327→                        </div>
+   328→                      </div>
+   329→                    ))}
+   330→                  </div>
+   331→                </div>
+   332→              )
+   333→            })}
+   334→            {profile.data.integrity.gaps.length > 0 && (
+   335→              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+   336→                <p className="flex items-center gap-1.5 font-medium">
+   337→                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Depth gaps (not interpolated)
+   338→                </p>
+   339→                <ul className="mt-1 list-inside list-disc">
+   340→                  {profile.data.integrity.gaps.map((gap, i) => (
+   341→                    <li key={i}>{gap.from_cm ?? '?'}–{gap.to_cm ?? '?'} cm ({fmt(gap.gap_cm)} cm uncovered)</li>
+   342→                  ))}
+   343→                </ul>
+   344→              </div>
+   345→            )}
+   346→          </div>
+   347→        ) : (
+   348→          <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-6 text-center">
+   349→            <p className="text-sm text-stone-500">
+   350→              No soil measurements yet — import a laboratory report or record a
+   351→              sampling event below.
+   352→            </p>
+   353→          </div>
+   354→        )}
+   355→      </CardContent>
+   356→    </Card>
+   357→  )
+   358→}
+   359→
+   360→// ------------------------------------------------------------- SOC runs
+   361→
+   362→function SocSection() {
+   363→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   364→  const runs = useSocRuns(selectedField?.id ?? null)
+   365→  const queryClient = useQueryClient()
+   366→  const { toast } = useToast()
+   367→  const [expert, setExpert] = useState(false)
+   368→  const [oc, setOc] = useState('12.5')
+   369→  const [bd, setBd] = useState('1.33')
+   370→  const [basis, setBasis] = useState<'fine_earth' | 'whole_soil'>('fine_earth')
+   371→  const [vcf, setVcf] = useState('')
+   372→  const [top, setTop] = useState('0')
+   373→  const [bottom, setBottom] = useState('30')
+   374→
+   375→  const createRun = useMutation({
+   376→    mutationFn: () =>
+   377→      createSocStockRun(selectedField!.id, {
+   378→        label: 'Layer SOC run',
+   379→        layers: [
+   380→          {
+   381→            top_depth: Number(top),
+   382→            bottom_depth: Number(bottom),
+   383→            oc_g_kg: oc === '' ? null : Number(oc),
+   384→            bulk_density_g_cm3: bd === '' ? null : Number(bd),
+   385→            bd_basis: bd === '' ? null : basis,
+   386→            coarse_fragment_vol_fraction: basis === 'whole_soil' && vcf !== '' ? Number(vcf) / 100 : null,
+   387→          },
+   388→        ],
+   389→      }),
+   390→    onSuccess: () => {
+   391→      queryClient.invalidateQueries({ queryKey: ['soc-runs', selectedField?.id] })
+   392→      toast({ title: 'SOC stock run completed', description: 'Immutable snapshot with checksum.' })
+   393→    },
+   394→    onError: (error) => {
+   395→      const d = describeError(error)
+   396→      toast({ title: d.title, description: d.description, variant: 'destructive' })
+   397→    },
+   398→  })
+   399→
+   400→  if (!selectedField) return null
+   401→
+   402→  const latest = runs.data?.items.find((r) => r.status === 'succeeded')
+   403→
+   404→  return (
+   405→    <Card className="min-w-0">
+   406→      <CardHeader className="pb-3">
+   407→        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+   408→          <Mountain className="h-4 w-4 text-emerald-700" aria-hidden />
+   409→          Organic carbon stock
+   410→        </CardTitle>
+   411→        <CardDescription>
+   412→          FAO GSOC MRV layer formula — refused, never guessed, when an input is
+   413→          missing. Fine-earth bulk density is never coarse-fragment corrected
+   414→          twice.
+   415→        </CardDescription>
+   416→      </CardHeader>
+   417→      <CardContent className="space-y-4">
+   418→        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+   419→          <div className="space-y-1">
+   420→            <Label htmlFor="soc-top" className="text-xs">Top (cm)</Label>
+   421→            <Input id="soc-top" type="number" value={top} onChange={(e) => setTop(e.target.value)} />
+   422→          </div>
+   423→          <div className="space-y-1">
+   424→            <Label htmlFor="soc-bottom" className="text-xs">Bottom (cm)</Label>
+   425→            <Input id="soc-bottom" type="number" value={bottom} onChange={(e) => setBottom(e.target.value)} />
+   426→          </div>
+   427→          <div className="space-y-1">
+   428→            <Label htmlFor="soc-oc" className="text-xs">OC (g/kg)</Label>
+   429→            <Input id="soc-oc" type="number" value={oc} onChange={(e) => setOc(e.target.value)} />
+   430→          </div>
+   431→          <div className="space-y-1">
+   432→            <Label htmlFor="soc-bd" className="text-xs">BD (g/cm³)</Label>
+   433→            <Input id="soc-bd" type="number" value={bd} onChange={(e) => setBd(e.target.value)} />
+   434→          </div>
+   435→          <div className="space-y-1">
+   436→            <Label htmlFor="soc-basis" className="text-xs">BD basis</Label>
+   437→            <select
+   438→              id="soc-basis"
+   439→              value={basis}
+   440→              onChange={(e) => setBasis(e.target.value as 'fine_earth' | 'whole_soil')}
+   441→              className="h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm"
+   442→            >
+   443→              <option value="fine_earth">fine earth</option>
+   444→              <option value="whole_soil">whole soil</option>
+   445→            </select>
+   446→          </div>
+   447→          {basis === 'whole_soil' && (
+   448→            <div className="space-y-1">
+   449→              <Label htmlFor="soc-vcf" className="text-xs">Coarse frag. (vol%)</Label>
+   450→              <Input id="soc-vcf" type="number" value={vcf} onChange={(e) => setVcf(e.target.value)} placeholder="e.g. 10" />
+   451→            </div>
+   452→          )}
+   453→        </div>
+   454→        <Button size="sm" disabled={createRun.isPending} onClick={() => createRun.mutate()}>
+   455→          {createRun.isPending ? 'Computing…' : 'Compute SOC stock'}
+   456→        </Button>
+   457→
+   458→        {latest?.result && (
+   459→          <div className="rounded-lg border border-stone-200 bg-white p-4">
+   460→            <div className="flex flex-wrap items-center justify-between gap-2">
+   461→              <div>
+   462→                <p className="text-xs text-stone-500">Profile total (covered depth {fmt(latest.result.profile_total.covered_thickness_cm)} cm)</p>
+   463→                <p className="text-2xl font-semibold text-stone-900">
+   464→                  {latest.result.profile_total.soc_stock_mg_ha !== null ? (
+   465→                    <>
+   466→                      {fmt(latest.result.profile_total.soc_stock_mg_ha)} <span className="text-sm font-normal text-stone-500">Mg C/ha</span>
+   467→                    </>
+   468→                  ) : (
+   469→                    <span className="text-stone-400">(not evaluated)</span>
+   470→                  )}
+   471→                </p>
+   472→              </div>
+   473→              {expert && latest.checksum_sha256 && (
+   474→                <Badge variant="outline" className="font-mono text-[10px] text-stone-500">
+   475→                  sha256 {latest.checksum_sha256.slice(0, 12)}…
+   476→                </Badge>
+   477→              )}
+   478→            </div>
+   479→            {expert && (
+   480→              <p className="mt-2 font-mono text-[11px] text-stone-500">{latest.result.formula}</p>
+   481→            )}
+   482→            {latest.result.not_evaluated.length > 0 && (
+   483→              <ul className="mt-2 space-y-1 text-xs text-amber-800">
+   484→                {latest.result.not_evaluated.map((ne, i) => (
+   485→                  <li key={i} className="flex items-start gap-1.5">
+   486→                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden /> {ne.layer}: {ne.reason}
+   487→                  </li>
+   488→                ))}
+   489→              </ul>
+   490→            )}
+   491→            <div className="mt-3 flex items-center gap-2">
+   492→              <Switch id="soc-expert" checked={expert} onCheckedChange={setExpert} aria-label="SOC expert mode" />
+   493→              <Label htmlFor="soc-expert" className="text-xs text-stone-600">Expert detail</Label>
+   494→            </div>
+   495→          </div>
+   496→        )}
+   497→
+   498→        {runs.data && runs.data.items.length > 0 && (
+   499→          <div className="max-h-64 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+   500→            {runs.data.items.map((run) => (
+   501→              <div key={run.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs">
+   502→                <span className="font-medium text-stone-700">{run.label}</span>
+   503→                <span className="text-stone-500">
+   504→                  {run.status} · {run.comparison_mode.replaceAll('_', ' ')}
+   505→                  {run.result?.profile_total.soc_stock_mg_ha != null &&
+   506→                    ` · ${fmt(run.result.profile_total.soc_stock_mg_ha)} Mg C/ha`}
+   507→                </span>
+   508→              </div>
+   509→            ))}
+   510→          </div>
+   511→        )}
+   512→      </CardContent>
+   513→    </Card>
+   514→  )
+   515→}
+   516→
+   517→// ------------------------------------------------------------- nutrients
+   518→
+   519→function NutrientSection() {
+   520→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   521→  const queryClient = useQueryClient()
+   522→  const { toast } = useToast()
+   523→  const [season, setSeason] = useState('summer_2026')
+   524→  const [areaHa, setAreaHa] = useState('1')
+   525→  const [run, setRun] = useState<NutrientBudgetRun | null>(null)
+   526→
+   527→  const budgetRun = useMutation({
+   528→    mutationFn: () =>
+   529→      createNutrientBudgetRun(selectedField!.id, {
+   530→        seasons: [season.trim()],
+   531→        area_ha: areaHa === '' ? undefined : Number(areaHa),
+   532→        label: `NPK budget ${season.trim()}`,
+   533→      }),
+   534→    onSuccess: (data) => {
+   535→      setRun(data)
+   536→      queryClient.invalidateQueries({ queryKey: ['soc-runs'] })
+   537→      toast({ title: 'Nutrient budget completed', description: 'Partial accounting — missing flows listed.' })
+   538→    },
+   539→    onError: (error) => {
+   540→      const d = describeError(error)
+   541→      toast({ title: d.title, description: d.description, variant: 'destructive' })
+   542→    },
+   543→  })
+   544→
+   545→  if (!selectedField) return null
+   546→
+   547→  const seasonResult = run?.result?.seasons[0]
+   548→
+   549→  return (
+   550→    <Card className="min-w-0">
+   551→      <CardHeader className="pb-3">
+   552→        <CardTitle className="text-base">N/P/K nutrient budget</CardTitle>
+   553→        <CardDescription>
+   554→          Balance over DOCUMENTED flows only. Missing flows (leaching,
+   555→          volatilization, …) are listed — never assumed zero. A partial balance
+   556→          is never a measured soil stock change.
+   557→        </CardDescription>
+   558→      </CardHeader>
+   559→      <CardContent className="space-y-4">
+   560→        <div className="flex flex-wrap items-end gap-3">
+   561→          <div className="space-y-1">
+   562→            <Label htmlFor="npk-season" className="text-xs">Season label</Label>
+   563→            <Input id="npk-season" value={season} onChange={(e) => setSeason(e.target.value)} className="w-44" />
+   564→          </div>
+   565→          <div className="space-y-1">
+   566→            <Label htmlFor="npk-area" className="text-xs">Season area (ha)</Label>
+   567→            <Input id="npk-area" type="number" value={areaHa} onChange={(e) => setAreaHa(e.target.value)} className="w-28" />
+   568→          </div>
+   569→          <Button size="sm" disabled={budgetRun.isPending} onClick={() => budgetRun.mutate()}>
+   570→            {budgetRun.isPending ? 'Computing…' : 'Compute budget'}
+   571→          </Button>
+   572→        </div>
+   573→
+   574→        {seasonResult && (
+   575→          <div className="space-y-3">
+   576→            <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+   577→              {(['N', 'P', 'K'] as const).map((nutrient) => {
+   578→                const balance = seasonResult.balance[nutrient]
+   579→                return (
+   580→                  <div key={nutrient} className="rounded-lg border border-stone-200 bg-white p-3">
+   581→                    <p className="text-xs font-medium text-stone-500">{nutrient} (kg/ha)</p>
+   582→                    <p className="mt-1 text-lg font-semibold text-stone-900">
+   583→                      {balance.balance_kg_ha !== null ? (
+   584→                        <span className={balance.balance_kg_ha >= 0 ? 'text-emerald-700' : 'text-amber-700'}>
+   585→                          {balance.balance_kg_ha >= 0 ? '+' : ''}{fmt(balance.balance_kg_ha)}
+   586→                        </span>
+   587→                      ) : (
+   588→                        <span className="text-stone-400">(not evaluated)</span>
+   589→                      )}
+   590→                    </p>
+   591→                    <p className="mt-1 text-[11px] text-stone-500">
+   592→                      in {fmt(balance.inputs_kg_ha)} · out {fmt(balance.outputs_kg_ha)}
+   593→                    </p>
+   594→                  </div>
+   595→                )
+   596→              })}
+   597→            </div>
+   598→            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+   599→              <p className="text-xs font-medium text-amber-800">
+   600→                Missing flows ({seasonResult.missing_flows.length}) — not assumed zero:
+   601→              </p>
+   602→              <ul className="mt-1 list-inside list-disc text-[11px] text-amber-800">
+   603→                {seasonResult.missing_flows.slice(0, 6).map((flow, i) => (
+   604→                  <li key={i}>{flow}</li>
+   605→                ))}
+   606→              </ul>
+   607→            </div>
+   608→            <p className="text-[11px] text-stone-500">{seasonResult.interpretation_note}</p>
+   609→          </div>
+   610→        )}
+   611→
+   612→        {run?.result?.reference_library_note && (
+   613→          <p className="text-[11px] italic text-stone-400">{run.result.reference_library_note}</p>
+   614→        )}
+   615→      </CardContent>
+   616→    </Card>
+   617→  )
+   618→}
+   619→
+   620→// ------------------------------------------------------------- lab import
+   621→
+   622→function LabImportSection() {
+   623→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   624→  const fileRef = useRef<HTMLInputElement>(null)
+   625→  const { toast } = useToast()
+   626→  const [report, setReport] = useState<{
+   627→    imported: number
+   628→    rejected: number
+   629→    warnings: number
+   630→    rows: Array<{ row_number: number; status: string; message: string | null }>
+   631→  } | null>(null)
+   632→
+   633→  const importMutation = useMutation({
+   634→    mutationFn: async () => {
+   635→      const file = fileRef.current?.files?.[0]
+   636→      if (!file) throw new Error('Choose a CSV file first.')
+   637→      return importSoilLabCsv(selectedField!.id, file)
+   638→    },
+   639→    onSuccess: (data) => {
+   640→      setReport({
+   641→        imported: data.created_measurements,
+   642→        rejected: data.report.rejected,
+   643→        warnings: data.report.warnings,
+   644→        rows: data.report.rows,
+   645→      })
+   646→      toast({
+   647→        title: `Imported ${data.created_measurements} measurements`,
+   648→        description: `${data.report.rejected} rejected · checksum ${data.report.file_sha256.slice(0, 8)}…`,
+   649→      })
+   650→    },
+   651→    onError: (error) => {
+   652→      const d = describeError(error)
+   653→      toast({ title: d.title, description: d.description, variant: 'destructive' })
+   654→    },
+   655→  })
+   656→
+   657→  if (!selectedField) return null
+   658→
+   659→  return (
+   660→    <Card className="min-w-0">
+   661→      <CardHeader className="pb-3">
+   662→        <CardTitle className="flex items-center gap-2 text-base">
+   663→          <FileUp className="h-4 w-4 text-emerald-700" aria-hidden />
+   664→          Laboratory import
+   665→        </CardTitle>
+   666→        <CardDescription>
+   667→          CSV soil-lab reports mapped onto the canonical schema — depth
+   668→          validation, detection limits preserved (never zero-filled),
+   669→          per-row rejected-row report, idempotent by file checksum.
+   670→        </CardDescription>
+   671→      </CardHeader>
+   672→      <CardContent className="space-y-3">
+   673→        <div className="flex flex-wrap items-center gap-3">
+   674→          <Input ref={fileRef} type="file" accept=".csv,text/csv" className="max-w-sm" aria-label="Laboratory CSV file" />
+   675→          <Button size="sm" disabled={importMutation.isPending} onClick={() => importMutation.mutate()}>
+   676→            {importMutation.isPending ? 'Importing…' : 'Import'}
+   677→          </Button>
+   678→        </div>
+   679→        {report && (
+   680→          <div className="rounded-lg border border-stone-200 bg-white p-3 text-xs">
+   681→            <p className="font-medium text-stone-700">
+   682→              {report.imported} imported · {report.rejected} rejected · {report.warnings} warnings
+   683→            </p>
+   684→            {report.rows.filter((r) => r.status !== 'imported').length > 0 && (
+   685→              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto scrollbar-thin">
+   686→                {report.rows
+   687→                  .filter((r) => r.status !== 'imported')
+   688→                  .map((r, i) => (
+   689→                    <li key={i} className={r.status === 'rejected' ? 'text-red-700' : 'text-amber-700'}>
+   690→                      row {r.row_number} [{r.status}]: {r.message}
+   691→                    </li>
+   692→                  ))}
+   693→              </ul>
+   694→            )}
+   695→          </div>
+   696→        )}
+   697→      </CardContent>
+   698→    </Card>
+   699→  )
+   700→}
+   701→
+   702→// ------------------------------------------------------------- readiness
+   703→
+   704→function ReadinessSection() {
+   705→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   706→  const readiness = useSoilDataReadiness(selectedField?.id ?? null)
+   707→
+   708→  if (!selectedField) return null
+   709→
+   710→  return (
+   711→    <Card className="min-w-0">
+   712→      <CardHeader className="pb-3">
+   713→        <CardTitle className="flex items-center gap-2 text-base">
+   714→          <ShieldCheck className="h-4 w-4 text-emerald-700" aria-hidden />
+   715→          Data-collection priorities
+   716→        </CardTitle>
+   717→        <CardDescription>
+   718→          Qualitative, decision-linked ranking — which measurement would
+   719→          unblock which decision. No invented costs or benefits.
+   720→        </CardDescription>
+   721→      </CardHeader>
+   722→      <CardContent>
+   723→        {readiness.isLoading ? (
+   724→          <p className="text-sm text-stone-500">Loading…</p>
+   725→        ) : readiness.isError || !readiness.data ? (
+   726→          <p className="text-sm text-red-700">Readiness unavailable.</p>
+   727→        ) : readiness.data.priorities.length === 0 ? (
+   728→          <p className="text-sm text-stone-500">
+   729→            No priority gaps identified from the current decision surface.
+   730→          </p>
+   731→        ) : (
+   732→          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+   733→            {readiness.data.priorities.map((p) => (
+   734→              <div key={p.variable_code} className="rounded-lg border border-stone-200 bg-white px-3 py-2">
+   735→                <p className="font-mono text-xs text-stone-700">{p.variable_code}</p>
+   736→                <p className="mt-0.5 text-xs text-stone-600">{p.decision_unblocked}</p>
+   737→                {p.priority_basis && <p className="mt-0.5 text-[11px] text-stone-400">{p.priority_basis}</p>}
+   738→              </div>
+   739→            ))}
+   740→          </div>
+   741→        )}
+   742→      </CardContent>
+   743→    </Card>
+   744→  )
+   745→}
+   746→
+   747→// ------------------------------------------------------------------ root
+   748→
+   749→export function Soil() {
+   750→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   751→  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+   752→  const methods = useSoilMethods()
+   753→
+   754→  return (
+   755→    <div className="space-y-6">
+
+[showing lines 56-755 of 838; use offset=756 with limit to continue reading]

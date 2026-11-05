@@ -11,6 +11,12 @@ export type WorkspaceTab =
   | 'water'
   | 'fieldstate'
   | 'scenarios'
+  | 'soil'
+  | 'management'
+  | 'sensitivity'
+  | 'decisions'
+  | 'digitaltwin'
+  | 'robustplan'
   | 'passport'
 
 export interface SelectedField {

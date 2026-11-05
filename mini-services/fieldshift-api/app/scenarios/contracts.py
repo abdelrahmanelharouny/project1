@@ -16,8 +16,10 @@ Architecture rules enforced here (M7.2 spec §2):
 - Climate Projection and Weather Forecast are contract placeholders only:
   they exist in the taxonomy with capability ``not_implemented``, they have
   NO configuration model, and creation requests carrying them are rejected.
-- Soil and Management scenario dimensions do not exist in this repository
-  (M6B/M6C absent — M7.0 finding H-03) and are reported ``not_implemented``.
+- Soil and Management scenario dimensions are unavailable (M6B/M6C are
+  integrated as data domains, but soil-/management-driven scenario
+  transformations are not part of the M7.3 execution engine) and are
+  reported ``not_implemented``.
 
 Versioning contract:
 
@@ -109,13 +111,16 @@ WEATHER_FORECAST_UNAVAILABLE_REASON = (
     "forecast evidence."
 )
 SOIL_DIMENSION_UNAVAILABLE_REASON = (
-    "Soil scenario dimensions are unavailable: soil health & nutrient "
-    "cycling (M6B) is not implemented in this repository (M7.0 finding H-03)."
+    "Soil scenario dimensions are unavailable: M6B soil health & nutrient "
+    "intelligence is integrated as a data domain, but soil-driven scenario "
+    "transformations are not part of the M7.3 execution engine, so no "
+    "soil scenario parameters can be evaluated."
 )
 MANAGEMENT_DIMENSION_UNAVAILABLE_REASON = (
-    "Management scenario dimensions are unavailable: field management "
-    "intelligence (M6C) is not implemented in this repository (M7.0 finding "
-    "H-03)."
+    "Management scenario dimensions are unavailable: M6C field management "
+    "intelligence is integrated as a data domain, but management-driven "
+    "scenario transformations are not part of the M7.3 execution engine, "
+    "so no management scenario parameters can be evaluated."
 )
 
 

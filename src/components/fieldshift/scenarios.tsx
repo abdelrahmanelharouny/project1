@@ -50,6 +50,7 @@ import {
   verifyScenario,
 } from '@/lib/api'
 import { useFieldShiftUi } from '@/lib/store'
+import { ScenarioExecutionSection } from '@/components/fieldshift/scenario-execution'
 import type {
   Scenario,
   ScenarioCompareResponse,
@@ -664,6 +665,8 @@ function ScenarioCard({
             Delete
           </Button>
         </div>
+
+        {isFinalized && <ScenarioExecutionSection scenario={scenario} />}
       </CardContent>
     </Card>
   )
@@ -804,7 +807,8 @@ export default function Scenarios() {
           <h2 className="text-lg font-semibold text-stone-800">Scenario Workspace</h2>
           <p className="text-sm text-stone-500">
             Define, validate, version and compare hypothetical field scenarios against immutable
-            Field States. Definitions only — no simulation exists yet.
+            Field States. Finalized scenarios can be executed (M7.3) for environmental
+            parameters; soil/management scenario dimensions stay unavailable.
           </p>
         </div>
         <FieldPicker value={null} onValueChange={setSelectedField} />

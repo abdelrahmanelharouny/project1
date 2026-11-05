@@ -16,7 +16,12 @@ Availability vocabulary (per dimension, never collapsed into a score):
 - period_mismatch    — a pinned artifact exists but does not cover the state
                        period (recorded, never silently mixed)
 - not_evaluated      — assembly could not judge the dimension
-- not_implemented    — the domain does not exist in this repository (M6B/M6C)
+- not_implemented    — the field-state dimension does not exist: state
+                       assembly pins environmental/water/rotation/crop-history
+                       artifacts only. Soil (M6B) and management (M6C) are
+                       integrated as data domains (engines, tables, APIs) but
+                       are not pinned by field states; their run-artifact
+                       integrity is censused by the M7.7 digital twin instead.
 """
 
 from typing import Any
@@ -32,16 +37,20 @@ PERIOD_MISMATCH = "period_mismatch"
 NOT_EVALUATED = "not_evaluated"
 NOT_IMPLEMENTED = "not_implemented"
 
-# Domains a field state tracks. soil/management are absent from this
-# repository (M6B/M6C NOT_IMPLEMENTED — verified by the M7.0 inspection);
-# they are ALWAYS reported as not_implemented with the reason below.
+# Domains a field state tracks. Soil (M6B) and management (M6C) are now
+# integrated as data domains, but field-state assembly does not pin soil or
+# management run artifacts (no soil/management dimension in state assembly);
+# they are ALWAYS reported as not_implemented with the reasons below. Their
+# artifact integrity is verified by the M7.7 digital twin census instead.
 SOIL_NOT_IMPLEMENTED_REASON = (
-    "Soil health & nutrient cycling (M6B) is not implemented in this "
-    "repository — no soil assessment engine or tables exist (M7.0 finding H-03)."
+    "Soil health & nutrient intelligence (M6B) is integrated as a data "
+    "domain, but field-state assembly does not pin soil artifacts; soil run "
+    "integrity is censused by the digital twin (M7.7)."
 )
 MANAGEMENT_NOT_IMPLEMENTED_REASON = (
-    "Field management intelligence (M6C) is not implemented in this "
-    "repository — no management engine or tables exist (M7.0 finding H-03)."
+    "Field management intelligence (M6C) is integrated as a data domain, but "
+    "field-state assembly does not pin management artifacts; management "
+    "artifact integrity is censused by the digital twin (M7.7)."
 )
 
 # Period-compatibility statuses recorded per dimension (F-02).

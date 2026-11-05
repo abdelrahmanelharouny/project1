@@ -221,29 +221,85 @@ def import_pack(
             )
         )
 
+    # --- M6C: management practices & operation templates ---------------------
+    # Same semantics as crops/sources above: rows belong to the imported pack
+    # row; re-importing the identical (pack_code, pack_version) is idempotent
+    # (returned above via the checksum match, so rows are never duplicated),
+    # and superseding an old pack VERSION retires the old pack row wholesale —
+    # never a per-row rewrite.
+    for p in pack_in.practices:
+        db.add(
+            dbm.PracticeDefinition(
+                pack_id=pack_row.id,
+                practice_code=p.practice_code,
+                practice_family=p.practice_family,
+                name=p.name,
+                description=p.description,
+                payload={
+                    "mechanisms": [m.model_dump() for m in p.mechanisms],
+                    "requirements": [q.model_dump() for q in p.requirements],
+                    "trade_offs": [t.model_dump() for t in p.trade_offs],
+                    "risks": [rk.model_dump() for rk in p.risks],
+                    "regional_applicability": [
+                        ra.model_dump() for ra in p.regional_applicability
+                    ],
+                },
+                validation_status=p.validation_status,
+                status="active",
+            )
+        )
+
+    for t in pack_in.operation_templates:
+        payload: dict[str, Any] = {
+            "applies_to_crop_codes": t.applies_to_crop_codes,
+            "applies_to_crop_categories": t.applies_to_crop_categories,
+            "typical_predecessors": [
+                pred.model_dump() for pred in t.typical_predecessors
+            ],
+            "restriction_kinds": t.restriction_kinds,
+        }
+        if t.notes is not None:
+            payload["notes"] = t.notes
+        db.add(
+            dbm.OperationTemplate(
+                pack_id=pack_row.id,
+                template_code=t.template_code,
+                operation_type=t.operation_type,
+                name=t.name,
+                description=t.description,
+                payload=payload,
+                validation_status=t.validation_status,
+                status="active",
+            )
+        )
+
     db.flush()
     return pack_row, report, True
 
 
 def seed_default_packs(db: Session) -> None:
-    """Idempotent bootstrap of the bundled seed pack (active).
+    """Idempotent bootstrap of the bundled knowledge packs (active).
 
-    When the bundled pack's version changes (M6A: 2026.11.0 → 2026.11.1), the
+    When a bundled pack's version changes (M6A: 2026.11.0 → 2026.11.1), the
     superseded version of the same pack_code is RETIRED — a lifecycle
     transition (draft → active → retired), not a history rewrite: the old row
     keeps its content and checksum. Without this, two active versions of the
-    same rules would load twice into the decision core."""
+    same rules would load twice into the decision core. M6C adds the bundled
+    management-practice pack under the same semantics.
+    """
+    from app.knowledge.packs.m6c_practices_pack import get_m6c_practices_pack
     from app.knowledge.packs.seed_pack_v1 import get_seed_pack
 
-    pack, _report, _created = import_pack(db, get_seed_pack(), activate=True)
-    superseded = db.scalars(
-        select(dbm.KnowledgePack).where(
-            dbm.KnowledgePack.pack_code == pack.pack_code,
-            dbm.KnowledgePack.pack_version != pack.pack_version,
-            dbm.KnowledgePack.status != "retired",
-        )
-    ).all()
-    for old in superseded:
-        old.status = "retired"
-    if superseded:
-        db.flush()
+    for get_pack in (get_seed_pack, get_m6c_practices_pack):
+        pack, _report, _created = import_pack(db, get_pack(), activate=True)
+        superseded = db.scalars(
+            select(dbm.KnowledgePack).where(
+                dbm.KnowledgePack.pack_code == pack.pack_code,
+                dbm.KnowledgePack.pack_version != pack.pack_version,
+                dbm.KnowledgePack.status != "retired",
+            )
+        ).all()
+        for old in superseded:
+            old.status = "retired"
+        if superseded:
+            db.flush()

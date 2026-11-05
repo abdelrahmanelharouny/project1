@@ -58,7 +58,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
     mutationFn: () => login({ email: loginEmail.trim(), password: loginPassword }),
     onSuccess: (auth) => {
       toast.success(`Welcome back, ${auth.user.display_name}`, {
-        description: `Organization: ${auth.organization.name}`,
+        description: auth.organization ? `Organization: ${auth.organization.name}` : undefined,
       })
       handleAuth(auth)
     },

@@ -1,0 +1,588 @@
+     1→"""Integration: clean-database migration runs (Master protocol step 3).
+     2→
+     3→Runs alembic in a subprocess against a scratch database:
+     4→drop -> create -> upgrade head -> downgrade base -> upgrade head again.
+     5→"""
+     6→
+     7→import os
+     8→import subprocess
+     9→
+    10→import psycopg2
+    11→import pytest
+    12→from sqlalchemy import create_engine, text
+    13→
+    14→ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    15→SCRATCH_DB = "fieldshift_mig_test"
+    16→SCRATCH_URL = f"postgresql+psycopg2://postgres@127.0.0.1:5433/{SCRATCH_DB}"
+    17→
+    18→
+    19→def _psql(dbname: str, sql: str) -> None:
+    20→    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname=dbname)
+    21→    conn.autocommit = True
+    22→    conn.cursor().execute(sql)
+    23→    conn.close()
+    24→
+    25→
+    26→def _alembic(*args: str) -> subprocess.CompletedProcess:
+    27→    env = dict(os.environ)
+    28→    env["FIELDSHIFT_DATABASE_URL"] = SCRATCH_URL
+    29→    return subprocess.run(
+    30→        [os.path.join(ROOT, ".venv", "bin", "alembic"), *args],
+    31→        cwd=ROOT, env=env, capture_output=True, text=True, timeout=180,
+    32→    )
+    33→
+    34→
+    35→@pytest.fixture()
+    36→def scratch_db():
+    37→    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="postgres")
+    38→    conn.autocommit = True
+    39→    cur = conn.cursor()
+    40→    cur.execute(f"DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)")
+    41→    cur.execute(f"CREATE DATABASE {SCRATCH_DB} ENCODING 'UTF8'")
+    42→    conn.close()
+    43→    yield SCRATCH_DB
+    44→    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="postgres")
+    45→    conn.autocommit = True
+    46→    conn.cursor().execute(f"DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)")
+    47→    conn.close()
+    48→
+    49→
+    50→class TestMigrations:
+    51→    def test_clean_upgrade_creates_postgis_schema(self, scratch_db):
+    52→        result = _alembic("upgrade", "head")
+    53→        assert result.returncode == 0, result.stderr
+    54→
+    55→        engine = create_engine(SCRATCH_URL)
+    56→        with engine.connect() as conn:
+    57→            tables = {r[0] for r in conn.execute(text(
+    58→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+    59→            ))}
+    60→            expected = {
+    61→                "users", "organizations", "memberships", "auth_tokens", "farms", "fields",
+    62→                "field_boundary_versions", "data_sources", "dataset_products", "ingestion_jobs",
+    63→                "observations", "observation_quality_flags", "audit_events", "farm_constraints",
+    64→                "alembic_version",
+    65→            }
+    66→            assert expected.issubset(tables)
+    67→
+    68→            geom = conn.execute(text(
+    69→                "SELECT type, srid FROM geometry_columns WHERE f_table_name='fields'"
+    70→            )).fetchall()
+    71→            assert geom == [("MULTIPOLYGON", 4326)]
+    72→
+    73→            ext = conn.execute(text("SELECT extname FROM pg_extension WHERE extname='postgis'")).scalar()
+    74→            assert ext == "postgis"
+    75→        engine.dispose()
+    76→
+    77→    def test_downgrade_and_reupgrade_roundtrip(self, scratch_db):
+    78→        assert _alembic("upgrade", "head").returncode == 0
+    79→        down = _alembic("downgrade", "base")
+    80→        assert down.returncode == 0, down.stderr
+    81→        engine = create_engine(SCRATCH_URL)
+    82→        with engine.connect() as conn:
+    83→            tables = {r[0] for r in conn.execute(text(
+    84→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+    85→            ))}
+    86→            assert "users" not in tables and "fields" not in tables
+    87→        engine.dispose()
+    88→        again = _alembic("upgrade", "head")
+    89→        assert again.returncode == 0, again.stderr
+    90→
+    91→
+    92→M7_1_EXPECTED_TABLES = {"field_states"}
+    93→M7_1_EXPECTED_COLUMNS = {
+    94→    "feature_runs": {"boundary_version", "observation_manifest", "observation_manifest_sha256"},
+    95→    "water_plans": {"boundary_version", "started_at", "completed_at"},
+    96→}
+    97→
+    98→
+    99→class TestM7_1FieldStateFoundation:
+   100→    """Migration 0007: field_states + H-01/H-02 columns + F-30 index."""
+   101→
+   102→    def test_upgrade_creates_field_state_schema(self, scratch_db):
+   103→        assert _alembic("upgrade", "head").returncode == 0
+   104→        engine = create_engine(SCRATCH_URL)
+   105→        with engine.connect() as conn:
+   106→            tables = {r[0] for r in conn.execute(text(
+   107→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   108→            ))}
+   109→            assert M7_1_EXPECTED_TABLES.issubset(tables)
+   110→
+   111→            for table, columns in M7_1_EXPECTED_COLUMNS.items():
+   112→                present = {r[0] for r in conn.execute(text(
+   113→                    f"SELECT column_name FROM information_schema.columns "
+   114→                    f"WHERE table_name='{table}'"
+   115→                ))}
+   116→                assert columns.issubset(present), f"{table}: missing {columns - present}"
+   117→
+   118→            indexes = {r[0] for r in conn.execute(text(
+   119→                "SELECT indexname FROM pg_indexes WHERE tablename='ingestion_jobs'"
+   120→            ))}
+   121→            assert "uq_ingestion_idempotency_v2" in indexes
+   122→            assert "uq_ingestion_idempotency" not in indexes
+   123→
+   124→            state_indexes = {r[0] for r in conn.execute(text(
+   125→                "SELECT indexname FROM pg_indexes WHERE tablename='field_states'"
+   126→            ))}
+   127→            assert {"uq_field_state_idempotency", "ix_field_states_field"} <= state_indexes
+   128→        engine.dispose()
+   129→
+   130→    def test_downgrade_to_0006_reverses_m7_1_schema(self, scratch_db):
+   131→        assert _alembic("upgrade", "head").returncode == 0
+   132→        down = _alembic("downgrade", "0006_water_intelligence")
+   133→        assert down.returncode == 0, down.stderr
+   134→        engine = create_engine(SCRATCH_URL)
+   135→        with engine.connect() as conn:
+   136→            tables = {r[0] for r in conn.execute(text(
+   137→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   138→            ))}
+   139→            assert "field_states" not in tables
+   140→            for table, columns in M7_1_EXPECTED_COLUMNS.items():
+   141→                present = {r[0] for r in conn.execute(text(
+   142→                    f"SELECT column_name FROM information_schema.columns "
+   143→                    f"WHERE table_name='{table}'"
+   144→                ))}
+   145→                assert columns.isdisjoint(present), f"{table}: {columns & present} not dropped"
+   146→
+   147→            indexes = {r[0] for r in conn.execute(text(
+   148→                "SELECT indexname FROM pg_indexes WHERE tablename='ingestion_jobs'"
+   149→            ))}
+   150→            assert "uq_ingestion_idempotency" in indexes, "legacy key-only index restored"
+   151→            assert "uq_ingestion_idempotency_v2" not in indexes
+   152→        engine.dispose()
+   153→        again = _alembic("upgrade", "head")
+   154→        assert again.returncode == 0, again.stderr
+   155→
+   156→
+   157→M7_2_EXPECTED_TABLES = {"scenarios", "scenario_validation_records"}
+   158→M7_2_EXPECTED_COLUMNS = {
+   159→    "scenarios": {
+   160→        "parent_field_state_id", "parent_snapshot_checksum", "boundary_version",
+   161→        "canonical_configuration", "configuration_checksum", "evidence_classification",
+   162→        "scenario_status", "lineage_kind", "scenario_version", "finalized_at",
+   163→    },
+   164→}
+   165→
+   166→
+   167→class TestM7_2ScenarioDomain:
+   168→    """Migration 0008: scenarios + validation records + immutability trigger."""
+   169→
+   170→    def test_upgrade_creates_scenario_schema_and_trigger(self, scratch_db):
+   171→        assert _alembic("upgrade", "head").returncode == 0
+   172→        engine = create_engine(SCRATCH_URL)
+   173→        with engine.connect() as conn:
+   174→            tables = {r[0] for r in conn.execute(text(
+   175→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   176→            ))}
+   177→            assert M7_2_EXPECTED_TABLES.issubset(tables)
+   178→            for table, columns in M7_2_EXPECTED_COLUMNS.items():
+   179→                present = {r[0] for r in conn.execute(text(
+   180→                    f"SELECT column_name FROM information_schema.columns "
+   181→                    f"WHERE table_name='{table}'"
+   182→                ))}
+   183→                assert columns.issubset(present), f"{table}: missing {columns - present}"
+   184→            indexes = {r[0] for r in conn.execute(text(
+   185→                "SELECT indexname FROM pg_indexes WHERE tablename='scenarios'"
+   186→            ))}
+   187→            assert {"uq_scenario_idempotency", "ix_scenarios_field"} <= indexes
+   188→            trigger = conn.execute(text(
+   189→                "SELECT tgname FROM pg_trigger WHERE tgrelid = 'scenarios'::regclass "
+   190→                "AND NOT tgisinternal"
+   191→            )).scalars().all()
+   192→            assert "trg_scenario_immutability" in trigger
+   193→            # type↔evidence binding check exists (C2 at the database level)
+   194→            checks = conn.execute(text(
+   195→                "SELECT conname FROM pg_constraint WHERE conrelid='scenarios'::regclass "
+   196→                "AND contype='c'"
+   197→            )).scalars().all()
+   198→            assert "ck_scenario_type_evidence_binding" in checks
+   199→            assert "ck_scenario_unavailable_types_never_finalized" in checks
+   200→        engine.dispose()
+   201→
+   202→    def test_trigger_freezes_finalized_rows(self, scratch_db):
+   203→        import uuid as _uuid
+   204→
+   205→        assert _alembic("upgrade", "head").returncode == 0
+   206→        engine = create_engine(SCRATCH_URL)
+   207→        org, user, farm, field, state, scenario = (
+   208→            _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4(),
+   209→        )
+   210→        with engine.begin() as conn:
+   211→            conn.execute(text(
+   212→                "INSERT INTO organizations (id, name) VALUES (:i, 'org')",
+   213→            ),
+   214→            {"i": org})
+   215→            conn.execute(text(
+   216→                "INSERT INTO users (id, email, password_hash, display_name) "
+   217→                "VALUES (:i, 't@t.local', 'x', 'T')",
+   218→            ),
+   219→            {"i": user})
+   220→            conn.execute(text(
+   221→                "INSERT INTO farms (id, organization_id, name, country_code, timezone, currency_code) "
+   222→                "VALUES (:i, :o, 'f', 'EG', 'UTC', 'EGP')",
+   223→            ),
+   224→            {"i": farm, "o": org})
+   225→            conn.execute(text(
+   226→                "INSERT INTO fields (id, farm_id, name, area_ha, boundary, boundary_version) "
+   227→                "VALUES (:i, :f, 'fd', 1.0, ST_GeomFromText('POLYGON((31 30,31.01 30,31.01 30.01,31 30.01,31 30))',4326), 1)",
+   228→            ),
+   229→            {"i": field, "f": farm})
+   230→            conn.execute(text(
+   231→                "INSERT INTO field_boundary_versions (id, field_id, version_number, boundary, area_ha, change_reason) "
+   232→                "VALUES (:i, :fid, 1, ST_GeomFromText('POLYGON((31 30,31.01 30,31.01 30.01,31 30.01,31 30))',4326), 1.0, 'init')",
+   233→            ), {"i": _uuid.uuid4(), "fid": field})
+   234→            conn.execute(text(
+   235→                "INSERT INTO field_states (id, field_id, status, boundary_version, "
+   236→                "state_reference_time, period_start, period_end, manifest_format_version, "
+   237→                "checksum_sha256) VALUES (:i, :fid, 'succeeded', 1, now(), now(), now(), "
+   238→                "'field-observation-manifest-1', :ck)",
+   239→            ), {"i": state, "fid": field, "ck": "c" * 64})
+   240→            conn.execute(text(
+   241→                "INSERT INTO scenarios (id, field_id, name, scenario_type, scenario_status, "
+   242→                "parent_field_state_id, parent_snapshot_checksum, boundary_version, "
+   243→                "configuration_schema_version, canonical_configuration, configuration_checksum, "
+   244→                "period_start, period_end, evidence_classification, finalized_at) "
+   245→                "VALUES (:i, :fid, 's', 'user_defined_stress', 'finalized', :sid, :ck, 1, "
+   246→                "'scenario-config-1.0', '{}', :cc, now(), now(), 'hypothetical', now())",
+   247→            ), {"i": scenario, "fid": field, "sid": state, "ck": "c" * 64, "cc": "a" * 64})
+   248→        # any content change must be rejected by the trigger
+   249→        from sqlalchemy.exc import DBAPIError
+   250→
+   251→        tamper_attempts = [
+   252→            (
+   253→                "UPDATE scenarios SET canonical_configuration = :cfg WHERE id = :sid",
+   254→                {"sid": scenario, "cfg": '{"tampered": true}'},
+   255→            ),
+   256→            (
+   257→                "UPDATE scenarios SET configuration_checksum = :new WHERE id = :sid",
+   258→                {"sid": scenario, "new": "b" * 64},
+   259→            ),
+   260→            (
+   261→                "UPDATE scenarios SET scenario_status = 'draft' WHERE id = :sid",
+   262→                {"sid": scenario},
+   263→            ),
+   264→        ]
+   265→        rejections = 0
+   266→        for statement, params in tamper_attempts:
+   267→            try:
+   268→                with engine.begin() as conn:
+   269→                    conn.execute(text(statement), params)
+   270→            except DBAPIError:
+   271→                rejections += 1
+   272→        assert rejections == 3, f"trigger rejected {rejections}/3 tamper attempts"
+   273→
+   274→        # the ONLY allowed transition: finalized → archived
+   275→        with engine.begin() as conn:
+   276→            conn.execute(text(
+   277→                "UPDATE scenarios SET scenario_status = 'archived' WHERE id = :sid",
+   278→            ), {"sid": scenario})
+   279→            status = conn.execute(text(
+   280→                "SELECT scenario_status FROM scenarios WHERE id = :sid",
+   281→            ), {"sid": scenario}).scalar()
+   282→        assert status == "archived"
+   283→
+   284→        # archived is terminal
+   285→        try:
+   286→            with engine.begin() as conn:
+   287→                conn.execute(text(
+   288→                    "UPDATE scenarios SET scenario_status = 'finalized' WHERE id = :sid",
+   289→                ), {"sid": scenario})
+   290→            raised = False
+   291→        except DBAPIError:
+   292→            raised = True
+   293→        assert raised, "archived rows must be terminal"
+   294→        engine.dispose()
+   295→
+   296→    def test_downgrade_to_0007_reverses_scenario_schema(self, scratch_db):
+   297→        assert _alembic("upgrade", "head").returncode == 0
+   298→        down = _alembic("downgrade", "0007_field_state_foundation")
+   299→        assert down.returncode == 0, down.stderr
+   300→        engine = create_engine(SCRATCH_URL)
+   301→        with engine.connect() as conn:
+   302→            tables = {r[0] for r in conn.execute(text(
+   303→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   304→            ))}
+   305→            assert tables.isdisjoint(M7_2_EXPECTED_TABLES)
+   306→            fn = conn.execute(text(
+   307→                "SELECT COUNT(*) FROM pg_proc WHERE proname='enforce_scenario_immutability'"
+   308→            )).scalar()
+   309→            assert fn == 0
+   310→        engine.dispose()
+   311→        again = _alembic("upgrade", "head")
+   312→        assert again.returncode == 0, again.stderr
+   313→
+   314→# ------------------------------------------------------------------ M7.3
+   315→
+   316→M7_3_EXPECTED_TABLES = {
+   317→    "scenario_execution_runs",
+   318→    "scenario_derived_observations",
+   319→    "scenario_derived_features",
+   320→}
+   321→
+   322→M7_3_RUN_COLUMNS = {
+   323→    "id", "field_id", "scenario_id", "scenario_version", "parent_field_state_id",
+   324→    "parent_snapshot_checksum", "scenario_configuration_checksum",
+   325→    "transformation_engine_version", "feature_engine_version", "feature_catalog_version",
+   326→    "source_observation_manifest", "source_observation_manifest_sha256",
+   327→    "execution_configuration", "input_fingerprint", "run_status", "output_checksum",
+   328→    "records_written", "transformed_observation_count", "derived_feature_count",
+   329→    "warnings", "not_evaluated_reasons", "resource_constraints", "idempotency_key",
+   330→}
+   331→
+   332→
+   333→class TestM73Migrations:
+   334→    def test_upgrade_creates_execution_schema_and_triggers(self, scratch_db):
+   335→        assert _alembic("upgrade", "head").returncode == 0
+   336→        engine = create_engine(SCRATCH_URL)
+   337→        with engine.connect() as conn:
+   338→            tables = {r[0] for r in conn.execute(text(
+   339→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   340→            ))}
+   341→            assert M7_3_EXPECTED_TABLES.issubset(tables)
+   342→            run_cols = {r[0] for r in conn.execute(text(
+   343→                "SELECT column_name FROM information_schema.columns "
+   344→                "WHERE table_name='scenario_execution_runs'"
+   345→            ))}
+   346→            assert M7_3_RUN_COLUMNS.issubset(run_cols)
+   347→            indexes = {r[0] for r in conn.execute(text(
+   348→                "SELECT indexname FROM pg_indexes WHERE tablename='scenario_execution_runs'"
+   349→            ))}
+   350→            assert {"uq_scenario_execution_fingerprint", "uq_scenario_execution_idempotency"} <= indexes
+   351→            triggers = conn.execute(text(
+   352→                "SELECT tgname FROM pg_trigger WHERE tgrelid = 'scenario_execution_runs'::regclass "
+   353→                "AND NOT tgisinternal"
+   354→            )).scalars().all()
+   355→            assert "trg_scenario_execution_immutability" in triggers
+   356→            assert "trg_scenario_execution_no_delete" in triggers
+   357→            checks = conn.execute(text(
+   358→                "SELECT conname FROM pg_constraint WHERE conrelid='scenario_execution_runs'::regclass "
+   359→                "AND contype='c'"
+   360→            )).scalars().all()
+   361→            assert "ck_scenario_execution_status" in checks
+   362→            assert "ck_scenario_execution_checksum_on_success" in checks
+   363→            # derived-observation evidence CHECK exists
+   364→            obs_checks = conn.execute(text(
+   365→                "SELECT conname FROM pg_constraint WHERE conrelid='scenario_derived_observations'::regclass "
+   366→                "AND contype='c'"
+   367→            )).scalars().all()
+   368→            assert "ck_scenario_derived_obs_evidence" in obs_checks
+   369→        engine.dispose()
+   370→
+   371→    def _seed_execution_chain(self, engine):
+   372→        import uuid as _uuid
+   373→
+   374→        org, user, farm, field, state, scenario, run = (
+   375→            _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4(),
+   376→            _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4(),
+   377→        )
+   378→        with engine.begin() as conn:
+   379→            conn.execute(text("INSERT INTO organizations (id, name) VALUES (:i, 'org')"), {"i": org})
+   380→            conn.execute(text(
+   381→                "INSERT INTO users (id, email, password_hash, display_name) "
+   382→                "VALUES (:i, 't@t.local', 'x', 'T')"),
+   383→                {"i": user})
+   384→            conn.execute(text(
+   385→                "INSERT INTO farms (id, organization_id, name, country_code, timezone, currency_code) "
+   386→                "VALUES (:i, :o, 'f', 'EG', 'UTC', 'EGP')"),
+   387→                {"i": farm, "o": org})
+   388→            conn.execute(text(
+   389→                "INSERT INTO fields (id, farm_id, name, area_ha, boundary, boundary_version) "
+   390→                "VALUES (:i, :f, 'fd', 1.0, ST_GeomFromText('POLYGON((31 30,31.01 30,31.01 30.01,31 30.01,31 30))',4326), 1)"),
+   391→                {"i": field, "f": farm})
+   392→            conn.execute(text(
+   393→                "INSERT INTO field_boundary_versions (id, field_id, version_number, boundary, area_ha, change_reason) "
+   394→                "VALUES (:i, :fid, 1, ST_GeomFromText('POLYGON((31 30,31.01 30,31.01 30.01,31 30.01,31 30))',4326), 1.0, 'init')"),
+   395→                {"i": _uuid.uuid4(), "fid": field})
+   396→            conn.execute(text(
+   397→                "INSERT INTO field_states (id, field_id, status, boundary_version, "
+   398→                "state_reference_time, period_start, period_end, manifest_format_version, "
+   399→                "checksum_sha256) VALUES (:i, :fid, 'succeeded', 1, now(), now(), now(), "
+   400→                "'field-observation-manifest-1', :ck)"),
+   401→                {"i": state, "fid": field, "ck": "c" * 64})
+   402→            conn.execute(text(
+   403→                "INSERT INTO scenarios (id, field_id, name, scenario_type, scenario_status, "
+   404→                "parent_field_state_id, parent_snapshot_checksum, boundary_version, "
+   405→                "configuration_schema_version, canonical_configuration, configuration_checksum, "
+   406→                "period_start, period_end, evidence_classification, finalized_at) "
+   407→                "VALUES (:i, :fid, 's', 'user_defined_stress', 'finalized', :sid, :ck, 1, "
+   408→                "'scenario-config-1.0', '{}', :cc, now(), now(), 'hypothetical', now())"),
+   409→                {"i": scenario, "fid": field, "sid": state, "ck": "c" * 64, "cc": "a" * 64})
+   410→            conn.execute(text(
+   411→                "INSERT INTO scenario_execution_runs (id, field_id, scenario_id, scenario_version, "
+   412→                "parent_field_state_id, parent_snapshot_checksum, scenario_configuration_checksum, "
+   413→                "transformation_engine_version, feature_engine_version, feature_catalog_version, "
+   414→                "source_observation_manifest, source_observation_manifest_sha256, "
+   415→                "execution_configuration, input_fingerprint, run_status, output_checksum) "
+   416→                "VALUES (:i, :fid, :scid, 1, :sid, :ck, :cc, 'scenario-transform-1.0.0', "
+   417→                "'feature-engine-1.0.0', 'featurespec-2026.11.2-m6a', '{}', :mh, '{}', :fp, "
+   418→                "'succeeded', :oc)"),
+   419→                {"i": run, "fid": field, "scid": scenario, "sid": state, "ck": "c" * 64,
+   420→                 "cc": "a" * 64, "mh": "d" * 64, "fp": "e" * 64, "oc": "f" * 64})
+   421→        return run, scenario
+   422→
+   423→    def test_execution_triggers_freeze_result_rows(self, scratch_db):
+   424→        from sqlalchemy.exc import DBAPIError
+   425→
+   426→        assert _alembic("upgrade", "head").returncode == 0
+   427→        engine = create_engine(SCRATCH_URL)
+   428→        run, scenario = self._seed_execution_chain(engine)
+   429→
+   430→        # content tamper attempts rejected
+   431→        tamper_attempts = [
+   432→            ("UPDATE scenario_execution_runs SET run_status = 'draft' WHERE id = :id", {"id": run}),
+   433→            ("UPDATE scenario_execution_runs SET output_checksum = :n WHERE id = :id", {"id": run, "n": "0" * 64}),
+   434→            ("UPDATE scenario_execution_runs SET warnings = '[\"x\"]' WHERE id = :id", {"id": run}),
+   435→        ]
+   436→        rejected = 0
+   437→        for statement, params in tamper_attempts:
+   438→            try:
+   439→                with engine.begin() as conn:
+   440→                    conn.execute(text(statement), params)
+   441→            except DBAPIError:
+   442→                rejected += 1
+   443→        assert rejected == 3, f"trigger rejected {rejected}/3 tamper attempts"
+   444→
+   445→        # result-bearing runs cannot be deleted
+   446→        try:
+   447→            with engine.begin() as conn:
+   448→                conn.execute(text("DELETE FROM scenario_execution_runs WHERE id = :id"), {"id": run})
+   449→            deleted = False
+   450→        except DBAPIError:
+   451→            deleted = True
+   452→        assert deleted, "result-bearing runs must not be deletable"
+   453→
+   454→        # the scenario cannot be deleted while its run exists (FK RESTRICT)
+   455→        try:
+   456→            with engine.begin() as conn:
+   457→                conn.execute(text("DELETE FROM scenarios WHERE id = :id"), {"id": scenario})
+   458→            scenario_deleted = False
+   459→        except DBAPIError:
+   460→            scenario_deleted = True
+   461→        assert scenario_deleted, "scenario deletion must be blocked by the execution FK"
+   462→
+   463→        # failed runs (no results) CAN be deleted
+   464→        import uuid as _uuid
+   465→        failed_run = _uuid.uuid4()
+   466→        with engine.begin() as conn:
+   467→            conn.execute(text(
+   468→                "INSERT INTO scenario_execution_runs (id, field_id, scenario_id, scenario_version, "
+   469→                "parent_field_state_id, parent_snapshot_checksum, scenario_configuration_checksum, "
+   470→                "transformation_engine_version, feature_engine_version, feature_catalog_version, "
+   471→                "source_observation_manifest, source_observation_manifest_sha256, "
+   472→                "execution_configuration, input_fingerprint, run_status, error_summary) "
+   473→                "VALUES (:i, (SELECT field_id FROM scenario_execution_runs WHERE id=:r), :scid, 1, "
+   474→                "(SELECT parent_field_state_id FROM scenario_execution_runs WHERE id=:r), 'c'||'' , "
+   475→                "'a'||'', 'scenario-transform-1.0.0', 'feature-engine-1.0.0', "
+   476→                "'featurespec-2026.11.2-m6a', '{}', 'd'||'', '{}', 'e2'||'', 'failed', 'boom')"),
+   477→                {"i": failed_run, "r": run, "scid": scenario})
+   478→            conn.execute(text("DELETE FROM scenario_execution_runs WHERE id = :i"), {"i": failed_run})
+   479→            remaining = conn.execute(text(
+   480→                "SELECT count(*) FROM scenario_execution_runs WHERE id = :i"), {"i": failed_run}).scalar()
+   481→        assert remaining == 0
+   482→        engine.dispose()
+   483→
+   484→    def test_downgrade_to_0008_reverses_execution_schema(self, scratch_db):
+   485→        assert _alembic("upgrade", "head").returncode == 0
+   486→        down = _alembic("downgrade", "0008_scenario_domain")
+   487→        assert down.returncode == 0, down.stderr
+   488→        engine = create_engine(SCRATCH_URL)
+   489→        with engine.connect() as conn:
+   490→            tables = {r[0] for r in conn.execute(text(
+   491→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   492→            ))}
+   493→            assert tables.isdisjoint(M7_3_EXPECTED_TABLES)
+   494→            fn = conn.execute(text(
+   495→                "SELECT COUNT(*) FROM pg_proc WHERE proname='enforce_scenario_execution_immutability'"
+   496→            )).scalar()
+   497→            assert fn == 0
+   498→        engine.dispose()
+   499→        again = _alembic("upgrade", "head")
+   500→        assert again.returncode == 0, again.stderr
+   501→
+   502→
+   503→M7_4_EXPECTED_TABLES = {
+   504→    "sensitivity_analyses",
+   505→    "sensitivity_evaluations",
+   506→    "sensitivity_feature_values",
+   507→    "sensitivity_oat_responses",
+   508→    "sensitivity_grid_cells",
+   509→    "sensitivity_grid_summaries",
+   510→    "sensitivity_uncertainty_items",
+   511→}
+   512→
+   513→M7_4_ANALYSIS_COLUMNS = {
+   514→    "source_execution_run_id",
+   515→    "scenario_id",
+   516→    "parent_field_state_id",
+   517→    "parent_snapshot_checksum",
+   518→    "source_observation_manifest_sha256",
+   519→    "source_output_checksum",
+   520→    "reference_parameter_values",
+   521→    "explorable_parameters",
+   522→    "parameter_design",
+   523→    "grid_design",
+   524→    "analysis_configuration",
+   525→    "analysis_fingerprint",
+   526→    "analysis_method_version",
+   527→    "response_classification_version",
+   528→    "uncertainty_registry_version",
+   529→    "reference_reproduction",
+   530→    "output_checksum",
+   531→    "not_analysed_features",
+   532→}
+   533→
+   534→
+   535→class TestM74Migrations:
+   536→    def test_upgrade_creates_sensitivity_schema_and_triggers(self, scratch_db):
+   537→        assert _alembic("upgrade", "head").returncode == 0
+   538→        engine = create_engine(SCRATCH_URL)
+   539→        with engine.connect() as conn:
+   540→            tables = {r[0] for r in conn.execute(text(
+   541→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   542→            ))}
+   543→            assert M7_4_EXPECTED_TABLES.issubset(tables)
+   544→            cols = {r[0] for r in conn.execute(text(
+   545→                "SELECT column_name FROM information_schema.columns "
+   546→                "WHERE table_name='sensitivity_analyses'"
+   547→            ))}
+   548→            assert M7_4_ANALYSIS_COLUMNS.issubset(cols)
+   549→            indexes = {r[0] for r in conn.execute(text(
+   550→                "SELECT indexname FROM pg_indexes WHERE tablename='sensitivity_analyses'"
+   551→            ))}
+   552→            assert {"uq_sensitivity_analysis_fingerprint", "uq_sensitivity_analysis_idempotency"} <= indexes
+   553→            triggers = conn.execute(text(
+   554→                "SELECT tgname FROM pg_trigger WHERE tgrelid = 'sensitivity_analyses'::regclass "
+   555→                "AND NOT tgisinternal"
+   556→            )).scalars().all()
+   557→            assert "trg_sensitivity_analysis_immutability" in triggers
+   558→            assert "trg_sensitivity_analysis_no_delete" in triggers
+   559→            checks = conn.execute(text(
+   560→                "SELECT conname FROM pg_constraint WHERE conrelid='sensitivity_analyses'::regclass "
+   561→                "AND contype='c'"
+   562→            )).scalars().all()
+   563→            assert "ck_sensitivity_analysis_status" in checks
+   564→            assert "ck_sensitivity_analysis_checksum_on_success" in checks
+   565→            # evaluation dedupe invariant
+   566→            eval_constraints = conn.execute(text(
+   567→                "SELECT conname FROM pg_constraint WHERE conrelid='sensitivity_evaluations'::regclass"
+   568→            )).scalars().all()
+   569→            assert "uq_sensitivity_evaluation_tuple" in eval_constraints
+   570→        engine.dispose()
+   571→
+   572→    def test_downgrade_to_0009_reverses_m7_4_schema(self, scratch_db):
+   573→        assert _alembic("upgrade", "head").returncode == 0
+   574→        assert _alembic("downgrade", "0009_scenario_execution").returncode == 0
+   575→        engine = create_engine(SCRATCH_URL)
+   576→        with engine.connect() as conn:
+   577→            tables = {r[0] for r in conn.execute(text(
+   578→                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+   579→            ))}
+   580→            assert M7_4_EXPECTED_TABLES.isdisjoint(tables)
+   581→            funcs = conn.execute(text(
+   582→                "SELECT proname FROM pg_proc WHERE proname IN "
+   583→                "('enforce_sensitivity_analysis_immutability','prevent_sensitivity_analysis_result_delete')"
+   584→            )).scalars().all()
+   585→            assert funcs == []
+   586→        engine.dispose()
+   587→        assert _alembic("upgrade", "head").returncode == 0
+   588→

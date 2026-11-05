@@ -1,6 +1,0 @@
-- script:
-  - pkg-config --exists json-c
-  - pkg-config --modversion json-c
-  requirements:
-    run:
-    - pkg-config

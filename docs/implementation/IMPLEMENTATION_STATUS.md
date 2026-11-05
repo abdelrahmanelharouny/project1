@@ -295,13 +295,24 @@ verified baseline (commit `15013c7`).
 - ✅ M7.0 readiness inspection (done — CONDITIONAL GO; `docs/m7/readiness/`)
 - ✅ Field state foundation & snapshot hygiene (Milestone 7.1 — done; `docs/m7/m7_1/`)
 - ✅ Scenario domain & immutable scenario definitions (Milestone 7.2 — done; `docs/m7/m7_2/`)
-- ⬜ Historical & user-defined stress transformations (Milestone 7.3)
-- ⬜ Sensitivity & uncertainty analysis (Milestone 7.4)
-- ⬜ Multi-scenario rotation evaluation (Milestone 7.5)
-- ⬜ Robustness & decision-stability analysis (Milestone 7.6)
-- ⬜ Digital twin timeline & visualization (Milestone 7.7)
+- ✅ M6B soil health & nutrient intelligence (done — soil samples/measurements with method identity, depth-explicit profile, USDA texture + honest AWC, FAO GSOC SOC stock, N/P/K budgets with exact stoichiometry, multi-domain assessments; `docs/m6b/`)
+- ✅ M6C field management intelligence (done — cover-crop evaluation, soil-cover intervals, residue ledger, conditional RUSLE screening (factors only with provenance; no factor database), CP-SAT operations scheduling; `docs/m6c/`)
+- ✅ Scenario execution engine (Milestone 7.3 — environmental parameters over immutable field states; soil/management scenario transformations deliberately NOT part of the engine)
+- ✅ Sensitivity & uncertainty analysis (Milestone 7.4)
+- ✅ Multi-scenario rotation evaluation (Milestone 7.5)
+- ✅ Robustness & decision-stability analysis (Milestone 7.6)
+- ✅ Digital twin view & integrity validation (Milestone 7.7 — censuses M6B/M6C artifacts, bounded validation walk with checksum recomputation)
 - ⬜ External climate projections & forecasts (Milestone 7.8 — data-gated, NO-GO until sourced data exists)
-- ⬜ Rotation optimizer water-scheduling refinements + soil ledger (Milestones 6B–7)
+- ⬜ Soil/management-driven scenario transformations (deliberately unavailable — no validated transform semantics exist; M6B/M6C remain data domains)
+- ⬜ Rotation optimizer water-scheduling refinements + soil ledger (Milestones 6B–7 leftovers)
 - ⬜ Stress testing lab (Milestone 8)
 - ⬜ Farmer journal, advisor review, offline sync (Milestone 9)
 - ⬜ NASA connectors — intentionally not implemented (future adapter; Master rule 8)
+
+## M6B/M6C + M7 integration state (2026-11-03)
+
+- Migration graph unified: soil line (`0007_soil_intelligence` → `0008_field_management`) merged with the M7 line at empty merge revision `0014_merge_m6bc_m7` — single head, all 15 migrations verified upgrade/downgrade on a scratch DB and applied to the dev DB (83 tables incl. `alembic_version` + PostGIS).
+- Full backend suite at integration: **1095 passed, 1 skipped, exit 0** (581 pre-integration baseline + 514 new across M6B/M6C/M7.3–7.7).
+- Frontend: 14-tab workspace (Soil, Management, Sensitivity, Robust Plan, Decisions, Digital Twin added); ESLint + tsc clean.
+- Reconciliation rules enforced: M7.1 field states do not pin soil/management artifacts (availability reasons updated); M7.2 capabilities truthful (`scenario_execution=implemented`, soil/management scenario dimensions unavailable); M7.3–M7.6 contain no invented soil/management semantics; M7.7 twin censuses M6B/M6C records + run artifacts (checksum recomputation where stored) and the capability matrix distinguishes implemented vs data-ready.
+- Browser E2E evidence: SOC stock run reproduced FAO identity exactly (12.4 g/kg × 1.32 g/cm³ × 30 cm × 0.1 = 49.104 Mg C/ha) with checksum; cover-crop plan evaluated with honest conditional candidate; twin validation walk verified both artifacts; login contract fixed (login now returns `organization` like register); tenant isolation re-verified live (403 cross-tenant); desktop 1280 + mobile 390 clean (`tool-results/m6bc-*.png`).

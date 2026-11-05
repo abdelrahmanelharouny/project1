@@ -336,7 +336,9 @@ export type SyntheticProfile =
   | 'tropical_seasonal'
   | 'arid_irrigated'
 
-export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+/** Mirrors ingestion-job status CHECK constraint (app/db/models.py):
+ *  ('queued','running','succeeded','failed','cancelled','retrying'). */
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 export interface DataJob {
   job_id: string
@@ -1159,7 +1161,7 @@ export interface WaterPlan {
   label: string
   seasons: Array<{ label: string; start_date: string; end_date: string }>
   crop_assignments: Array<Record<string, unknown>>
-  methods: Record<string, unknown>
+  methods: { effective_rainfall_method?: string } & Record<string, unknown>
   soil_inputs: Record<string, unknown>
   warnings: string[]
   not_evaluated: Record<string, string[]>
@@ -1563,4 +1565,1670 @@ export interface ScenarioCompareResponse {
   warnings: string[]
   compatibility: { parents_compatible: boolean; note: string }
   note: string
+}
+
+// =============================================================
+// M6B — Soil intelligence (soil.tsx)
+// Mirror of app.api.v1.soil / app.soil.* payload builders.
+// =============================================================
+
+export interface SoilMeasurement {
+  id: string
+  field_id: string
+  layer_id: string | null
+  variable_code: string
+  value: number | null
+  unit: string
+  top_depth_cm: number | null
+  bottom_depth_cm: number | null
+  evidence_class: string
+  spatial_support_type: string | null
+  source_kind: string | null
+  method_params: Record<string, unknown> | null
+  detection_limit: number | null
+  quantification_limit: number | null
+  result_qualifier: string | null
+  uncertainty_value: number | null
+  uncertainty_type: string | null
+  quality_status: string
+  is_synthetic: boolean
+  observed_at: string
+  processing_version: string | null
+}
+
+export interface SoilDepthGap {
+  from_cm: number | null
+  to_cm: number | null
+  gap_cm: number | null
+}
+
+export interface SoilProfileIntegrity {
+  overlaps: Array<Record<string, unknown>>
+  gaps: SoilDepthGap[]
+  coverage_cm: [number, number] | null
+  note: string
+}
+
+export interface SoilProfileLayer {
+  top_cm: number
+  bottom_cm: number
+  source_kinds: string[]
+  evidence_classes: string[]
+  measurements: SoilMeasurement[]
+  sample_id: string | null
+}
+
+export interface SoilProfileResponse {
+  field_id: string
+  engine_version: string
+  layers: SoilProfileLayer[]
+  integrity: SoilProfileIntegrity
+}
+
+/** USDA texture derivation (present when sand+clay were evaluable). */
+export interface SoilTextureDerivation {
+  class: string
+  sand_pct: number | null
+  silt_pct: number | null
+  clay_pct: number | null
+  silt_basis: string
+  classifier_version: string
+}
+
+/** Layer available-water-capacity derivation (present when θFC+θWP exist). */
+export interface SoilAwcDerivation {
+  awc_m3_m3: number
+  awc_mm: number
+  fc_potential_kpa: number | null
+  pwp_potential_kpa: number | null
+}
+
+/** Honest refusal for a derived indicator (never zero-filled). */
+export interface SoilDerivationRefusal {
+  status: 'not_evaluated'
+  reason: string
+}
+
+export interface SoilIndicatorLayer {
+  top_cm: number
+  bottom_cm: number
+  texture?: SoilTextureDerivation | SoilDerivationRefusal
+  awc?: SoilAwcDerivation | SoilDerivationRefusal
+}
+
+export interface SoilIndicatorsResponse {
+  engine_version: string
+  layers: SoilIndicatorLayer[]
+  note: string
+}
+
+export interface SoilTrend {
+  status: 'measured_change' | 'not_comparable'
+  reason?: string | null
+  points?: number
+  first?: { date: string; value: number | null; unit: string }
+  last?: { date: string; value: number | null; unit: string }
+  delta?: number | null
+  caveat?: string
+}
+
+export interface SoilDomainIndicator {
+  variable_code: string
+  latest_value: number | null
+  unit: string
+  observed_at: string
+  evidence_class: string
+  source_kind: string | null
+  quality_status: string | null
+  method: string | null
+  uncertainty: number | null
+  depth: [number | null, number | null]
+  interpretation_note: string | null
+  local_applicability: string
+  trend?: SoilTrend
+}
+
+export interface SoilDomainRow {
+  domain: string
+  available: SoilDomainIndicator[]
+  missing: string[]
+  available_count: number
+  missing_count: number
+  data_quality_note: string
+  synthetic_flag: boolean
+}
+
+export interface SoilAssessmentResult {
+  field_id: string
+  assessment_version: string
+  engine_version: string
+  methods_version: string
+  domains: SoilDomainRow[]
+  composite_score: null
+  composite_note: string
+  missing_is_not_bad_note: string
+}
+
+/** GET /fields/{id}/soil-health — live computation or latest snapshot. */
+export interface SoilHealthResponse {
+  source: 'live' | 'snapshot'
+  assessment_id?: string
+  result: SoilAssessmentResult
+}
+
+export interface SoilDataReadinessPriority {
+  variable_code: string
+  trigger: string
+  decision_unblocked: string
+  priority_basis: string
+}
+
+export interface SoilDataReadinessResponse {
+  priorities: SoilDataReadinessPriority[]
+  collected_note: string
+  policy: string
+}
+
+export interface SoilMethodsResponse {
+  soil_engine_version: string
+  methods_version: string
+  texture_classifier: {
+    version: string
+    system: string
+    source: string
+    silt_derivation: string
+    tolerance: string
+  }
+  conversions: Record<
+    string,
+    { factor?: number; derivation?: string; method?: string; version?: string }
+  >
+  salinity_classes: Array<{
+    range_ds_m: [number, number | null]
+    class: string
+    citation: string
+    applies_to: string
+  }>
+  assessment_policy: { version: string; composite_index: null; note: string }
+  variables: Array<{ code: string; unit: string; family: string; description: string }>
+}
+
+// --- SOC stock runs -------------------------------------------------------
+
+export interface SocStockProfileTotal {
+  soc_stock_mg_ha: number | null
+  coverage_cm: [number, number] | null
+  covered_thickness_cm: number
+  contiguous: boolean
+  reason?: string
+}
+
+export interface SocStockLayerRow {
+  top_cm: number
+  bottom_cm: number
+  thickness_cm: number
+  soc_stock_mg_ha: number | null
+  evidence_class: string
+  is_prediction: boolean
+  inputs_used: Record<string, unknown>
+  status?: 'evaluated' | 'not_evaluated'
+  reason?: string | null
+}
+
+export interface SocStockResult {
+  formula: string
+  layers: SocStockLayerRow[]
+  profile_total: SocStockProfileTotal
+  not_evaluated: Array<{ layer: string; reason: string | null }>
+  warnings: string[]
+  gaps: SoilDepthGap[]
+  soc_stock_version: string
+  methods_version: string
+  comparison?: Record<string, unknown> | null
+}
+
+export interface SocStockRun {
+  id: string
+  field_id: string
+  status: 'running' | 'succeeded' | 'failed'
+  label: string
+  comparison_mode: string
+  engine_version: string
+  methods_version: string
+  warnings: string[]
+  not_evaluated: Array<{ layer: string; reason: string | null }>
+  checksum_sha256: string | null
+  error_summary: string | null
+  result?: SocStockResult
+}
+
+export interface SocStockRunListResponse {
+  field_id: string
+  items: SocStockRun[]
+}
+
+export interface SocStockRunCreateInput {
+  label?: string
+  layers: Array<{
+    top_depth: number
+    bottom_depth: number
+    oc_g_kg?: number | null
+    bulk_density_g_cm3?: number | null
+    bd_basis?: 'fine_earth' | 'whole_soil' | null
+    coarse_fragment_vol_fraction?: number | null
+    depth_unit?: string
+    evidence_class?: string
+    is_prediction?: boolean
+  }>
+  sample_ids?: string[]
+  comparison_mode?: string
+  baseline_run_id?: string
+  idempotency_key?: string
+  request_parameters?: Record<string, unknown>
+}
+
+// --- N/P/K nutrient budget -------------------------------------------------
+
+export interface NutrientBalance {
+  inputs_kg_ha: number | null
+  outputs_kg_ha: number | null
+  balance_kg_ha: number | null
+  status: 'evaluated' | 'not_evaluable'
+}
+
+export interface NutrientSeasonResult {
+  season_label: string
+  overall: 'partial' | 'not_evaluable'
+  balance: Record<'N' | 'P' | 'K', NutrientBalance>
+  nue: Record<string, { definition: string; value: number; note: string }>
+  inputs: Array<Record<string, unknown>>
+  outputs: Array<Record<string, unknown>>
+  missing_flows: string[]
+  warnings: string[]
+  interpretation_note: string
+  engine_version: string
+  methods_version: string
+}
+
+export interface NutrientBudgetResult {
+  seasons: NutrientSeasonResult[]
+  cumulative: Record<string, unknown>
+  engine_version: string
+  methods_version: string
+  reference_library_note: string
+}
+
+export interface NutrientBudgetRun {
+  id: string
+  field_id: string
+  status: 'running' | 'succeeded' | 'failed'
+  label: string
+  seasons: string[]
+  engine_version: string
+  methods_version: string
+  request_parameters: Record<string, unknown>
+  idempotency_key: string | null
+  error_summary: string | null
+  result?: NutrientBudgetResult
+}
+
+export interface NutrientBudgetRunCreateInput {
+  seasons: string[]
+  area_ha?: number
+  label?: string
+  idempotency_key?: string
+  request_parameters?: Record<string, unknown>
+}
+
+// --- laboratory CSV import --------------------------------------------------
+
+export interface SoilImportReport {
+  template: string
+  file_sha256: string
+  rows_total: number
+  imported: number
+  rejected: number
+  warnings: number
+  rows: Array<{
+    row_number: number
+    status: string
+    sample_code: string | null
+    message: string | null
+    measurement_id: string | null
+  }>
+  idempotency_key: string | null
+}
+
+export interface SoilLabImportResponse {
+  status: 'imported' | 'already_imported'
+  report: SoilImportReport
+  created_samples: number
+  created_measurements: number
+  errors: string[]
+  import_job_id?: string
+}
+
+// --- assessment snapshots ----------------------------------------------------
+
+export interface SoilAssessmentRun {
+  id: string
+  field_id: string
+  status: 'running' | 'succeeded' | 'failed'
+  label: string
+  engine_version: string
+  checksum_sha256: string | null
+  result: SoilAssessmentResult
+}
+
+// =============================================================
+// M6C — Field management (management.tsx)
+// Mirror of app.api.v1.management / app.management.* payloads.
+// =============================================================
+
+export interface CoverObservation {
+  id: string
+  observed_date: string
+  cover_state: string
+  cover_fraction: number | null
+  measurement_basis: string | null
+  index_type: string | null
+  index_value: number | null
+  evidence_class: string
+  notes: string | null
+  metadata: Record<string, unknown> | null
+}
+
+export interface CoverObservationCreateInput {
+  observed_date: string
+  cover_state: string
+  cover_fraction?: number | null
+  measurement_basis?: string | null
+  notes?: string | null
+}
+
+export interface CoverTimelineDay {
+  date: string
+  states: string[]
+  classification: 'protective' | 'bare' | 'unknown'
+}
+
+export interface CoverMetrics {
+  window_days: number
+  days_protective_cover: number
+  days_known_bare: number
+  days_unknown: number
+  protective_cover_fraction: number | null
+  protective_fraction_basis: string
+  longest_bare_interval_days: number
+  longest_bare_interval: [string, string] | null
+  state_day_counts: Record<string, number>
+  month_breakdown: Array<Record<string, unknown>>
+}
+
+export interface CoverTimelineResponse {
+  field_id: string
+  window: { start: string; end: string }
+  timeline: CoverTimelineDay[]
+  metrics: CoverMetrics
+  evidence_notes: Array<{ detail: string; [key: string]: unknown }>
+  thresholds: { applicable: string[]; note: string }
+  method: { engine: string; version: string; rules: string[] }
+  inputs_summary: Record<string, number>
+}
+
+export interface CoverDimension {
+  status: string
+  message?: string
+  [key: string]: unknown
+}
+
+export interface CoverCandidate {
+  crop_code: string
+  crop_label: string
+  status: 'eligible' | 'conditional' | 'excluded' | 'not_evaluated'
+  reasons: Array<Record<string, unknown>>
+  conditions: Array<{ code: string; message: string; source_refs?: unknown[] }>
+  functions: Array<{ function_code: string; [key: string]: unknown }>
+  function_gaps: Array<Record<string, unknown>>
+  dimensions: Record<string, CoverDimension>
+  sowing_window: [string, string] | null
+  missing_inputs: string[]
+  trade_off_note: string
+}
+
+export interface CoverPlanEvaluation {
+  candidates: CoverCandidate[]
+  global_gaps: Record<string, unknown>
+  knowledge_pack_refs: Array<Record<string, unknown>>
+}
+
+/** Cover-crop plan run (immutable evaluation snapshot; detail/create payloads). */
+export interface CoverCropPlan {
+  id: string
+  field_id: string
+  status: string
+  label: string
+  window: { start: string | null; end: string | null }
+  next_crop_label: string | null
+  engine_version: string
+  methods_version: string
+  knowledge_pack_refs: Array<Record<string, unknown>>
+  feature_run_ids: string[]
+  water_plan_ids: string[]
+  warnings: string[]
+  not_evaluated: Record<string, unknown>
+  request_parameters: Record<string, unknown>
+  checksum_sha256: string | null
+  created_at: string | null
+  error_summary: string | null
+  result: CoverPlanEvaluation
+}
+
+/** List payloads return the plan WITHOUT the evaluation block. */
+export type CoverCropPlanSummary = Omit<CoverCropPlan, 'result'>
+
+export interface CoverCropPlanCreateInput {
+  window_start: string
+  window_end: string
+  next_crop_label?: string
+  next_crop_sowing_date?: string
+  excluded_crop_codes?: string[]
+  label?: string
+  feature_run_id?: string
+  idempotency_key?: string
+}
+
+export interface CoverCropPlanItem {
+  id: string
+  field_id: string
+  crop_label: string
+  is_mixture: boolean
+  mixture_composition: Array<Record<string, unknown>>
+  status: string
+  season_label: string | null
+  intended_sowing_start: string | null
+  intended_sowing_end: string | null
+  intended_termination_window_start: string | null
+  intended_termination_window_end: string | null
+  intended_termination_method: string | null
+  intended_functions: string[]
+  seeding_rate: number | null
+  seeding_rate_unit: string | null
+  plan_run_id: string | null
+  evidence_class: string
+}
+
+export interface CoverCropPlanItemCreateInput {
+  crop_label: string
+  plan_run_id?: string | null
+  is_mixture?: boolean
+  mixture_composition?: Array<Record<string, unknown>>
+  season_label?: string | null
+  intended_sowing_start?: string | null
+  intended_sowing_end?: string | null
+  intended_termination_window_start?: string | null
+  intended_termination_window_end?: string | null
+  intended_termination_method?: string | null
+  intended_functions?: string[]
+  status?: string
+  evidence_class?: string
+  notes?: string | null
+}
+
+export interface CoverCropPlanItemListResponse {
+  field_id: string
+  items: CoverCropPlanItem[]
+}
+
+export interface CoverCropPlanListResponse {
+  field_id: string
+  items: CoverCropPlanSummary[]
+  total: number
+}
+
+// --- residue ledger ----------------------------------------------------------
+
+export interface ResidueRecord {
+  id: string
+  field_id: string
+  crop_label: string
+  season_label: string | null
+  basis: string
+  produced_dm_kg: number | null
+  production_status: string
+  coefficient_provenance: Record<string, unknown> | null
+  harvested_product_dm_kg: number | null
+  harvested_product_status: string | null
+  notes: string | null
+  metadata: Record<string, unknown> | null
+}
+
+export interface ResidueRecordCreateInput {
+  crop_label: string
+  production_status: string
+  produced_dm_kg?: number | null
+  basis?: string
+  season_label?: string | null
+  crop_id?: string
+  coefficient_provenance?: Record<string, unknown>
+  notes?: string | null
+}
+
+export interface ResidueFlowRow {
+  id: string
+  flow_type: string
+  flow_date: string | null
+  dm_kg: number | null
+  dm_kg_status: string
+  soil_management_event_id: string | null
+  evidence_class: string
+}
+
+export interface ResidueFlowCreateInput {
+  flow_type: string
+  dm_kg?: number | null
+  dm_kg_status?: string
+  flow_date?: string | null
+  evidence_class?: string
+  notes?: string | null
+}
+
+export interface ResidueLedgerEntry {
+  record: ResidueRecord
+  flows: ResidueFlowRow[]
+  balance: {
+    status: 'balanced' | 'over_allocated' | 'production_unknown'
+    total_flow_dm_kg: number
+    unaccounted_dm_kg: number | null
+    [key: string]: unknown
+  }
+  derived: {
+    note?: string
+    total_nitrogen_kg?: number
+    [key: string]: unknown
+  }
+  surface_retained_dm_kg: number
+  [key: string]: unknown
+}
+
+export interface ResidueLedgerResponse {
+  field_id: string
+  records: ResidueLedgerEntry[]
+  totals: Record<string, unknown>
+  warnings: string[]
+  method: { engine: string; version: string; rules: string[] }
+}
+
+// --- erosion ------------------------------------------------------------------
+
+export interface ErosionConcern {
+  evidence: string
+  processes: string[]
+}
+
+export interface ErosionScreening {
+  concerns: ErosionConcern[]
+  field_observed_signs: Array<{ description: string; [key: string]: unknown }>
+  unknowns: string[]
+  processes_assessed: string[]
+  message: string
+}
+
+export interface ErosionRusle {
+  status: 'computed' | 'not_evaluated'
+  processes?: string[]
+  annual_soil_loss_a?: number
+  unit_convention?: string
+  message: string
+  factors?: Record<string, Record<string, unknown>>
+  scope_disclosures?: string[]
+}
+
+export interface ErosionAlternative {
+  practice_code: string
+  name: string
+  practice_family: string
+  validation_status: string
+  mechanisms: Array<{
+    mechanism_code: string | null
+    text: string | null
+    citation: { citation_text?: string | null } | null
+    confidence: string | null
+  }>
+  trade_offs: Array<Record<string, unknown>>
+  quantitative_note: string
+}
+
+export interface ErosionResult {
+  screening: ErosionScreening
+  rusle: ErosionRusle
+  alternatives: ErosionAlternative[]
+  not_evaluated: { processes: Record<string, string> }
+}
+
+export interface ErosionRun {
+  id: string
+  field_id: string
+  status: string
+  label: string
+  engine_version: string
+  methods_version: string
+  warnings: string[]
+  not_evaluated: Record<string, unknown>
+  request_parameters: Record<string, unknown>
+  checksum_sha256: string | null
+  created_at: string | null
+  result: ErosionResult
+}
+
+/** List payloads return the run WITHOUT the result block. */
+export type ErosionRunSummary = Omit<ErosionRun, 'result'>
+
+export interface ErosionAssessmentCreateInput {
+  window_start: string
+  window_end: string
+  slope_evidence?: { slope_class: string }
+  rusle_factors?: Record<
+    string,
+    {
+      value: number
+      source_reference: string
+      region_scope: string
+      unit_convention: string
+    }
+  >
+  observed_signs?: Array<Record<string, unknown>>
+}
+
+// --- farm resources / operations / scheduling ----------------------------------
+
+export interface FarmResource {
+  id: string
+  resource_type: string
+  name: string
+  capacity_value: number | null
+  capacity_unit: string | null
+  working_width_m: number | null
+  field_efficiency: number | null
+  availability_calendar: Array<Record<string, unknown>>
+  compatibility: Record<string, unknown>
+  notes: string | null
+}
+
+export interface FarmResourceListResponse {
+  farm_id: string
+  items: FarmResource[]
+  total: number
+}
+
+export interface FarmResourceCreateInput {
+  resource_type: string
+  name?: string
+  capacity_value?: number | null
+  capacity_unit?: string | null
+  availability_calendar?: Array<{ from: string; to: string }>
+  notes?: string | null
+}
+
+export interface FieldOperation {
+  id: string
+  field_id: string
+  template_code: string | null
+  operation_type: string
+  title: string
+  crop_label: string | null
+  season_label: string | null
+  earliest_start: string | null
+  latest_finish: string | null
+  preferred_start: string | null
+  preferred_end: string | null
+  duration_estimate_hours: number | null
+  duration_basis: string | null
+  area_ha: number | null
+  resource_requirements: Record<string, unknown>
+  restrictions: Record<string, unknown> | null
+  priority: number
+  status: string
+  scheduled_start: string | null
+  scheduled_end: string | null
+  assigned_resource_ids: string[]
+  schedule_run_id: string | null
+  status_reason: string | null
+  completion_date: string | null
+  completed_soil_management_event_id: string | null
+  template_source: Record<string, unknown> | null
+}
+
+export interface FieldOperationListResponse {
+  field_id: string
+  items: FieldOperation[]
+  dependencies: Record<string, string[]>
+  total: number
+}
+
+export interface FieldOperationPatchInput {
+  status?: string
+  status_reason?: string | null
+  priority?: number
+  completion_date?: string
+  completion_notes?: string | null
+  completed_soil_management_event_id?: string
+}
+
+export interface OperationTemplateSummary {
+  operation_type?: string
+  validation_status?: string
+  [key: string]: unknown
+}
+
+export interface OperationTemplateListResponse {
+  operation_templates: OperationTemplateSummary[]
+  total: number
+}
+
+export interface ManagementPracticeSummary {
+  practice_code: string
+  name: string
+  practice_family: string
+  validation_status: string
+  [key: string]: unknown
+}
+
+export interface ManagementPracticeListResponse {
+  practices: ManagementPracticeSummary[]
+  total: number
+}
+
+export interface ScheduleEntry {
+  operation_id: string
+  title: string | null
+  status: 'scheduled' | 'unscheduled'
+  scheduled_start: string | null
+  scheduled_end: string | null
+  assigned_resources: Record<string, string>
+  weather_check?: string
+  soil_readiness_check?: string
+  reason: string | null
+  reason_codes?: string[]
+}
+
+export interface ScheduleResult {
+  solver: { status: string; [key: string]: unknown }
+  entries: ScheduleEntry[]
+  conflicts: Array<{ message: string; [key: string]: unknown }>
+  [key: string]: unknown
+}
+
+export interface ScheduleRun {
+  id: string
+  field_id: string
+  status: string
+  label: string
+  horizon: [string | null, string | null]
+  engine_version: string
+  methods_version: string
+  result: ScheduleResult
+  warnings: string[]
+  not_evaluated: Record<string, string>
+  request_parameters: Record<string, unknown>
+  checksum_sha256: string | null
+  created_at: string | null
+}
+
+// --- management plan ------------------------------------------------------------
+
+export interface ManagementPlanCheck {
+  code: string
+  severity: string
+  message: string
+}
+
+export interface ManagementPlanResult {
+  season_context: {
+    recent_crop_history: Array<{
+      crop_label: string
+      sowing_date: string | null
+      harvest_date: string | null
+      season_label: string | null
+      evidence_class: string
+    }>
+    status: string
+    message: string | null
+  }
+  soil_cover: {
+    metrics: CoverMetrics
+    thresholds: { applicable: string[]; note: string }
+    window: { start: string; end: string }
+  }
+  cover_crop: {
+    plan_items: Array<Record<string, unknown>>
+    latest_plan: { id: string; created_at: string | null; candidate_statuses: Record<string, string> } | null
+    status: string
+    message: string | null
+  }
+  residue: {
+    totals: Record<string, unknown>
+    warnings: string[]
+    status: string
+    message: string | null
+  }
+  erosion: {
+    latest_run_id?: string
+    created_at?: string | null
+    screening_concern_count?: number
+    screening_processes?: string[]
+    rusle_status?: string
+    status: string
+    message?: string | null
+  }
+  operations: {
+    next_operations: Array<{
+      id: string
+      title: string
+      operation_type: string
+      status: string
+      scheduled_start: string | null
+      scheduled_end: string | null
+      earliest_start: string | null
+      latest_finish: string | null
+      status_reason: string | null
+    }>
+    counts: Record<string, number>
+    conflicts: Array<Record<string, unknown>>
+    status: string
+    message: string | null
+  }
+  practice_guidance: {
+    practices: Array<{
+      practice_code: string
+      name: string
+      practice_family: string
+      validation_status: string
+      mechanism_count: number
+      trade_off_dimensions: string[]
+    }>
+    note: string
+  }
+  water: { latest_plan_id?: string; engine_version?: string; status: string; message?: string | null }
+  checks: ManagementPlanCheck[]
+}
+
+export interface ManagementPlan {
+  id: string
+  field_id: string
+  status: string
+  label: string
+  season_label: string | null
+  engine_version: string
+  methods_version: string
+  warnings: string[]
+  not_evaluated: Record<string, string>
+  request_parameters: Record<string, unknown>
+  knowledge_pack_refs: Array<Record<string, unknown>>
+  checksum_sha256: string | null
+  created_at: string | null
+  result: ManagementPlanResult
+}
+
+/** List payloads return the plan WITHOUT the result block. */
+export type ManagementPlanSummary = Omit<ManagementPlan, 'result'>
+
+export interface ManagementPlanCreateInput {
+  window_start?: string
+  window_end?: string
+  season_label?: string | null
+  label?: string
+  idempotency_key?: string
+}
+
+// =============================================================
+// M7.3 — Scenario execution (scenario-execution.tsx)
+// =============================================================
+
+export interface ScenarioExecutionConfiguration {
+  schema_version: string
+  scenario_type: string
+  scenario_configuration_checksum: string
+  parent_field_state_id: string
+  parent_snapshot_checksum: string
+  boundary_version: number
+  period_start: string
+  period_end: string
+  timezone: string
+  hemisphere: string
+  transformations: Array<{
+    code?: string
+    delta_c?: number | null
+    multiplier?: number | null
+    [key: string]: unknown
+  }>
+  resource_constraints: Record<string, unknown>
+  aggregation_levels: string[]
+  engine_versions: Record<string, string>
+  [key: string]: unknown
+}
+
+export interface ScenarioExecutionRun {
+  run_id: string
+  scenario_id: string
+  scenario_version: number
+  field_id: string
+  parent_field_state_id: string
+  parent_snapshot_checksum: string | null
+  scenario_configuration_checksum: string
+  transformation_engine_version: string
+  feature_engine_version: string
+  feature_catalog_version: string
+  input_fingerprint: string | null
+  run_status: 'queued' | 'running' | 'succeeded' | 'completed_with_limitations' | 'failed'
+  aggregation_levels: string[]
+  hemisphere: string
+  calendar_timezone: string
+  output_checksum: string | null
+  records_written: number
+  transformed_observation_count: number
+  derived_feature_count: number
+  warnings: string[]
+  not_evaluated_reasons: Record<string, string>
+  resource_constraints: Record<string, unknown>
+  execution_configuration: ScenarioExecutionConfiguration
+  error_summary: string | null
+  idempotency_key: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
+  evidence_note: string
+}
+
+export interface ScenarioExecutionListResponse {
+  scenario_id: string
+  items: ScenarioExecutionRun[]
+  note: string
+}
+
+export interface ScenarioDerivedFeature {
+  id: string
+  execution_run_id: string
+  feature_code: string
+  feature_name: string | null
+  unit: string
+  aggregation_level: string
+  period_label: string
+  period_start: string | null
+  period_end: string | null
+  baseline_value: number | null
+  scenario_value: number | null
+  difference_value: number | null
+  difference_percent: number | null
+  feature_specification_version: string
+  evidence_status: 'scenario_recalculated' | 'not_affected' | 'not_evaluated'
+  quality_status: string
+  coverage_ratio: number | null
+  n_input: number
+  n_missing: number
+  uncertainty_metadata: { reason?: string | null } & Record<string, unknown>
+  created_at: string | null
+}
+
+export interface ScenarioDerivedObservation {
+  id: string
+  execution_run_id: string
+  source_observation_id: string
+  dataset_product_id: string | null
+  variable_code: string
+  baseline_value: number | null
+  transformed_value: number | null
+  unit: string
+  observed_at: string | null
+  period_start: string | null
+  period_end: string | null
+  time_support: string | null
+  spatial_support_type: string | null
+  spatial_resolution_m: number | null
+  transformation_code: string
+  transformation_parameter: unknown
+  evidence_class: string
+  source_evidence_class: string | null
+  is_synthetic: boolean
+  quality_status: string
+  source_metadata: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface ScenarioDerivedObservationListResponse {
+  run_id: string
+  items: ScenarioDerivedObservation[]
+  count: number
+  limit: number
+  offset: number
+  total_transformed: number
+  note: string
+}
+
+export interface ScenarioDerivedFeatureListResponse {
+  run_id: string
+  items: ScenarioDerivedFeature[]
+  count: number
+}
+
+export interface ScenarioExecutionCompareResponse {
+  run_id: string
+  run_status: string
+  output_checksum: string | null
+  summary: {
+    recalculated_comparisons: number
+    changed_values: number
+    unchanged_values: number
+    not_affected_features: number
+    not_evaluated_features: number
+  }
+  rows: ScenarioDerivedFeature[]
+  note: string
+}
+
+export interface ScenarioExecutionVerifyResponse {
+  run_id: string
+  run_status: string
+  output_checksum_valid: boolean
+  expected_output_checksum: string
+  stored_output_checksum: string | null
+  scenario_definition_checksum_valid: boolean
+  parent_snapshot_intact: boolean
+  manifest_checksum_matches_run: boolean
+  verified_at: string
+  note: string
+}
+
+// =============================================================
+// M7.4 — Sensitivity & uncertainty (sensitivity.tsx)
+// =============================================================
+
+export interface SensitivityAnalysis {
+  analysis_id: string
+  source_execution_run_id: string
+  scenario_id: string
+  scenario_version: number
+  field_id: string
+  parent_field_state_id: string
+  analysis_status: 'queued' | 'running' | 'succeeded' | 'completed_with_limitations' | 'failed'
+  analysis_method_version: string
+  response_classification_version: string
+  uncertainty_registry_version: string
+  transformation_engine_version: string
+  feature_engine_version: string
+  feature_catalog_version: string
+  reference_parameter_values: Record<string, number | null>
+  explorable_parameters: string[]
+  parameter_design: Record<string, { lower: number; upper: number; n_points: number }>
+  grid_design?: Record<string, { lower: number; upper: number; n_points: number }> | null
+  analysis_fingerprint: string
+  reference_reproduction: {
+    reproduced: boolean
+    matched_rows: number
+    compared_rows: number
+    observation_count_match: boolean
+    [key: string]: unknown
+  }
+  evaluation_count: number
+  evaluated_feature_count: number
+  warnings: string[]
+  not_analysed_features?: Record<string, string>
+  output_checksum: string | null
+  error_summary: string | null
+  idempotency_key: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
+  evidence_note: string
+  explorable_parameters_detail?: Record<
+    string,
+    { explorable: boolean; reference_value: number | null; reason: string | null }
+  >
+  evaluations?: Array<Record<string, unknown>>
+}
+
+export interface SensitivityAnalysisListResponse {
+  run_id: string
+  items: SensitivityAnalysis[]
+  count: number
+  note: string
+}
+
+export interface SensitivityAnalysisCreateInput {
+  parameter_design: Record<string, { lower: number; upper: number; n_points: number }>
+  grid?: true
+  idempotency_key?: string
+}
+
+export interface SensitivityOatResponse {
+  parameter_code: string
+  feature_code: string
+  unit: string
+  aggregation_level: string
+  period_label: string
+  reference_value: number | null
+  explored_parameter_range_envelope: {
+    parameter_lower: number | null
+    parameter_upper: number | null
+    lower: number | null
+    upper: number | null
+  }
+  output_range: number | null
+  max_abs_difference: number | null
+  difference_at_lower: number | null
+  difference_at_upper: number | null
+  slope: number | null
+  slope_method: string
+  slope_units: string
+  slope_validity: string
+  elasticity: { status: string; value: number | null; reason: string | null }
+  direction: string
+  response_classification: string
+  classification_version: string
+  n_evaluated_points: number
+  response_status: string
+  created_at: string | null
+}
+
+export interface SensitivityResponseListResponse {
+  analysis_id: string
+  items: SensitivityOatResponse[]
+  count: number
+  note: string
+}
+
+export interface SensitivityGridResponse {
+  analysis_id: string
+  grid_design: Record<string, { lower: number; upper: number; n_points: number }> | null
+  axes: Record<string, number[]>
+  cells: Array<Record<string, unknown>>
+  summaries: Array<{
+    feature_code: string
+    unit: string
+    aggregation_level: string
+    period_label: string
+    grid_min: number | null
+    grid_max: number | null
+    grid_output_range: number | null
+    direction: string
+    non_monotonic: boolean
+    threshold_transition_count: number
+    interaction_contrast: number | null
+    interaction_interpretation: string
+    variable_families: string[]
+  }>
+  count: number
+  note: string
+}
+
+export interface SensitivityUncertaintyResponse {
+  registry_version: string
+  items: Array<{
+    category: string
+    code: string
+    description: string
+    evidence_source: string
+    quantification_status: string
+    quantification_method: string | null
+    quantified_value: number | null
+    affects_current_analysis: boolean
+    affected_inputs: string[]
+    affected_features: string[]
+    applicability: string
+    user_facing_explanation: string
+  }>
+  count: number
+  note: string
+}
+
+export interface SensitivityVerifyResponse {
+  analysis_id: string
+  analysis_status: string
+  output_checksum_valid: boolean
+  expected_output_checksum: string
+  stored_output_checksum: string | null
+  source_run_intact: boolean
+  parent_snapshot_intact: boolean
+  manifest_checksum_matches: boolean
+  reference_reproduction_consistent: boolean
+  verified_at: string
+  note: string
+}
+
+// =============================================================
+// M7.5 — Robust rotation (robust-plan.tsx)
+// =============================================================
+
+export interface ScenarioSet {
+  id: string
+  field_id: string
+  label: string
+  description: string | null
+  parent_field_state_id: string
+  parent_snapshot_checksum: string
+  members: Array<Record<string, unknown>>
+  member_count: number
+  compatibility_report: Record<string, unknown> | null
+  set_checksum: string
+  status: string
+  created_at: string | null
+}
+
+export interface ScenarioSetListResponse {
+  field_id: string
+  items: ScenarioSet[]
+  count: number
+  note: string
+}
+
+export interface ScenarioSetCreateInput {
+  label: string
+  execution_run_ids: string[]
+  description?: string
+  idempotency_key?: string
+}
+
+export interface ScenarioSetVerifyResponse {
+  scenario_set_id: string
+  set_checksum: string
+  verified_members: number
+  drift: unknown
+  findings: Array<Record<string, unknown>>
+  usable_for_robust_runs: boolean
+  note: string
+}
+
+export interface RobustStrategy {
+  id: string
+  run_id: string
+  strategy_key: string
+  strategy_kind: string
+  is_baseline: boolean
+  profile_weights: Record<string, number>
+  assignment: Array<{ season_label: string; crop_code: string | null }>
+  worst_case_objective: number | null
+  worst_case_regret: number | null
+  robust_feasibility: 'robust_feasible' | 'robust_infeasible' | 'not_evaluable'
+  objective_evaluable_in_all_scenarios: boolean
+  solver_status: string | null
+  solver_wall_time_ms: number | null
+  checksum_sha256: string | null
+}
+
+export interface RobustScenarioEvaluation {
+  id: string
+  run_id: string
+  strategy_id: string
+  scenario_id: string
+  execution_run_id: string
+  output_checksum_pin: string | null
+  weighted_objective: number | null
+  objective_evaluable: boolean
+  on_scenario_pareto_front: boolean
+  regret_vs_solo: number | null
+  criteria: Array<Record<string, unknown>>
+  constraint_checks: Array<Record<string, unknown>>
+  crop_admissibility: Array<{
+    season_label: string
+    crop_code: string
+    status: string
+    admissible: boolean
+    hard_reason: string | null
+  }>
+  climate_evidence: Record<
+    string,
+    {
+      basis: string
+      coverage_ratio: number | null
+      season_precipitation_mm: number | null
+      season_mean_temp_degC: number | null
+      season_hot_days_35c: number | null
+      season_et0_mm: number | null
+      warnings: string[]
+    }
+  >
+}
+
+export interface RobustRotationRun {
+  id: string
+  field_id: string
+  scenario_set_id: string
+  scenario_set_checksum: string
+  member_count: number
+  seasons: Array<{ label: string; start_date: string; end_date: string }>
+  strategy_profiles: string[]
+  regret_analysis: boolean
+  run_status: 'queued' | 'running' | 'succeeded' | 'failed' | 'infeasible'
+  solver_status: string | null
+  robust_engine_version: string
+  robust_method_version: string
+  rotation_engine_version: string
+  solver_name: string
+  solver_version: string
+  random_seed: number
+  output_checksum: string | null
+  warnings: string[]
+  not_evaluated: Record<string, Record<string, string>>
+  infeasibility_details: {
+    cross_scenario_exclusions?: Array<{
+      crop_code: string
+      season_label: string
+      excluded_by_scenarios: Array<{ reason: string; [key: string]: unknown }>
+    }>
+    [key: string]: unknown
+  } | null
+  error_summary: string | null
+  started_at: string | null
+  completed_at: string | null
+  strategies?: RobustStrategy[]
+}
+
+export interface RobustRunListResponse {
+  scenario_set_id: string
+  items: RobustRotationRun[]
+  count: number
+  note: string
+}
+
+export interface RobustRunCreateInput {
+  seasons: Array<{ label: string; start_date: string; end_date: string }>
+  hemisphere: string
+  regret_analysis?: boolean
+  strategy_profiles?: string[]
+  idempotency_key?: string
+}
+
+export interface RobustEvaluationListResponse {
+  run_id: string
+  items: RobustScenarioEvaluation[]
+  count: number
+  note: string
+}
+
+export interface RobustVerifyResponse {
+  run_id: string
+  verified: boolean
+  member_check: Record<string, unknown>
+  strategy_count: number
+  findings: Array<Record<string, unknown>>
+  note: string
+}
+
+// =============================================================
+// M7.6 — Decision intelligence (decisions.tsx)
+// =============================================================
+
+export interface DecisionComparisonScope {
+  executions: Array<{
+    execution_run_id: string
+    scenario_id: string
+    scenario: string
+    scenario_version: number
+    output_checksum: string | null
+    run_status: string
+  }>
+  robust_runs: Array<{
+    robust_run_id: string
+    solver_status: string | null
+    output_checksum: string | null
+    member_count: number
+  }>
+  sensitivity_analyses: Array<{
+    analysis_id: string
+    source_execution_run_id: string
+    output_checksum: string | null
+  }>
+}
+
+export interface DecisionBaselineChange {
+  execution_run_id: string
+  scenario: string
+  feature_code: string
+  unit: string
+  aggregation_level: string
+  period_label: string
+  baseline_value: number | null
+  scenario_value: number | null
+  difference_value: number | null
+  difference_percent: number | null
+  evidence_status: string
+  abs_percent: number
+}
+
+export interface DecisionDocument {
+  generator_version: string
+  method_version: string
+  field_id: string
+  title: string
+  scope: DecisionComparisonScope
+  baseline_vs_scenario: {
+    per_execution: Array<Record<string, unknown>>
+    largest_changes: DecisionBaselineChange[]
+    ranking_note: string
+  }
+  scenario_pairs: { pairs: Array<Record<string, unknown>>; note: string }
+  sensitivity_interpretation: { analyses: Array<Record<string, unknown>> }
+  rotation_decisions: {
+    runs: Array<{
+      robust_run_id: string
+      run_status: string
+      solver_status: string | null
+      robust_method_version: string
+      scenario_set_id: string
+      seasons: Array<{ label: string; start_date: string; end_date: string }>
+      member_count: number
+      plans: Array<{
+        strategy_key: string
+        strategy_kind: string
+        is_baseline: boolean
+        assignment: Array<{ season_label: string; crop_code: string | null }>
+        worst_case_objective: number | null
+        worst_case_regret: number | null
+        robust_feasibility: string
+        solver_status: string | null
+        per_scenario: Array<Record<string, unknown>>
+      }>
+      not_evaluated: Record<string, Record<string, string>>
+    }>
+  }
+  tradeoffs: {
+    robust_run_id: string | null
+    matrix: Array<{
+      plan: string
+      scenario_id: string
+      criterion_code: string
+      raw_value: number | null
+      unit: string | null
+      direction: string | null
+      evaluable: boolean
+      missing_evidence: string[]
+    }>
+    note: string
+  }
+  missing_evidence: {
+    items: Array<{ kind: string; source: string; code: string; detail: string }>
+    count: number
+  }
+  findings: Array<{
+    kind: string
+    text: string
+    evidence: Array<Record<string, unknown>>
+  }>
+  not_available: Record<string, string>
+  honesty_note: string
+}
+
+/** List/create payload (document body only included on detail endpoints). */
+export interface DecisionComparisonSummary {
+  id: string
+  field_id: string
+  title: string
+  doc_status: string
+  fingerprint: string
+  document_checksum: string
+  scope: DecisionComparisonScope
+  warnings: string[]
+  not_available: Record<string, string>
+  created_at: string | null
+  document?: DecisionDocument
+}
+
+export interface DecisionComparisonListResponse {
+  field_id: string
+  items: DecisionComparisonSummary[]
+  count: number
+  note: string
+}
+
+export interface DecisionComparisonCreateInput {
+  title?: string
+}
+
+export interface DecisionVerifyResponse {
+  id: string
+  verified: boolean
+  findings: Array<Record<string, unknown>>
+  document_checksum: string
+  note: string
+}
+
+// =============================================================
+// M7.7 — Digital twin (digital-twin.tsx)
+// =============================================================
+
+export interface TwinFieldIdentity {
+  field_id: string
+  field_name: string
+  area_ha: number | null
+  farm_id: string
+  farm_name: string | null
+  country_code: string | null
+  latest_boundary_version: number | null
+  note: string
+}
+
+export interface DigitalTwinView {
+  view_version: string
+  generated_at: string
+  field_identity: TwinFieldIdentity
+  field_states: {
+    total: number
+    items: Array<Record<string, unknown>>
+    note: string
+  }
+  observation_coverage: {
+    variables: Array<{
+      variable_code: string
+      observation_count: number
+      first_observed_at: string | null
+      last_observed_at: string | null
+      freshness_days: number | null
+    }>
+    note: string
+  }
+  feature_runs: Array<Record<string, unknown>>
+  scenarios: Array<{
+    scenario_id: string
+    name: string
+    scenario_type: string
+    evidence_classification: string
+    scenario_status: string
+    scenario_version: number
+    lineage_kind: string
+    parent_scenario_id: string | null
+    configuration_checksum: string
+    period: { start: string; end: string }
+    executions: Array<{
+      execution_run_id: string
+      run_status: string
+      output_checksum: string | null
+      input_fingerprint: string | null
+    }>
+  }>
+  sensitivity_analyses: Array<{
+    source_execution_run_id: string
+    analysis_count: number
+  }>
+  robust_rotation: {
+    scenario_sets: Array<{
+      scenario_set_id: string
+      label: string
+      set_checksum: string
+      member_count: number
+      robust_runs: Array<{
+        robust_run_id: string
+        run_status: string
+        solver_status: string | null
+        output_checksum: string | null
+      }>
+    }>
+  }
+  decision_documents: Array<{
+    decision_comparison_id: string
+    title: string
+    doc_status: string
+    document_checksum: string
+  }>
+  information_classes: {
+    observed_observations: number
+    scenario_derived_transformed_observations: number
+    calculated_feature_values: number
+    note: string
+  }
+  capabilities: Array<{
+    capability: string
+    milestone: string
+    implemented: boolean
+    data_ready: boolean
+    readiness: 'ready' | 'prerequisite_missing' | 'not_implemented'
+    prerequisite: string | null
+  }>
+  maturity: {
+    classification: string
+    implemented_capabilities: string[]
+    capabilities_with_data: string[]
+    not_implemented: string[]
+    note: string
+  }
+  prohibitions_note: string
+}
+
+export interface TwinValidationResponse {
+  id: string
+  field_id: string
+  overall_status: 'consistent' | 'inconsistent' | 'no_artifacts'
+  artifacts_checked: number
+  artifacts_failed: number
+  report_checksum: string
+  report: {
+    validation_version: string
+    field_id: string
+    overall_status: string
+    artifact_checks: Array<{
+      artifact: string
+      artifact_id: string
+      verified: boolean
+      findings: string[]
+    }>
+    summary: { total_checked: number; verified: number; failed: number }
+    bounds_note: string
+    started_at: string
+    completed_at: string
+  }
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
+}
+
+export interface TwinValidationListResponse {
+  field_id: string
+  items: TwinValidationResponse[]
+  count: number
+  note: string
+}
+
+// The recovered management.tsx references `CoverPlan` without importing it
+// (lost in recovery); expose it globally so the component compiles untouched.
+declare global {
+  type CoverPlan = CoverCropPlan
 }

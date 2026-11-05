@@ -1,7 +1,24 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardCheck, Droplets, FlaskConical, GitBranch, Layers, LayoutDashboard, LogOut, Map, RotateCcw, Sigma, Sprout } from 'lucide-react'
+import {
+  ClipboardCheck,
+  Droplets,
+  FlaskConical,
+  GitBranch,
+  Layers,
+  LayoutDashboard,
+  LineChart,
+  LogOut,
+  Map,
+  Mountain,
+  Network,
+  RotateCcw,
+  Scale,
+  Sigma,
+  Sprout,
+  Target,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -15,6 +32,12 @@ import { Rotation } from '@/components/fieldshift/rotation'
 import { Water } from '@/components/fieldshift/water'
 import { FieldStateView } from '@/components/fieldshift/field-state'
 import Scenarios from '@/components/fieldshift/scenarios'
+import { Soil } from '@/components/fieldshift/soil'
+import { Management } from '@/components/fieldshift/management'
+import SensitivitySection from '@/components/fieldshift/sensitivity'
+import Decisions from '@/components/fieldshift/decisions'
+import DigitalTwin from '@/components/fieldshift/digital-twin'
+import RobustPlan from '@/components/fieldshift/robust-plan'
 import { useHealth } from '@/hooks/use-fieldshift'
 import { getMe, getToken, setToken } from '@/lib/api'
 import { useFieldShiftUi, type WorkspaceTab } from '@/lib/store'
@@ -31,6 +54,12 @@ const TAB_ITEMS: { value: WorkspaceTab; label: string; icon: React.ReactNode }[]
   { value: 'water', label: 'Water', icon: <Droplets className="h-4 w-4" aria-hidden /> },
   { value: 'fieldstate', label: 'Field State', icon: <Layers className="h-4 w-4" aria-hidden /> },
   { value: 'scenarios', label: 'Scenarios', icon: <GitBranch className="h-4 w-4" aria-hidden /> },
+  { value: 'soil', label: 'Soil', icon: <Mountain className="h-4 w-4" aria-hidden /> },
+  { value: 'management', label: 'Management', icon: <Sprout className="h-4 w-4" aria-hidden /> },
+  { value: 'sensitivity', label: 'Sensitivity', icon: <LineChart className="h-4 w-4" aria-hidden /> },
+  { value: 'robustplan', label: 'Robust Plan', icon: <Target className="h-4 w-4" aria-hidden /> },
+  { value: 'decisions', label: 'Decisions', icon: <Scale className="h-4 w-4" aria-hidden /> },
+  { value: 'digitaltwin', label: 'Digital Twin', icon: <Network className="h-4 w-4" aria-hidden /> },
   { value: 'passport', label: 'Data Passport', icon: <ClipboardCheck className="h-4 w-4" aria-hidden /> },
 ]
 
@@ -192,6 +221,24 @@ export function Workspace() {
           </TabsContent>
           <TabsContent value="scenarios" className="mt-4">
             <Scenarios />
+          </TabsContent>
+          <TabsContent value="soil" className="mt-4">
+            <Soil />
+          </TabsContent>
+          <TabsContent value="management" className="mt-4">
+            <Management />
+          </TabsContent>
+          <TabsContent value="sensitivity" className="mt-4">
+            <SensitivitySection />
+          </TabsContent>
+          <TabsContent value="robustplan" className="mt-4">
+            <RobustPlan />
+          </TabsContent>
+          <TabsContent value="decisions" className="mt-4">
+            <Decisions />
+          </TabsContent>
+          <TabsContent value="digitaltwin" className="mt-4">
+            <DigitalTwin />
           </TabsContent>
           <TabsContent value="passport" className="mt-4">
             <DataPassport />

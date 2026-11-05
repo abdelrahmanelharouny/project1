@@ -22,6 +22,11 @@ from app.db import models as dbm
 from app.domains.identity.service import get_principal
 from app.knowledge.import_service import import_pack, pack_checksum
 from app.knowledge.contracts import KnowledgePackIn
+from app.management.practices import (
+    active_operation_templates,
+    active_practices,
+    practice_evidence_coverage,
+)
 
 router = APIRouter(tags=["knowledge"])
 
@@ -54,6 +59,16 @@ def list_packs(
             .select_from(dbm.KnowledgeSource)
             .where(dbm.KnowledgeSource.pack_id == p.id)
         )
+        n_practices = db.scalar(
+            select(dbm.func.count())
+            .select_from(dbm.PracticeDefinition)
+            .where(dbm.PracticeDefinition.pack_id == p.id)
+        )
+        n_operation_templates = db.scalar(
+            select(dbm.func.count())
+            .select_from(dbm.OperationTemplate)
+            .where(dbm.OperationTemplate.pack_id == p.id)
+        )
         items.append(
             {
                 "id": str(p.id),
@@ -74,6 +89,8 @@ def list_packs(
                     "traits": int(n_traits or 0),
                     "rotation_rules": int(n_rules or 0),
                     "sources": int(n_sources or 0),
+                    "practices": int(n_practices or 0),
+                    "operation_templates": int(n_operation_templates or 0),
                 },
             }
         )
@@ -372,6 +389,52 @@ def list_rotation_rules(
         "note": "Only confirmed_regional rules are enforced as hard constraints; "
         "reference rules inform explanations and require local validation.",
     }
+
+
+def _template_evidence_coverage(template: dict[str, Any]) -> dict[str, Any]:
+    """Transparency coverage for an operation template: how many sequencing
+    claims carry a resolved citation (same convention as practices — coverage,
+    never confidence)."""
+    predecessors = template.get("payload", {}).get("typical_predecessors", [])
+    return {
+        "claim_counts": {"typical_predecessors": len(predecessors)},
+        "claims_cited": {
+            "typical_predecessors": sum(1 for c in predecessors if c.get("citation"))
+        },
+    }
+
+
+@router.get("/knowledge/practices")
+def list_practices(
+    family: str | None = Query(default=None, max_length=40),
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Management practice definitions from ACTIVE packs (M6C): every claim in
+    the payload carries its resolved citation, plus the evidence-coverage
+    transparency metric. Practices from draft packs are inert."""
+    practices = active_practices(db)
+    if family:
+        practices = [p for p in practices if p["practice_family"] == family]
+    for practice in practices:
+        practice["evidence_coverage"] = practice_evidence_coverage(practice)
+    return {"practices": practices, "total": len(practices)}
+
+
+@router.get("/knowledge/operation-templates")
+def list_operation_templates(
+    operation_type: str | None = Query(default=None, max_length=60),
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Operation templates from ACTIVE packs (M6C) with resolved citations on
+    their typical-predecessor sequencing claims."""
+    templates = active_operation_templates(db)
+    if operation_type:
+        templates = [t for t in templates if t["operation_type"] == operation_type]
+    for template in templates:
+        template["evidence_coverage"] = _template_evidence_coverage(template)
+    return {"operation_templates": templates, "total": len(templates)}
 
 
 class PackImportRequest(BaseModel):

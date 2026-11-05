@@ -581,3 +581,47 @@ Latest full-suite run: **2026-11-01** — `490 passed, exit 0` (441 pre-existing
 - Migration head: `0008_scenario_domain` (code & DB)
 - Full suite: **581 passed, exit 0** (490 baseline + 91 new)
 - Frontend lint exit 0; tsc clean for M7.2 files
+
+---
+
+## M6B/M6C + M7 integration run (2026-11-03)
+
+### Full regression
+
+| Suite | Result |
+|---|---|
+| Full backend suite (unit + integration + contract + migrations) | **1095 passed, 1 skipped, exit 0** (28m10s; 581 pre-integration + 514 new) |
+| Post-reconciliation targeted re-run (field states, digital twin, scenarios, auth tenant isolation) | **88 passed, exit 0** |
+| Frontend ESLint | exit 0 |
+| Frontend `tsc --noEmit` | clean (JobStatus gains `cancelled` to match the backend CHECK constraint; WaterPlan.methods typed to payload shape; examples/ excluded) |
+
+### Migration verification
+
+| ID | Scenario | Result |
+|---|---|---|
+| MG-INT-a | Single-head invariant | `alembic heads` → `0014_merge_m6bc_m7` (soil line merged with M7 line; empty merge revision) |
+| MG-INT-b | Scratch DB drop→create→upgrade head→downgrade base→upgrade head (test_migrations.py, part of the suite) | ✅ |
+| MG-INT-c | Dev DB state | 15 revisions applied, 83 tables in `public`, PostGIS 3.5.0 |
+
+### M7 reconciliation checks (M6B/M6C integration)
+
+| ID | Rule | Result |
+|---|---|---|
+| R-M7.1 | Field states do not pin soil/management artifacts; availability reasons state integration status truthfully; historical states untouched (assembly creates new rows) | ✅ |
+| R-M7.2 | `scenario_execution=implemented`; soil/management scenario dimensions remain `not_implemented` with accurate reasons (no invented transforms) | ✅ |
+| R-M7.3/4 | Scenario execution + sensitivity contain no soil/management parameters | ✅ (grep-verified) |
+| R-M7.5 | Robust rotation adds no unsupported soil/management constraints (farm context unchanged) | ✅ |
+| R-M7.6 | Decision module contains no soil/management evidence synthesis | ✅ (grep-verified) |
+| R-M7.7 | Twin censuses M6B/M6C records + run artifacts; capability matrix separates implemented vs data-ready; validation walk re-verifies checksums | ✅ |
+
+### Browser verification (agent-browser, 2026-11-03)
+
+| ID | Scenario | Result |
+|---|---|---|
+| B-INT-1 | Login contract fix: `/auth/login` returns `organization`; UI sign-in works (was crashing on `auth.organization.name`) | ✅ |
+| B-INT-2 | Soil tab: live profile (5 measurements, 0–30 cm), USDA texture loam derived, AWC honestly `not_evaluated`, method badges | ✅ |
+| B-INT-3 | SOC stock run via API: 12.4 × 1.32 × 30 × 0.1 = **49.104 Mg C/ha** exact FAO identity, sha256 checksum stored | ✅ |
+| B-INT-4 | Management tab: 6 sub-tabs; cover-crop plan evaluated (faba_bean `conditional`, honest dimension statuses) | ✅ |
+| B-INT-5 | Digital Twin: census shows M6B/M6C records + run artifacts with checksums; validation walk verified 2/2; capability matrix honest after fix (M7.1/M7.2 `prerequisite_missing`, M6B/M6C `ready`) | ✅ |
+| B-INT-6 | Tenant isolation live: cross-tenant field/farm reads → 403; owner → 200 | ✅ |
+| B-INT-7 | Layout: desktop 1280 + mobile 390 clean, footer natural at bottom (`tool-results/m6bc-*.png`) | ✅ |

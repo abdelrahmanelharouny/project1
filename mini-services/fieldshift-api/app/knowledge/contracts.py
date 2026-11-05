@@ -25,6 +25,149 @@ RULE_TYPES: tuple[str, ...] = (
 )
 SEVERITIES: tuple[str, ...] = ("advisory", "recommended", "required")
 
+# --- M6C: management practice contracts (Increment 2) -----------------------
+# Qualitative claim vocabulary. Deliberately NO numeric fields: practices
+# carry process statements and two-sided trade-offs, never parameters.
+TRADE_OFF_DIRECTIONS: tuple[str, ...] = ("positive", "negative", "context_dependent")
+TRADE_OFF_DIMENSIONS: tuple[str, ...] = (
+    "soil_cover", "soil_organic_matter", "nutrient_cycling", "water_demand",
+    "erosion_protection", "pests_diseases", "labor", "cost", "revenue",
+    "machinery", "crop_establishment",
+)
+PRACTICE_FAMILIES: tuple[str, ...] = (
+    "cover_crop", "residue", "tillage", "soil_cover",
+    "erosion_control", "traffic", "termination",
+)
+REQUIREMENT_KINDS: tuple[str, ...] = (
+    "window", "seed", "equipment", "labor", "knowledge", "other",
+)
+
+
+class MechanismClaimIn(BaseModel):
+    """A qualitative process claim: how the practice acts. Always cited."""
+
+    model_config = ConfigDict(extra="forbid")
+    mechanism_code: str = Field(min_length=2, max_length=80)
+    text: str = Field(min_length=4)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    source_key: str = Field(min_length=2, max_length=80)
+    evidence_class: str = Field(min_length=2, max_length=60)
+    confidence: Confidence = "unknown"
+
+
+class RequirementClaimIn(BaseModel):
+    """What must be true/available for the practice to work. Always cited."""
+
+    model_config = ConfigDict(extra="forbid")
+    requirement_code: str = Field(min_length=2, max_length=80)
+    kind: Literal["window", "seed", "equipment", "labor", "knowledge", "other"]
+    text: str = Field(min_length=4)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    source_key: str = Field(min_length=2, max_length=80)
+    evidence_class: str = Field(min_length=2, max_length=60)
+    confidence: Confidence = "unknown"
+
+
+class TradeOffClaimIn(BaseModel):
+    """A two-sided effect of the practice. Always cited."""
+
+    model_config = ConfigDict(extra="forbid")
+    dimension: str = Field(min_length=2, max_length=60)
+    direction: Literal["positive", "negative", "context_dependent"]
+    text: str = Field(min_length=4)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    source_key: str = Field(min_length=2, max_length=80)
+    evidence_class: str = Field(min_length=2, max_length=60)
+    confidence: Confidence = "unknown"
+
+
+class RiskClaimIn(BaseModel):
+    """A way the practice can backfire. Always cited."""
+
+    model_config = ConfigDict(extra="forbid")
+    risk_code: str = Field(min_length=2, max_length=80)
+    text: str = Field(min_length=4)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    source_key: str = Field(min_length=2, max_length=80)
+    evidence_class: str = Field(min_length=2, max_length=60)
+    confidence: Confidence = "unknown"
+
+
+class RegionalApplicabilityIn(BaseModel):
+    """Where the practice's evidence applies. Scope is REQUIRED (schema-level):
+    a claim that is not scoped to a region or an agroecological zone would
+    silently read as universal — never shipped (M6C honesty contract)."""
+
+    model_config = ConfigDict(extra="forbid")
+    region_code: str | None = Field(default=None, max_length=80)
+    agroecological_zone: str | None = Field(default=None, max_length=80)
+    basis: str = Field(min_length=4)
+    source_key: str = Field(min_length=2, max_length=80)
+    validation_status: ValidationStatus = "reference"
+
+    @model_validator(mode="after")
+    def _check_scope(self) -> "RegionalApplicabilityIn":
+        if not self.basis or not self.basis.strip():
+            raise ValueError("regional applicability needs a declared basis")
+        if not (self.region_code or self.agroecological_zone):
+            raise ValueError(
+                "regional applicability needs region_code or agroecological_zone "
+                "(latitude alone is not a basis)"
+            )
+        return self
+
+
+class PracticeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    practice_code: str = Field(min_length=2, max_length=80)
+    practice_family: Literal[
+        "cover_crop", "residue", "tillage", "soil_cover",
+        "erosion_control", "traffic", "termination",
+    ]
+    name: str = Field(min_length=2, max_length=200)
+    description: str = ""
+    validation_status: ValidationStatus = "reference"
+    mechanisms: list[MechanismClaimIn] = Field(default_factory=list)
+    requirements: list[RequirementClaimIn] = Field(default_factory=list)
+    trade_offs: list[TradeOffClaimIn] = Field(default_factory=list)
+    risks: list[RiskClaimIn] = Field(default_factory=list)
+    regional_applicability: list[RegionalApplicabilityIn] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_cited(self) -> "PracticeIn":
+        if not (
+            self.mechanisms or self.requirements or self.trade_offs or self.risks
+        ):
+            raise ValueError(
+                f"practice '{self.practice_code}': uncited practices are not "
+                "eligible — at least one mechanism/requirement/trade-off/risk "
+                "claim with a source is required"
+            )
+        return self
+
+
+class TemplatePredecessorIn(BaseModel):
+    """A sequencing claim between operations. Always cited."""
+
+    model_config = ConfigDict(extra="forbid")
+    template_code: str = Field(min_length=2, max_length=80)
+    rationale: str = Field(min_length=4)
+    source_key: str = Field(min_length=2, max_length=80)
+
+
+class OperationTemplateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    template_code: str = Field(min_length=2, max_length=80)
+    operation_type: str = Field(min_length=2, max_length=60)
+    name: str = Field(min_length=2, max_length=200)
+    description: str = ""
+    validation_status: ValidationStatus = "reference"
+    applies_to_crop_codes: list[str] = Field(default_factory=list)
+    applies_to_crop_categories: list[str] = Field(default_factory=list)
+    typical_predecessors: list[TemplatePredecessorIn] = Field(default_factory=list)
+    restriction_kinds: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
 
 class SourceIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -153,8 +296,21 @@ class KnowledgePackIn(BaseModel):
     digitization_note: str | None = None
     sources: list[SourceIn] = Field(min_length=1)
     families: list[FamilyIn] = Field(default_factory=list)
-    crops: list[CropIn] = Field(min_length=1)
+    # M6C: a pack may now carry management practices and/or operation templates
+    # instead of crops (the bundled practice pack ships zero crops).
+    crops: list[CropIn] = Field(default_factory=list)
     rotation_rules: list[RotationRuleIn] = Field(default_factory=list)
+    practices: list[PracticeIn] = Field(default_factory=list)
+    operation_templates: list[OperationTemplateIn] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_non_empty(self) -> "KnowledgePackIn":
+        if not (self.crops or self.practices):
+            raise ValueError(
+                "pack must contain at least one crop or one practice "
+                "(empty knowledge packs are never persisted)"
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_rule_type(self) -> "KnowledgePackIn":
@@ -288,6 +444,43 @@ def validate_pack_cross_references(pack: KnowledgePackIn) -> PackValidationRepor
             if ref.get("kind") == "family" and ref.get("key") not in family_keys:
                 report.errors.append(f"{where}: unknown family '{ref.get('key')}'")
 
+    # --- M6C: practice + operation-template cross-references -----------------
+    template_codes = {t.template_code for t in pack.operation_templates}
+    for practice in pack.practices:
+        code = practice.practice_code
+        for i, claim in enumerate(practice.mechanisms):
+            _use_source(f"practice '{code}' mechanism[{i}] '{claim.mechanism_code}'", claim.source_key)
+        for i, claim in enumerate(practice.requirements):
+            _use_source(f"practice '{code}' requirement[{i}] '{claim.requirement_code}'", claim.source_key)
+        for i, claim in enumerate(practice.trade_offs):
+            where = f"practice '{code}' trade_off[{i}]"
+            _use_source(where, claim.source_key)
+            if claim.dimension not in TRADE_OFF_DIMENSIONS:
+                report.errors.append(
+                    f"{where}: unknown trade-off dimension '{claim.dimension}'"
+                )
+        for i, claim in enumerate(practice.risks):
+            _use_source(f"practice '{code}' risk[{i}] '{claim.risk_code}'", claim.source_key)
+        for i, ra in enumerate(practice.regional_applicability):
+            _use_source(f"practice '{code}' regional_applicability[{i}]", ra.source_key)
+
+    for template in pack.operation_templates:
+        code = template.template_code
+        for i, pred in enumerate(template.typical_predecessors):
+            _use_source(f"operation template '{code}' predecessor[{i}]", pred.source_key)
+            if pred.template_code not in template_codes:
+                report.errors.append(
+                    f"operation template '{code}': unknown predecessor template "
+                    f"'{pred.template_code}' (predecessors must resolve within "
+                    "the same pack)"
+                )
+        for crop_code in template.applies_to_crop_codes:
+            if crop_code not in crop_keys:
+                report.errors.append(
+                    f"operation template '{code}': unknown crop '{crop_code}' in "
+                    "applies_to_crop_codes"
+                )
+
     if not pack.digitization_note:
         report.warnings.append(
             "pack has no digitization_note — provenance of transcription is unclear"
@@ -299,6 +492,14 @@ def validate_pack_cross_references(pack: KnowledgePackIn) -> PackValidationRepor
         referenced_sources |= {w.source_key for w in crop.water_parameters}
     for rule in pack.rotation_rules:
         referenced_sources.add(rule.source_key)
+    for practice in pack.practices:
+        referenced_sources |= {m.source_key for m in practice.mechanisms}
+        referenced_sources |= {r.source_key for r in practice.requirements}
+        referenced_sources |= {t.source_key for t in practice.trade_offs}
+        referenced_sources |= {r.source_key for r in practice.risks}
+        referenced_sources |= {ra.source_key for ra in practice.regional_applicability}
+    for template in pack.operation_templates:
+        referenced_sources |= {p.source_key for p in template.typical_predecessors}
     for s in pack.sources:
         if s.source_key not in referenced_sources:
             report.warnings.append(f"source '{s.source_key}' is declared but never cited")
@@ -311,14 +512,28 @@ def validate_pack_cross_references(pack: KnowledgePackIn) -> PackValidationRepor
         "calendar_windows": sum(len(c.calendar_windows) for c in pack.crops),
         "water_parameters": sum(len(c.water_parameters) for c in pack.crops),
         "rotation_rules": len(pack.rotation_rules),
+        "practices": len(pack.practices),
+        "operation_templates": len(pack.operation_templates),
     }
     return report
 
 
 def pack_checksum(pack: KnowledgePackIn) -> str:
-    """Stable sha256 over the canonical JSON of the pack content."""
+    """Stable sha256 over the canonical JSON of the pack content.
+
+    M6C backward compatibility: the canonical form OMITS the practice /
+    operation-template sections when they are empty, so pre-M6C packs
+    (which never had those keys in their dump) keep byte-identical
+    checksums. Sections that are present (or non-empty) are hashed —
+    editing a practice always changes the checksum.
+    """
     import hashlib
     import json
 
-    canonical = json.dumps(pack.model_dump(), sort_keys=True, separators=(",", ":"))
+    dump = pack.model_dump()
+    if not dump.get("practices"):
+        dump.pop("practices", None)
+    if not dump.get("operation_templates"):
+        dump.pop("operation_templates", None)
+    canonical = json.dumps(dump, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

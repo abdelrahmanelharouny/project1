@@ -1107,8 +1107,10 @@ def taxonomy_payload() -> dict[str, Any]:
         "note": (
             "Climate projection and weather forecast types are contract "
             "placeholders; creation requests are rejected. Soil and "
-            "management scenario dimensions are unavailable because M6B/M6C "
-            "are not implemented in this repository."
+            "management scenario dimensions remain unavailable: M6B/M6C are "
+            "integrated as data domains, but soil-/management-driven "
+            "scenario transformations are not part of the M7.3 execution "
+            "engine."
         ),
     }
 
@@ -1127,11 +1129,14 @@ def capabilities_payload() -> dict[str, Any]:
         ],
         "dimensions": {k: dict(v) for k, v in sc.SCENARIO_DIMENSION_AVAILABILITY.items()},
         "execution": {
-            "scenario_execution": "not_implemented",
+            "scenario_execution": "implemented",
             "reason": (
-                "M7.2 delivers scenario DEFINITIONS only. Environmental stress "
-                "transformations and simulation (M7.3) do not exist in this "
-                "repository; a valid configuration is not a simulated result."
+                "M7.3 scenario execution is implemented for environmental "
+                "parameters (temperature deltas, precipitation multipliers/"
+                "deltas, timing shifts) over immutable field states; derived "
+                "observations and features are stored with lineage and "
+                "checksums. Soil and management scenario dimensions are not "
+                "part of the execution engine and are never simulated."
             ),
         },
         "digital_twin_level": "Level 1 — Historical Digital Profile (not predictive)",

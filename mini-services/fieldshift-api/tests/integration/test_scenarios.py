@@ -289,7 +289,7 @@ class TestScenarioCreation:
         capabilities = client.get("/api/v1/scenarios/capabilities").json()
         caps = {c["scenario_type"]: c["capability"] for c in capabilities["capabilities"]}
         assert caps["climate_projection"] == "not_implemented"
-        assert capabilities["execution"]["scenario_execution"] == "not_implemented"
+        assert capabilities["execution"]["scenario_execution"] == "implemented"  # M7.3 integrated
         assert "not predictive" in capabilities["digital_twin_level"]
 
 

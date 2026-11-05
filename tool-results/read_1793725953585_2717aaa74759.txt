@@ -1,0 +1,906 @@
+     1→'use client'
+     2→
+     3→import { useMemo, useState } from 'react'
+     4→import {
+     5→  BadgeCheck,
+     6→  CircleAlert,
+     7→  FlaskConical,
+     8→  GitBranch,
+     9→  Info,
+    10→  Lock,
+    11→  Play,
+    12→  ShieldAlert,
+    13→  ShieldCheck,
+    14→  Ban,
+    15→} from 'lucide-react'
+    16→import { useMutation, useQueryClient } from '@tanstack/react-query'
+    17→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+    18→import { Badge } from '@/components/ui/badge'
+    19→import { Button } from '@/components/ui/button'
+    20→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+    21→import { Input } from '@/components/ui/input'
+    22→import { Label } from '@/components/ui/label'
+    23→import {
+    24→  Select,
+    25→  SelectContent,
+    26→  SelectItem,
+    27→  SelectTrigger,
+    28→  SelectValue,
+    29→} from '@/components/ui/select'
+    30→import { Skeleton } from '@/components/ui/skeleton'
+    31→import { FieldPicker } from '@/components/fieldshift/field-picker'
+    32→import {
+    33→  useFieldStates,
+    34→  useScenarioCapabilities,
+    35→  useScenarioTypes,
+    36→  useScenarios,
+    37→} from '@/hooks/use-fieldshift'
+    38→import {
+    39→  archiveScenario,
+    40→  compareScenarios,
+    41→  createScenario,
+    42→  createScenarioVersion,
+    43→  deleteScenario,
+    44→  describeError,
+    45→  finalizeScenario,
+    46→  getScenarioLineage,
+    47→  listScenarioVersions,
+    48→  ApiError,
+    49→  validateScenario,
+    50→  verifyScenario,
+    51→} from '@/lib/api'
+    52→import { useFieldShiftUi } from '@/lib/store'
+    53→import type {
+    54→  Scenario,
+    55→  ScenarioCompareResponse,
+    56→  ScenarioLineageResponse,
+    57→  ScenarioStatus,
+    58→  ScenarioTaxonomy,
+    59→  ScenarioValidateResponse,
+    60→  ScenarioVerifyResponse,
+    61→  ScenarioVersionsResponse,
+    62→} from '@/lib/types'
+    63→
+    64→function apiErrorText(err: unknown): string {
+    65→  if (err instanceof ApiError) {
+    66→    const detail = err.details[0]
+    67→    const detailText = detail?.reason ? `${detail.field}: ${detail.reason}` : detail?.field
+    68→    return detailText ? `${err.message} (${detailText})` : err.message
+    69→  }
+    70→  return describeError(err).description ?? describeError(err).title
+    71→}
+    72→
+    73→function shortHash(hash: string | null | undefined): string {
+    74→  return hash ? `${hash.slice(0, 12)}…` : '—'
+    75→}
+    76→
+    77→function shortIso(iso: string | null | undefined): string {
+    78→  return iso ? iso.replace('T', ' ').slice(0, 16) : '—'
+    79→}
+    80→
+    81→// ---------------------------------------------------------------------------
+    82→// Badges (C2: evidence classes are never equivalent)
+    83→// ---------------------------------------------------------------------------
+    84→
+    85→function EvidenceBadge({ classification, label }: { classification: string; label?: string }) {
+    86→  const map: Record<string, string> = {
+    87→    observed: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+    88→    hypothetical: 'border-amber-300 bg-amber-50 text-amber-800',
+    89→    not_available: 'border-stone-300 bg-stone-100 text-stone-600',
+    90→  }
+    91→  const icons: Record<string, React.ReactNode> = {
+    92→    observed: <BadgeCheck className="h-3 w-3" aria-hidden />,
+    93→    hypothetical: <FlaskConical className="h-3 w-3" aria-hidden />,
+    94→    not_available: <Ban className="h-3 w-3" aria-hidden />,
+    95→  }
+    96→  return (
+    97→    <Badge variant="outline" className={`gap-1 font-normal ${map[classification] ?? ''}`}>
+    98→      {icons[classification]}
+    99→      {label ?? classification}
+   100→    </Badge>
+   101→  )
+   102→}
+   103→
+   104→function StatusBadge({ status }: { status: string }) {
+   105→  const map: Record<string, string> = {
+   106→    draft: 'border-stone-300 bg-white text-stone-600',
+   107→    validation_pending: 'border-amber-200 bg-amber-50 text-amber-700',
+   108→    valid: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+   109→    conditionally_valid: 'border-amber-300 bg-amber-50 text-amber-800',
+   110→    invalid: 'border-red-300 bg-red-50 text-red-700',
+   111→    finalized: 'border-emerald-400 bg-emerald-100 text-emerald-900',
+   112→    archived: 'border-stone-300 bg-stone-100 text-stone-500',
+   113→    unsupported: 'border-stone-400 bg-stone-100 text-stone-700',
+   114→  }
+   115→  return (
+   116→    <Badge variant="outline" className={`font-normal ${map[status] ?? ''}`}>
+   117→      {status.replace('_', ' ')}
+   118→    </Badge>
+   119→  )
+   120→}
+   121→
+   122→function FindingList({ findings }: { findings: Array<{ code: string; severity: string; message: string }> }) {
+   123→  if (!findings.length) return null
+   124→  const colors: Record<string, string> = {
+   125→    error: 'text-red-700',
+   126→    warning: 'text-amber-700',
+   127→    info: 'text-stone-600',
+   128→  }
+   129→  return (
+   130→    <ul className="mt-2 space-y-1.5">
+   131→      {findings.map((f, i) => (
+   132→        <li key={`${f.code}-${i}`} className="flex gap-2 text-xs">
+   133→          <span className={`mt-0.5 shrink-0 font-medium ${colors[f.severity] ?? 'text-stone-600'}`}>
+   134→            {f.severity}
+   135→          </span>
+   136→          <span className="text-stone-700">
+   137→            <span className="font-mono text-[11px] text-stone-500">{f.code}</span> — {f.message}
+   138→          </span>
+   139→        </li>
+   140→      ))}
+   141→    </ul>
+   142→  )
+   143→}
+   144→
+   145→// ---------------------------------------------------------------------------
+   146→// Create form
+   147→// ---------------------------------------------------------------------------
+   148→
+   149→const ADJUSTMENT_FIELDS: Array<{ key: string; label: string; placeholder: string }> = [
+   150→  { key: 'temperature_delta_c', label: 'Temperature shift (°C)', placeholder: 'e.g. 2.0' },
+   151→  { key: 'precipitation_multiplier', label: 'Precipitation ratio (×, 1 = unchanged)', placeholder: 'e.g. 0.8' },
+   152→  { key: 'water_allocation_multiplier', label: 'Irrigation allocation ratio (×)', placeholder: 'e.g. 0.7' },
+   153→  { key: 'precipitation_delta_mm', label: 'Precipitation shift (mm)', placeholder: 'e.g. -50' },
+   154→  { key: 'seasonal_timing_shift_days', label: 'Seasonal timing shift (days)', placeholder: 'e.g. 10' },
+   155→  { key: 'rainfall_period_shift_days', label: 'Rainfall period shift (days)', placeholder: 'e.g. -14' },
+   156→]
+   157→
+   158→function CreateScenarioCard({
+   159→  fieldId,
+   160→  fieldStates,
+   161→  taxonomy,
+   162→}: {
+   163→  fieldId: string
+   164→  fieldStates: Array<{ id: string; label: string; status: string; checksum_sha256: string | null; boundary_version: number; period_start: string; period_end: string }>
+   165→  taxonomy: ScenarioTaxonomy
+   166→}) {
+   167→  const queryClient = useQueryClient()
+   168→  const [name, setName] = useState('')
+   169→  const [scenarioType, setScenarioType] = useState('user_defined_stress')
+   170→  const [stateId, setStateId] = useState('')
+   171→  const [periodStart, setPeriodStart] = useState('2016-01-01')
+   172→  const [periodEnd, setPeriodEnd] = useState('2017-12-31')
+   173→  const [adjustments, setAdjustments] = useState<Record<string, string>>({
+   174→    temperature_delta_c: '2.0',
+   175→    water_allocation_multiplier: '0.7',
+   176→  })
+   177→  const [assumptionDescription, setAssumptionDescription] = useState('')
+   178→  const [error, setError] = useState<string | null>(null)
+   179→  const [created, setCreated] = useState<string | null>(null)
+   180→
+   181→  const implementedTypes = taxonomy.types.filter((t) => t.capability === 'implemented')
+   182→  const unimplementedTypes = taxonomy.types.filter((t) => t.capability !== 'implemented')
+   183→  const isHypothetical = scenarioType !== 'historical_observed'
+   184→
+   185→  const succeededStates = fieldStates.filter((s) => s.status === 'succeeded')
+   186→
+   187→  const mutation = useMutation({
+   188→    mutationFn: async () => {
+   189→      const adjustmentPayload: Record<string, number> = {}
+   190→      for (const [key, value] of Object.entries(adjustments)) {
+   191→        if (value !== '' && value !== undefined) {
+   192→          const numeric = Number(value)
+   193→          if (!Number.isNaN(numeric)) adjustmentPayload[key] = numeric
+   194→        }
+   195→      }
+   196→      const configuration: Record<string, unknown> = {
+   197→        type: scenarioType,
+   198→        parent_field_state_id: stateId,
+   199→      }
+   200→      if (isHypothetical) {
+   201→        configuration.period = { start: periodStart, end: periodEnd }
+   202→        configuration.adjustments = adjustmentPayload
+   203→        configuration.assumption_metadata = {
+   204→          origin: 'user_defined',
+   205→          status: 'hypothetical',
+   206→          description: assumptionDescription || undefined,
+   207→        }
+   208→      }
+   209→      const createdScenario = await createScenario(fieldId, {
+   210→        scenario_type: scenarioType,
+   211→        name: name || undefined,
+   212→        configuration: configuration as never,
+   213→      })
+   214→      return createdScenario
+   215→    },
+   216→    onSuccess: (scenario) => {
+   217→      setError(null)
+   218→      setCreated(`${scenario.name} (v${scenario.scenario_version}, checksum ${shortHash(scenario.configuration_checksum)})`)
+   219→      setName('')
+   220→      queryClient.invalidateQueries({ queryKey: ['scenarios', fieldId] })
+   221→    },
+   222→    onError: (err) => {
+   223→      setCreated(null)
+   224→      setError(apiErrorText(err))
+   225→    },
+   226→  })
+   227→
+   228→  return (
+   229→    <Card>
+   230→      <CardHeader>
+   231→        <CardTitle className="flex items-center gap-2 text-base">
+   232→          <FlaskConical className="h-4 w-4 text-emerald-700" aria-hidden />
+   233→          Define a scenario
+   234→        </CardTitle>
+   235→        <CardDescription>
+   236→          A scenario is a checked, versioned <strong>definition</strong> against an immutable
+   237→          Field State. Nothing is simulated in M7.2 — a valid configuration is not a result.
+   238→        </CardDescription>
+   239→      </CardHeader>
+   240→      <CardContent className="space-y-4">
+   241→        <div className="grid gap-4 sm:grid-cols-2">
+   242→          <div className="space-y-1.5">
+   243→            <Label htmlFor="scenario-name">Name</Label>
+   244→            <Input
+   245→              id="scenario-name"
+   246→              value={name}
+   247→              onChange={(e) => setName(e.target.value)}
+   248→              placeholder="e.g. Hot-dry stress 2016"
+   249→            />
+   250→          </div>
+   251→          <div className="space-y-1.5">
+   252→            <Label htmlFor="scenario-type">Scenario type</Label>
+   253→            <Select value={scenarioType} onValueChange={setScenarioType}>
+   254→              <SelectTrigger id="scenario-type" aria-label="Scenario type">
+   255→                <SelectValue />
+   256→              </SelectTrigger>
+   257→              <SelectContent>
+   258→                {implementedTypes.map((t) => (
+   259→                  <SelectItem key={t.scenario_type} value={t.scenario_type}>
+   260→                    {t.display_name} — {t.evidence_classification}
+   261→                  </SelectItem>
+   262→                ))}
+   263→                {unimplementedTypes.map((t) => (
+   264→                  <SelectItem key={t.scenario_type} value={t.scenario_type} disabled>
+   265→                    {t.display_name} — not implemented
+   266→                  </SelectItem>
+   267→                ))}
+   268→              </SelectContent>
+   269→            </Select>
+   270→          </div>
+   271→        </div>
+   272→
+   273→        <div className="space-y-1.5">
+   274→          <Label htmlFor="scenario-state">Parent Field State (immutable baseline)</Label>
+   275→          <Select
+   276→            value={stateId}
+   277→            onValueChange={(value) => {
+   278→              setStateId(value)
+   279→              const state = succeededStates.find((s) => s.id === value)
+   280→              if (state) {
+   281→                setPeriodStart(state.period_start.slice(0, 10))
+   282→                setPeriodEnd(state.period_end.slice(0, 10))
+   283→              }
+   284→            }}
+   285→          >
+   286→            <SelectTrigger id="scenario-state" aria-label="Parent field state">
+   287→              <SelectValue placeholder="Select a succeeded field state…" />
+   288→            </SelectTrigger>
+   289→            <SelectContent>
+   290→              {succeededStates.length === 0 && (
+   291→                <div className="px-3 py-2 text-xs text-stone-500">
+   292→                  No succeeded field states yet — assemble one in the Field State tab first.
+   293→                </div>
+   294→              )}
+   295→              {succeededStates.map((s) => (
+   296→                <SelectItem key={s.id} value={s.id}>
+   297→                  {s.label} · boundary v{s.boundary_version} · {shortHash(s.checksum_sha256)}
+   298→                </SelectItem>
+   299→              ))}
+   300→            </SelectContent>
+   301→          </Select>
+   302→        </div>
+   303→
+   304→        {isHypothetical && (
+   305→          <>
+   306→            <div className="grid gap-4 sm:grid-cols-2">
+   307→              <div className="space-y-1.5">
+   308→                <Label htmlFor="period-start">Period start (UTC)</Label>
+   309→                <Input
+   310→                  id="period-start"
+   311→                  type="date"
+   312→                  value={periodStart}
+   313→                  onChange={(e) => setPeriodStart(e.target.value)}
+   314→                />
+   315→              </div>
+   316→              <div className="space-y-1.5">
+   317→                <Label htmlFor="period-end">Period end (UTC)</Label>
+   318→                <Input
+   319→                  id="period-end"
+   320→                  type="date"
+   321→                  value={periodEnd}
+   322→                  onChange={(e) => setPeriodEnd(e.target.value)}
+   323→                />
+   324→              </div>
+   325→            </div>
+   326→
+   327→            <div>
+   328→              <p className="mb-2 text-sm font-medium">Hypothetical assumptions</p>
+   329→              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   330→                {ADJUSTMENT_FIELDS.map((f) => (
+   331→                  <div key={f.key} className="space-y-1">
+   332→                    <Label htmlFor={`adj-${f.key}`} className="text-xs">
+   333→                      {f.label}
+   334→                    </Label>
+   335→                    <Input
+   336→                      id={`adj-${f.key}`}
+   337→                      inputMode="decimal"
+   338→                      className="h-9"
+   339→                      placeholder={f.placeholder}
+   340→                      value={adjustments[f.key] ?? ''}
+   341→                      onChange={(e) => setAdjustments((prev) => ({ ...prev, [f.key]: e.target.value }))}
+   342→                    />
+   343→                  </div>
+   344→                ))}
+   345→              </div>
+   346→              <div className="mt-3 space-y-1.5">
+   347→                <Label htmlFor="assumption-desc" className="text-xs">
+   348→                  Assumption description (recorded as user-defined & hypothetical)
+   349→                </Label>
+   350→                <Input
+   351→                  id="assumption-desc"
+   352→                  value={assumptionDescription}
+   353→                  onChange={(e) => setAssumptionDescription(e.target.value)}
+   354→                  placeholder="e.g. hotter and drier growing season with reduced allocation"
+   355→                />
+   356→              </div>
+   357→            </div>
+   358→          </>
+   359→        )}
+   360→
+   361→        {scenarioType === 'historical_observed' && (
+   362→          <Alert>
+   363→            <Info className="h-4 w-4" aria-hidden />
+   364→            <AlertTitle>Observed reference</AlertTitle>
+   365→            <AlertDescription>
+   366→              A historical observed scenario carries no assumptions: it labels the parent
+   367→              Field State&apos;s recorded condition as the reference. Evidence class:{' '}
+   368→              <strong>observed</strong> — never a prediction.
+   369→            </AlertDescription>
+   370→          </Alert>
+   371→        )}
+   372→
+   373→        {error && (
+   374→          <Alert variant="destructive">
+   375→            <ShieldAlert className="h-4 w-4" aria-hidden />
+   376→            <AlertTitle>Could not create scenario</AlertTitle>
+   377→            <AlertDescription>{error}</AlertDescription>
+   378→          </Alert>
+   379→        )}
+   380→        {created && (
+   381→          <Alert>
+   382→            <BadgeCheck className="h-4 w-4 text-emerald-700" aria-hidden />
+   383→            <AlertTitle>Scenario created (draft)</AlertTitle>
+   384→            <AlertDescription>{created}</AlertDescription>
+   385→          </Alert>
+   386→        )}
+   387→
+   388→        <Button
+   389→          onClick={() => mutation.mutate()}
+   390→          disabled={!stateId || mutation.isPending || !scenarioType}
+   391→          className="min-h-11"
+   392→        >
+   393→          {mutation.isPending ? 'Creating…' : 'Create scenario definition'}
+   394→        </Button>
+   395→      </CardContent>
+   396→    </Card>
+   397→  )
+   398→}
+   399→
+   400→// ---------------------------------------------------------------------------
+   401→// Scenario card with actions
+   402→// ---------------------------------------------------------------------------
+   403→
+   404→function ScenarioCard({
+   405→  scenario,
+   406→  fieldId,
+   407→  onCompare,
+   408→  compareTarget,
+   409→}: {
+   410→  scenario: Scenario
+   411→  fieldId: string
+   412→  onCompare: (id: string) => void
+   413→  compareTarget: string | null
+   414→}) {
+   415→  const queryClient = useQueryClient()
+   416→  const [error, setError] = useState<string | null>(null)
+   417→  const [validation, setValidation] = useState<ScenarioValidateResponse | null>(null)
+   418→  const [verify, setVerify] = useState<ScenarioVerifyResponse | null>(null)
+   419→  const [versions, setVersions] = useState<ScenarioVersionsResponse | null>(null)
+   420→  const [lineage, setLineage] = useState<ScenarioLineageResponse | null>(null)
+   421→
+   422→  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['scenarios', fieldId] })
+   423→
+   424→  const runAction = (fn: () => Promise<unknown>, onDone?: (data: unknown) => void) =>
+   425→    async () => {
+   426→      setError(null)
+   427→      try {
+   428→        const data = await fn()
+   429→        onDone?.(data)
+   430→        invalidate()
+   431→      } catch (err) {
+   432→        setError(apiErrorText(err))
+   433→      }
+   434→    }
+   435→
+   436→  const isFinalized = scenario.scenario_status === 'finalized'
+   437→  const isArchived = scenario.scenario_status === 'archived'
+   438→  const canFinalize = scenario.scenario_status === 'valid' || scenario.scenario_status === 'conditionally_valid'
+   439→  const canDelete = scenario.scenario_status === 'draft'
+   440→
+   441→  return (
+   442→    <Card>
+   443→      <CardHeader className="pb-3">
+   444→        <div className="flex flex-wrap items-start justify-between gap-2">
+   445→          <div>
+   446→            <CardTitle className="text-base">
+   447→              {scenario.name}{' '}
+   448→              <span className="text-xs font-normal text-stone-500">
+   449→                v{scenario.scenario_version} · {scenario.lineage_kind}
+   450→              </span>
+   451→            </CardTitle>
+   452→            <CardDescription className="mt-1 [overflow-wrap:anywhere]">
+   453→              {scenario.scenario_type_display} · parent state {shortHash(scenario.parent_field_state_id)} · boundary v{scenario.boundary_version}
+   454→            </CardDescription>
+   455→          </div>
+   456→          <div className="flex flex-wrap items-center gap-1.5">
+   457→            <EvidenceBadge classification={scenario.evidence_classification} label={scenario.evidence_label} />
+   458→            <StatusBadge status={scenario.scenario_status} />
+   459→          </div>
+   460→        </div>
+   461→      </CardHeader>
+   462→      <CardContent className="space-y-3">
+   463→        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600 sm:grid-cols-3">
+   464→          <div>
+   465→            <dt className="text-stone-400">Period</dt>
+   466→            <dd>
+   467→              {shortIso(scenario.period.start)} → {shortIso(scenario.period.end)}
+   468→            </dd>
+   469→          </div>
+   470→          <div>
+   471→            <dt className="text-stone-400">Timezone</dt>
+   472→            <dd>{scenario.timezone}</dd>
+   473→          </div>
+   474→          <div>
+   475→            <dt className="text-stone-400">Config checksum</dt>
+   476→            <dd className="break-all font-mono" title={scenario.configuration_checksum}>
+   477→              {shortHash(scenario.configuration_checksum)}
+   478→            </dd>
+   479→          </div>
+   480→          <div>
+   481→            <dt className="text-stone-400">Schema</dt>
+   482→            <dd>{scenario.configuration_schema_version}</dd>
+   483→          </div>
+   484→          <div>
+   485→            <dt className="text-stone-400">Parent snapshot checksum</dt>
+   486→            <dd className="break-all font-mono" title={scenario.parent_snapshot_checksum}>
+   487→              {shortHash(scenario.parent_snapshot_checksum)}
+   488→            </dd>
+   489→          </div>
+   490→          <div>
+   491→            <dt className="text-stone-400">Finalized</dt>
+   492→            <dd>{scenario.finalized_at ? shortIso(scenario.finalized_at) : '—'}</dd>
+   493→          </div>
+   494→        </dl>
+   495→
+   496→        {scenario.assumption_metadata && Object.keys(scenario.assumption_metadata).length > 0 && (
+   497→          <p className="min-w-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 [overflow-wrap:anywhere]">
+   498→            <strong>Hypothetical assumptions</strong> ({String((scenario.assumption_metadata as Record<string, unknown>).origin ?? 'user_defined')}
+   499→            , {String((scenario.assumption_metadata as Record<string, unknown>).status ?? 'hypothetical')}):{' '}
+   500→            {String((scenario.assumption_metadata as Record<string, unknown>).description ?? '—')}
+   501→          </p>
+   502→        )}
+   503→
+   504→        {error && (
+   505→          <Alert variant="destructive">
+   506→            <ShieldAlert className="h-4 w-4" aria-hidden />
+   507→            <AlertDescription>{error}</AlertDescription>
+   508→          </Alert>
+   509→        )}
+   510→
+   511→        {validation && (
+   512→          <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+   513→            <p className="text-xs font-medium text-stone-700">
+   514→              Validation: <span className="font-mono">{validation.validation_status}</span> → scenario{' '}
+   515→              <span className="font-mono">{validation.scenario_status}</span> · rules {validation.validation_rule_version}
+   516→            </p>
+   517→            <FindingList findings={validation.validation_result.findings} />
+   518→            <p className="mt-2 text-[11px] text-stone-500">{validation.note}</p>
+   519→          </div>
+   520→        )}
+   521→
+   522→        {verify && (
+   523→          <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+   524→            <p className="flex items-center gap-1.5 text-xs font-medium text-stone-700">
+   525→              {verify.configuration_checksum_valid ? (
+   526→                <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+   527→              ) : (
+   528→                <ShieldAlert className="h-3.5 w-3.5 text-red-700" aria-hidden />
+   529→              )}
+   530→              Checksum valid: {String(verify.configuration_checksum_valid)} · parent state intact:{' '}
+   531→              {String(verify.parent_state_exists && verify.parent_snapshot_checksum_matches)} · boundary record:{' '}
+   532→              {String(verify.boundary_version_record_exists)}
+   533→            </p>
+   534→          </div>
+   535→        )}
+   536→
+   537→        {versions && (
+   538→          <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+   539→            <p className="text-xs font-medium text-stone-700">Version chain ({versions.chain_length})</p>
+   540→            <ul className="mt-1 space-y-1">
+   541→              {versions.items.map((v) => (
+   542→                <li key={v.id} className="break-all text-xs text-stone-600">
+   543→                  v{v.scenario_version} · {v.scenario_status} · {shortHash(v.configuration_checksum)}
+   544→                  {v.finalized_at ? ` · finalized ${shortIso(v.finalized_at)}` : ''}
+   545→                </li>
+   546→              ))}
+   547→            </ul>
+   548→          </div>
+   549→        )}
+   550→
+   551→        {lineage && (
+   552→          <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
+   553→            <p className="text-xs font-medium text-stone-700">Lineage</p>
+   554→            <ul className="mt-1 space-y-1 text-xs text-stone-600">
+   555→              {lineage.ancestors.map((a) => (
+   556→                <li key={a.id} className="break-all">
+   557→                  ↑ {a.name} (v{a.scenario_version}, {a.lineage_kind})
+   558→                </li>
+   559→              ))}
+   560→              <li>
+   561→                ● this: {lineage.scenario_id} (v{lineage.scenario_version}, {lineage.lineage_kind})
+   562→              </li>
+   563→              {lineage.children.map((ch) => (
+   564→                <li key={ch.id} className="break-all">
+   565→                  ↓ {ch.name} (v{ch.scenario_version}, {ch.lineage_kind}, {ch.scenario_status})
+   566→                </li>
+   567→              ))}
+   568→            </ul>
+   569→          </div>
+   570→        )}
+   571→
+   572→        <div className="flex flex-wrap gap-2">
+   573→          <Button
+   574→            size="sm"
+   575→            variant="outline"
+   576→            className="min-h-9"
+   577→            disabled={isFinalized || isArchived || scenario.scenario_status === 'unsupported'}
+   578→            onClick={runAction(() => validateScenario(scenario.id), (data) => setValidation(data as ScenarioValidateResponse))}
+   579→          >
+   580→            Validate
+   581→          </Button>
+   582→          <Button
+   583→            size="sm"
+   584→            variant="outline"
+   585→            className="min-h-9"
+   586→            disabled={!canFinalize}
+   587→            onClick={runAction(() => finalizeScenario(scenario.id))}
+   588→          >
+   589→            <Lock className="mr-1 h-3.5 w-3.5" aria-hidden />
+   590→            Finalize
+   591→          </Button>
+   592→          <Button
+   593→            size="sm"
+   594→            variant="outline"
+   595→            className="min-h-9"
+   596→            disabled={!isFinalized}
+   597→            onClick={runAction(
+   598→              () =>
+   599→                createScenarioVersion(scenario.id, {
+   600→                  configuration: scenario.canonical_configuration as never,
+   601→                }),
+   602→              undefined
+   603→            )}
+   604→            title="Create a new draft version of this finalized scenario"
+   605→          >
+   606→            <GitBranch className="mr-1 h-3.5 w-3.5" aria-hidden />
+   607→            New version
+   608→          </Button>
+   609→          <Button
+   610→            size="sm"
+   611→            variant="outline"
+   612→            className="min-h-9"
+   613→            onClick={runAction(() => listScenarioVersions(scenario.id), (data) => {
+   614→              setVersions(data as ScenarioVersionsResponse)
+   615→              setLineage(null)
+   616→            })}
+   617→          >
+   618→            Versions
+   619→          </Button>
+   620→          <Button
+   621→            size="sm"
+   622→            variant="outline"
+   623→            className="min-h-9"
+   624→            onClick={runAction(() => getScenarioLineage(scenario.id), (data) => {
+   625→              setLineage(data as ScenarioLineageResponse)
+   626→              setVersions(null)
+   627→            })}
+   628→          >
+   629→            Lineage
+   630→          </Button>
+   631→          <Button
+   632→            size="sm"
+   633→            variant="outline"
+   634→            className="min-h-9"
+   635→            onClick={runAction(() => verifyScenario(scenario.id), (data) => setVerify(data as ScenarioVerifyResponse))}
+   636→          >
+   637→            Verify checksum
+   638→          </Button>
+   639→          <Button
+   640→            size="sm"
+   641→            variant={compareTarget === scenario.id ? 'default' : 'outline'}
+   642→            className="min-h-9"
+   643→            onClick={() => onCompare(scenario.id)}
+   644→            title="Select as comparison side A"
+   645→          >
+   646→            Compare
+   647→          </Button>
+   648→          <Button
+   649→            size="sm"
+   650→            variant="ghost"
+   651→            className="min-h-9 text-stone-500"
+   652→            disabled={isFinalized || isArchived}
+   653→            onClick={runAction(() => archiveScenario(scenario.id))}
+   654→          >
+   655→            Archive
+   656→          </Button>
+   657→          <Button
+   658→            size="sm"
+   659→            variant="ghost"
+   660→            className="min-h-9 text-red-600"
+   661→            disabled={!canDelete}
+   662→            onClick={runAction(() => deleteScenario(scenario.id))}
+   663→          >
+   664→            Delete
+   665→          </Button>
+   666→        </div>
+   667→      </CardContent>
+   668→    </Card>
+   669→  )
+   670→}
+   671→
+   672→// ---------------------------------------------------------------------------
+   673→// Comparison panel
+   674→// ---------------------------------------------------------------------------
+   675→
+   676→function ComparisonCard({
+   677→  result,
+   678→  onClose,
+   679→}: {
+   680→  result: ScenarioCompareResponse
+   681→  onClose: () => void
+   682→}) {
+   683→  return (
+   684→    <Card>
+   685→      <CardHeader className="pb-3">
+   686→        <CardTitle className="text-base">Definition comparison</CardTitle>
+   687→        <CardDescription>{result.note}</CardDescription>
+   688→      </CardHeader>
+   689→      <CardContent className="space-y-3">
+   690→        <div className="grid gap-3 text-xs sm:grid-cols-2">
+   691→          {[result.scenario_a, result.scenario_b].map((s, i) => (
+   692→            <div key={s.id} className="min-w-0 rounded-md border border-stone-200 p-3">
+   693→              <p className="font-medium text-stone-800">
+   694→                Side {i === 0 ? 'A' : 'B'}: {s.name} (v{s.scenario_version}, {s.scenario_status})
+   695→              </p>
+   696→              <p className="mt-1 text-stone-600">
+   697→                {s.scenario_type} · <EvidenceBadge classification={s.evidence_classification} label={s.evidence_classification} />
+   698→              </p>
+   699→              <p className="break-all font-mono text-[11px] text-stone-500">checksum {shortHash(s.configuration_checksum)}</p>
+   700→              <p className="text-stone-600">
+   701→                parent {shortHash(s.parent_field_state_id)} · boundary v{s.boundary_version}
+   702→              </p>
+   703→            </div>
+   704→          ))}
+   705→        </div>
+   706→
+   707→        {result.warnings.length > 0 && (
+   708→          <Alert>
+   709→            <CircleAlert className="h-4 w-4" aria-hidden />
+   710→            <AlertTitle>Compatibility warnings</AlertTitle>
+   711→            <AlertDescription>
+   712→              <ul className="list-disc space-y-1 pl-4">
+   713→                {result.warnings.map((w, i) => (
+   714→                  <li key={i}>{w}</li>
+   715→                ))}
+   716→              </ul>
+   717→            </AlertDescription>
+   718→          </Alert>
+   719→        )}
+   720→
+   721→        <div className="rounded-md border border-stone-200 p-3">
+   722→          <p className="text-xs font-medium text-stone-700">
+   723→            Configuration differences ({result.configuration_diff.length})
+   724→            {result.identical_configuration && ' — identical'}
+   725→          </p>
+   726→          {result.configuration_diff.length > 0 && (
+   727→            <ul className="mt-1 space-y-1 text-xs">
+   728→              {result.configuration_diff.map((d, i) => (
+   729→                <li key={`${d.path}-${i}`} className="break-all font-mono text-[11px] text-stone-600">
+   730→                  {d.kind} <span className="text-stone-800">{d.path}</span>: {JSON.stringify(d.left)} → {JSON.stringify(d.right)}
+   731→                </li>
+   732→              ))}
+   733→            </ul>
+   734→          )}
+   735→          <p className="mt-1 text-[11px] text-stone-500">
+   736→            Period overlap fraction: {result.temporal_comparison.period_overlap_fraction ?? '—'}
+   737→          </p>
+   738→        </div>
+   739→        <Button size="sm" variant="ghost" className="min-h-9" onClick={onClose}>
+   740→          Close comparison
+   741→        </Button>
+   742→      </CardContent>
+   743→    </Card>
+   744→  )
+   745→}
+   746→
+   747→// ---------------------------------------------------------------------------
+   748→// Main tab
+   749→// ---------------------------------------------------------------------------
+   750→
+   751→export default function Scenarios() {
+   752→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   753→  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+   754→  const fieldId = selectedField?.id ?? null
+   755→
+   756→  const scenariosQuery = useScenarios(fieldId)
+   757→  const statesQuery = useFieldStates(fieldId)
+   758→  const taxonomyQuery = useScenarioTypes()
+   759→  const capabilitiesQuery = useScenarioCapabilities()
+   760→
+   761→  const [compareSideA, setCompareSideA] = useState<string | null>(null)
+   762→  const [compareError, setCompareError] = useState<string | null>(null)
+   763→  const [comparison, setComparison] = useState<ScenarioCompareResponse | null>(null)
+   764→
+   765→  const scenarios = useMemo(() => scenariosQuery.data?.items ?? [], [scenariosQuery.data])
+   766→  const fieldStates = useMemo(
+   767→    () =>
+   768→      (statesQuery.data?.items ?? []).map((s) => ({
+   769→        id: s.id,
+   770→        label: s.label,
+   771→        status: s.status,
+   772→        checksum_sha256: s.checksum_sha256,
+   773→        boundary_version: s.boundary_version,
+   774→        period_start: s.period.start,
+   775→        period_end: s.period.end,
+   776→      })),
+   777→    [statesQuery.data],
+   778→  )
+   779→
+   780→  const handleCompare = async (scenarioId: string) => {
+   781→    setCompareError(null)
+   782→    if (!compareSideA) {
+   783→      setCompareSideA(scenarioId)
+   784→      setComparison(null)
+   785→      return
+   786→    }
+   787→    if (compareSideA === scenarioId) {
+   788→      setCompareSideA(null)
+   789→      return
+   790→    }
+   791→    try {
+   792→      const result = await compareScenarios(compareSideA, scenarioId)
+   793→      setComparison(result)
+   794→      setCompareSideA(null)
+   795→    } catch (err) {
+   796→      setCompareError(apiErrorText(err))
+   797→    }
+   798→  }
+   799→
+   800→  return (
+   801→    <div className="space-y-4">
+   802→      <div className="flex flex-wrap items-center justify-between gap-3">
+   803→        <div>
+   804→          <h2 className="text-lg font-semibold text-stone-800">Scenario Workspace</h2>
+   805→          <p className="text-sm text-stone-500">
+   806→            Define, validate, version and compare hypothetical field scenarios against immutable
+   807→            Field States. Definitions only — no simulation exists yet.
+   808→          </p>
+   809→        </div>
+   810→        <FieldPicker value={null} onValueChange={setSelectedField} />
+   811→      </div>
+   812→
+   813→      {!fieldId && (
+   814→        <Card>
+   815→          <CardContent className="flex min-h-40 flex-col items-center justify-center gap-2 text-center">
+   816→            <Play className="h-8 w-8 text-stone-300" aria-hidden />
+   817→            <p className="text-sm text-stone-500">Select a field to work with scenarios.</p>
+   818→          </CardContent>
+   819→        </Card>
+   820→      )}
+   821→
+   822→      {fieldId && (
+   823→        <>
+   824→          {capabilitiesQuery.data && (
+   825→            <Card>
+   826→              <CardHeader className="pb-3">
+   827→                <CardTitle className="text-base">Platform scenario capabilities</CardTitle>
+   828→                <CardDescription>{capabilitiesQuery.data.note}</CardDescription>
+   829→              </CardHeader>
+   830→              <CardContent>
+   831→                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+   832→                  {Object.entries(capabilitiesQuery.data.dimensions).map(([dim, entry]) => (
+   833→                    <div
+   834→                      key={dim}
+   835→                      className="min-w-0 rounded-md border border-stone-200 bg-stone-50 p-3"
+   836→                      title={entry.reason}
+   837→                    >
+   838→                      <Badge variant="outline" className="border-stone-400 bg-stone-100 font-normal text-stone-700">
+   839→                        <Ban className="mr-1 h-3 w-3" aria-hidden />
+   840→                        {dim.replace('_', ' ')}
+   841→                      </Badge>
+   842→                      <p className="mt-1.5 text-[11px] leading-snug text-stone-500">{entry.reason}</p>
+   843→                    </div>
+   844→                  ))}
+   845→                </div>
+   846→                <p className="mt-3 text-xs text-stone-500">
+   847→                  {capabilitiesQuery.data.execution.reason} Digital twin:{' '}
+   848→                  {capabilitiesQuery.data.digital_twin_level}.
+   849→                </p>
+   850→              </CardContent>
+   851→            </Card>
+   852→          )}
+   853→
+   854→          {taxonomyQuery.data && fieldStates.length >= 0 && (
+   855→            <CreateScenarioCard
+   856→              fieldId={fieldId}
+   857→              fieldStates={fieldStates}
+   858→              taxonomy={taxonomyQuery.data}
+   859→            />
+   860→          )}
+   861→          {taxonomyQuery.isLoading && <Skeleton className="h-64 w-full" />}
+   862→
+   863→          {compareError && (
+   864→            <Alert variant="destructive">
+   865→              <ShieldAlert className="h-4 w-4" aria-hidden />
+   866→              <AlertTitle>Comparison failed</AlertTitle>
+   867→              <AlertDescription>{compareError}</AlertDescription>
+   868→            </Alert>
+   869→          )}
+   870→          {comparison && <ComparisonCard result={comparison} onClose={() => setComparison(null)} />}
+   871→          {compareSideA && (
+   872→            <Alert>
+   873→              <Info className="h-4 w-4" aria-hidden />
+   874→              <AlertTitle>Comparison side A selected</AlertTitle>
+   875→              <AlertDescription>Pick another scenario and press Compare.</AlertDescription>
+   876→            </Alert>
+   877→          )}
+   878→
+   879→          <div className="space-y-3">
+   880→            <h3 className="text-sm font-semibold text-stone-700">
+   881→              Scenarios on this field ({scenarios.length})
+   882→            </h3>
+   883→            {scenariosQuery.isLoading && <Skeleton className="h-24 w-full" />}
+   884→            {!scenariosQuery.isLoading && scenarios.length === 0 && (
+   885→              <Card>
+   886→                <CardContent className="py-8 text-center text-sm text-stone-500">
+   887→                  No scenarios defined yet. Create one above — start from a succeeded Field State.
+   888→                </CardContent>
+   889→              </Card>
+   890→            )}
+   891→            {scenarios.map((s) => (
+   892→              <ScenarioCard
+   893→                key={s.id}
+   894→                scenario={s}
+   895→                fieldId={fieldId}
+   896→                onCompare={handleCompare}
+   897→                compareTarget={compareSideA}
+   898→              />
+   899→            ))}
+   900→          </div>
+   901→        </>
+   902→      )}
+   903→    </div>
+   904→  )
+   905→}
+   906→

@@ -61,3 +61,9 @@ mini-services/fieldshift-api/__pycache__/
 mini-services/fieldshift-api/.pytest_cache/
 mini-services/fieldshift-api/dev.log
 **/__pycache__/
+
+# downloadable backup artifacts (served via /fieldshift-backup.zip)
+public/*.zip
+
+# conda/mamba package cache (env tooling, never commit)
+/db/mamba-root/

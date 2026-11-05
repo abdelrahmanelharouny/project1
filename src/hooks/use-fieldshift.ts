@@ -440,3 +440,77 @@ export function useScenarioCapabilities(): UseQueryResult<ScenarioCapabilities> 
     staleTime: 5 * 60 * 1000,
   })
 }
+
+// =============================================================
+// Milestone 6B — soil intelligence
+// =============================================================
+
+import {
+  getSoilDataReadiness,
+  getSoilHealth,
+  getSoilIndicators,
+  getSoilMethods,
+  getSoilProfile,
+  listSocRuns,
+} from '@/lib/api'
+import type {
+  SoilDataReadinessResponse,
+  SoilHealthResponse,
+  SoilIndicatorsResponse,
+  SoilMethodsResponse,
+  SoilProfileResponse,
+  SocStockRunListResponse,
+} from '@/lib/types'
+
+export function useSoilProfile(fieldId: string | null): UseQueryResult<SoilProfileResponse> {
+  return useQuery({
+    queryKey: ['soil-profile', fieldId],
+    queryFn: () => getSoilProfile(fieldId as string),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useSoilIndicators(fieldId: string | null): UseQueryResult<SoilIndicatorsResponse> {
+  return useQuery({
+    queryKey: ['soil-indicators', fieldId],
+    queryFn: () => getSoilIndicators(fieldId as string),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useSoilHealth(fieldId: string | null): UseQueryResult<SoilHealthResponse> {
+  return useQuery({
+    queryKey: ['soil-health', fieldId],
+    queryFn: () => getSoilHealth(fieldId as string),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useSoilDataReadiness(fieldId: string | null): UseQueryResult<SoilDataReadinessResponse> {
+  return useQuery({
+    queryKey: ['soil-data-readiness', fieldId],
+    queryFn: () => getSoilDataReadiness(fieldId as string),
+    enabled: !!fieldId,
+    staleTime: 60_000,
+  })
+}
+
+export function useSocRuns(fieldId: string | null): UseQueryResult<SocStockRunListResponse> {
+  return useQuery({
+    queryKey: ['soc-runs', fieldId],
+    queryFn: () => listSocRuns(fieldId as string),
+    enabled: !!fieldId,
+    staleTime: 15_000,
+  })
+}
+
+export function useSoilMethods(): UseQueryResult<SoilMethodsResponse> {
+  return useQuery({
+    queryKey: ['soil-methods'],
+    queryFn: getSoilMethods,
+    staleTime: 10 * 60 * 1000,
+  })
+}

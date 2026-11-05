@@ -720,3 +720,547 @@ export function compareScenarios(scenarioId: string, againstId: string): Promise
     `/api/v1/scenarios/${scenarioId}/compare?against=${encodeURIComponent(againstId)}`
   )
 }
+
+// =============================================================
+// Milestone 6B — soil intelligence
+// =============================================================
+
+import type {
+  CoverCropPlan,
+  CoverCropPlanCreateInput,
+  CoverCropPlanItem,
+  CoverCropPlanItemCreateInput,
+  CoverCropPlanItemListResponse,
+  CoverCropPlanListResponse,
+  CoverObservation,
+  CoverObservationCreateInput,
+  CoverTimelineResponse,
+  DecisionComparisonCreateInput,
+  DecisionComparisonListResponse,
+  DecisionComparisonSummary,
+  DecisionDocument,
+  DecisionVerifyResponse,
+  DigitalTwinView,
+  ErosionAssessmentCreateInput,
+  ErosionRun,
+  FarmResource,
+  FarmResourceCreateInput,
+  FarmResourceListResponse,
+  FieldOperation,
+  FieldOperationListResponse,
+  FieldOperationPatchInput,
+  ManagementPlan,
+  ManagementPlanCreateInput,
+  ManagementPracticeListResponse,
+  NutrientBudgetRun,
+  NutrientBudgetRunCreateInput,
+  OperationTemplateListResponse,
+  ResidueFlowCreateInput,
+  ResidueLedgerResponse,
+  RobustEvaluationListResponse,
+  RobustRotationRun,
+  RobustRunCreateInput,
+  RobustRunListResponse,
+  RobustVerifyResponse,
+  ScheduleRun,
+  ScenarioDerivedFeatureListResponse,
+  ScenarioDerivedObservationListResponse,
+  ScenarioExecutionCompareResponse,
+  ScenarioExecutionListResponse,
+  ScenarioExecutionRun,
+  ScenarioExecutionVerifyResponse,
+  ScenarioSet,
+  ScenarioSetCreateInput,
+  ScenarioSetListResponse,
+  ScenarioSetVerifyResponse,
+  SensitivityAnalysis,
+  SensitivityAnalysisCreateInput,
+  SensitivityAnalysisListResponse,
+  SensitivityGridResponse,
+  SensitivityResponseListResponse,
+  SensitivityUncertaintyResponse,
+  SensitivityVerifyResponse,
+  SoilAssessmentRun,
+  SoilHealthResponse,
+  SoilIndicatorsResponse,
+  SoilLabImportResponse,
+  SoilDataReadinessResponse,
+  SoilMethodsResponse,
+  SoilProfileResponse,
+  SocStockRun,
+  SocStockRunCreateInput,
+  SocStockRunListResponse,
+  TwinValidationListResponse,
+  TwinValidationResponse,
+} from './types'
+
+// --- soil methods / read models ---------------------------------------------
+
+export function getSoilMethods(): Promise<SoilMethodsResponse> {
+  return request<SoilMethodsResponse>('/api/v1/soil/methods', { anonymous: true })
+}
+
+export function getSoilProfile(fieldId: string): Promise<SoilProfileResponse> {
+  return request<SoilProfileResponse>(`/api/v1/fields/${fieldId}/soil-profile`)
+}
+
+export function getSoilIndicators(fieldId: string): Promise<SoilIndicatorsResponse> {
+  return request<SoilIndicatorsResponse>(`/api/v1/fields/${fieldId}/soil-indicators`)
+}
+
+export function getSoilHealth(fieldId: string): Promise<SoilHealthResponse> {
+  return request<SoilHealthResponse>(`/api/v1/fields/${fieldId}/soil-health`)
+}
+
+export function getSoilDataReadiness(fieldId: string): Promise<SoilDataReadinessResponse> {
+  return request<SoilDataReadinessResponse>(`/api/v1/fields/${fieldId}/soil-data-readiness`)
+}
+
+// --- SOC stock runs ----------------------------------------------------------
+
+export function createSocStockRun(
+  fieldId: string,
+  input: SocStockRunCreateInput,
+): Promise<SocStockRun> {
+  return request<SocStockRun>(`/api/v1/fields/${fieldId}/soc-stock-runs`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listSocRuns(fieldId: string): Promise<SocStockRunListResponse> {
+  return request<SocStockRunListResponse>(`/api/v1/fields/${fieldId}/soc-stock-runs`)
+}
+
+export function getSocStockRun(runId: string): Promise<SocStockRun> {
+  return request<SocStockRun>(`/api/v1/soc-stock-runs/${runId}`)
+}
+
+// --- nutrient budget ----------------------------------------------------------
+
+export function createNutrientBudgetRun(
+  fieldId: string,
+  input: NutrientBudgetRunCreateInput,
+): Promise<NutrientBudgetRun> {
+  return request<NutrientBudgetRun>(`/api/v1/fields/${fieldId}/nutrient-budget-runs`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listNutrientBudgetRuns(fieldId: string): Promise<{ field_id: string; items: NutrientBudgetRun[] }> {
+  return request(`/api/v1/fields/${fieldId}/nutrient-budget-runs`)
+}
+
+export function getNutrientBudgetRun(runId: string): Promise<NutrientBudgetRun> {
+  return request<NutrientBudgetRun>(`/api/v1/nutrient-budget-runs/${runId}`)
+}
+
+// --- laboratory CSV import ------------------------------------------------------
+// Backend contract: POST /soil-samples/import (org-level) requires a `mapping`
+// form field whose JSON carries default_field_id — the field binding arrives
+// there, so the component's (fieldId, file) signature is preserved.
+
+export async function importSoilLabCsv(fieldId: string, file: File): Promise<SoilLabImportResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('mapping', JSON.stringify({ default_field_id: fieldId }))
+  const data = await request<SoilLabImportResponse>('/api/v1/soil-samples/import', {
+    method: 'POST',
+    formData,
+  })
+  // The backend's idempotent "already_imported" reply omits the counters;
+  // normalize so callers always see numbers (re-import of identical content
+  // creates nothing — 0 is the truthful value there).
+  return {
+    ...data,
+    created_samples: data.created_samples ?? 0,
+    created_measurements: data.created_measurements ?? 0,
+    errors: data.errors ?? [],
+  }
+}
+
+// --- assessment snapshots -------------------------------------------------------
+
+export function runSoilAssessment(fieldId: string): Promise<SoilAssessmentRun> {
+  return request<SoilAssessmentRun>(`/api/v1/fields/${fieldId}/soil-assessments`, {
+    method: 'POST',
+    body: {},
+  })
+}
+
+export function getSoilAssessment(assessmentId: string): Promise<SoilAssessmentRun> {
+  return request<SoilAssessmentRun>(`/api/v1/soil-assessments/${assessmentId}`)
+}
+
+// =============================================================
+// Milestone 6C — field management
+// =============================================================
+
+// --- soil cover -----------------------------------------------------------------
+
+export function createCoverObservation(
+  fieldId: string,
+  input: CoverObservationCreateInput,
+): Promise<CoverObservation> {
+  return request<CoverObservation>(`/api/v1/fields/${fieldId}/soil-cover/observations`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function getCoverTimeline(fieldId: string, start: string, end: string): Promise<CoverTimelineResponse> {
+  return request<CoverTimelineResponse>(
+    `/api/v1/fields/${fieldId}/soil-cover/timeline?window_start=${encodeURIComponent(start)}&window_end=${encodeURIComponent(end)}`,
+  )
+}
+
+// --- cover-crop plans -------------------------------------------------------------
+
+export function createCoverCropPlan(
+  fieldId: string,
+  input: CoverCropPlanCreateInput,
+): Promise<CoverCropPlan> {
+  return request<CoverCropPlan>(`/api/v1/fields/${fieldId}/cover-crop-plans`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listCoverCropPlans(fieldId: string): Promise<CoverCropPlanListResponse> {
+  return request<CoverCropPlanListResponse>(`/api/v1/fields/${fieldId}/cover-crop-plans`)
+}
+
+export function getCoverCropPlan(planId: string): Promise<CoverCropPlan> {
+  return request<CoverCropPlan>(`/api/v1/cover-crop-plans/${planId}`)
+}
+
+export function createCoverCropPlanItem(
+  fieldId: string,
+  input: CoverCropPlanItemCreateInput,
+): Promise<CoverCropPlanItem> {
+  return request<CoverCropPlanItem>(`/api/v1/fields/${fieldId}/cover-crop-plan-items`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listCoverCropPlanItems(fieldId: string): Promise<CoverCropPlanItemListResponse> {
+  return request<CoverCropPlanItemListResponse>(`/api/v1/fields/${fieldId}/cover-crop-plan-items`)
+}
+
+// --- residue ledger ---------------------------------------------------------------
+
+export function createResidueRecord(fieldId: string, input: Record<string, unknown>): Promise<import('./types').ResidueRecord> {
+  return request(`/api/v1/fields/${fieldId}/residue-records`, { method: 'POST', body: input })
+}
+
+export function createResidueFlow(recordId: string, input: ResidueFlowCreateInput): Promise<{ id: string; [key: string]: unknown }> {
+  return request(`/api/v1/residue-records/${recordId}/flows`, { method: 'POST', body: input })
+}
+
+export function getResidueLedger(fieldId: string): Promise<ResidueLedgerResponse> {
+  return request<ResidueLedgerResponse>(`/api/v1/fields/${fieldId}/residue-ledger`)
+}
+
+// --- erosion ----------------------------------------------------------------------
+
+export function createErosionAssessment(
+  fieldId: string,
+  input: ErosionAssessmentCreateInput,
+): Promise<ErosionRun> {
+  return request<ErosionRun>(`/api/v1/fields/${fieldId}/erosion-assessments`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function getErosionRun(runId: string): Promise<ErosionRun> {
+  return request<ErosionRun>(`/api/v1/erosion-assessments/${runId}`)
+}
+
+// --- farm resources -----------------------------------------------------------------
+
+export function createFarmResource(farmId: string, input: FarmResourceCreateInput): Promise<FarmResource> {
+  return request<FarmResource>(`/api/v1/farms/${farmId}/resources`, { method: 'POST', body: input })
+}
+
+export function listFarmResources(farmId: string): Promise<FarmResourceListResponse> {
+  return request<FarmResourceListResponse>(`/api/v1/farms/${farmId}/resources`)
+}
+
+// --- operations & scheduling -----------------------------------------------------------
+
+export function createFieldOperation(fieldId: string, input: Record<string, unknown>): Promise<FieldOperation> {
+  return request<FieldOperation>(`/api/v1/fields/${fieldId}/operations`, { method: 'POST', body: input })
+}
+
+export function generateOperations(
+  fieldId: string,
+  input: { crop_label: string; window_year: number; season_label?: string },
+): Promise<{ created: number; items: FieldOperation[]; [key: string]: unknown }> {
+  return request(`/api/v1/fields/${fieldId}/operations/generate`, { method: 'POST', body: input })
+}
+
+export function listFieldOperations(fieldId: string): Promise<FieldOperationListResponse> {
+  return request<FieldOperationListResponse>(`/api/v1/fields/${fieldId}/operations`)
+}
+
+export function patchOperation(opId: string, patch: FieldOperationPatchInput): Promise<FieldOperation> {
+  return request<FieldOperation>(`/api/v1/operations/${opId}`, { method: 'PATCH', body: patch })
+}
+
+export function createScheduleRun(
+  fieldId: string,
+  input: { hours_per_workday?: number; horizon_start?: string; horizon_end?: string; label?: string; idempotency_key?: string },
+): Promise<ScheduleRun> {
+  return request<ScheduleRun>(`/api/v1/fields/${fieldId}/operation-schedule-runs`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function getResourceConflicts(fieldId: string): Promise<{
+  field_id: string
+  conflicts: Array<{ message: string; [key: string]: unknown }>
+  total: number
+}> {
+  return request(`/api/v1/fields/${fieldId}/resource-conflicts`)
+}
+
+// --- knowledge-backed practices & operation templates (M6C) -----------------------------
+
+export function listManagementPractices(): Promise<ManagementPracticeListResponse> {
+  return request<ManagementPracticeListResponse>('/api/v1/knowledge/practices')
+}
+
+export function listOperationTemplates(): Promise<OperationTemplateListResponse> {
+  return request<OperationTemplateListResponse>('/api/v1/knowledge/operation-templates')
+}
+
+// --- management plan -----------------------------------------------------------------------
+
+export function createManagementPlan(fieldId: string, input: ManagementPlanCreateInput): Promise<ManagementPlan> {
+  return request<ManagementPlan>(`/api/v1/fields/${fieldId}/management-plans`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listManagementPlans(fieldId: string): Promise<{ field_id: string; items: import('./types').ManagementPlanSummary[]; total: number }> {
+  return request(`/api/v1/fields/${fieldId}/management-plans`)
+}
+
+export function getManagementPlan(planId: string): Promise<ManagementPlan> {
+  return request<ManagementPlan>(`/api/v1/management-plans/${planId}`)
+}
+
+// =============================================================
+// Milestone 7.3 — scenario execution
+// =============================================================
+
+export function executeScenario(
+  scenarioId: string,
+  input: { idempotency_key?: string } = {},
+): Promise<ScenarioExecutionRun> {
+  return request<ScenarioExecutionRun>(`/api/v1/scenarios/${scenarioId}/executions`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listScenarioExecutions(
+  scenarioId: string,
+  status?: string,
+): Promise<ScenarioExecutionListResponse> {
+  const qs = status ? `?run_status=${encodeURIComponent(status)}` : ''
+  return request<ScenarioExecutionListResponse>(`/api/v1/scenarios/${scenarioId}/executions${qs}`)
+}
+
+export function getScenarioExecution(runId: string): Promise<ScenarioExecutionRun> {
+  return request<ScenarioExecutionRun>(`/api/v1/scenario-executions/${runId}`)
+}
+
+export function listExecutionFeatures(
+  runId: string,
+  query: { evidenceStatus?: string; featureCode?: string } = {},
+): Promise<ScenarioDerivedFeatureListResponse> {
+  const params = new URLSearchParams()
+  if (query.evidenceStatus) params.set('evidence_status', query.evidenceStatus)
+  if (query.featureCode) params.set('feature_code', query.featureCode)
+  const qs = params.toString()
+  return request<ScenarioDerivedFeatureListResponse>(
+    `/api/v1/scenario-executions/${runId}/features${qs ? `?${qs}` : ''}`,
+  )
+}
+
+export function listExecutionObservations(
+  runId: string,
+  query: { variableCode?: string; limit?: number; offset?: number } = {},
+): Promise<ScenarioDerivedObservationListResponse> {
+  const params = new URLSearchParams()
+  if (query.variableCode) params.set('variable_code', query.variableCode)
+  if (query.limit !== undefined) params.set('limit', String(query.limit))
+  if (query.offset !== undefined) params.set('offset', String(query.offset))
+  const qs = params.toString()
+  return request<ScenarioDerivedObservationListResponse>(
+    `/api/v1/scenario-executions/${runId}/observations${qs ? `?${qs}` : ''}`,
+  )
+}
+
+export function compareScenarioExecution(runId: string): Promise<ScenarioExecutionCompareResponse> {
+  return request<ScenarioExecutionCompareResponse>(`/api/v1/scenario-executions/${runId}/compare`)
+}
+
+export function verifyScenarioExecution(runId: string): Promise<ScenarioExecutionVerifyResponse> {
+  return request<ScenarioExecutionVerifyResponse>(`/api/v1/scenario-executions/${runId}/verify`, {
+    method: 'POST',
+  })
+}
+
+// =============================================================
+// Milestone 7.4 — sensitivity & uncertainty
+// =============================================================
+
+export function createSensitivityAnalysis(
+  runId: string,
+  input: SensitivityAnalysisCreateInput,
+): Promise<SensitivityAnalysis> {
+  return request<SensitivityAnalysis>(`/api/v1/scenario-executions/${runId}/sensitivity-analyses`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listSensitivityAnalyses(runId: string): Promise<SensitivityAnalysisListResponse> {
+  return request<SensitivityAnalysisListResponse>(
+    `/api/v1/scenario-executions/${runId}/sensitivity-analyses`,
+  )
+}
+
+export function getSensitivityAnalysis(analysisId: string): Promise<SensitivityAnalysis> {
+  return request<SensitivityAnalysis>(`/api/v1/sensitivity-analyses/${analysisId}`)
+}
+
+export function listSensitivityResponses(
+  analysisId: string,
+  query: { parameter_code?: string; feature_code?: string; aggregation_level?: string; response_classification?: string } = {},
+): Promise<SensitivityResponseListResponse> {
+  const params = new URLSearchParams()
+  if (query.parameter_code) params.set('parameter_code', query.parameter_code)
+  if (query.feature_code) params.set('feature_code', query.feature_code)
+  if (query.aggregation_level) params.set('aggregation_level', query.aggregation_level)
+  if (query.response_classification) params.set('response_classification', query.response_classification)
+  const qs = params.toString()
+  return request<SensitivityResponseListResponse>(
+    `/api/v1/sensitivity-analyses/${analysisId}/responses${qs ? `?${qs}` : ''}`,
+  )
+}
+
+export function getSensitivityGrid(analysisId: string): Promise<SensitivityGridResponse> {
+  return request<SensitivityGridResponse>(`/api/v1/sensitivity-analyses/${analysisId}/grid`)
+}
+
+export function getSensitivityUncertainty(analysisId: string): Promise<SensitivityUncertaintyResponse> {
+  return request<SensitivityUncertaintyResponse>(`/api/v1/sensitivity-analyses/${analysisId}/uncertainty`)
+}
+
+export function verifySensitivityAnalysis(analysisId: string): Promise<SensitivityVerifyResponse> {
+  return request<SensitivityVerifyResponse>(`/api/v1/sensitivity-analyses/${analysisId}/verify`, {
+    method: 'POST',
+  })
+}
+
+// =============================================================
+// Milestone 7.5 — robust rotation
+// =============================================================
+
+export function createScenarioSet(fieldId: string, input: ScenarioSetCreateInput): Promise<ScenarioSet> {
+  return request<ScenarioSet>(`/api/v1/fields/${fieldId}/scenario-sets`, { method: 'POST', body: input })
+}
+
+export function listScenarioSets(fieldId: string): Promise<ScenarioSetListResponse> {
+  return request<ScenarioSetListResponse>(`/api/v1/fields/${fieldId}/scenario-sets`)
+}
+
+export function getScenarioSet(setId: string): Promise<ScenarioSet> {
+  return request<ScenarioSet>(`/api/v1/scenario-sets/${setId}`)
+}
+
+export function deleteScenarioSet(setId: string): Promise<{ deleted: string }> {
+  return request(`/api/v1/scenario-sets/${setId}`, { method: 'DELETE' })
+}
+
+export function verifyScenarioSet(setId: string): Promise<ScenarioSetVerifyResponse> {
+  return request<ScenarioSetVerifyResponse>(`/api/v1/scenario-sets/${setId}/verify`, { method: 'POST' })
+}
+
+export function createRobustRun(setId: string, input: RobustRunCreateInput): Promise<RobustRotationRun> {
+  return request<RobustRotationRun>(`/api/v1/scenario-sets/${setId}/robust-runs`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listRobustRuns(setId: string): Promise<RobustRunListResponse> {
+  return request<RobustRunListResponse>(`/api/v1/scenario-sets/${setId}/robust-runs`)
+}
+
+export function getRobustRun(runId: string): Promise<RobustRotationRun> {
+  return request<RobustRotationRun>(`/api/v1/robust-runs/${runId}`)
+}
+
+export function listRobustEvaluations(runId: string): Promise<RobustEvaluationListResponse> {
+  return request<RobustEvaluationListResponse>(`/api/v1/robust-runs/${runId}/evaluations`)
+}
+
+export function verifyRobustRun(runId: string): Promise<RobustVerifyResponse> {
+  return request<RobustVerifyResponse>(`/api/v1/robust-runs/${runId}/verify`, { method: 'POST' })
+}
+
+// =============================================================
+// Milestone 7.6 — decision intelligence
+// =============================================================
+
+export function createDecisionComparison(
+  fieldId: string,
+  input: DecisionComparisonCreateInput = {},
+): Promise<DecisionComparisonSummary> {
+  return request<DecisionComparisonSummary>(`/api/v1/fields/${fieldId}/decision-comparisons`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function listDecisionComparisons(fieldId: string): Promise<DecisionComparisonListResponse> {
+  return request<DecisionComparisonListResponse>(`/api/v1/fields/${fieldId}/decision-comparisons`)
+}
+
+export function getDecisionComparison(comparisonId: string): Promise<DecisionComparisonSummary & { document?: DecisionDocument }> {
+  return request(`/api/v1/decision-comparisons/${comparisonId}`)
+}
+
+export function verifyDecisionComparison(comparisonId: string): Promise<DecisionVerifyResponse> {
+  return request<DecisionVerifyResponse>(`/api/v1/decision-comparisons/${comparisonId}/verify`, {
+    method: 'POST',
+  })
+}
+
+// =============================================================
+// Milestone 7.7 — digital twin
+// =============================================================
+
+export function getDigitalTwin(fieldId: string): Promise<DigitalTwinView> {
+  return request<DigitalTwinView>(`/api/v1/fields/${fieldId}/digital-twin`)
+}
+
+export function validateDigitalTwin(fieldId: string): Promise<TwinValidationResponse> {
+  return request<TwinValidationResponse>(`/api/v1/fields/${fieldId}/digital-twin/validate`, {
+    method: 'POST',
+    body: {},
+  })
+}
+
+export function listTwinValidations(fieldId: string): Promise<TwinValidationListResponse> {
+  return request<TwinValidationListResponse>(`/api/v1/fields/${fieldId}/digital-twin/validations`)
+}

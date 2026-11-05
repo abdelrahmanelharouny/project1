@@ -1,6 +1,0 @@
-include/librttopo.h
-include/librttopo_geom.h
-lib/librttopo.so
-lib/librttopo.so.1
-lib/librttopo.so.1.1.0
-lib/pkgconfig/rttopo.pc

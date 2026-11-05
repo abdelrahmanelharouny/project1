@@ -1,0 +1,1141 @@
+     1→# FIELDSHIFT — M6C MASTER ENGINEERING PROMPT
+     2→## Field Management Intelligence: Cover Crops, Residue Management, Soil Cover, Erosion Screening & Operations Planning
+     3→
+     4→**Project:** FieldShift — Global Agricultural Decision Intelligence Platform  
+     5→**Milestone:** M6C — Field Management Intelligence  
+     6→**Predecessors:** M1–M6A complete; M6B complete according to the latest implementation report  
+     7→**Execution mode:** Repository-first · scientifically grounded · incrementally implemented · independently verified  
+     8→**Scope restriction:** M6C only. Do not start M7 or unrelated roadmap modules.
+     9→
+    10→---
+    11→
+    12→# 0. EXECUTIVE DIRECTIVE
+    13→
+    14→Build a practical, scientifically defensible **Field Management Intelligence** capability that converts crop-rotation plans, soil and water information, crop knowledge, field history, and farmer constraints into an explainable seasonal management plan.
+    15→
+    16→M6C is not a generic farm ERP, a static crop calendar, or a simplistic cover-crop recommender. It must help a farmer or agronomist answer:
+    17→
+    18→- When is the field likely to be without protective soil cover?
+    19→- Which management options could reduce that exposed period without creating unacceptable water, timing, pest, or operational trade-offs?
+    20→- What crop residues are available, how much is retained or removed, and what evidence supports those quantities?
+    21→- Which cover-crop candidates fit the local planting and termination windows, the following cash crop, water availability, equipment, and market or livestock needs?
+    22→- What field operations are required, in what sequence, and with which machinery and labor resources?
+    23→- Which operations conflict with one another or with crop, soil-moisture, weather, or field-access constraints?
+    24→- What erosion processes can be screened with the available evidence, and which cannot be assessed?
+    25→- Why was a practice suggested, excluded, or left unevaluated?
+    26→
+    27→The key deliverable is an **explainable field management plan** connected to the existing rotation, water, soil, knowledge, and provenance systems.
+    28→
+    29→## Non-negotiable principles
+    30→
+    31→1. Reuse existing M1–M6B contracts and domain models; do not duplicate them.
+    32→2. Distinguish measured, farmer-reported, mapped, modeled, reference, expert-reviewed, and synthetic evidence.
+    33→3. Do not invent crop calendars, seeding rates, termination dates, residue coefficients, erosion factors, machinery capacities, labor availability, or weather forecasts.
+    34→4. Do not claim that a practice caused a measured soil or yield change from temporal association alone.
+    35→5. Do not treat a cover crop as universally beneficial: it can protect soil and recycle nutrients while also consuming water and competing with the following crop.
+    36→6. Do not turn a screening indicator into a quantitative prediction unless the selected methodology and inputs support it.
+    37→7. Do not silently relax operational or agronomic hard constraints.
+    38→8. Preserve source resolution and spatial limitations.
+    39→9. Every calculation and schedule must be reproducible and versioned.
+    40→10. The system must be allowed to return `not_evaluated`, `conditional`, `infeasible`, or `insufficient_evidence` rather than forcing a recommendation.
+    41→
+    42→---
+    43→
+    44→# 1. START BY INSPECTING THE REAL REPOSITORY
+    45→
+    46→The previous implementation reports are context, not proof of the current working tree. Inspect the repository and verify the actual implementation before coding.
+    47→
+    48→## 1.1 Required inspection
+    49→
+    50→Inspect at minimum:
+    51→
+    52→- Existing `app/` domain structure and application services.
+    53→- `app/water/` and M6A water contracts, methods, plans, and snapshots.
+    54→- `app/soil/` and M6B soil samples, layers, measurements, management ledger, soil assessments, and nutrient models.
+    55→- `app/knowledge/` crop traits, crop families, regional packs, evidence records, and rule applicability.
+    56→- `app/rotation/` plans, seasons, constraints, optimizer, candidate generation, and validation logic.
+    57→- M3 providers and environmental observations.
+    58→- M4 feature catalog and feature-run contracts.
+    59→- Data provenance, evidence classes, uncertainty policies, and versioning.
+    60→- Existing farm/field geometry, timezone, calendar, and tenant-isolation mechanisms.
+    61→- Frontend navigation, design system, map components, timelines, tables, offline support, and Simple/Expert modes.
+    62→- Migrations, indexes, test fixtures, API conventions, and documentation.
+    63→
+    64→## 1.2 Verify baseline
+    65→
+    66→Run the full backend suite, frontend lint/type checks, migration checks, and the available browser E2E path before changes. Record actual results and environment versions. Do not copy prior test counts into the new report unless freshly observed.
+    67→
+    68→## 1.3 Reuse map
+    69→
+    70→Produce `docs/m6c/M6C_GAP_ANALYSIS.md` with:
+    71→
+    72→- Existing reusable entities and services.
+    73→- Existing management event types and whether they already cover proposed operations.
+    74→- Missing fields or relationships.
+    75→- Provider and knowledge requirements.
+    76→- Scientific assumptions that need references.
+    77→- API and UI integration points.
+    78→- Backward-compatibility risks.
+    79→- Scope boundaries and deferred items.
+    80→
+    81→Do not create a second `management_events`, crop calendar, water-budget, or evidence registry if an equivalent domain already exists. Extend through additive migrations and explicit versioning.
+    82→
+    83→---
+    84→
+    85→# 2. M6C DOMAIN MODEL AND BOUNDARIES
+    86→
+    87→M6C should contain the following cohesive capabilities. Keep them as modules within the existing architecture, not separate microservices.
+    88→
+    89→## 2.1 Management Practice Knowledge
+    90→
+    91→A versioned registry of practices and their requirements, intended mechanisms, evidence, risks, and regional applicability.
+    92→
+    93→Examples:
+    94→
+    95→- Cover cropping.
+    96→- Surface residue retention.
+    97→- Residue removal or baling.
+    98→- Residue incorporation.
+    99→- Mulching.
+   100→- Reduced tillage / strip tillage / no-till where locally appropriate.
+   101→- Contour operations.
+   102→- Strip cropping.
+   103→- Buffer strips or vegetated barriers.
+   104→- Controlled traffic where supported.
+   105→- Cover-crop termination methods.
+   106→- Field access and traffic management.
+   107→
+   108→Do not represent these as universally beneficial switches. Each practice requires context, operating conditions, and trade-offs.
+   109→
+   110→## 2.2 Soil Cover and Bare-Soil Window Intelligence
+   111→
+   112→Represent field soil-cover status over time using available evidence:
+   113→
+   114→- Living crop canopy.
+   115→- Living cover crop.
+   116→- Surface crop residue.
+   117→- Mulch or other protective cover.
+   118→- Bare or insufficiently observed surface.
+   119→- Unknown cover status.
+   120→
+   121→Support both observed and modeled cover timelines. Preserve the method and evidence class. Do not infer measured percentage cover from NDVI without a validated, regionally applicable conversion model.
+   122→
+   123→## 2.3 Cover-Crop Planning
+   124→
+   125→Generate context-specific cover-crop candidates and compare their potential functions, establishment requirements, water use, termination needs, and compatibility with the next main crop.
+   126→
+   127→## 2.4 Crop Residue and Biomass Accounting
+   128→
+   129→Track residue production, harvest removal, collection, retention, incorporation, grazing, burning where legally relevant, and other documented fates. Keep dry-matter basis and nutrient/carbon content explicit.
+   130→
+   131→## 2.5 Erosion and Conservation Screening
+   132→
+   133→Screen relevant erosion hazards and evaluate management alternatives only within the domain supported by the selected model and evidence. Separate sheet/rill erosion, concentrated-flow/gully processes, wind erosion, streambank erosion, and sediment delivery.
+   134→
+   135→## 2.6 Field Operations Planning
+   136→
+   137→Convert rotation and management plans into tasks with windows, durations, precedence, machinery, labor, access, and resource constraints. Identify conflicts and unscheduled work transparently.
+   138→
+   139→## 2.7 Practice Trade-off Evaluation
+   140→
+   141→Compare practices across soil cover, erosion protection, water demand, nutrient cycling, crop establishment, pests/diseases, labor, machinery, costs, and market/livestock value where data exists.
+   142→
+   143→## 2.8 Farmer Action Plan
+   144→
+   145→Present a seasonal, editable and trackable calendar of operations, deadlines, dependencies, alerts, and reasons. Allow farmer and agronomist feedback.
+   146→
+   147→---
+   148→
+   149→# 3. KNOWLEDGE AND EVIDENCE MODEL
+   150→
+   151→Every practice, cover crop trait, residue coefficient, operation requirement, and erosion parameter must be evidence-backed or explicitly unknown.
+   152→
+   153→## 3.1 Required knowledge attributes
+   154→
+   155→A knowledge record should support:
+   156→
+   157→- `knowledge_code`
+   158→- `entity_type` and `entity_id`
+   159→- `attribute_code`
+   160→- `value` and `unit`
+   161→- `source_id` / `reference_id`
+   162→- publication or dataset version
+   163→- exact source location (page, table, section, formula, or dataset field when available)
+   164→- geographic applicability (country, region, agroecological zone, or geometry)
+   165→- soil/climate conditions
+   166→- crop species and cultivar applicability
+   167→- growth stage or operation stage
+   168→- validity interval
+   169→- evidence class
+   170→- uncertainty description or interval when supplied by the source
+   171→- review status
+   172→- license and attribution
+   173→
+   174→## 3.2 Evidence classes
+   175→
+   176→Preserve distinctions among:
+   177→
+   178→- `field_measured`
+   179→- `laboratory_measured`
+   180→- `farmer_reported`
+   181→- `remote_sensing_estimate`
+   182→- `reanalysis_estimate`
+   183→- `model_estimate`
+   184→- `published_reference`
+   185→- `expert_reviewed_reference`
+   186→- `confirmed_regional`
+   187→- `synthetic_test_data`
+   188→
+   189→A `published_reference` is not automatically `confirmed_regional`. A model estimate is not a field measurement. Synthetic data must never contribute to real-farm recommendations.
+   190→
+   191→## 3.3 Regional applicability
+   192→
+   193→Support regional knowledge packs with explicit coverage and versioning. Do not infer a regional recommendation from latitude or hemisphere alone. Crop seasons and cover-crop windows may depend on monsoon, irrigation, bimodal rainfall, elevation, local cultivar, and management system.
+   194→
+   195→## 3.4 Conflicting evidence
+   196→
+   197→If reputable sources disagree, store both claims and their context. Do not silently average incompatible recommendations. Provide an evidence conflict state and require expert review where the disagreement can change a decision.
+   198→
+   199→---
+   200→
+   201→# 4. COVER-CROP PLANNING ENGINE
+   202→
+   203→This is a core M6C capability, but it must be a transparent candidate and planning engine, not a universal species ranking.
+   204→
+   205→## 4.1 Cover-crop functional groups
+   206→
+   207→Represent functions as evidence-backed traits, not fixed assumptions:
+   208→
+   209→- Grasses / cereals: potential rapid ground cover, fibrous roots, nutrient capture, and residue production.
+   210→- Legumes: potential biological nitrogen fixation, subject to host compatibility, inoculation, biomass, growth, and management conditions.
+   211→- Brassicas and other broadleaf species: possible rooting, nutrient scavenging, biofumigation or other functions only where crop-specific evidence supports the claim.
+   212→- Mixtures: composition, seeding proportion, competitive interactions, and management complexity must be represented.
+   213→
+   214→Do not infer function solely from family membership.
+   215→
+   216→## 4.2 Candidate eligibility
+   217→
+   218→For each field and between-crop window, evaluate:
+   219→
+   220→- Locally valid sowing window.
+   221→- Time available for establishment and biomass accumulation.
+   222→- Crop duration and growth-stage development.
+   223→- Temperature and photoperiod requirements where documented.
+   224→- Frost or heat constraints where applicable.
+   225→- Soil texture, pH, salinity, drainage, and other relevant soil properties.
+   226→- Water availability and M6A demand estimates.
+   227→- Following cash-crop planting date.
+   228→- Termination method and equipment availability.
+   229→- Potential pest, disease, weed, or allelopathy concerns.
+   230→- Seed availability and local legality/invasiveness constraints where known.
+   231→- Livestock/forage value and grazing constraints if requested.
+   232→- Farmer preferences and budget.
+   233→
+   234→Return candidate classes:
+   235→
+   236→- `eligible`
+   237→- `conditional`
+   238→- `excluded`
+   239→- `not_evaluated`
+   240→
+   241→Every condition and exclusion must be explained. Missing evidence must not become eligibility.
+   242→
+   243→## 4.3 Water competition and termination
+   244→
+   245→Integrate with M6A, not a parallel water model.
+   246→
+   247→Evaluate potential cover-crop water use and the following crop's establishment risk only when appropriate Kc, crop-stage, water-balance, and calendar inputs are available.
+   248→
+   249→Termination must be represented as a decision with:
+   250→
+   251→- Target termination window.
+   252→- Method.
+   253→- Required machinery or labor.
+   254→- Time needed before next crop operations.
+   255→- Water implications.
+   256→- Biomass/residue implications.
+   257→- Regrowth or seed-set risk where relevant.
+   258→- Evidence and regional applicability.
+   259→
+   260→Do not hardcode a universal termination lead time (for example, a fixed number of days before planting). Such timing is species-, climate-, soil-, method-, and crop-system-dependent.
+   261→
+   262→## 4.4 Cover-crop output
+   263→
+   264→For each candidate return:
+   265→
+   266→- Species / cultivar or mixture identity.
+   267→- Intended function(s).
+   268→- Eligibility status.
+   269→- Planting window and its evidence.
+   270→- Establishment requirements.
+   271→- Expected duration only if supported.
+   272→- Water-demand profile or explicit missing-data status.
+   273→- Termination options and constraints.
+   274→- Following-crop compatibility.
+   275→- Benefits, trade-offs, and risks.
+   276→- Knowledge coverage and missing inputs.
+   277→- References and version identifiers.
+   278→
+   279→Do not generate an agronomic recommendation when the minimum regional crop calendar or critical water/termination knowledge is absent. Return a research candidate or unevaluated option instead.
+   280→
+   281→---
+   282→
+   283→# 5. SOIL COVER AND BARE-SOIL WINDOW ENGINE
+   284→
+   285→## 5.1 Temporal representation
+   286→
+   287→Build an interval-based field cover timeline. Track:
+   288→
+   289→- Main crop establishment and harvest.
+   290→- Cover-crop establishment and termination.
+   291→- Residue deposition and removal.
+   292→- Mulch events.
+   293→- Tillage or disturbance events.
+   294→- Remote-sensing cover observations when available.
+   295→- Farmer-observed cover measurements.
+   296→- Unknown intervals.
+   297→
+   298→## 5.2 Coverage measures
+   299→
+   300→Calculate transparent metrics such as:
+   301→
+   302→- Number of days with known living cover.
+   303→- Number of days with known residue cover.
+   304→- Number of days with known bare surface.
+   305→- Unknown observation days.
+   306→- Longest observed uncovered interval.
+   307→- Fraction of the planning window with evidence of protective cover.
+   308→- Seasonal cover timeline.
+   309→
+   310→Do not label all missing observations as bare soil. Use `unknown` where the status is not observed or inferable.
+   311→
+   312→## 5.3 Cover thresholds
+   313→
+   314→Do not apply a universal “safe cover percentage” or minimum cover threshold to every region and conservation standard.
+   315→
+   316→Thresholds must be sourced, versioned, and scoped to the applicable practice standard or regional objective. If no threshold is applicable, report the actual cover metrics without pass/fail classification.
+   317→
+   318→## 5.4 Spatial cover
+   319→
+   320→If remote sensing is introduced or already available, distinguish:
+   321→
+   322→- Vegetation index.
+   323→- Estimated fractional vegetation cover.
+   324→- Measured ground cover.
+   325→- Residue cover.
+   326→- Total protective cover.
+   327→
+   328→NDVI alone cannot distinguish all forms of residue and green vegetation. Do not equate NDVI with percentage soil cover without a validated model and appropriate sensor/time conditions.
+   329→
+   330→---
+   331→
+   332→# 6. CROP RESIDUE AND BIOMASS MANAGEMENT ENGINE
+   333→
+   334→## 6.1 Residue mass accounting
+   335→
+   336→Represent residue flows on a dry-matter basis whenever possible:
+   337→
+   338→- Above-ground biomass produced.
+   339→- Harvested product.
+   340→- Residue generated.
+   341→- Residue retained on surface.
+   342→- Residue incorporated.
+   343→- Residue removed or baled.
+   344→- Residue grazed.
+   345→- Residue burned or otherwise lost where relevant and legally recorded.
+   346→- Unknown/unaccounted fraction.
+   347→
+   348→Use mass-balance checks. Never allow negative residue availability. Do not infer residue biomass from grain yield unless a crop-, cultivar-, environment-, and management-appropriate harvest-index or residue-to-product relationship is sourced and versioned.
+   349→
+   350→## 6.2 Residue properties
+   351→
+   352→Support where evidence exists:
+   353→
+   354→- Dry matter.
+   355→- Carbon fraction.
+   356→- Nitrogen concentration.
+   357→- C:N ratio.
+   358→- Lignin or quality indicators where relevant.
+   359→- Particle size and orientation if relevant to cover/erosion modeling.
+   360→- Decomposition method and conditions.
+   361→
+   362→Do not use one universal decomposition constant or C:N threshold across residues and climates.
+   363→
+   364→## 6.3 Residue management trade-offs
+   365→
+   366→Evaluate documented implications for:
+   367→
+   368→- Surface protection.
+   369→- Soil organic carbon inputs.
+   370→- Nutrient recycling.
+   371→- Water infiltration and evaporation.
+   372→- Seedbed and planting interference.
+   373→- Pest/disease carryover.
+   374→- Livestock feed value.
+   375→- Bioenergy or market value.
+   376→- Removal costs and machinery.
+   377→
+   378→Do not assume residue retention is always optimal. Balance soil protection and nutrient cycling against feed, fuel, market, and operational requirements. Surface cover benefits and removal risks must be interpreted in the field and regional context.
+   379→
+   380→## 6.4 Integrate with M6B
+   381→
+   382→Reuse M6B management events, nutrient budgets, and soil profile contracts. Record residue events so that subsequent nutrient accounting and soil-carbon analyses can consume them with provenance.
+   383→
+   384→A residue input is not automatically equivalent to stable soil organic carbon sequestration. Keep carbon input, decomposition, and SOC stock change conceptually separate.
+   385→
+   386→---
+   387→
+   388→# 7. EROSION AND CONSERVATION RISK INTELLIGENCE
+   389→
+   390→This area requires strict model applicability controls.
+   391→
+   392→## 7.1 Erosion process taxonomy
+   393→
+   394→Keep distinct:
+   395→
+   396→- Sheet/interrill erosion.
+   397→- Rill erosion.
+   398→- Ephemeral gully erosion.
+   399→- Classical gully erosion.
+   400→- Wind erosion.
+   401→- Streambank/channel erosion.
+   402→- Deposition and sediment delivery.
+   403→
+   404→A model designed for rainfall-driven sheet and rill erosion must not be presented as estimating all erosion processes.
+   405→
+   406→## 7.2 Terrain and hydrology inputs
+   407→
+   408→Potential inputs include:
+   409→
+   410→- Slope and aspect.
+   411→- Slope length / flow path.
+   412→- Curvature.
+   413→- Flow accumulation.
+   414→- Convergent areas.
+   415→- Soil erodibility properties.
+   416→- Rainfall erosivity.
+   417→- Infiltration/runoff evidence.
+   418→- Surface cover and residue.
+   419→- Crop sequence and tillage operations.
+   420→- Conservation support practices.
+   421→
+   422→Do not calculate slope length from a DEM using a naive straight-line distance. Flow routing, concentrated flow, terraces, and deposition boundaries matter.
+   423→
+   424→## 7.3 RUSLE/RUSLE2 adapter policy
+   425→
+   426→If RUSLE/RUSLE2 is implemented or integrated, treat it as a model-specific pathway for rainfall-driven sheet and rill erosion within its supported assumptions.
+   427→
+   428→The familiar USLE structure is:
+   429→
+   430→`A = R × K × LS × C × P`
+   431→
+   432→However:
+   433→
+   434→- Factor units and definitions must follow the selected RUSLE version and regional parameter set.
+   435→- Do not combine factor values from incompatible unit systems.
+   436→- Do not use US-specific NRCS factor databases as global defaults.
+   437→- Do not invent R, K, C, or P values.
+   438→- Do not assume DEM resolution guarantees accurate slope-length estimation.
+   439→- Do not label the result as watershed sediment yield.
+   440→- Do not claim coverage of ephemeral gullies, classical gullies, wind erosion, or channel erosion unless a separate validated model supports them.
+   441→
+   442→Where inputs or regional factors are missing, return `screening_only` or `not_evaluated`, with a clear reason.
+   443→
+   444→## 7.4 Erosion risk screening
+   445→
+   446→A qualitative screening pathway may identify evidence of concern from slope, soil, rainfall, cover, and management records. It must remain a screening result, not a numeric soil-loss prediction.
+   447→
+   448→Keep these outputs separate:
+   449→
+   450→- Evidence of erosion susceptibility.
+   451→- Model-estimated sheet/rill soil loss.
+   452→- Field-observed erosion signs.
+   453→- Unknown erosion status.
+   454→
+   455→## 7.5 Management alternatives
+   456→
+   457→Compare practices such as:
+   458→
+   459→- Maintain surface residues.
+   460→- Establish cover crops.
+   461→- Adjust tillage timing or intensity.
+   462→- Contour-aligned operations.
+   463→- Strip cropping.
+   464→- Vegetated barriers/buffer strips.
+   465→- Field traffic management.
+   466→
+   467→Only evaluate a practice quantitatively if the model has appropriate parameters and local applicability. Otherwise provide a sourced qualitative mechanism and identify local design requirements.
+   468→
+   469→---
+   470→
+   471→# 8. FIELD OPERATIONS AND RESOURCE SCHEDULING ENGINE
+   472→
+   473→This is a practical differentiator: FieldShift should help turn a rotation plan into an executable sequence of farm operations.
+   474→
+   475→## 8.1 Operation templates
+   476→
+   477→Support configurable templates for relevant operations, for example:
+   478→
+   479→- Residue chopping or spreading.
+   480→- Tillage or seedbed preparation.
+   481→- Soil sampling.
+   482→- Cover-crop seeding.
+   483→- Main-crop planting.
+   484→- Fertilizer/manure application.
+   485→- Irrigation operations.
+   486→- Cover-crop termination.
+   487→- Spraying where legally and operationally relevant.
+   488→- Harvest.
+   489→- Residue baling/removal.
+   490→- Post-harvest field preparation.
+   491→
+   492→Operations must be derived from the actual crop/management plan and regional operation templates. Do not generate every possible operation for every crop.
+   493→
+   494→## 8.2 Operation data model
+   495→
+   496→Each operation should support:
+   497→
+   498→- Operation type.
+   499→- Field or management-zone scope.
+   500→- Related crop and season.
+   501→- Earliest start and latest finish.
+   502→- Preferred window.
+   503→- Duration or workload estimate.
+   504→- Area or quantity.
+   505→- Required machinery.
+   506→- Required implement.
+   507→- Labor skill/capacity.
+   508→- Fuel/material requirements where recorded.
+   509→- Predecessor and successor tasks.
+   510→- Soil condition restrictions.
+   511→- Weather restrictions.
+   512→- Access/trafficability restrictions.
+   513→- Completion state.
+   514→- Evidence and source of the operation template.
+   515→
+   516→Keep planned, scheduled, started, completed, delayed, cancelled, and blocked states distinct.
+   517→
+   518→## 8.3 Resource registry
+   519→
+   520→Support optional farmer-provided records for:
+   521→
+   522→- Tractors.
+   523→- Implements.
+   524→- Seeders.
+   525→- Sprayers.
+   526→- Harvesters.
+   527→- Balers.
+   528→- Irrigation equipment.
+   529→- Contractors.
+   530→- Labor crews.
+   531→- Storage and transport capacity.
+   532→
+   533→Include availability calendar, capacity, compatibility, working width, field efficiency where known, and maintenance/unavailability periods.
+   534→
+   535→Do not assume resource capacity or machine speed if not supplied or sourced.
+   536→
+   537→## 8.4 Scheduling model
+   538→
+   539→Use an appropriate scheduling formulation, potentially OR-Tools CP-SAT interval variables, only after inspecting existing optimization abstractions.
+   540→
+   541→Support:
+   542→
+   543→- Precedence constraints.
+   544→- Non-overlap constraints for exclusive resources.
+   545→- Resource capacity constraints.
+   546→- Operation windows.
+   547→- Labor availability.
+   548→- Machinery availability.
+   549→- Field access constraints.
+   550→- Setup/travel time where data exists.
+   551→- Weather and soil condition windows where actual forecasts/measurements and valid thresholds exist.
+   552→- Priority levels and farmer-selected objectives.
+   553→
+   554→Do not present a schedule as guaranteed executable when weather forecasts, machinery availability, or field conditions are unknown.
+   555→
+   556→## 8.5 Soil trafficability and compaction risk
+   557→
+   558→Only evaluate trafficability if the system has defensible inputs and a valid method, such as soil moisture/consistency, texture, machine axle load, tire pressure, and relevant field/soil parameters.
+   559→
+   560→Do not invent a universal soil-moisture threshold for machinery entry.
+   561→
+   562→When the required inputs are missing, display a manual field-readiness check rather than an automatic pass.
+   563→
+   564→## 8.6 Weather windows
+   565→
+   566→Historical climate data is not a weather forecast.
+   567→
+   568→Do not use climate normals as if they were next-week forecasts.
+   569→
+   570→Allow forecast information only through an explicit forecast provider or farmer-entered forecast. Record forecast issue time, valid time, provider, uncertainty, and expiration.
+   571→
+   572→If no forecast exists, schedule within agronomic date windows and clearly label weather checks as pending.
+   573→
+   574→## 8.7 Schedule explanations
+   575→
+   576→For every unscheduled or delayed task, explain the cause:
+   577→
+   578→- No available machine.
+   579→- Labor conflict.
+   580→- Predecessor incomplete.
+   581→- Outside sowing/harvest window.
+   582→- Water allocation conflict.
+   583→- Weather information missing.
+   584→- Soil trafficability unevaluated.
+   585→- Required agronomic knowledge missing.
+   586→
+   587→Never silently drop a task to produce a visually clean calendar.
+   588→
+   589→---
+   590→
+   591→# 9. PRACTICE TRADE-OFF AND DECISION ENGINE
+   592→
+   593→Compare management alternatives across multiple dimensions:
+   594→
+   595→- Soil cover duration.
+   596→- Surface residue availability.
+   597→- Erosion susceptibility or modelled sheet/rill soil loss, if supported.
+   598→- Water demand and following-crop water risk.
+   599→- Nutrient cycling.
+   600→- Soil organic matter input potential.
+   601→- Crop establishment and termination risk.
+   602→- Pest/disease concerns.
+   603→- Labor and machinery demand.
+   604→- Cost and revenue where evidence exists.
+   605→- Forage/livestock value where relevant.
+   606→
+   607→Separate hard constraints from soft objectives.
+   608→
+   609→Generate candidate plans such as:
+   610→
+   611→- Baseline farmer practice.
+   612→- Residue-retention-oriented plan.
+   613→- Cover-crop-oriented plan.
+   614→- Water-conserving cover/termination plan.
+   615→- Erosion-control-oriented plan.
+   616→- Balanced management plan.
+   617→
+   618→Do not preselect a plan as globally best. Use Pareto-aware comparison and display trade-offs. Preserve unevaluated criteria and distinguish evidence coverage from outcome confidence.
+   619→
+   620→---
+   621→
+   622→# 10. DATA MODEL AND DATABASE DESIGN
+   623→
+   624→Inspect current M6A/M6B tables and reuse existing management events, crop plans, soil samples, water plans, and provenance structures.
+   625→
+   626→Potential logical entities, to be adapted rather than blindly copied:
+   627→
+   628→- `practice_definitions`
+   629→- `practice_knowledge_records`
+   630→- `practice_evidence_links`
+   631→- `soil_cover_observations`
+   632→- `cover_crop_plans`
+   633→- `cover_crop_plan_items`
+   634→- `cover_crop_establishment_events`
+   635→- `cover_crop_termination_events`
+   636→- `crop_residue_records`
+   637→- `residue_flow_events`
+   638→- `residue_quality_measurements`
+   639→- `erosion_assessment_runs`
+   640→- `erosion_model_parameters`
+   641→- `erosion_assessment_results`
+   642→- `operation_templates`
+   643→- `field_operations`
+   644→- `operation_dependencies`
+   645→- `farm_resources`
+   646→- `resource_availability`
+   647→- `operation_schedule_runs`
+   648→- `scheduled_operations`
+   649→- `schedule_conflicts`
+   650→- `management_plan_snapshots`
+   651→
+   652→Required properties:
+   653→
+   654→- UUID primary keys.
+   655→- Tenant and farm/field scoping.
+   656→- Explicit geometry/management-zone relationship where relevant.
+   657→- Timezone-aware timestamps.
+   658→- Canonical units plus preservation of original units.
+   659→- Evidence class and source lineage.
+   660→- Knowledge and algorithm version.
+   661→- Immutable run snapshots.
+   662→- Audit actor and timestamps.
+   663→- Idempotent imports/jobs where applicable.
+   664→
+   665→Use relational columns for core domain fields. JSONB may hold flexible source-specific metadata but must not replace structured, queryable fields.
+   666→
+   667→Provide additive, downgrade-safe migrations consistent with project conventions.
+   668→
+   669→---
+   670→
+   671→# 11. API CONTRACTS
+   672→
+   673→Follow existing `/api/v1/` patterns, tenant isolation, pagination, validation, error shape, idempotency, and background job conventions.
+   674→
+   675→Candidate route groups (adjust to existing API architecture):
+   676→
+   677→## Soil cover
+   678→
+   679→- `GET /fields/{field_id}/soil-cover/timeline`
+   680→- `POST /fields/{field_id}/soil-cover/observations`
+   681→- `GET /fields/{field_id}/bare-soil-windows`
+   682→
+   683→## Cover crops
+   684→
+   685→- `GET /fields/{field_id}/cover-crop-candidates`
+   686→- `POST /fields/{field_id}/cover-crop-plans`
+   687→- `GET /cover-crop-plans/{plan_id}`
+   688→- `POST /cover-crop-plans/{plan_id}/evaluate`
+   689→
+   690→## Residues
+   691→
+   692→- `POST /fields/{field_id}/residue-assessments`
+   693→- `POST /fields/{field_id}/residue-events`
+   694→- `GET /fields/{field_id}/residue-ledger`
+   695→
+   696→## Erosion
+   697→
+   698→- `POST /fields/{field_id}/erosion-assessments`
+   699→- `GET /erosion-assessments/{run_id}`
+   700→- `GET /fields/{field_id}/conservation-options`
+   701→
+   702→## Operations
+   703→
+   704→- `GET /fields/{field_id}/operation-templates`
+   705→- `POST /fields/{field_id}/operations`
+   706→- `GET /fields/{field_id}/operations`
+   707→- `POST /fields/{field_id}/operation-schedule-runs`
+   708→- `GET /operation-schedule-runs/{run_id}`
+   709→- `GET /fields/{field_id}/resource-conflicts`
+   710→
+   711→## Management plans
+   712→
+   713→- `POST /fields/{field_id}/management-plans`
+   714→- `GET /fields/{field_id}/management-plans`
+   715→- `GET /management-plans/{plan_id}`
+   716→- `POST /management-plans/{plan_id}/feedback`
+   717→
+   718→Every response must expose status semantics, assumptions, missing data, provenance, and version identifiers where relevant.
+   719→
+   720→---
+   721→
+   722→# 12. FRONTEND AND FARMER EXPERIENCE
+   723→
+   724→Create a dedicated **Management** tab or workspace consistent with the current FieldShift design system.
+   725→
+   726→## 12.1 Management Overview
+   727→
+   728→Show:
+   729→
+   730→- Current crop/rotation context.
+   731→- Next key operations.
+   732→- Upcoming management windows.
+   733→- Known bare-soil periods.
+   734→- Cover-crop plan status.
+   735→- Residue status.
+   736→- Resource conflicts.
+   737→- Unresolved agronomic checks.
+   738→
+   739→## 12.2 Cover Crop Studio
+   740→
+   741→Provide:
+   742→
+   743→- Candidate list with eligibility state.
+   744→- Functional traits.
+   745→- Sowing and termination windows.
+   746→- Water trade-offs from M6A.
+   747→- Following-crop compatibility.
+   748→- Evidence and limitations.
+   749→- Side-by-side comparison.
+   750→
+   751→## 12.3 Soil Cover Timeline
+   752→
+   753→Show crop canopy, cover crop, residue, bare/unknown intervals, and management events as separate tracks. Use patterns/labels as well as colors so the interface remains accessible.
+   754→
+   755→## 12.4 Residue Ledger
+   756→
+   757→Show residue production, harvest export, retention, incorporation, removal, grazing, and unknown flows. Clearly indicate dry-matter basis and estimated versus measured values.
+   758→
+   759→## 12.5 Erosion & Conservation Workspace
+   760→
+   761→Display the assessed erosion process, model/method, input coverage, and limitations. Keep screening results separate from quantitative model outputs.
+   762→
+   763→## 12.6 Operations Calendar
+   764→
+   765→Provide calendar and timeline views with:
+   766→
+   767→- Planned operations.
+   768→- Dependencies.
+   769→- Machinery/labor assignments.
+   770→- Conflicts.
+   771→- Blocked/unscheduled tasks.
+   772→- Farmer override and confirmation.
+   773→- Actual completion logging.
+   774→
+   775→## 12.7 Simple and Expert modes
+   776→
+   777→Simple Mode should communicate practical actions and important risks in farmer-friendly language.
+   778→
+   779→Expert Mode should reveal model details, parameters, sources, units, geometry, uncertainty, and constraints.
+   780→
+   781→Do not hide a critical limitation in Simple Mode.
+   782→
+   783→## 12.8 Offline behavior
+   784→
+   785→Reuse the existing PWA/IndexedDB synchronization pattern. Allow users to view cached plans and record field operations offline. Use idempotent synchronization and conflict handling. Do not overwrite concurrent edits silently.
+   786→
+   787→---
+   788→
+   789→# 13. SECURITY, AUDIT AND RELIABILITY
+   790→
+   791→- Enforce tenant isolation for every new entity and query.
+   792→- Scope idempotency keys by tenant and operation as appropriate.
+   793→- Record the actor for user-created and system-generated changes.
+   794→- Audit changes to operation schedules and management plans.
+   795→- Keep historical plan snapshots immutable.
+   796→- Validate GeoJSON and spatial extents.
+   797→- Limit upload sizes and validate file formats.
+   798→- Avoid storing sensitive personal data in free-text logs.
+   799→- Apply authorization to agronomist review and farmer actions.
+   800→- Do not expose another tenant's resource availability, field geometry, or farm records.
+   801→- Make background jobs retry-safe and idempotent.
+   802→
+   803→---
+   804→
+   805→# 14. TESTING AND SCIENTIFIC BENCHMARKS
+   806→
+   807→Do not set an arbitrary target test count. Build tests from the actual domain invariants and reference cases.
+   808→
+   809→## 14.1 Cover-crop tests
+   810→
+   811→- Regional sowing-window validity.
+   812→- Establishment-window duration.
+   813→- Growth duration and following-crop timing.
+   814→- Missing crop traits.
+   815→- Water-competition behavior.
+   816→- Termination method/equipment compatibility.
+   817→- Invasive/legal restriction handling where knowledge exists.
+   818→- Mixture composition and percentages.
+   819→- Evidence and provenance preservation.
+   820→
+   821→## 14.2 Soil-cover timeline tests
+   822→
+   823→- Crop harvest and establishment intervals.
+   824→- Residue deposition/removal events.
+   825→- Unknown versus bare distinction.
+   826→- Overlapping cover sources.
+   827→- Missing observations.
+   828→- Calendar timezone boundaries.
+   829→- Cover-duration calculations.
+   830→- Sourced threshold applicability.
+   831→
+   832→## 14.3 Residue accounting tests
+   833→
+   834→- Dry-matter unit conversion.
+   835→- Mass conservation.
+   836→- Harvest-product versus residue distinction.
+   837→- Retained/removed/incorporated/grazed flows.
+   838→- Missing residue production coefficients.
+   839→- No negative residue balance.
+   840→- Nutrient and carbon linkage to M6B without double counting.
+   841→
+   842→## 14.4 Erosion tests
+   843→
+   844→- RUSLE factor unit compatibility.
+   845→- Missing factor refusal.
+   846→- Local parameter-set validation.
+   847→- DEM/resolution limitations.
+   848→- Slope and flow path geometry.
+   849→- RUSLE domain restrictions.
+   850→- Gully/wind/channel process separation.
+   851→- Screening versus modeled result semantics.
+   852→
+   853→## 14.5 Scheduling tests
+   854→
+   855→- Operation precedence.
+   856→- Resource non-overlap.
+   857→- Capacity constraints.
+   858→- Availability calendars.
+   859→- Duration calculations.
+   860→- Unscheduled task reporting.
+   861→- Missing forecast behavior.
+   862→- Soil trafficability unknown behavior.
+   863→- No silent hard-constraint relaxation.
+   864→- Deterministic run reproduction.
+   865→
+   866→## 14.6 Cross-module tests
+   867→
+   868→- M5 crop rotation plans supply correct season/crop context.
+   869→- M6A water estimates are reused, not recalculated inconsistently.
+   870→- M6B residue and nutrient ledgers receive correct events.
+   871→- Evidence classes survive every calculation.
+   872→- Synthetic and real records remain separate.
+   873→- Tenant isolation and authorization remain intact.
+   874→- Versioned snapshots are immutable.
+   875→
+   876→Use independent worked examples where available. Do not calculate expected test values by calling the same implementation under test.
+   877→
+   878→## 14.7 Property-based and metamorphic tests
+   879→
+   880→Examples:
+   881→
+   882→- A task requiring one exclusive machine cannot overlap another task assigned to the same machine.
+   883→- A schedule must respect every hard precedence constraint.
+   884→- A residue ledger cannot have a negative physical mass balance.
+   885→- A missing cover observation must not become a bare-soil observation.
+   886→- Increasing a cover-crop duration must not silently move termination outside the following crop's permissible window.
+   887→- Missing water data must not produce a water-safe classification.
+   888→- A RUSLE assessment without required factors must not return a numeric soil-loss estimate.
+   889→- Equivalent unit representations must produce equivalent physical quantities.
+   890→
+   891→Ensure tests reflect the model assumptions and do not encode unsupported universal agronomic rules.
+   892→
+   893→---
+   894→
+   895→# 15. IMPLEMENTATION SEQUENCE
+   896→
+   897→Implement M6C in small, independently verifiable increments.
+   898→
+   899→## Increment 1 — M6C readiness and domain design
+   900→
+   901→- Inspect repository and baseline.
+   902→- Reuse map.
+   903→- Define practice ontology.
+   904→- Define soil-cover temporal model.
+   905→- Define residue flow model.
+   906→- Define operation/resource model.
+   907→- Document scientific references and applicability.
+   908→
+   909→Acceptance: approved as-built gap analysis, domain map, and contracts before major coding.
+   910→
+   911→## Increment 2 — Management knowledge and provenance
+   912→
+   913→- Practice definitions.
+   914→- Regional applicability.
+   915→- Evidence references.
+   916→- Versioning and licensing.
+   917→- Candidate trait schemas.
+   918→
+   919→Acceptance: no unsupported practice is silently treated as validated.
+   920→
+   921→## Increment 3 — Soil cover and bare-soil timeline
+   922→
+   923→- Management event mapping.
+   924→- Cover observation ingestion.
+   925→- Interval construction.
+   926→- Bare/unknown distinction.
+   927→- Cover metrics.
+   928→
+   929→Acceptance: timeline can be reconstructed from versioned events and observations.
+   930→
+   931→## Increment 4 — Cover-crop candidate and planning engine
+   932→
+   933→- Candidate eligibility.
+   934→- Sowing and termination windows.
+   935→- Water integration.
+   936→- Following-crop constraints.
+   937→- Trade-off explanations.
+   938→
+   939→Acceptance: candidates are classified and explained without fabricated traits.
+   940→
+   941→## Increment 5 — Residue and biomass ledger
+   942→
+   943→- Dry-matter mass flows.
+   944→- Residue quality.
+   945→- Retention/removal/incorporation.
+   946→- M6B nutrient linkage.
+   947→- Soil cover linkage.
+   948→
+   949→Acceptance: mass balance checks and no double counting.
+   950→
+   951→## Increment 6 — Erosion and conservation screening
+   952→
+   953→- Process taxonomy.
+   954→- Terrain/data readiness.
+   955→- Optional RUSLE2-compatible adapter only if valid inputs and parameters exist.
+   956→- Qualitative screening where appropriate.
+   957→- Conservation alternative comparison.
+   958→
+   959→Acceptance: no unsupported erosion quantity or universal risk label.
+   960→
+   961→## Increment 7 — Operations and resource scheduling
+   962→
+   963→- Operation templates.
+   964→- Machinery/labor registry.
+   965→- Precedence graph.
+   966→- Scheduling solver.
+   967→- Conflict explanation.
+   968→- Actual completion tracking.
+   969→
+   970→Acceptance: schedules respect constraints and explain unscheduled work.
+   971→
+   972→## Increment 8 — Management plan and frontend
+   973→
+   974→- Management overview.
+   975→- Cover-crop studio.
+   976→- Cover timeline.
+   977→- Residue ledger.
+   978→- Erosion workspace.
+   979→- Operations calendar.
+   980→- Simple/Expert modes.
+   981→- Offline integration.
+   982→
+   983→Acceptance: complete user journey works in the browser.
+   984→
+   985→## Increment 9 — Cross-module integration and hardening
+   986→
+   987→- M5 rotation integration.
+   988→- M6A water integration.
+   989→- M6B soil/nutrient integration.
+   990→- Security and tenant tests.
+   991→- Performance review.
+   992→- Regression tests.
+   993→- Documentation and browser verification.
+   994→
+   995→Acceptance: M6C functionality works end-to-end without regressions to M1–M6B.
+   996→
+   997→---
+   998→
+   999→# 16. REQUIRED DOCUMENTATION
+  1000→
+  1001→Create `docs/m6c/` containing at least:
+  1002→
+  1003→- `M6C_GAP_ANALYSIS.md`
+  1004→- `M6C_AS_BUILT_DESIGN.md`
+  1005→- `M6C_PRACTICE_KNOWLEDGE_MODEL.md`
+  1006→- `M6C_COVER_CROP_METHODOLOGY.md`
+  1007→- `M6C_SOIL_COVER_AND_BARE_SOIL_METHOD.md`
+  1008→- `M6C_RESIDUE_MASS_BALANCE.md`
+  1009→- `M6C_EROSION_SCREENING_AND_MODEL_SCOPE.md`
+  1010→- `M6C_OPERATIONS_SCHEDULING_MODEL.md`
+  1011→- `M6C_DATA_DICTIONARY.md`
+  1012→- `M6C_DATABASE_AND_MIGRATION_DESIGN.md`
+  1013→- `M6C_API_CONTRACTS.md`
+  1014→- `M6C_UNCERTAINTY_AND_EVIDENCE_POLICY.md`
+  1015→- `M6C_TEST_AND_BENCHMARK_REPORT.md`
+  1016→- `M6C_RESEARCH_BACKLOG.md`
+  1017→- `M6C_VERIFICATION_REPORT.md`
+  1018→
+  1019→Update existing implementation status, README, test matrix, data dictionary, ADR registry, and API docs.
+  1020→
+  1021→Every document must describe actual implemented behavior, not intended future behavior.
+  1022→
+  1023→---
+  1024→
+  1025→# 17. ACCEPTANCE CRITERIA AND EXIT GATES
+  1026→
+  1027→M6C may be marked complete only when all applicable gates pass:
+  1028→
+  1029→1. Repository baseline freshly verified.
+  1030→2. No duplicate soil, water, crop, management, or provenance domain was introduced.
+  1031→3. Practice knowledge is versioned, sourced, and regionally scoped.
+  1032→4. Soil-cover timeline distinguishes covered, bare, and unknown intervals.
+  1033→5. Cover-crop candidates preserve eligibility, conditionality, exclusion, and unevaluated states.
+  1034→6. Water competition and termination trade-offs integrate with M6A where supported.
+  1035→7. Residue accounting is mass-consistent and dry-matter aware.
+  1036→8. Nutrient and carbon linkages do not double-count flows.
+  1037→9. Erosion output distinguishes screening from model-derived soil-loss estimates.
+  1038→10. RUSLE/RUSLE2 use is restricted to supported erosion processes and valid parameter sets.
+  1039→11. Field operation schedules preserve dependencies and resource constraints.
+  1040→12. Unknown forecasts, machine capacity, labor availability, and field trafficability remain unknown.
+  1041→13. Every unscheduled operation has a reason.
+  1042→14. Provenance and uncertainty survive all new pipelines.
+  1043→15. Tenant isolation, idempotency, and audit semantics are verified.
+  1044→16. APIs and frontend work end-to-end.
+  1045→17. Offline changes synchronize without silent overwrite.
+  1046→18. Full regression, lint/type checks, migrations, and browser E2E pass.
+  1047→19. Scientific assumptions and remaining gaps are documented.
+  1048→20. No M7 work has started.
+  1049→
+  1050→External field validation must not be claimed unless it actually occurred.
+  1051→
+  1052→---
+  1053→
+  1054→# 18. SCIENTIFIC REFERENCE STARTING POINTS
+  1055→
+  1056→Use primary, official, or technically authoritative references. Verify the actual document, version, scope, and applicability before encoding any value or rule.
+  1057→
+  1058→## Soil cover and conservation agriculture
+  1059→
+  1060→1. FAO — Soil Organic Cover in Conservation Agriculture:  
+  1061→   https://www.fao.org/conservation-agriculture/in-practice/soil-organic-cover/en/
+  1062→
+  1063→2. FAO — Conservation Agriculture principles:  
+  1064→   https://www.fao.org/conservation-agriculture/en/
+  1065→
+  1066→3. FAO — How to Practice Conservation Agriculture:  
+  1067→   https://www.fao.org/agriculture/crops/thematic-sitemap/theme/spi/scpi-home/managing-ecosystems/conservation-agriculture/ca-how/en/
+  1068→
+  1069→## Cover crop planning and termination
+  1070→
+  1071→4. USDA NRCS — Cover Crop Conservation Practice Standard (Code 340):  
+  1072→   https://www.nrcs.usda.gov/resources/guides-and-instructions/cover-crop-ac-340-conservation-practice-standard
+  1073→
+  1074→5. USDA NRCS — Cover Crop Termination technical sheet:  
+  1075→   https://www.nrcs.usda.gov/sites/default/files/2025-04/Cover_Crop_Termination-FS_0.pdf
+  1076→
+  1077→6. USDA NRCS — Cover Crops for Soil Health:  
+  1078→   https://www.nrcs.usda.gov/conservation-basics/soil/soil-health/cover-crops-for-soil-health
+  1079→
+  1080→7. NC State Extension — Soil Moisture Challenge for Cover Crops:  
+  1081→   https://covercrops.ces.ncsu.edu/soil-moisture-challenge/
+  1082→
+  1083→## Residue management
+  1084→
+  1085→8. USDA NRCS — Harvesting Crop Residue:  
+  1086→   https://www.nrcs.usda.gov/sites/default/files/2024-10/HarvestingCropResidueOctober2016.pdf
+  1087→
+  1088→9. USDA NRCS — National Agronomy Manual, Water Management / residue effects:  
+  1089→   https://directives.nrcs.usda.gov/sites/default/files2/1719337255/National%20Agronomy%20Manual.pdf
+  1090→
+  1091→## Erosion processes and modeling
+  1092→
+  1093→10. USDA NRCS — RUSLE2 technology and scope:  
+  1094→    https://www.nrcs.usda.gov/resources/tech-tools/water-erosion-rusle2
+  1095→
+  1096→11. USDA NRCS — RUSLE2 Handbook:  
+  1097→    https://www.nrcs.usda.gov/sites/default/files/2022-10/RUSLE2%20Handbook_0.pdf
+  1098→
+  1099→12. USDA ARS — RUSLE2 definitions:  
+  1100→    https://www.ars.usda.gov/southeast-area/oxford-ms/national-sedimentation-laboratory/watershed-physical-processes-research/research/rusle2/revised-universal-soil-loss-equation-2-rusle2-definitions/
+  1101→
+  1102→13. FAO — Revised Universal Soil Loss Equation:  
+  1103→    https://www.fao.org/land-water/land/land-governance-and-planning/land-resources-planning-toolbox/detail/revised-universal-soil-loss-equation/en
+  1104→
+  1105→14. USDA NRCS — National Agronomy Manual, Water Erosion:  
+  1106→    https://www.nrcs.usda.gov/sites/default/files/2022-10/National-Agronomy-Manual.pdf
+  1107→
+  1108→## Operations scheduling
+  1109→
+  1110→15. ASABE — Scheduling of Robotics or Machinery Operations in Agricultural Fields: A Review (2024):  
+  1111→    https://elibrary.asabe.org/abstract.asp?aid=54815&redir=&redirType=&t=3
+  1112→
+  1113→Treat these as starting points, not blanket authorization to apply regional standards globally. Record source version, regional applicability, and relevant sections.
+  1114→
+  1115→---
+  1116→
+  1117→# 19. STRICT EXECUTION RULES FOR GLM
+  1118→
+  1119→- Inspect actual code before planning changes.
+  1120→- Do not claim completion based on documentation alone.
+  1121→- Do not replace real data with synthetic data in production pathways.
+  1122→- Do not invent cover-crop species parameters or planting windows.
+  1123→- Do not apply universal termination lead times.
+  1124→- Do not assume residue-to-grain ratios or harvest indices.
+  1125→- Do not equate residue mass with soil organic carbon sequestration.
+  1126→- Do not assume cover crops always conserve water.
+  1127→- Do not equate NDVI with measured soil cover.
+  1128→- Do not use RUSLE2 to represent all erosion processes.
+  1129→- Do not use US-specific erosion factor databases as global defaults.
+  1130→- Do not treat historical climate as a weather forecast.
+  1131→- Do not assume machinery/labor availability.
+  1132→- Do not silently remove unscheduled or conflicting operations.
+  1133→- Do not turn missing evidence into zero, false, safe, or eligible.
+  1134→- Do not claim causal practice impacts from observational association.
+  1135→- Do not start M7 or other unrelated roadmap modules.
+  1136→
+  1137→For each increment: inspect → specify → implement → test → document → browser verify where relevant.
+  1138→
+  1139→At the end, provide a concise but evidence-rich report listing actual code changes, migrations, tests, browser checks, scientific references, unresolved limitations, and the exact completion status of each acceptance gate.
+  1140→
+  1141→

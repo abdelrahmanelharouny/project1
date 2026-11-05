@@ -1,0 +1,1054 @@
+     1→"""Soil Intelligence endpoints (Milestone 6B, Step 9).
+     2→
+     3→- GET  /soil/methods                                   — versioned methodology catalog
+     4→- POST /fields/{id}/soil-sampling-events               — create a sampling event
+     5→- GET  /fields/{id}/soil-sampling-events               — list sampling events
+     6→- POST /fields/{id}/soil-samples                       — create a sample (composite or individual)
+     7→- GET  /fields/{id}/soil-samples                       — list samples
+     8→- POST /soil-samples/import                            — laboratory CSV import (multipart)
+     9→- POST /fields/{id}/soil-measurements                  — record one measurement (method-aware)
+    10→- GET  /fields/{id}/soil-profile                       — depth-explicit profile read model
+    11→- GET  /fields/{id}/soil-indicators                    — per-layer derived indicators (texture/AWC)
+    12→- POST /fields/{id}/soc-stock-runs                     — SOC stock run (immutable snapshot)
+    13→- GET  /fields/{id}/soc-stock-runs, /soc-stock-runs/{id}
+    14→- POST /fields/{id}/nutrient-products                  — nutrient product registry
+    15→- POST /fields/{id}/nutrient-applications              — documented nutrient input
+    16→- POST /fields/{id}/nutrient-removals                  — documented nutrient output
+    17→- POST /fields/{id}/nutrient-budget-runs               — N/P/K budget (immutable snapshot)
+    18→- GET  /nutrient-budget-runs/{id}
+    19→- POST /fields/{id}/soil-management-events             — management ledger
+    20→- POST /fields/{id}/soil-assessments                   — multi-domain assessment snapshot
+    21→- GET  /soil-assessments/{id}
+    22→- GET  /fields/{id}/soil-health                        — latest assessment read model
+    23→- GET  /fields/{id}/soil-data-readiness                — qualitative VOI ranking
+    24→
+    25→Every field-scoped endpoint is tenant-scoped through the field's farm;
+    26→every response preserves measured/estimated/farmer/mapped/synthetic
+    27→distinctions; run snapshots are immutable with sha256 checksums.
+    28→"""
+    29→
+    30→import json
+    31→import uuid
+    32→from datetime import date, datetime, UTC
+    33→from typing import Any
+    34→
+    35→from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+    36→from sqlalchemy import select
+    37→from sqlalchemy.orm import Session
+    38→
+    39→from app.core.database import get_db
+    40→from app.core.errors import NotFound, ValidationFailed
+    41→from app.db import models as dbm
+    42→from app.domains.identity.service import get_field_for_principal, get_principal
+    43→from app.soil import assessment as assessment_mod
+    44→from app.soil import chemistry as chemistry_mod
+    45→from app.soil import contracts as sc
+    46→from app.soil import service as soil_service
+    47→from app.soil import soc as soc_mod
+    48→from app.soil import nutrients as nutrient_mod
+    49→from app.soil.import_service import parse_soil_lab_csv
+    50→
+    51→router = APIRouter(tags=["soil"])
+    52→
+    53→
+    54→def _commit_refresh(db: Session, row: Any) -> Any:
+    55→    db.commit()
+    56→    db.refresh(row)
+    57→    return row
+    58→
+    59→
+    60→# ------------------------------------------------------------- methods
+    61→
+    62→@router.get("/soil/methods")
+    63→def soil_methods() -> dict:
+    64→    """The versioned soil methodology catalog: classification systems,
+    65→    conversion functions, salinity classes, and the assessment policy."""
+    66→    return {
+    67→        "soil_engine_version": sc.SOIL_ENGINE_VERSION,
+    68→        "methods_version": sc.SOIL_METHODS_VERSION,
+    69→        "texture_classifier": {
+    70→            "version": sc.TEXTURE_CLASSIFIER_VERSION,
+    71→            "system": "USDA soil texture triangle (12 classes)",
+    72→            "source": (
+    73→                "USDA class polygons transcribed from the soiltexture R package "
+    74→                "(USDA.TT; Moeys, CRAN), the computational reference for the "
+    75→                "USDA Soil Survey Manual triangle"
+    76→            ),
+    77→            "silt_derivation": "silt = 100 − sand − clay when silt is absent (disclosed per result)",
+    78→            "tolerance": "sand+silt+clay must sum to 100 ± 0.5 when all three are supplied",
+    79→        },
+    80→        "conversions": {
+    81→            "p2o5_to_p": {
+    82→                "factor": round(nutrient_mod.P2O5_TO_P, 8),
+    83→                "derivation": nutrient_mod.OXIDE_DERIVATION,
+    84→                "version": nutrient_mod.OXIDE_CONVERSION_VERSION,
+    85→            },
+    86→            "k2o_to_k": {
+    87→                "factor": round(nutrient_mod.K2O_TO_K, 8),
+    88→                "derivation": nutrient_mod.OXIDE_DERIVATION,
+    89→                "version": nutrient_mod.OXIDE_CONVERSION_VERSION,
+    90→            },
+    91→            "oc_to_om": {
+    92→                "factor": 1.724,
+    93→                "method": "van Bemmelen factor (the M6A water-engine function is the single sanctioned implementation)",
+    94→            },
+    95→        },
+    96→        "salinity_classes": [
+    97→            {
+    98→                "range_ds_m": [c["range_dS_m"][0], None if c["range_dS_m"][1] == float("inf") else c["range_dS_m"][1]],
+    99→                "class": c["class"],
+   100→                "citation": c["citation"],
+   101→                "applies_to": "ECe (saturated paste) only — no cross-ratio conversion is endorsed",
+   102→            }
+   103→            for c in chemistry_mod.EC_E_SALINITY_CLASSES
+   104→        ],
+   105→        "assessment_policy": {
+   106→            "version": assessment_mod.ASSESSMENT_VERSION,
+   107→            "composite_index": None,
+   108→            "note": "transparent multi-domain profile; no composite score (ADR-0026)",
+   109→        },
+   110→        "variables": [dict(v) for v in sc.SOIL_VARIABLE_DICTIONARY],
+   111→    }
+   112→
+   113→
+   114→# ---------------------------------------------------------- sampling domain
+   115→
+   116→@router.post("/fields/{field_id}/soil-sampling-events", status_code=status.HTTP_201_CREATED)
+   117→def create_sampling_event(
+   118→    field_id: uuid.UUID,
+   119→    body: dict[str, Any],
+   120→    principal: Any = Depends(get_principal),
+   121→    db: Session = Depends(get_db),
+   122→) -> dict:
+   123→    field = get_field_for_principal(db, principal, field_id)
+   124→    event = soil_service.create_sampling_event(db, field, body)
+   125→    _commit_refresh(db, event)
+   126→    return {"id": str(event.id), "field_id": str(field.id), "sampling_date": event.sampling_date.isoformat()}
+   127→
+   128→
+   129→@router.get("/fields/{field_id}/soil-sampling-events")
+   130→def list_sampling_events(
+   131→    field_id: uuid.UUID,
+   132→    principal: Any = Depends(get_principal),
+   133→    db: Session = Depends(get_db),
+   134→) -> dict:
+   135→    field = get_field_for_principal(db, principal, field_id)
+   136→    rows = db.scalars(
+   137→        select(dbm.SoilSamplingEvent)
+   138→        .where(dbm.SoilSamplingEvent.field_id == field.id)
+   139→        .order_by(dbm.SoilSamplingEvent.sampling_date.desc())
+   140→        .limit(100)
+   141→    ).all()
+   142→    return {
+   143→        "field_id": str(field.id),
+   144→        "items": [
+   145→            {
+   146→                "id": str(e.id),
+   147→                "sampling_date": e.sampling_date.isoformat(),
+   148→                "purpose": e.purpose,
+   149→                "sampling_method": e.sampling_method,
+   150→                "composite": e.composite,
+   151→                "subsample_count": e.subsample_count,
+   152→                "management_zone": e.management_zone,
+   153→                "gps_lat": e.gps_lat,
+   154→                "gps_lon": e.gps_lon,
+   155→                "quality_status": e.quality_status,
+   156→            }
+   157→            for e in rows
+   158→        ],
+   159→    }
+   160→
+   161→
+   162→@router.post("/fields/{field_id}/soil-samples", status_code=status.HTTP_201_CREATED)
+   163→def create_sample(
+   164→    field_id: uuid.UUID,
+   165→    body: dict[str, Any],
+   166→    principal: Any = Depends(get_principal),
+   167→    db: Session = Depends(get_db),
+   168→) -> dict:
+   169→    field = get_field_for_principal(db, principal, field_id)
+   170→    sample = soil_service.create_sample(db, field, body)
+   171→    _commit_refresh(db, sample)
+   172→    return {"id": str(sample.id), "sample_code": sample.sample_code, "event_id": str(sample.event_id)}
+   173→
+   174→
+   175→@router.get("/fields/{field_id}/soil-samples")
+   176→def list_samples(
+   177→    field_id: uuid.UUID,
+   178→    principal: Any = Depends(get_principal),
+   179→    db: Session = Depends(get_db),
+   180→) -> dict:
+   181→    field = get_field_for_principal(db, principal, field_id)
+   182→    rows = db.scalars(
+   183→        select(dbm.SoilSample)
+   184→        .where(dbm.SoilSample.field_id == field.id)
+   185→        .order_by(dbm.SoilSample.created_at.desc())
+   186→        .limit(100)
+   187→    ).all()
+   188→    return {
+   189→        "field_id": str(field.id),
+   190→        "items": [
+   191→            {
+   192→                "id": str(s.id),
+   193→                "sample_code": s.sample_code,
+   194→                "event_id": str(s.event_id),
+   195→                "composite_parent_id": str(s.composite_parent_id) if s.composite_parent_id else None,
+   196→                "laboratory_id": str(s.laboratory_id) if s.laboratory_id else None,
+   197→                "report_reference": s.report_reference,
+   198→            }
+   199→            for s in rows
+   200→        ],
+   201→    }
+   202→
+   203→
+   204→@router.post("/soil-samples/import")
+   205→async def import_soil_samples(
+   206→    file: UploadFile = File(...),
+   207→    mapping: str | None = Form(None),
+   208→    principal: Any = Depends(get_principal),
+   209→    db: Session = Depends(get_db),
+   210→) -> dict:
+   211→    """Laboratory CSV import. `mapping` is an optional JSON mapping spec
+   212→    (column → canonical field). Re-importing the same file is a no-op by
+   213→    checksum (idempotency)."""
+   214→    content = await file.read()
+   215→    mapping_spec = None
+   216→    if mapping:
+   217→        try:
+   218→            mapping_spec = json.loads(mapping)
+   219→        except json.JSONDecodeError:
+   220→            raise ValidationFailed("mapping must be valid JSON.", details=[{"field": "mapping"}]) from None
+   221→    try:
+   222→        parsed, report = parse_soil_lab_csv(content, mapping_spec=mapping_spec)
+   223→    except Exception as exc:  # noqa: BLE001
+   224→        raise ValidationFailed(str(exc), details=[{"field": "file"}]) from None
+   225→
+   226→    # idempotency by file checksum: skip re-import of identical content
+   227→    existing = db.scalar(
+   228→        select(dbm.IngestionJob).where(
+   229→            dbm.IngestionJob.idempotency_key == report.idempotency_key,
+   230→            dbm.IngestionJob.job_type == "soil_lab_import",
+   231→        )
+   232→    ) if hasattr(dbm.IngestionJob, "idempotency_key") else None
+   233→    if existing is not None:
+   234→        return {"status": "already_imported", "report": report.to_dict(), "import_job_id": str(existing.id)}
+   235→
+   236→    # resolve the organization for registries (via any accessible farm of the principal)
+   237→    # note: import is org-level for labs/methods, then per-sample field resolution
+   238→    created_samples = 0
+   239→    created_measurements = 0
+   240→    sample_cache: dict[str, dbm.SoilSample] = {}
+   241→    layer_cache: dict[tuple[str, float, float], dbm.SoilSampleLayer] = {}
+   242→    errors: list[str] = []
+   243→
+   244→    # group parsed rows by sample_code; each row needs a field context —
+   245→    # the import request carries the field binding via per-sample field_id
+   246→    # resolved from the sample_code prefix when provided, else via
+   247→    # the caller's default_field_id in the mapping spec.
+   248→    default_field_id = (mapping_spec or {}).get("default_field_id")
+   249→    field_cache: dict[str, dbm.Field] = {}
+   250→
+   251→    def _field_for(sample_code: str) -> dbm.Field | None:
+   252→        if default_field_id:
+   253→            return field_cache.get(default_field_id)
+   254→        return None
+   255→
+   256→    if not default_field_id:
+   257→        raise ValidationFailed(
+   258→            "the mapping spec must include 'default_field_id' (the field the samples belong to) "
+   259→            "— per-sample field binding arrives with multi-field templates.",
+   260→            details=[{"field": "mapping.default_field_id"}],
+   261→        )
+   262→    target_field = get_field_for_principal(db, principal, uuid.UUID(str(default_field_id)))
+   263→    field_cache[str(default_field_id)] = target_field
+   264→    organization_id = soil_service._org_id_for_field(db, target_field)
+   265→
+   266→    for row in parsed:
+   267→        # savepoint: a rejected row must not poison the surrounding transaction
+   268→        nested = db.begin_nested()
+   269→        try:
+   270→            sample = sample_cache.get(row["sample_code"])
+   271→            if sample is None:
+   272→                # create a minimal sampling event for the lab batch (composite import)
+   273→                observed = date.fromisoformat(row["observed_at"])
+   274→                event = dbm.SoilSamplingEvent(
+   275→                    field_id=target_field.id,
+   276→                    sampling_date=observed,
+   277→                    purpose="laboratory analysis",
+   278→                    sampling_method="import",
+   279→                    composite=True,
+   280→                    quality_status="valid",
+   281→                    metadata={"import_template": report.template, "file_sha256": report.file_sha256},
+   282→                )
+   283→                db.add(event)
+   284→                db.flush()
+   285→                sample = dbm.SoilSample(
+   286→                    event_id=event.id,
+   287→                    field_id=target_field.id,
+   288→                    sample_code=row["sample_code"],
+   289→                    report_reference=row.get("report_reference"),
+   290→                    metadata={"source": "soil_lab_import", "file_sha256": report.file_sha256},
+   291→                )
+   292→                if row.get("laboratory_name"):
+   293→                    lab = soil_service.get_or_create_laboratory(db, organization_id, row["laboratory_name"])
+   294→                    sample.laboratory_id = lab.id
+   295→                db.add(sample)
+   296→                db.flush()
+   297→                sample_cache[row["sample_code"]] = sample
+   298→                created_samples += 1
+   299→            layer_key = (row["sample_code"], row["top_depth_cm"], row["bottom_depth_cm"])
+   300→            layer = layer_cache.get(layer_key)
+   301→            if layer is None:
+   302→                layer = dbm.SoilSampleLayer(
+   303→                    sample_id=sample.id,
+   304→                    top_depth_cm=row["top_depth_cm"],
+   305→                    bottom_depth_cm=row["bottom_depth_cm"],
+   306→                    original_depth_unit=row["original_depth_unit"],
+   307→                    original_top=row["original_top"],
+   308→                    original_bottom=row["original_bottom"],
+   309→                )
+   310→                db.add(layer)
+   311→                db.flush()
+   312→                layer_cache[layer_key] = layer
+   313→            method_params: dict[str, Any] = {}
+   314→            method_row = None
+   315→            if row.get("method_code"):
+   316→                method_row = soil_service.get_or_create_method(db, organization_id, {
+   317→                    "code": row["method_code"],
+   318→                    "property_family": sc.soil_variable_definition(row["variable_code"])["family"],
+   319→                })
+   320→                method_params = {"code": row["method_code"]}
+   321→            vdef = sc.soil_variable_definition(row["variable_code"])
+   322→            measurement = dbm.SoilMeasurement(
+   323→                field_id=target_field.id,
+   324→                layer_id=layer.id,
+   325→                variable_code=row["variable_code"],
+   326→                value=row["value"],
+   327→                unit=row["unit"],
+   328→                top_depth_cm=row["top_depth_cm"],
+   329→                bottom_depth_cm=row["bottom_depth_cm"],
+   330→                evidence_class="farmer_reported_record" if (mapping_spec or {}).get("farmer_reported") else "direct_field_measurement",
+   331→                spatial_support_type="lab_sample",
+   332→                source_kind="lab_analysis",
+   333→                method_id=method_row.id if method_row else None,
+   334→                method_params=method_params,
+   335→                detection_limit=row["detection_limit"],
+   336→                result_qualifier=row["result_qualifier"],
+   337→                is_synthetic=False,
+   338→                observed_at=date.fromisoformat(row["observed_at"]),
+   339→                metadata={"report_reference": row.get("report_reference"), "notes": row.get("notes")},
+   340→            )
+   341→            db.add(measurement)
+   342→            db.flush()
+   343→            created_measurements += 1
+   344→            nested.commit()
+   345→        except Exception as exc:  # noqa: BLE001 — per-row accounting
+   346→            nested.rollback()
+   347→            errors.append(f"{row.get('sample_code')}/{row['variable_code']}: {exc}")
+   348→
+   349→    db.commit()
+   350→    return {
+   351→        "status": "imported",
+   352→        "report": report.to_dict(),
+   353→        "created_samples": created_samples,
+   354→        "created_measurements": created_measurements,
+   355→        "errors": errors[:20],
+   356→    }
+   357→
+   358→
+   359→@router.post("/fields/{field_id}/soil-measurements", status_code=status.HTTP_201_CREATED)
+   360→def create_measurement(
+   361→    field_id: uuid.UUID,
+   362→    body: dict[str, Any],
+   363→    principal: Any = Depends(get_principal),
+   364→    db: Session = Depends(get_db),
+   365→) -> dict:
+   366→    field = get_field_for_principal(db, principal, field_id)
+   367→    measurement = soil_service.add_measurement(db, field, body)
+   368→    _commit_refresh(db, measurement)
+   369→    return soil_service.measurement_payload(measurement)
+   370→
+   371→
+   372→# ------------------------------------------------------------- read models
+   373→
+   374→@router.get("/fields/{field_id}/soil-profile")
+   375→def field_soil_profile(
+   376→    field_id: uuid.UUID,
+   377→    principal: Any = Depends(get_principal),
+   378→    db: Session = Depends(get_db),
+   379→) -> dict:
+   380→    field = get_field_for_principal(db, principal, field_id)
+   381→    return soil_service.build_profile(db, field)
+   382→
+   383→
+   384→@router.get("/fields/{field_id}/soil-indicators")
+   385→def field_soil_indicators(
+   386→    field_id: uuid.UUID,
+   387→    principal: Any = Depends(get_principal),
+   388→    db: Session = Depends(get_db),
+   389→) -> dict:
+   390→    field = get_field_for_principal(db, principal, field_id)
+   391→    profile = soil_service.build_profile(db, field)
+   392→    return soil_service.derive_texture_and_awc(profile)
+   393→
+   394→
+   395→@router.get("/fields/{field_id}/soil-health")
+   396→def field_soil_health(
+   397→    field_id: uuid.UUID,
+   398→    principal: Any = Depends(get_principal),
+   399→    db: Session = Depends(get_db),
+   400→) -> dict:
+   401→    field = get_field_for_principal(db, principal, field_id)
+   402→    latest = db.scalar(
+   403→        select(dbm.SoilAssessmentRun)
+   404→        .where(dbm.SoilAssessmentRun.field_id == field.id, dbm.SoilAssessmentRun.status == "succeeded")
+   405→        .order_by(dbm.SoilAssessmentRun.created_at.desc())
+   406→        .limit(1)
+   407→    )
+   408→    if latest is None:
+   409→        # live assessment from current measurements (no snapshot yet)
+   410→        measurements = [
+   411→            soil_service.measurement_payload(m) for m in soil_service.list_measurements(db, field.id)
+   412→        ]
+   413→        result = assessment_mod.assess_domains(measurements, field_id=str(field.id))
+   414→        return {"source": "live", "result": result}
+   415→    return {"source": "snapshot", "assessment_id": str(latest.id), "result": latest.result}
+   416→
+   417→
+   418→@router.get("/fields/{field_id}/soil-data-readiness")
+   419→def field_soil_data_readiness(
+   420→    field_id: uuid.UUID,
+   421→    principal: Any = Depends(get_principal),
+   422→    db: Session = Depends(get_db),
+   423→) -> dict:
+   424→    field = get_field_for_principal(db, principal, field_id)
+   425→    measurements = [
+   426→        soil_service.measurement_payload(m) for m in soil_service.list_measurements(db, field.id)
+   427→    ]
+   428→    return assessment_mod.data_readiness(measurements)
+   429→
+   430→
+   431→# ------------------------------------------------------------ SOC runs
+   432→
+   433→@router.post("/fields/{field_id}/soc-stock-runs", status_code=status.HTTP_201_CREATED)
+   434→def create_soc_run(
+   435→    field_id: uuid.UUID,
+   436→    body: dict[str, Any],
+   437→    principal: Any = Depends(get_principal),
+   438→    db: Session = Depends(get_db),
+   439→) -> dict:
+   440→    field = get_field_for_principal(db, principal, field_id)
+   441→    idempotency_key = body.get("idempotency_key")
+   442→    if idempotency_key:
+   443→        existing = db.scalar(
+   444→            select(dbm.SocStockRun).where(
+   445→                dbm.SocStockRun.idempotency_key == idempotency_key,
+   446→                dbm.SocStockRun.field_id == field.id,
+   447→            )
+   448→        )
+   449→        if existing is not None:
+   450→            return _soc_run_payload(existing)
+   451→
+   452→    from app.soil.layers import make_depth_interval
+   453→    from app.soil.soc import LayerStockInput
+   454→
+   455→    sample_ids = body.get("sample_ids") or []
+   456→    layers_in = body.get("layers") or []
+   457→    if not layers_in:
+   458→        raise ValidationFailed(
+   459→            "layers are required (per-layer OC, bulk density + basis, optional coarse "
+   460→            "fragments, depth interval) — SOC stock is computed from explicit inputs.",
+   461→            details=[{"field": "layers"}],
+   462→        )
+   463→    inputs: list[LayerStockInput] = []
+   464→    warnings: list[str] = []
+   465→    for spec in layers_in:
+   466→        try:
+   467→            interval = make_depth_interval(float(spec["top_depth"]), float(spec["bottom_depth"]),
+   468→                                           str(spec.get("depth_unit") or "cm"))
+   469→        except (KeyError, TypeError, sc.SoilValidationError) as exc:
+   470→            raise ValidationFailed(f"invalid layer depth: {exc}", details=[{"field": "layers"}]) from None
+   471→        bd_basis = spec.get("bd_basis")
+   472→        if bd_basis is not None and bd_basis not in ("whole_soil", "fine_earth"):
+   473→            raise ValidationFailed(
+   474→                f"bd_basis must be 'whole_soil' or 'fine_earth' (got '{bd_basis}')",
+   475→                details=[{"field": "layers"}],
+   476→            )
+   477→        vcf = spec.get("coarse_fragment_vol_fraction")
+   478→        inputs.append(LayerStockInput(
+   479→            interval=interval,
+   480→            oc_g_kg=spec.get("oc_g_kg"),
+   481→            bulk_density_g_cm3=spec.get("bulk_density_g_cm3"),
+   482→            bd_basis=bd_basis,
+   483→            coarse_fragment_vol_fraction=vcf,
+   484→            evidence_class=str(spec.get("evidence_class") or "farmer_reported_record"),
+   485→            is_prediction=bool(spec.get("is_prediction", False)),
+   486→            source_refs=tuple(spec.get("source_refs") or ()),
+   487→        ))
+   488→        if spec.get("is_prediction"):
+   489→            warnings.append(
+   490→                f"layer {interval.top_cm}-{interval.bottom_cm} cm uses mapped predictions "
+   491→                "— the stock is a prediction, not a field measurement"
+   492→            )
+   493→
+   494→    mode = str(body.get("comparison_mode") or "single_profile")
+   495→    run = dbm.SocStockRun(
+   496→        field_id=field.id,
+   497→        status="running",
+   498→        label=str(body.get("label") or "SOC stock run")[:120],
+   499→        input_sample_ids=[str(s) for s in sample_ids],
+   500→        comparison_mode=mode,
+   501→        engine_version=sc.SOC_STOCK_VERSION,
+   502→        methods_version=sc.SOIL_METHODS_VERSION,
+   503→        request_parameters=dict(body.get("request_parameters") or {}),
+   504→        idempotency_key=idempotency_key,
+   505→    )
+   506→    db.add(run)
+   507→    db.flush()
+   508→
+   509→    try:
+   510→        result = soc_mod.profile_soc_stock(inputs)
+   511→        comparison_block = None
+   512→        if mode == "single_profile":
+   513→            pass
+   514→        else:
+   515→            baseline_run_id = body.get("baseline_run_id")
+   516→            if baseline_run_id is None:
+   517→                raise ValidationFailed(
+   518→                    "comparison modes require baseline_run_id.",
+   519→                    details=[{"field": "baseline_run_id"}],
+   520→                )
+   521→            baseline = db.get(dbm.SocStockRun, uuid.UUID(str(baseline_run_id)))
+   522→            if baseline is None or baseline.field_id != field.id:
+   523→                raise NotFound("Baseline SOC run not found for this field.")
+   524→            base_layers = [
+   525→                LayerStockInput(
+   526→                    interval=make_depth_interval(l["top_cm"], l["bottom_cm"], "cm"),
+   527→                    oc_g_kg=(l["inputs_used"] or {}).get("oc_g_kg"),
+   528→                    bulk_density_g_cm3=(l["inputs_used"] or {}).get("bulk_density_g_cm3"),
+   529→                    bd_basis=(l["inputs_used"] or {}).get("bd_basis"),
+   530→                    coarse_fragment_vol_fraction=(l["inputs_used"] or {}).get("coarse_fragment_vol_fraction"),
+   531→                )
+   532→                for l in baseline.result.get("layers", [])
+   533→            ]
+   534→            if mode == "fixed_depth":
+   535→                comparison_block = soc_mod.fixed_depth_comparison(base_layers, inputs)
+   536→            elif mode == "equivalent_soil_mass":
+   537→                comparison_block = soc_mod.equivalent_soil_mass_comparison(base_layers, inputs)
+   538→            else:
+   539→                raise ValidationFailed(f"unknown comparison_mode '{mode}'.", details=[{"field": "comparison_mode"}])
+   540→            result["comparison"] = comparison_block
+   541→
+   542→        run.status = "succeeded"
+   543→        run.result = result
+   544→        run.warnings = warnings + result.get("warnings", [])
+   545→        run.not_evaluated = result.get("not_evaluated", [])
+   546→        run.checksum_sha256 = soc_mod.soc_run_checksum(result)
+   547→        db.flush()
+   548→    except ValidationFailed:
+   549→        run.status = "failed"
+   550→        run.error_summary = "validation failed"
+   551→        db.flush()
+   552→        raise
+   553→    except Exception as exc:  # noqa: BLE001 — job accounting
+   554→        run.status = "failed"
+   555→        run.error_summary = f"{type(exc).__name__}: {exc}"
+   556→        db.flush()
+   557→        raise
+   558→    db.commit()
+   559→    db.refresh(run)
+   560→    return _soc_run_payload(run)
+   561→
+   562→
+   563→def _soc_run_payload(run: dbm.SocStockRun) -> dict:
+   564→    return {
+   565→        "id": str(run.id),
+   566→        "field_id": str(run.field_id),
+   567→        "status": run.status,
+   568→        "label": run.label,
+   569→        "comparison_mode": run.comparison_mode,
+   570→        "engine_version": run.engine_version,
+   571→        "methods_version": run.methods_version,
+   572→        "warnings": run.warnings,
+   573→        "not_evaluated": run.not_evaluated,
+   574→        "checksum_sha256": run.checksum_sha256,
+   575→        "error_summary": run.error_summary,
+   576→        "result": run.result,
+   577→    }
+   578→
+   579→
+   580→@router.get("/fields/{field_id}/soc-stock-runs")
+   581→def list_soc_runs(
+   582→    field_id: uuid.UUID,
+   583→    principal: Any = Depends(get_principal),
+   584→    db: Session = Depends(get_db),
+   585→) -> dict:
+   586→    field = get_field_for_principal(db, principal, field_id)
+   587→    rows = db.scalars(
+   588→        select(dbm.SocStockRun)
+   589→        .where(dbm.SocStockRun.field_id == field.id)
+   590→        .order_by(dbm.SocStockRun.created_at.desc())
+   591→        .limit(50)
+   592→    ).all()
+   593→    return {
+   594→        "field_id": str(field.id),
+   595→        "items": [_soc_run_payload(r) for r in rows],
+   596→    }
+   597→
+   598→
+   599→@router.get("/soc-stock-runs/{run_id}")
+   600→def get_soc_run(
+   601→    run_id: uuid.UUID,
+   602→    principal: Any = Depends(get_principal),
+   603→    db: Session = Depends(get_db),
+   604→) -> dict:
+   605→    run = db.get(dbm.SocStockRun, run_id)
+   606→    if run is None:
+   607→        raise NotFound("SOC stock run not found.")
+   608→    get_field_for_principal(db, principal, run.field_id)
+   609→    return _soc_run_payload(run)
+   610→
+   611→
+   612→# ------------------------------------------------------------- nutrients
+   613→
+   614→@router.post("/fields/{field_id}/nutrient-products", status_code=status.HTTP_201_CREATED)
+   615→def create_nutrient_product(
+   616→    field_id: uuid.UUID,
+   617→    body: dict[str, Any],
+   618→    principal: Any = Depends(get_principal),
+   619→    db: Session = Depends(get_db),
+   620→) -> dict:
+   621→    field = get_field_for_principal(db, principal, field_id)
+   622→    organization_id = soil_service._org_id_for_field(db, field)
+   623→    reporting_basis = str(body.get("reporting_basis") or "elemental")
+   624→    if reporting_basis not in ("elemental", "oxide"):
+   625→        raise ValidationFailed("reporting_basis must be 'elemental' or 'oxide'.", details=[{"field": "reporting_basis"}])
+   626→    product = dbm.NutrientProduct(
+   627→        organization_id=organization_id,
+   628→        name=str(soil_service._require(body, "name")),
+   629→        product_type=str(body.get("product_type") or "fertilizer"),
+   630→        n_pct=body.get("n_pct"),
+   631→        p_pct=body.get("p_pct"),
+   632→        k_pct=body.get("k_pct"),
+   633→        reporting_basis=reporting_basis,
+   634→        dry_matter_fraction=body.get("dry_matter_fraction"),
+   635→        moisture_basis=body.get("moisture_basis"),
+   636→        availability_notes=body.get("availability_notes"),
+   637→        source_reference=body.get("source_reference"),
+   638→        metadata=dict(body.get("metadata") or {}),
+   639→    )
+   640→    db.add(product)
+   641→    db.flush()
+   642→    _commit_refresh(db, product)
+   643→    return {"id": str(product.id), "name": product.name, "reporting_basis": product.reporting_basis}
+   644→
+   645→
+   646→def _nutrient_application_from_payload(db: Session, field: dbm.Field, body: dict[str, Any]) -> dbm.NutrientApplication:
+   647→    product = None
+   648→    if body.get("product_id"):
+   649→        product = db.get(dbm.NutrientProduct, uuid.UUID(str(body["product_id"])))
+   650→        if product is None:
+   651→            raise NotFound("Nutrient product not found.")
+   652→    n_kg = p_kg = k_kg = None
+   653→    reporting_basis = None
+   654→    if product is not None:
+   655→        reporting_basis = product.reporting_basis
+   656→        mass = float(soil_service._require(body, "applied_mass_kg"))
+   657→        n_kg = (product.n_pct / 100.0 * mass) if product.n_pct is not None else None
+   658→        p_kg = (product.p_pct / 100.0 * mass) if product.p_pct is not None else None
+   659→        k_kg = (product.k_pct / 100.0 * mass) if product.k_pct is not None else None
+   660→    else:
+   661→        n_kg = body.get("n_kg")
+   662→        p_kg = body.get("p_kg")
+   663→        k_kg = body.get("k_kg")
+   664→        reporting_basis = body.get("reporting_basis") or "elemental"
+   665→    if n_kg is None and p_kg is None and k_kg is None:
+   666→        raise ValidationFailed(
+   667→            "the application must carry nutrient content (product with a grade or "
+   668→            "explicit n/p/kg masses) — an application without nutrient content is "
+   669→            "not a nutrient input.",
+   670→            details=[{"field": "nutrients"}],
+   671→        )
+   672→    availability = body.get("availability_fraction")
+   673→    input_kind = str(soil_service._require(body, "input_kind"))
+   674→    if input_kind in ("manure", "compost", "organic_amendment") and availability is None:
+   675→        raise ValidationFailed(
+   676→            "manure/compost/organic amendments REQUIRE an availability_fraction "
+   677→            "(never assumed fully available).",
+   678→            details=[{"field": "availability_fraction"}],
+   679→        )
+   680→    return dbm.NutrientApplication(
+   681→        field_id=field.id,
+   682→        season_label=str(soil_service._require(body, "season_label")),
+   683→        application_date=soil_service._parse_date(soil_service._require(body, "application_date"), "application_date"),
+   684→        input_kind=input_kind,
+   685→        product_id=product.id if product else None,
+   686→        product_name_free=body.get("product_name_free"),
+   687→        applied_mass_kg=float(soil_service._require(body, "applied_mass_kg")),
+   688→        area_ha=float(soil_service._require(body, "area_ha")),
+   689→        n_kg=None if n_kg is None else float(n_kg),
+   690→        p_kg=None if p_kg is None else float(p_kg),
+   691→        k_kg=None if k_kg is None else float(k_kg),
+   692→        reporting_basis=reporting_basis,
+   693→        availability_fraction=None if availability is None else float(availability),
+   694→        availability_basis=body.get("availability_basis"),
+   695→        application_method=body.get("application_method"),
+   696→        moisture_basis=body.get("moisture_basis"),
+   697→        evidence_class=str(body.get("evidence_class") or "farmer_reported_record"),
+   698→        is_synthetic=bool(body.get("is_synthetic", False)),
+   699→        source_reference=body.get("source_reference"),
+   700→        notes=body.get("notes"),
+   701→        metadata=dict(body.get("metadata") or {}),
+   702→    )
+   703→
+   704→
+   705→@router.post("/fields/{field_id}/nutrient-applications", status_code=status.HTTP_201_CREATED)
+   706→def create_nutrient_application(
+   707→    field_id: uuid.UUID,
+   708→    body: dict[str, Any],
+   709→    principal: Any = Depends(get_principal),
+   710→    db: Session = Depends(get_db),
+   711→) -> dict:
+   712→    field = get_field_for_principal(db, principal, field_id)
+   713→    row = _nutrient_application_from_payload(db, field, body)
+   714→    db.add(row)
+   715→    db.flush()
+   716→    _commit_refresh(db, row)
+   717→    return {
+   718→        "id": str(row.id), "season_label": row.season_label, "input_kind": row.input_kind,
+   719→        "n_kg": row.n_kg, "p_kg": row.p_kg, "k_kg": row.k_kg,
+   720→        "reporting_basis": row.reporting_basis, "area_ha": row.area_ha,
+   721→    }
+   722→
+   723→
+   724→@router.post("/fields/{field_id}/nutrient-removals", status_code=status.HTTP_201_CREATED)
+   725→def create_nutrient_removal(
+   726→    field_id: uuid.UUID,
+   727→    body: dict[str, Any],
+   728→    principal: Any = Depends(get_principal),
+   729→    db: Session = Depends(get_db),
+   730→) -> dict:
+   731→    field = get_field_for_principal(db, principal, field_id)
+   732→    moisture_basis = str(body.get("moisture_basis") or "as_harvested")
+   733→    if moisture_basis not in ("as_harvested", "dry_matter"):
+   734→        raise ValidationFailed("moisture_basis must be 'as_harvested' or 'dry_matter'.", details=[{"field": "moisture_basis"}])
+   735→    concentrations = {
+   736→        k: body.get(f"{k}_concentration_g_kg") for k in ("n", "p", "k")
+   737→    }
+   738→    if all(v is None for v in concentrations.values()):
+   739→        raise ValidationFailed(
+   740→            "removal requires at least one nutrient concentration — yield alone is "
+   741→            "never a removal estimate (M6B.5).",
+   742→            details=[{"field": "concentrations"}],
+   743→        )
+   744→    row = dbm.NutrientRemoval(
+   745→        field_id=field.id,
+   746→        season_label=str(soil_service._require(body, "season_label")),
+   747→        removal_date=soil_service._parse_date(body["removal_date"], "removal_date") if body.get("removal_date") else None,
+   748→        crop_code=body.get("crop_code"),
+   749→        output_kind=str(body.get("output_kind") or "harvested_product"),
+   750→        biomass_kg=float(soil_service._require(body, "biomass_kg")),
+   751→        dry_matter_fraction=body.get("dry_matter_fraction"),
+   752→        moisture_basis=moisture_basis,
+   753→        n_concentration_g_kg=concentrations["n"],
+   754→        p_concentration_g_kg=concentrations["p"],
+   755→        k_concentration_g_kg=concentrations["k"],
+   756→        concentration_basis=body.get("concentration_basis") or moisture_basis,
+   757→        concentration_source=body.get("concentration_source"),
+   758→        evidence_class=str(body.get("evidence_class") or "farmer_reported_record"),
+   759→        is_synthetic=bool(body.get("is_synthetic", False)),
+   760→        notes=body.get("notes"),
+   761→        metadata=dict(body.get("metadata") or {}),
+   762→    )
+   763→    db.add(row)
+   764→    db.flush()
+   765→    _commit_refresh(db, row)
+   766→    return {
+   767→        "id": str(row.id), "season_label": row.season_label, "output_kind": row.output_kind,
+   768→        "biomass_kg": row.biomass_kg, "moisture_basis": row.moisture_basis,
+   769→        "n_concentration_g_kg": row.n_concentration_g_kg,
+   770→        "p_concentration_g_kg": row.p_concentration_g_kg,
+   771→        "k_concentration_g_kg": row.k_concentration_g_kg,
+   772→    }
+   773→
+   774→
+   775→@router.post("/fields/{field_id}/nutrient-budget-runs", status_code=status.HTTP_201_CREATED)
+   776→def create_nutrient_budget_run(
+   777→    field_id: uuid.UUID,
+   778→    body: dict[str, Any],
+   779→    principal: Any = Depends(get_principal),
+   780→    db: Session = Depends(get_db),
+   781→) -> dict:
+   782→    field = get_field_for_principal(db, principal, field_id)
+   783→    idempotency_key = body.get("idempotency_key")
+   784→    if idempotency_key:
+   785→        existing = db.scalar(
+   786→            select(dbm.NutrientBudgetRun).where(
+   787→                dbm.NutrientBudgetRun.idempotency_key == idempotency_key,
+   788→                dbm.NutrientBudgetRun.field_id == field.id,
+   789→            )
+   790→        )
+   791→        if existing is not None:
+   792→            return _budget_run_payload(existing)
+   793→
+   794→    seasons = body.get("seasons") or []
+   795→    if not seasons:
+   796→        raise ValidationFailed("at least one season label is required.", details=[{"field": "seasons"}])
+   797→
+   798→    applications = db.scalars(
+   799→        select(dbm.NutrientApplication).where(dbm.NutrientApplication.field_id == field.id)
+   800→    ).all()
+   801→    removals = db.scalars(
+   802→        select(dbm.NutrientRemoval).where(dbm.NutrientRemoval.field_id == field.id)
+   803→    ).all()
+   804→
+   805→    run = dbm.NutrientBudgetRun(
+   806→        field_id=field.id,
+   807→        status="running",
+   808→        label=str(body.get("label") or "Nutrient budget run")[:120],
+   809→        seasons=list(seasons),
+   810→        engine_version=sc.NUTRIENT_BUDGET_VERSION,
+   811→        methods_version=sc.SOIL_METHODS_VERSION,
+   812→        request_parameters=dict(body.get("request_parameters") or {}),
+   813→        idempotency_key=idempotency_key,
+   814→    )
+   815→    db.add(run)
+   816→    db.flush()
+   817→
+   818→    try:
+   819→        season_results = []
+   820→        for season_label in seasons:
+   821→            season_inputs = []
+   822→            for app_row in applications:
+   823→                if app_row.season_label != season_label:
+   824→                    continue
+   825→                if app_row.input_kind == "biological_nitrogen_fixation":
+   826→                    # BNF enters only as the recorded estimate (never inferred here)
+   827→                    season_inputs.append(nutrient_mod.NutrientInputRecord(
+   828→                        flow_id=str(app_row.id), input_kind=app_row.input_kind,
+   829→                        n_kg=app_row.n_kg, p_kg=app_row.p_kg, k_kg=app_row.k_kg,
+   830→                        area_ha=app_row.area_ha, reporting_basis=app_row.reporting_basis or "elemental",
+   831→                        evidence_class=app_row.evidence_class, is_estimate=True,
+   832→                        citation_text=app_row.source_reference,
+   833→                    ))
+   834→                    continue
+   835→                season_inputs.append(nutrient_mod.NutrientInputRecord(
+   836→                    flow_id=str(app_row.id), input_kind=app_row.input_kind,
+   837→                    n_kg=app_row.n_kg, p_kg=app_row.p_kg, k_kg=app_row.k_kg,
+   838→                    area_ha=app_row.area_ha, reporting_basis=app_row.reporting_basis or "elemental",
+   839→                    evidence_class=app_row.evidence_class,
+   840→                    availability_fraction=app_row.availability_fraction,
+   841→                    availability_basis=app_row.availability_basis,
+   842→                ))
+   843→            season_outputs = []
+   844→            for r in removals:
+   845→                if r.season_label != season_label:
+   846→                    continue
+   847→                # concentration g/kg × biomass kg = g nutrient → ÷1000 = kg total
+   848→                area_ha = float(body.get("area_ha") or field.area_ha)
+   849→                n_kg_ha = (r.n_concentration_g_kg * r.biomass_kg / 1000.0 / area_ha) if r.n_concentration_g_kg is not None else None
+   850→                p_kg_ha = (r.p_concentration_g_kg * r.biomass_kg / 1000.0 / area_ha) if r.p_concentration_g_kg is not None else None
+   851→                k_kg_ha = (r.k_concentration_g_kg * r.biomass_kg / 1000.0 / area_ha) if r.k_concentration_g_kg is not None else None
+   852→                season_outputs.append(nutrient_mod.NutrientOutputRecord(
+   853→                    flow_id=str(r.id), output_kind=r.output_kind,
+   854→                    n_kg_ha=n_kg_ha, p_kg_ha=p_kg_ha, k_kg_ha=k_kg_ha,
+   855→                    concentration_basis=r.concentration_basis or r.moisture_basis,
+   856→                    moisture_basis_disclosed=bool(r.moisture_basis),
+   857→                    evidence_class=r.evidence_class,
+   858→                ))
+   859→            season_results.append(nutrient_mod.nutrient_budget(
+   860→                inputs=season_inputs, outputs=season_outputs, season_label=str(season_label)
+   861→            ))
+   862→        cumulative = nutrient_mod.cumulative_budget(season_results)
+   863→        result = {
+   864→            "seasons": season_results,
+   865→            "cumulative": cumulative,
+   866→            "engine_version": sc.NUTRIENT_BUDGET_VERSION,
+   867→            "methods_version": sc.SOIL_METHODS_VERSION,
+   868→            "reference_library_note": (
+   869→                "the nutrient-removal reference library is intentionally EMPTY pending "
+   870→                "verified sources — concentrations come from farmer/lab records only "
+   871→                "(see M6B_RESEARCH_BACKLOG.md)"
+   872→            ),
+   873→        }
+   874→        run.status = "succeeded"
+   875→        run.result = result
+   876→        all_warnings = [w for s in season_results for w in s["warnings"]]
+   877→        run.warnings = all_warnings
+   878→        run.not_evaluated = {
+   879→            s["season_label"]: s["missing_flows"] for s in season_results if s["missing_flows"]
+   880→        }
+   881→        run.checksum_sha256 = nutrient_mod.budget_checksum(result)
+   882→        db.flush()
+   883→    except ValidationFailed:
+   884→        run.status = "failed"
+   885→        run.error_summary = "validation failed"
+   886→        db.flush()
+   887→        raise
+   888→    except Exception as exc:  # noqa: BLE001
+   889→        run.status = "failed"
+   890→        run.error_summary = f"{type(exc).__name__}: {exc}"
+   891→        db.flush()
+   892→        raise
+   893→    db.commit()
+   894→    db.refresh(run)
+   895→    return _budget_run_payload(run)
+   896→
+   897→
+   898→def _budget_run_payload(run: dbm.NutrientBudgetRun) -> dict:
+   899→    return {
+   900→        "id": str(run.id),
+   901→        "field_id": str(run.field_id),
+   902→        "status": run.status,
+   903→        "label": run.label,
+   904→        "seasons": run.seasons,
+   905→        "engine_version": run.engine_version,
+   906→        "methods_version": run.methods_version,
+   907→        "warnings": run.warnings,
+   908→        "not_evaluated": run.not_evaluated,
+   909→        "checksum_sha256": run.checksum_sha256,
+   910→        "error_summary": run.error_summary,
+   911→        "result": run.result,
+   912→    }
+   913→
+   914→
+   915→@router.get("/nutrient-budget-runs/{run_id}")
+   916→def get_nutrient_budget_run(
+   917→    run_id: uuid.UUID,
+   918→    principal: Any = Depends(get_principal),
+   919→    db: Session = Depends(get_db),
+   920→) -> dict:
+   921→    run = db.get(dbm.NutrientBudgetRun, run_id)
+   922→    if run is None:
+   923→        raise NotFound("Nutrient budget run not found.")
+   924→    get_field_for_principal(db, principal, run.field_id)
+   925→    return _budget_run_payload(run)
+   926→
+   927→
+   928→# -------------------------------------------------------- ledger & assessment
+   929→
+   930→@router.post("/fields/{field_id}/soil-management-events", status_code=status.HTTP_201_CREATED)
+   931→def create_management_event(
+   932→    field_id: uuid.UUID,
+   933→    body: dict[str, Any],
+   934→    principal: Any = Depends(get_principal),
+   935→    db: Session = Depends(get_db),
+   936→) -> dict:
+   937→    field = get_field_for_principal(db, principal, field_id)
+   938→    event_type = str(soil_service._require(body, "event_type"))
+   939→    allowed_types = {
+   940→        "planting", "harvest", "fertilizer_application", "manure_application",
+   941→        "compost_application", "residue_retention", "residue_removal", "tillage",
+   942→        "cover_crop_termination", "irrigation", "soil_amendment", "other",
+   943→    }
+   944→    if event_type not in allowed_types:
+   945→        raise ValidationFailed(
+   946→            f"unknown event_type '{event_type}' (allowed: {', '.join(sorted(allowed_types))}).",
+   947→            details=[{"field": "event_type"}],
+   948→        )
+   949→    event = dbm.SoilManagementEvent(
+   950→        field_id=field.id,
+   951→        event_date=soil_service._parse_date(soil_service._require(body, "event_date"), "event_date"),
+   952→        event_type=event_type,
+   953→        title=body.get("title"),
+   954→        details=dict(body.get("details") or {}),
+   955→        nutrient_application_id=uuid.UUID(str(body["nutrient_application_id"])) if body.get("nutrient_application_id") else None,
+   956→        notes=body.get("notes"),
+   957→    )
+   958→    db.add(event)
+   959→    db.flush()
+   960→    _commit_refresh(db, event)
+   961→    return {"id": str(event.id), "event_type": event.event_type, "event_date": event.event_date.isoformat()}
+   962→
+   963→
+   964→@router.get("/fields/{field_id}/soil-management-events")
+   965→def list_management_events(
+   966→    field_id: uuid.UUID,
+   967→    principal: Any = Depends(get_principal),
+   968→    db: Session = Depends(get_db),
+   969→) -> dict:
+   970→    field = get_field_for_principal(db, principal, field_id)
+   971→    rows = db.scalars(
+   972→        select(dbm.SoilManagementEvent)
+   973→        .where(dbm.SoilManagementEvent.field_id == field.id)
+   974→        .order_by(dbm.SoilManagementEvent.event_date.desc())
+   975→        .limit(100)
+   976→    ).all()
+   977→    return {
+   978→        "field_id": str(field.id),
+   979→        "items": [
+   980→            {
+   981→                "id": str(e.id), "event_date": e.event_date.isoformat(),
+   982→                "event_type": e.event_type, "title": e.title, "details": e.details,
+   983→            }
+   984→            for e in rows
+   985→        ],
+   986→    }
+   987→
+   988→
+   989→@router.post("/fields/{field_id}/soil-assessments", status_code=status.HTTP_201_CREATED)
+   990→def create_soil_assessment(
+   991→    field_id: uuid.UUID,
+   992→    body: dict[str, Any],
+   993→    principal: Any = Depends(get_principal),
+   994→    db: Session = Depends(get_db),
+   995→) -> dict:
+   996→    field = get_field_for_principal(db, principal, field_id)
+   997→    idempotency_key = body.get("idempotency_key")
+   998→    if idempotency_key:
+   999→        existing = db.scalar(
+  1000→            select(dbm.SoilAssessmentRun).where(
+  1001→                dbm.SoilAssessmentRun.idempotency_key == idempotency_key,
+  1002→                dbm.SoilAssessmentRun.field_id == field.id,
+  1003→            )
+  1004→        )
+  1005→        if existing is not None:
+  1006→            return _assessment_payload(existing)
+  1007→    measurements = [
+  1008→        soil_service.measurement_payload(m) for m in soil_service.list_measurements(db, field.id)
+  1009→    ]
+  1010→    run = dbm.SoilAssessmentRun(
+  1011→        field_id=field.id,
+  1012→        status="running",
+  1013→        label=str(body.get("label") or "Soil assessment")[:120],
+  1014→        engine_version=sc.SOIL_ENGINE_VERSION,
+  1015→        methods_version=sc.SOIL_METHODS_VERSION,
+  1016→        request_parameters=dict(body.get("request_parameters") or {}),
+  1017→        idempotency_key=idempotency_key,
+  1018→    )
+  1019→    db.add(run)
+  1020→    db.flush()
+  1021→    result = assessment_mod.assess_domains(measurements, field_id=str(field.id))
+  1022→    run.status = "succeeded"
+  1023→    run.result = result
+  1024→    run.checksum_sha256 = assessment_mod.assessment_checksum(result)
+  1025→    db.flush()
+  1026→    db.commit()
+  1027→    db.refresh(run)
+  1028→    return _assessment_payload(run)
+  1029→
+  1030→
+  1031→def _assessment_payload(run: dbm.SoilAssessmentRun) -> dict:
+  1032→    return {
+  1033→        "id": str(run.id),
+  1034→        "field_id": str(run.field_id),
+  1035→        "status": run.status,
+  1036→        "label": run.label,
+  1037→        "engine_version": run.engine_version,
+  1038→        "checksum_sha256": run.checksum_sha256,
+  1039→        "result": run.result,
+  1040→    }
+  1041→
+  1042→
+  1043→@router.get("/soil-assessments/{assessment_id}")
+  1044→def get_soil_assessment(
+  1045→    assessment_id: uuid.UUID,
+  1046→    principal: Any = Depends(get_principal),
+  1047→    db: Session = Depends(get_db),
+  1048→) -> dict:
+  1049→    run = db.get(dbm.SoilAssessmentRun, assessment_id)
+  1050→    if run is None:
+  1051→        raise NotFound("Soil assessment not found.")
+  1052→    get_field_for_principal(db, principal, run.field_id)
+  1053→    return _assessment_payload(run)
+  1054→

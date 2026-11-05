@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import re
+import uuid
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
@@ -92,11 +93,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
         {"id": str(m.organization_id), "role": m.role_code, "status": m.status}
         for m in db.query(Membership).filter(Membership.user_id == user.id).all()
     ]
+    # Primary organization object for clients that read `organization.name`
+    # (same shape as the register response; None only when the account has
+    # no memberships at all).
+    organization: dict[str, str] | None = None
+    if memberships:
+        org_row = db.get(Organization, uuid.UUID(memberships[0]["id"]))
+        if org_row is not None:
+            organization = {"id": str(org_row.id), "name": org_row.name}
     return {
         "token": token,
         "token_type": "bearer",
         "expires_at": expires_at.isoformat(),
         "user": {"id": str(user.id), "email": user.email, "display_name": user.display_name},
+        "organization": organization,
         "organizations": memberships,
     }
 

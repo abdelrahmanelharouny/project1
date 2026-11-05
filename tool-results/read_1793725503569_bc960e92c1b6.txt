@@ -1,0 +1,953 @@
+     1→"""M6C practice knowledge seed pack — management practices & operation templates.
+     2→
+     3→HONESTY CONTRACT (docs/m6c/M6C_GAP_ANALYSIS.md §13, spec §3):
+     4→
+     5→- Every mechanism / requirement / trade-off / risk claim cites one of this
+     6→  pack's sources; nothing is invented and NOTHING numeric ships here:
+     7→  no seeding rates, no termination lead times, no machinery capacities,
+     8→  no cover percentages, no thresholds. Numbers can only enter through
+     9→  region-scoped, versioned pack updates with their own provenance.
+    10→- All rows are validation_status="reference" — nothing here is
+    11→  confirmed_regional, so no practice becomes a hard recommendation until a
+    12→  local agronomist review upgrades it (the M5/M6A gating is inherited).
+    13→- Trade-offs are deliberately two-sided: every practice carries at least one
+    14→  negative or context-dependent dimension, because no practice is universally
+    15→  beneficial (spec non-negotiable 5).
+    16→- Mechanism claims are qualitative process statements consistent with the
+    17→  cited source's own wording (FAO conservation-agriculture pages, USDA NRCS
+    18→  practice standard & technical sheets, the National Agronomy Manual, and the
+    19→  RUSLE2 scope statements). Regional applicability is declared only where the
+    20→  source itself scopes the claim (the NRCS documents scope themselves to the
+    21→  US; the FAO pages are global-qualitative).
+    22→- Sources were fetched and read during M6C Increment 1 (see
+    23→  docs/m6c/M6C_GAP_ANALYSIS.md §11); wording here paraphrases their content
+    24→  without adding quantities the sources do not state.
+    25→"""
+    26→
+    27→from typing import Any
+    28→
+    29→PACK_CODE = "kp-m6c-practices"
+    30→PACK_VERSION = "kp-m6c-practices-2026.11.1"
+    31→
+    32→# Source keys
+    33→_FAOCAP = "fao_ca_principles"
+    34→_FAOCOV = "fao_ca_soil_cover"
+    35→_FAHOW = "fao_ca_how"
+    36→_AC340 = "nrcs_ac340"
+    37→_TERM = "nrcs_termination_fs"
+    38→_RESH = "nrcs_residue_harvest"
+    39→_NAM = "nrcs_nam_water_erosion"
+    40→_RUSLE = "rusle2_scope"
+    41→_ASABE = "asabe_scheduling_2024"
+    42→
+    43→EVIDENCE_PUBLISHED = "published_reference"
+    44→
+    45→
+    46→def _mech(code, text, source, *, confidence="moderate", conditions=None):
+    47→    row = {
+    48→        "mechanism_code": code,
+    49→        "text": text,
+    50→        "source_key": source,
+    51→        "evidence_class": EVIDENCE_PUBLISHED,
+    52→        "confidence": confidence,
+    53→    }
+    54→    if conditions:
+    55→        row["conditions"] = conditions
+    56→    return row
+    57→
+    58→
+    59→def _req(code, kind, text, source, *, confidence="moderate"):
+    60→    return {
+    61→        "requirement_code": code,
+    62→        "kind": kind,
+    63→        "text": text,
+    64→        "source_key": source,
+    65→        "evidence_class": EVIDENCE_PUBLISHED,
+    66→        "confidence": confidence,
+    67→    }
+    68→
+    69→
+    70→def _to(dimension, direction, text, source, *, confidence="moderate", conditions=None):
+    71→    row = {
+    72→        "dimension": dimension,
+    73→        "direction": direction,
+    74→        "text": text,
+    75→        "source_key": source,
+    76→        "evidence_class": EVIDENCE_PUBLISHED,
+    77→        "confidence": confidence,
+    78→    }
+    79→    if conditions:
+    80→        row["conditions"] = conditions
+    81→    return row
+    82→
+    83→
+    84→def _risk(code, text, source, *, confidence="moderate", conditions=None):
+    85→    row = {
+    86→        "risk_code": code,
+    87→        "text": text,
+    88→        "source_key": source,
+    89→        "evidence_class": EVIDENCE_PUBLISHED,
+    90→        "confidence": confidence,
+    91→    }
+    92→    if conditions:
+    93→        row["conditions"] = conditions
+    94→    return row
+    95→
+    96→
+    97→_SOURCES = [
+    98→    {
+    99→        "source_key": _FAOCAP,
+   100→        "publisher": "FAO",
+   101→        "title": "Conservation Agriculture — principles (minimum soil disturbance, permanent soil cover, species diversification)",
+   102→        "url": "https://www.fao.org/conservation-agriculture/en/",
+   103→        "license": "FAO web content — citation",
+   104→        "citation_text": (
+   105→            "Food and Agriculture Organization of the United Nations. "
+   106→            "Conservation Agriculture principles. Accessed 2026-10-31."
+   107→        ),
+   108→    },
+   109→    {
+   110→        "source_key": _FAOCOV,
+   111→        "publisher": "FAO",
+   112→        "title": "Soil Organic Cover in Conservation Agriculture",
+   113→        "url": "https://www.fao.org/conservation-agriculture/in-practice/soil-organic-cover/en/",
+   114→        "license": "FAO web content — citation",
+   115→        "citation_text": (
+   116→            "Food and Agriculture Organization of the United Nations. "
+   117→            "Soil Organic Cover in Conservation Agriculture. Accessed 2026-10-31."
+   118→        ),
+   119→    },
+   120→    {
+   121→        "source_key": _FAHOW,
+   122→        "publisher": "FAO",
+   123→        "title": "How to Practice Conservation Agriculture (cropping-cycle operations framing)",
+   124→        "url": "https://www.fao.org/agriculture/crops/thematic-sitemap/theme/spi/scpi-home/managing-ecosystems/conservation-agriculture/ca-how/en/",
+   125→        "license": "FAO web content — citation",
+   126→        "citation_text": (
+   127→            "Food and Agriculture Organization of the United Nations. "
+   128→            "How to Practice Conservation Agriculture. Accessed 2026-10-31."
+   129→        ),
+   130→    },
+   131→    {
+   132→        "source_key": _AC340,
+   133→        "publisher": "USDA NRCS",
+   134→        "title": "Cover Crop Conservation Practice Standard (Code 340)",
+   135→        "url": "https://www.nrcs.usda.gov/resources/guides-and-instructions/cover-crop-ac-340-conservation-practice-standard",
+   136→        "license": "Public domain (US Government)",
+   137→        "citation_text": (
+   138→            "USDA Natural Resources Conservation Service. Cover Crop (Ac.) "
+   139→            "Conservation Practice Standard 340. Accessed 2026-10-31."
+   140→        ),
+   141→    },
+   142→    {
+   143→        "source_key": _TERM,
+   144→        "publisher": "USDA NRCS",
+   145→        "title": "Cover Crop Termination technical sheet",
+   146→        "url": "https://www.nrcs.usda.gov/sites/default/files/2025-04/Cover_Crop_Termination-FS_0.pdf",
+   147→        "license": "Public domain (US Government)",
+   148→        "citation_text": (
+   149→            "USDA Natural Resources Conservation Service. Cover Crop "
+   150→            "Termination fact sheet (2025). Accessed 2026-10-31."
+   151→        ),
+   152→    },
+   153→    {
+   154→        "source_key": _RESH,
+   155→        "publisher": "USDA NRCS",
+   156→        "title": "Harvesting Crop Residue (2016)",
+   157→        "url": "https://www.nrcs.usda.gov/sites/default/files/2024-10/HarvestingCropResidueOctober2016.pdf",
+   158→        "license": "Public domain (US Government)",
+   159→        "citation_text": (
+   160→            "USDA Natural Resources Conservation Service. Harvesting Crop "
+   161→            "Residue (October 2016). Accessed 2026-10-31."
+   162→        ),
+   163→    },
+   164→    {
+   165→        "source_key": _NAM,
+   166→        "publisher": "USDA NRCS",
+   167→        "title": "National Agronomy Manual — water erosion & residue effects (190-V-NAM, amend. 5, 2022 PDF edition)",
+   168→        "url": "https://www.nrcs.usda.gov/sites/default/files/2022-10/National-Agronomy-Manual.pdf",
+   169→        "license": "Public domain (US Government)",
+   170→        "citation_text": (
+   171→            "USDA Natural Resources Conservation Service. National Agronomy "
+   172→            "Manual, water erosion chapters. Accessed 2026-10-31."
+   173→        ),
+   174→    },
+   175→    {
+   176→        "source_key": _RUSLE,
+   177→        "publisher": "USDA NRCS / USDA ARS",
+   178→        "title": "RUSLE2 technology and scope (water-erosion tool for sheet & rill processes; factor definitions)",
+   179→        "url": "https://www.nrcs.usda.gov/resources/tech-tools/water-erosion-rusle2",
+   180→        "license": "Public domain (US Government)",
+   181→        "citation_text": (
+   182→            "USDA NRCS RUSLE2 water-erosion technology page and USDA ARS "
+   183→            "RUSLE2 definitions. Accessed 2026-10-31."
+   184→        ),
+   185→    },
+   186→    {
+   187→        "source_key": _ASABE,
+   188→        "publisher": "ASABE",
+   189→        "title": "Scheduling of Robotics or Machinery Operations in Agricultural Fields: A Review (2024)",
+   190→        "url": "https://elibrary.asabe.org/abstract.asp?aid=54815",
+   191→        "license": "ASABE — citation",
+   192→        "citation_text": (
+   193→            "American Society of Agricultural and Biological Engineers. "
+   194→            "Scheduling of Robotics or Machinery Operations in Agricultural "
+   195→            "Fields: A Review (2024). Accessed 2026-10-31."
+   196→        ),
+   197→    },
+   198→]
+   199→
+   200→
+   201→def _practice(code, family, name, description, *, mechanisms, requirements,
+   202→              trade_offs, risks, regional=None, validation="reference"):
+   203→    return {
+   204→        "practice_code": code,
+   205→        "practice_family": family,
+   206→        "name": name,
+   207→        "description": description,
+   208→        "validation_status": validation,
+   209→        "mechanisms": mechanisms,
+   210→        "requirements": requirements,
+   211→        "trade_offs": trade_offs,
+   212→        "risks": risks,
+   213→        "regional_applicability": regional or [],
+   214→    }
+   215→
+   216→
+   217→_US_SCOPED = [{
+   218→    "region_code": "US",
+   219→    "basis": "source document is a USDA NRCS standard/manual scoped to US practice",
+   220→    "source_key": _AC340,
+   221→    "validation_status": "reference",
+   222→}]
+   223→
+   224→
+   225→def get_m6c_practices_pack() -> dict[str, Any]:
+   226→    """The bundled M6C practice knowledge pack as an importable payload."""
+   227→    practices = [
+   228→        _practice(
+   229→            "cover_cropping", "cover_crop",
+   230→            "Cover cropping",
+   231→            "Growing a non-cash crop primarily to protect and improve the soil "
+   232→            "between main crops; benefits and risks are context-specific.",
+   233→            mechanisms=[
+   234→                _mech("soil_protection", "A living cover protects the soil surface "
+   235→                      "between main crops — FAO lists permanent soil organic cover "
+   236→                      "among its conservation-agriculture principles.", _FAOCAP),
+   237→                _mech("organic_input", "Cover vegetation adds plant material to the "
+   238→                      "soil; FAO's soil-organic-cover guidance describes cover crops "
+   239→                      "as a source of organic matter for soil biology.", _FAOCOV,
+   240→                      conditions={"context": "magnitude depends on species, biomass and management"}),
+   241→                _mech("erosion_reduction", "USDA NRCS Code 340 lists reducing erosion "
+   242→                      "from wind and water among the standard's stated purposes.", _AC340),
+   243→                _mech("nitrogen_fixation", "Where the cover species is a legume grown "
+   244→                      "under suitable conditions, the cover can add biologically fixed "
+   245→                      "nitrogen; NRCS cover-crop guidance treats this as species- and "
+   246→                      "management-dependent.", _AC340,
+   247→                      confidence="low",
+   248→                      conditions={"requirement": "legume species; inoculation, biomass and termination management suitable"}),
+   249→                _mech("weed_suppression", "NRCS Code 340 lists weed suppression among "
+   250→                      "the purposes a cover crop may serve.", _AC340, confidence="low"),
+   251→            ],
+   252→            requirements=[
+   253→                _req("sowing_window", "window", "A locally valid sowing window with "
+   254→                     "enough season length for establishment before adverse conditions.",
+   255→                     _AC340),
+   256→                _req("seed", "seed", "Seed of a species suited to the local context "
+   257→                     "(NRCS guidance requires species adaptation criteria to be met).",
+   258→                     _AC340),
+   259→                _req("termination_plan", "knowledge", "A termination approach suited to "
+   260→                     "the species, the following crop and local conditions.", _TERM),
+   261→                _req("termination_capability", "equipment", "Equipment, livestock or "
+   262→                     "labor able to execute the chosen termination method.", _TERM),
+   263→            ],
+   264→            trade_offs=[
+   265→                _to("soil_cover", "positive",
+   266→                    "Extends the period with living protective cover beyond the main "
+   267→                    "crop season.", _FAOCAP),
+   268→                _to("erosion_protection", "positive",
+   269→                    "Living cover during the off-season addresses the erosion purposes "
+   270→                    "named in NRCS Code 340.", _AC340),
+   271→                _to("water_demand", "negative",
+   272→                    "A growing cover crop consumes water; NRCS termination guidance "
+   273→                    "treats soil-moisture depletion before the following crop as a "
+   274→                    "central termination-timing consideration.", _TERM,
+   275→                    confidence="moderate"),
+   276→                _to("water_demand", "positive",
+   277→                    "Cover and residues can reduce evaporation from the soil surface; "
+   278→                    "FAO soil-organic-cover guidance notes moisture moderation under "
+   279→                    "cover.", _FAOCOV, confidence="low",
+   280→                    conditions={"context": "net effect is location- and season-specific"}),
+   281→                _to("crop_establishment", "context_dependent",
+   282→                    "Termination timing trades cover-crop biomass against water and "
+   283→                    "seedbed conditions for the following crop.", _TERM),
+   284→                _to("machinery", "negative",
+   285→                    "Adds establishment and termination operations that need equipment "
+   286→                    "time.", _ASABE, confidence="low"),
+   287→                _to("cost", "negative",
+   288→                    "Seed and extra field operations are costs NRCS planners weigh "
+   289→                    "against the practice's purposes.", _AC340, confidence="low"),
+   290→            ],
+   291→            risks=[
+   292→                _risk("water_depletion", "A cover that grows too long into the "
+   293→                      "pre-planting period can deplete root-zone water needed by the "
+   294→                      "following crop; NRCS termination guidance frames termination "
+   295→                      "timing around this trade-off.", _TERM),
+   296→                _risk("regrowth_seed_set", "Termination that is too late or ineffective "
+   297→                      "can allow regrowth or seed set, turning the cover into a weed "
+   298→                      "problem for the following crop.", _TERM, confidence="low"),
+   299→                _risk("pest_bridge", "A living cover can act as a host or green bridge "
+   300→                      "for pests or diseases of the following crop in some crop "
+   301→                      "sequences; NRCS planning guidance treats pest considerations as "
+   302→                      "site- and rotation-specific.", _AC340, confidence="low"),
+   303→            ],
+   304→            regional=_US_SCOPED,
+   305→        ),
+   306→        _practice(
+   307→            "residue_retention", "residue",
+   308→            "Surface residue retention",
+   309→            "Leaving crop residue on the soil surface after harvest instead of "
+   310→            "removing, burning or burying it.",
+   311→            mechanisms=[
+   312→                _mech("detachment_protection", "Surface residue intercepts raindrops "
+   313→                      "and slows runoff; the National Agronomy Manual's water-erosion "
+   314→                      "material describes residue cover as reducing soil detachment.",
+   315→                      _NAM),
+   316→                _mech("moisture_moderation", "Residue cover moderates surface "
+   317→                      "conditions; FAO's soil-organic-cover guidance describes mulch/cover "
+   318→                      "effects on evaporation and temperature.", _FAOCOV,
+   319→                      confidence="low"),
+   320→                _mech("organic_input", "Retained residue is an organic-matter input; "
+   321→                      "FAO conservation-agriculture guidance treats crop residues as the "
+   322→                      "soil-cover resource.", _FAOCAP),
+   323→            ],
+   324→            requirements=[
+   325→                _req("retention_decision", "knowledge", "A harvest-time decision to "
+   326→                     "leave residue in place, with spreading/management so planter "
+   327→                     "performance is not compromised.", _RESH),
+   328→                _req("planter_residue_capability", "equipment", "Planting equipment "
+   329→                     "able to operate through surface residue, where amounts warrant "
+   330→                     "it.", _RESH, confidence="low"),
+   331→            ],
+   332→            trade_offs=[
+   333→                _to("erosion_protection", "positive",
+   334→                    "Residue cover is the erosion-protective factor the National "
+   335→                    "Agronomy Manual's water-erosion guidance builds on.", _NAM),
+   336→                _to("soil_cover", "positive",
+   337→                    "Retained residue maintains protective cover after harvest.",
+   338→                    _FAOCAP),
+   339→                _to("nutrient_cycling", "positive",
+   340→                    "Retained residue keeps the nutrients it contains in the field as "
+   341→                    "it decomposes; the NRCS residue-harvesting note describes the "
+   342→                    "nutrient value of residue.", _RESH),
+   343→                _to("crop_establishment", "context_dependent",
+   344→                    "Heavy surface residue can interfere with planting; the NRCS "
+   345→                    "residue note discusses management to avoid establishment "
+   346→                    "problems.", _RESH, confidence="low"),
+   347→                _to("machinery", "context_dependent",
+   348→                    "Handling residue may require equipment configuration changes.",
+   349→                    _RESH, confidence="low"),
+   350→            ],
+   351→            risks=[
+   352→                _risk("cool_wet_conditions", "In cool or wet settings a thick residue "
+   353→                      "layer can keep the seedbed cold and wet longer; NRCS residue "
+   354→                      "guidance notes residue effects on soil conditions vary by "
+   355→                      "climate and soil.", _RESH, confidence="low"),
+   356→                _risk("pest_carryover", "Residue can carry over some residue-borne "
+   357→                      "disease and pest contexts; effects are rotation- and "
+   358→                      "pathogen-specific and are not generalized here.", _NAM,
+   359→                      confidence="low"),
+   360→            ],
+   361→            regional=_US_SCOPED,
+   362→        ),
+   363→        _practice(
+   364→            "residue_removal_baling", "residue",
+   365→            "Residue removal / baling",
+   366→            "Collecting and exporting residue (e.g. as baled feed or feedstock) "
+   367→            "after harvest.",
+   368→            mechanisms=[
+   369→                _mech("harvested_value", "Baling turns residue into a marketable or "
+   370→                      "on-farm feed resource; the NRCS residue-harvesting note treats "
+   371→                      "removal as a deliberate use of the residue.", _RESH),
+   372→                _mech("seedbed_clearance", "Removing residue clears the surface for "
+   373→                      "subsequent operations where residue amounts interfere with "
+   374→                      "them.", _RESH, confidence="low"),
+   375→            ],
+   376→            requirements=[
+   377→                _req("baling_equipment", "equipment", "Baling/hauling equipment or a "
+   378→                     "contractor able to collect and remove the residue.", _RESH),
+   379→                _req("removal_plan", "knowledge", "A removal level planned against "
+   380→                     "soil-productivity considerations (the NRCS note treats removal "
+   381→                     "rate as the central management decision).", _RESH),
+   382→            ],
+   383→            trade_offs=[
+   384→                _to("revenue", "positive",
+   385→                    "Removed residue can be sold or fed; the NRCS note frames residue "
+   386→                    "as a harvestable resource with value.", _RESH, confidence="low"),
+   387→                _to("erosion_protection", "negative",
+   388→                    "Removing residue removes the surface protection it provided; the "
+   389→                    "NRCS note links removal to increased erosion exposure.", _RESH),
+   390→                _to("nutrient_cycling", "negative",
+   391→                    "Removed residue exports the nutrients it contains; the NRCS note "
+   392→                    "describes nutrient removal with baling.", _RESH),
+   393→                _to("soil_organic_matter", "negative",
+   394→                    "Removal also removes the carbon input the residue would have "
+   395→                    "provided (the NRCS note discusses long-term productivity "
+   396→                    "effects).", _RESH),
+   397→            ],
+   398→            risks=[
+   399→                _risk("productivity_decline", "Sustained, unaccounted residue removal "
+   400→                      "can reduce soil productivity — the central caution of the NRCS "
+   401→                      "residue-harvesting note.", _RESH),
+   402→            ],
+   403→            regional=_US_SCOPED,
+   404→        ),
+   405→        _practice(
+   406→            "residue_incorporation", "residue",
+   407→            "Residue incorporation",
+   408→            "Mixing or ploughing residue into the soil instead of leaving it on "
+   409→            "the surface.",
+   410→            mechanisms=[
+   411→                _mech("decomposition_contact", "Incorporation mixes residue into the "
+   412→                      "topsoil where moisture and biological contact speed "
+   413→                      "decomposition; FAO's CA material contrasts incorporation with "
+   414→                      "surface retention.", _FAOCOV, confidence="low"),
+   415→                _mech("nutrient_return", "Decomposed incorporated residue returns its "
+   416→                      "nutrients within the topsoil.", _FAOCOV, confidence="low"),
+   417→            ],
+   418→            requirements=[
+   419→                _req("tillage_pass", "equipment", "A tillage implement able to mix the "
+   420→                     "residue to the intended depth.", _FAHOW),
+   421→            ],
+   422→            trade_offs=[
+   423→                _to("nutrient_cycling", "positive",
+   424→                    "Nutrients in the residue are returned to the soil (as with "
+   425→                    "retention, the fate differs).", _FAOCOV, confidence="low"),
+   426→                _to("soil_cover", "negative",
+   427→                    "Incorporation removes the surface cover; FAO's "
+   428→                    "conservation-agriculture principle of permanent soil organic "
+   429→                    "cover argues for surface retention.", _FAOCAP),
+   430→                _to("erosion_protection", "negative",
+   431→                    "Without surface residue, raindrop detachment protection is lost "
+   432→                    "(the mechanism the National Agronomy Manual describes for "
+   433→                    "residue cover).", _NAM),
+   434→            ],
+   435→            risks=[
+   436→                _risk("exposed_period", "The interval between incorporation and next "
+   437→                      "canopy establishment is a period without the protective surface "
+   438→                      "cover the erosion guidance relies on.", _NAM, confidence="low"),
+   439→            ],
+   440→            regional=_US_SCOPED,
+   441→        ),
+   442→        _practice(
+   443→            "mulching", "soil_cover",
+   444→            "Mulching",
+   445→            "Applying protective material (crop residues, composts or other "
+   446→            "mulches) over the soil surface.",
+   447→            mechanisms=[
+   448→                _mech("surface_protection", "FAO's soil-organic-cover guidance "
+   449→                      "describes surface cover/mulch protecting the soil and feeding "
+   450→                      "soil organisms.", _FAOCOV),
+   451→                _mech("moisture_moderation", "Mulch moderates evaporation and "
+   452→                      "temperature swings at the surface (FAO cover guidance).",
+   453→                      _FAOCOV, confidence="low"),
+   454→            ],
+   455→            requirements=[
+   456→                _req("mulch_material", "other", "A mulch material source with known "
+   457→                     "provenance (its own nutrient and contaminant profile).",
+   458→                     _FAOCOV, confidence="low"),
+   459→                _req("application_labor", "labor", "Labor or equipment to apply the "
+   460→                     "mulch layer.", _FAHOW, confidence="low"),
+   461→            ],
+   462→            trade_offs=[
+   463→                _to("soil_cover", "positive", "Adds protective cover independently of "
+   464→                    "the crop cycle.", _FAOCOV),
+   465→                _to("cost", "negative", "Material and application are costs (FAO "
+   466→                    "guidance presents mulching as an input-dependent practice).",
+   467→                    _FAOCOV, confidence="low"),
+   468→                _to("crop_establishment", "context_dependent",
+   469→                    "Mulch can slow spring soil warming or interfere with direct "
+   470→                    "seeding depending on climate and crop.", _FAOCOV, confidence="low"),
+   471→            ],
+   472→            risks=[
+   473→                _risk("material_contaminants", "Off-farm mulch materials can carry "
+   474→                      "weed seeds or contaminants; FAO guidance advises attention to "
+   475→                      "mulch quality.", _FAOCOV, confidence="low"),
+   476→            ],
+   477→            regional=_US_SCOPED,
+   478→        ),
+   479→        _practice(
+   480→            "reduced_tillage", "tillage",
+   481→            "Reduced / minimum tillage",
+   482→            "Reducing the intensity or number of tillage passes, consistent with "
+   483→            "FAO's minimum-disturbance principle (where locally appropriate).",
+   484→            mechanisms=[
+   485→                _mech("disturbance_reduction", "FAO lists minimum mechanical soil "
+   486→                      "disturbance as a conservation-agriculture principle; reduced "
+   487→                      "tillage is the graded implementation of that principle.", _FAOCAP),
+   488→                _mech("cover_preservation", "Less tillage leaves more residue on the "
+   489→                      "surface, preserving the protective cover (FAO soil-cover "
+   490→                      "guidance).", _FAOCOV),
+   491→            ],
+   492→            requirements=[
+   493→                _req("suitable_equipment", "equipment", "Equipment suited to reduced- "
+   494→                      "or no-till establishment.", _FAHOW, confidence="low"),
+   495→                _req("adapted_management", "knowledge", "Weed, pest and fertility "
+   496→                      "management adapted to the changed tillage system (FAO guidance "
+   497→                      "describes CA as a system, not a single substitution).", _FAHOW),
+   498→            ],
+   499→            trade_offs=[
+   500→                _to("erosion_protection", "positive",
+   501→                    "Maintained cover and less disturbance reduce erosion exposure "
+   502→                    "(FAO principle; consistent with the National Agronomy Manual's "
+   503→                    "residue-erosion mechanism).", _FAOCAP),
+   504→                _to("soil_organic_matter", "positive",
+   505→                    "FAO's CA guidance links reduced disturbance with soil biological "
+   506→                    "activity and organic-matter conservation.", _FAOCAP,
+   507→                    confidence="low"),
+   508→                _to("crop_establishment", "context_dependent",
+   509→                    "Establishment can be harder in reduced-till systems without "
+   510→                    "adapted equipment and management.", _FAHOW, confidence="low"),
+   511→                _to("pests_diseases", "context_dependent",
+   512→                    "Pest, weed and disease dynamics change under reduced tillage and "
+   513→                    "require adapted strategies rather than being universally better "
+   514→                    "or worse.", _FAHOW, confidence="low"),
+   515→            ],
+   516→            risks=[
+   517→                _risk("transition_management", "FAO guidance stresses that CA is a "
+   518→                      "system transition; partial adoption without adapted management "
+   519→                      "may not deliver expected outcomes.", _FAHOW, confidence="low"),
+   520→            ],
+   521→            regional=_US_SCOPED,
+   522→        ),
+   523→        _practice(
+   524→            "contour_operations", "erosion_control",
+   525→            "Contour-aligned operations",
+   526→            "Conducting tillage, planting and related operations across (rather "
+   527→            "than up-and-down) the slope where water erosion is the concern.",
+   528→            mechanisms=[
+   529→                _mech("runoff_slowing", "The National Agronomy Manual's water-erosion "
+   530→                      "material and the RUSLE support-practice (P) factor treat "
+   531→                      "contour orientation as reducing runoff concentration and "
+   532→                      "transport on slopes.", _NAM, confidence="low",
+   533→                      conditions={"domain": "rainfall-driven sheet and rill processes"}),
+   534→            ],
+   535→            requirements=[
+   536→                _req("slope_context", "knowledge", "Knowledge of the field's slope "
+   537→                     "pattern; the support-practice effect is slope- and "
+   538→                     "implementation-dependent.", _RUSLE, confidence="low"),
+   539→                _req("guidance_capability", "equipment", "Guidance or marking capability "
+   540→                     "to keep passes on the contour.", _NAM, confidence="low"),
+   541→            ],
+   542→            trade_offs=[
+   543→                _to("erosion_protection", "positive",
+   544→                    "Contour operations act as a support practice against sheet and "
+   545→                    "rill erosion within RUSLE's scope.", _RUSLE, confidence="low"),
+   546→                _to("machinery", "context_dependent",
+   547→                    "Working on the contour can reduce field efficiency on complex "
+   548→                    "shapes (scheduling machinery operations across slopes is a known "
+   549→                    "planning problem).", _ASABE, confidence="low"),
+   550→            ],
+   551→            risks=[
+   552→                _risk("overflow_failure", "Where design or execution fails, contour "
+   553→                      "rows can concentrate overflow; the erosion literature treats "
+   554→                      "contouring as slope- and storm-dependent in effectiveness.",
+   555→                      _NAM, confidence="low"),
+   556→            ],
+   557→            regional=_US_SCOPED,
+   558→        ),
+   559→        _practice(
+   560→            "strip_cropping", "erosion_control",
+   561→            "Strip cropping",
+   562→            "Alternating strips of different crops or cover across the slope or "
+   563→            "along the contour.",
+   564→            mechanisms=[
+   565→                _mech("runoff_breaks", "The National Agronomy Manual's water-erosion "
+   566→                      "material includes strip cropping among practices that break "
+   567→                      "slope length and trap transported material.", _NAM,
+   568→                      confidence="low",
+   569→                      conditions={"domain": "rainfall-driven sheet and rill processes"}),
+   570→            ],
+   571→            requirements=[
+   572→                _req("strip_plan", "knowledge", "A strip layout plan consistent with "
+   573→                     "the field's slope and the farm's rotation.", _NAM, confidence="low"),
+   574→            ],
+   575→            trade_offs=[
+   576→                _to("erosion_protection", "positive",
+   577→                    "Strip cropping is a recognized support practice against sheet "
+   578→                    "and rill erosion within RUSLE's scope.", _RUSLE, confidence="low"),
+   579→                _to("machinery", "negative",
+   580→                    "Narrower strips add turns and complicate machinery scheduling "
+   581→                    "(machinery-scheduling literature treats field geometry as a "
+   582→                    "driver of non-productive time).", _ASABE, confidence="low"),
+   583→                _to("revenue", "context_dependent",
+   584→                    "Strip layout constrains crop choice per strip; economics depend "
+   585→                    "on the rotation.", _NAM, confidence="low"),
+   586→            ],
+   587→            risks=[],
+   588→            regional=_US_SCOPED,
+   589→        ),
+   590→        _practice(
+   591→            "vegetated_buffer", "erosion_control",
+   592→            "Buffer strips / vegetated barriers",
+   593→            "Permanent vegetated strips at the field edge or in-flow paths to "
+   594→            "intercept runoff and sediment leaving the cropped area.",
+   595→            mechanisms=[
+   596→                _mech("sediment_interception", "The National Agronomy Manual's "
+   597→                      "water-erosion material includes buffers/barriers among measures "
+   598→                      "that intercept flow and trap sediment.", _NAM, confidence="low"),
+   599→            ],
+   600→            requirements=[
+   601→                _req("establishment_area", "other", "Area taken out of production for "
+   602→                     "the buffer, and its establishment/maintenance.", _NAM,
+   603→                     confidence="low"),
+   604→            ],
+   605→            trade_offs=[
+   606→                _to("erosion_protection", "positive",
+   607→                    "Buffers reduce off-site transport; they complement, not replace, "
+   608→                    "in-field erosion control.", _NAM, confidence="low"),
+   609→                _to("revenue", "negative",
+   610→                    "Buffer area is removed from production.", _NAM, confidence="low"),
+   611→            ],
+   612→            risks=[
+   613→                _risk("maintenance_needs", "Buffers lose function if channels form "
+   614→                      "through them or maintenance lapses; effectiveness is "
+   615→                      "design-dependent.", _NAM, confidence="low"),
+   616→            ],
+   617→            regional=_US_SCOPED,
+   618→        ),
+   619→        _practice(
+   620→            "controlled_traffic", "traffic",
+   621→            "Controlled traffic (where supported)",
+   622→            "Confining machinery wheels to permanent lanes so the cropped bed "
+   623→            "carries fewer loads.",
+   624→            mechanisms=[
+   625→                _mech("compaction_limitation", "FAO's conservation-agriculture "
+   626→                      "material discusses controlled traffic as a complementary "
+   627→                      "measure limiting compaction of the cropped area.", _FAOCAP,
+   628→                      confidence="low"),
+   629→            ],
+   630→            requirements=[
+   631→                _req("lane_system", "other", "A lane geometry matched to machinery "
+   632→                     "widths; CA guidance treats this as system-level design.",
+   633→                     _FAOCAP, confidence="low"),
+   634→            ],
+   635→            trade_offs=[
+   636→                _to("crop_establishment", "positive",
+   637→                    "Less compaction of the root zone supports establishment and "
+   638→                    "rooting (FAO CA framing).", _FAOCAP, confidence="low"),
+   639→                _to("machinery", "context_dependent",
+   640→                    "Requires machinery-width discipline and adaptation; transition "
+   641→                    "costs exist.", _FAOCAP, confidence="low"),
+   642→            ],
+   643→            risks=[],
+   644→            regional=_US_SCOPED,
+   645→        ),
+   646→        _practice(
+   647→            "cover_termination_planning", "termination",
+   648→            "Cover-crop termination planning",
+   649→            "Choosing the termination window and method for a cover crop as an "
+   650→            "explicit decision rather than a fixed calendar rule.",
+   651→            mechanisms=[
+   652→                _mech("decision_dimensions", "NRCS termination guidance frames "
+   653→                      "termination as species-, method-, location- and cropping-system-"
+   654→                      "dependent — there is no universal termination date.", _TERM),
+   655→                _mech("water_release", "Termination stops cover water use; the "
+   656→                      "following crop's water availability depends on when and how "
+   657→                      "termination happens (NRCS termination guidance).", _TERM),
+   658→            ],
+   659→            requirements=[
+   660→                _req("method_choice", "knowledge", "A method (mechanical, chemical or "
+   661→                      "livestock-based where relevant) suited to the species and "
+   662→                      "system.", _TERM),
+   663→                _req("termination_equipment", "equipment", "Equipment/labor able to "
+   664→                     "execute the chosen method at the chosen time.", _TERM),
+   665→            ],
+   666→            trade_offs=[
+   667→                _to("water_demand", "context_dependent",
+   668→                    "Earlier termination conserves soil moisture for the following "
+   669→                    "crop; later termination builds more biomass — NRCS presents this "
+   670→                    "as the core timing trade-off.", _TERM),
+   671→                _to("soil_organic_matter", "context_dependent",
+   672→                    "Longer growth yields more biomass/organic input; the timing "
+   673→                    "decision balances that against the following crop.", _TERM,
+   674→                    confidence="low"),
+   675→                _to("crop_establishment", "context_dependent",
+   676→                    "Termination-to-planting sequencing affects seedbed conditions; "
+   677→                    "NRCS treats the interval as system-specific.", _TERM,
+   678→                    confidence="low"),
+   679→            ],
+   680→            risks=[
+   681→                _risk("late_termination", "Late or incomplete termination risks "
+   682→                      "regrowth, seed set and soil-moisture depletion (NRCS "
+   683→                      "termination guidance).", _TERM),
+   684→            ],
+   685→            regional=_US_SCOPED,
+   686→        ),
+   687→        _practice(
+   688→            "field_access_management", "traffic",
+   689→            "Field access & traffic management",
+   690→            "Planning when and where machines enter the field so operations avoid "
+   691→            "avoidable compaction and rutting.",
+   692→            mechanisms=[
+   693→                _mech("load_avoidance", "Avoiding traffic on wet, low-strength soil "
+   694→                      "limits compaction and rutting; the compaction mechanism is the "
+   695→                      "reason scheduling systems treat field condition as a constraint "
+   696→                      "(machinery-scheduling literature; National Agronomy Manual "
+   697→                      "discusses soil-condition constraints on operations).", _ASABE,
+   698→                      confidence="low"),
+   699→            ],
+   700→            requirements=[
+   701→                _req("readiness_check", "knowledge", "A field-readiness assessment "
+   702→                     "before entry — in this platform it is a manual check because "
+   703→                     "trafficability thresholds are not universal (spec §8.5).",
+   704→                     _ASABE, confidence="low"),
+   705→                _req("access_alternatives", "other", "Alternative access or timing "
+   706→                     "options when the field is not ready.", _ASABE, confidence="low"),
+   707→            ],
+   708→            trade_offs=[
+   709→                _to("crop_establishment", "positive",
+   710→                    "Avoiding wet-soil traffic preserves seedbed structure.",
+   711→                    _ASABE, confidence="low"),
+   712→                _to("labor", "context_dependent",
+   713→                    "Waiting for field readiness delays operations and complicates "
+   714→                    "scheduling (a core tension in machinery-scheduling research).",
+   715→                    _ASABE, confidence="low"),
+   716→            ],
+   717→            risks=[
+   718→                _risk("timeliness_pressure", "Schedule pressure can push operations "
+   719→                      "onto unready fields; the scheduler must surface the conflict "
+   720→                      "rather than absorb it.", _ASABE, confidence="low"),
+   721→            ],
+   722→            regional=_US_SCOPED,
+   723→        ),
+   724→    ]
+   725→
+   726→    templates = [
+   727→        {
+   728→            "template_code": "op_harvest",
+   729→            "operation_type": "harvest",
+   730→            "name": "Harvest",
+   731→            "description": "Harvest the main crop; the operation that ends the "
+   732→                           "cropping cycle and makes residue available.",
+   733→            "applies_to_crop_categories": ["cereal", "legume", "oilseed", "vegetable", "fiber"],
+   734→            "applies_to_crop_codes": [],
+   735→            "typical_predecessors": [],
+   736→            "restriction_kinds": ["weather", "access"],
+   737→            "notes": "Sequence framing follows the FAO cropping-cycle description; "
+   738→                     "no duration or capacity is implied.",
+   739→        },
+   740→        {
+   741→            "template_code": "op_residue_chop_spread",
+   742→            "operation_type": "residue_management",
+   743→            "name": "Residue chopping / spreading",
+   744→            "description": "Size and evenly spread harvest residue to support the "
+   745→                           "chosen residue fate.",
+   746→            "applies_to_crop_categories": ["cereal", "oilseed", "fiber"],
+   747→            "applies_to_crop_codes": [],
+   748→            "typical_predecessors": [{
+   749→                "template_code": "op_harvest",
+   750→                "rationale": "Residue handling follows harvest — the crop cycle "
+   751→                             "framing places post-harvest residue management after "
+   752→                             "the harvest operation.",
+   753→                "source_key": _FAHOW,
+   754→            }],
+   755→            "restriction_kinds": ["access"],
+   756→            "notes": None,
+   757→        },
+   758→        {
+   759→            "template_code": "op_residue_baling",
+   760→            "operation_type": "residue_management",
+   761→            "name": "Residue baling / removal",
+   762→            "description": "Collect and export residue when baling/removal is the "
+   763→                           "chosen fate (see the residue_removal_baling practice).",
+   764→            "applies_to_crop_categories": ["cereal", "oilseed", "fiber"],
+   765→            "applies_to_crop_codes": [],
+   766→            "typical_predecessors": [{
+   767→                "template_code": "op_harvest",
+   768→                "rationale": "Baling is a post-harvest operation in the cropping "
+   769→                             "cycle.",
+   770→                "source_key": _FAHOW,
+   771→            }],
+   772→            "restriction_kinds": ["access"],
+   773→            "notes": None,
+   774→        },
+   775→        {
+   776→            "template_code": "op_soil_sampling",
+   777→            "operation_type": "soil_sampling",
+   778→            "name": "Soil sampling",
+   779→            "description": "Collect soil samples for laboratory analysis (feeds the "
+   780→                           "M6B soil domain).",
+   781→            "applies_to_crop_categories": [],
+   782→            "applies_to_crop_codes": [],
+   783→            "typical_predecessors": [],
+   784→            "restriction_kinds": ["access"],
+   785→            "notes": "Often placed before fertilizer decisions; the platform does "
+   786→                     "not hard-code that ordering — it is a farmer/planner choice.",
+   787→        },
+   788→        {
+   789→            "template_code": "op_tillage_seedbed",
+   790→            "operation_type": "tillage",
+   791→            "name": "Tillage / seedbed preparation",
+   792→            "description": "Prepare the seedbed at the intensity the farmer's "
+   793→                           "tillage system implies.",
+   794→            "applies_to_crop_categories": ["cereal", "legume", "oilseed", "vegetable", "fiber"],
+   795→            "applies_to_crop_codes": [],
+   796→            "typical_predecessors": [{
+   797→                "template_code": "op_harvest",
+   798→                "rationale": "Seedbed preparation for the next crop follows the "
+   799→                             "previous harvest in the cropping-cycle framing.",
+   800→                "source_key": _FAHOW,
+   801→            }],
+   802→            "restriction_kinds": ["soil_moisture", "access"],
+   803→            "notes": None,
+   804→        },
+   805→        {
+   806→            "template_code": "op_cover_seeding",
+   807→            "operation_type": "cover_crop_seeding",
+   808→            "name": "Cover-crop seeding",
+   809→            "description": "Sow the planned cover crop within its intended window "
+   810→                           "(see the cover_cropping practice).",
+   811→            "applies_to_crop_categories": [],
+   812→            "applies_to_crop_codes": [],
+   813→            "typical_predecessors": [{
+   814→                "template_code": "op_harvest",
+   815→                "rationale": "Cover establishment typically follows harvest of the "
+   816→                             "main crop in the cycle framing; relay/intercrop systems "
+   817→                             "are exceptions the planner must model explicitly.",
+   818→                "source_key": _FAHOW,
+   819→            }],
+   820→            "restriction_kinds": ["weather", "soil_moisture"],
+   821→            "notes": None,
+   822→        },
+   823→        {
+   824→            "template_code": "op_cover_termination",
+   825→            "operation_type": "cover_crop_termination",
+   826→            "name": "Cover-crop termination",
+   827→            "description": "Terminate the cover crop by the chosen method at the "
+   828→                           "planned window (see cover_termination_planning).",
+   829→            "applies_to_crop_categories": [],
+   830→            "applies_to_crop_codes": [],
+   831→            "typical_predecessors": [{
+   832→                "template_code": "op_cover_seeding",
+   833→                "rationale": "Termination requires an established cover crop.",
+   834→                "source_key": _TERM,
+   835→            }],
+   836→            "restriction_kinds": ["weather", "access"],
+   837→            "notes": "No fixed lead time before the next crop is implied (spec "
+   838→                     "red line).",
+   839→        },
+   840→        {
+   841→            "template_code": "op_main_planting",
+   842→            "operation_type": "planting",
+   843→            "name": "Main-crop planting",
+   844→            "description": "Plant the main crop.",
+   845→            "applies_to_crop_categories": ["cereal", "legume", "oilseed", "vegetable", "fiber"],
+   846→            "applies_to_crop_codes": [],
+   847→            "typical_predecessors": [{
+   848→                "template_code": "op_tillage_seedbed",
+   849→                "rationale": "Planting requires a prepared seedbed in the cropping-"
+   850→                             "cycle framing (reduced/no-till systems still require a "
+   851→                             "pass that performs this function).",
+   852→                "source_key": _FAHOW,
+   853→            }],
+   854→            "restriction_kinds": ["weather", "soil_moisture", "access"],
+   855→            "notes": None,
+   856→        },
+   857→        {
+   858→            "template_code": "op_fertilizer_application",
+   859→            "operation_type": "fertilizer_application",
+   860→            "name": "Fertilizer / amendment application",
+   861→            "description": "Apply planned nutrients or amendments (quantities come "
+   862→                           "from the M6B nutrient domain, never from templates).",
+   863→            "applies_to_crop_categories": ["cereal", "legume", "oilseed", "vegetable", "fiber"],
+   864→            "applies_to_crop_codes": [],
+   865→            "typical_predecessors": [],
+   866→            "restriction_kinds": ["weather", "access"],
+   867→            "notes": "Placement relative to planting is a planner decision; "
+   868→                     "templates do not impose it.",
+   869→        },
+   870→        {
+   871→            "template_code": "op_irrigation",
+   872→            "operation_type": "irrigation",
+   873→            "name": "Irrigation application",
+   874→            "description": "Apply irrigation (planned quantities link to the M6A "
+   875→                           "water ladder where a plan exists).",
+   876→            "applies_to_crop_categories": ["cereal", "legume", "oilseed", "vegetable", "fiber"],
+   877→            "applies_to_crop_codes": [],
+   878→            "typical_predecessors": [],
+   879→            "restriction_kinds": ["access"],
+   880→            "notes": None,
+   881→        },
+   882→        {
+   883→            "template_code": "op_spraying",
+   884→            "operation_type": "spraying",
+   885→            "name": "Spraying (where relevant)",
+   886→            "description": "Apply permitted crop-protection products; legality and "
+   887→                           "label constraints are farmer-side responsibilities the "
+   888→                           "platform does not validate.",
+   889→            "applies_to_crop_categories": ["cereal", "legume", "oilseed", "vegetable", "fiber"],
+   890→            "applies_to_crop_codes": [],
+   891→            "typical_predecessors": [],
+   892→            "restriction_kinds": ["weather", "access"],
+   893→            "notes": "Only emitted when the farmer plans such an operation.",
+   894→        },
+   895→        {
+   896→            "template_code": "op_post_harvest_prep",
+   897→            "operation_type": "field_preparation",
+   898→            "name": "Post-harvest field preparation",
+   899→            "description": "Field tidying/preparation after harvest (drains, "
+   900→                           "headlands, access repair).",
+   901→            "applies_to_crop_categories": ["cereal", "legume", "oilseed", "vegetable", "fiber"],
+   902→            "applies_to_crop_codes": [],
+   903→            "typical_predecessors": [{
+   904→                "template_code": "op_harvest",
+   905→                "rationale": "Post-harvest work follows harvest by definition.",
+   906→                "source_key": _FAHOW,
+   907→            }],
+   908→            "restriction_kinds": ["access"],
+   909→            "notes": None,
+   910→        },
+   911→    ]
+   912→
+   913→    return {
+   914→        "pack_code": PACK_CODE,
+   915→        "pack_version": PACK_VERSION,
+   916→        "name": "M6C Field Management Practices (seed)",
+   917→        "description": (
+   918→            "Qualitative, source-cited management practice definitions and "
+   919→            "operation templates for field management intelligence. Deliberately "
+   920→            "contains NO numeric parameters: seeding rates, termination lead "
+   921→            "times, machinery capacities, cover thresholds and erosion factors "
+   922→            "must arrive as region-scoped, versioned pack updates with their own "
+   923→            "provenance. Nothing in this pack is confirmed_regional."
+   924→        ),
+   925→        "region_scope": "global_qualitative_us_scoped_sources",
+   926→        "license_name": "Mixed: USDA NRCS public domain; FAO web content citation; ASABE citation",
+   927→        "attribution_text": (
+   928→            "Practice mechanisms and trade-offs paraphrase USDA NRCS (Cover Crop "
+   929→            "Practice Standard 340; Cover Crop Termination fact sheet 2025; "
+   930→            "Harvesting Crop Residue 2016; National Agronomy Manual; RUSLE2 "
+   931→            "technology pages), FAO conservation-agriculture web resources, and an "
+   932→            "ASABE 2024 machinery-scheduling review. See per-source citations."
+   933→        ),
+   934→        "license_notes": (
+   935→            "USDA NRCS materials are US Government public domain. FAO web content "
+   936→            "is cited per FAO reuse policy. ASABE abstract metadata is cited, not "
+   937→            "reproduced. This pack carries qualitative claims only."
+   938→        ),
+   939→        "digitization_note": (
+   940→            "Claims paraphrase the cited documents' content as read on 2026-10-31 "
+   941→            "during M6C Increment 1 (docs/m6c/M6C_GAP_ANALYSIS.md §11). Paraphrase "
+   942→            "is conservative: no quantity, threshold or date appears in this pack. "
+   943→            "US-scoped applicability is declared because the NRCS sources scope "
+   944→            "themselves to US practice."
+   945→        ),
+   946→        "sources": _SOURCES,
+   947→        "families": [],
+   948→        "crops": [],
+   949→        "rotation_rules": [],
+   950→        "practices": practices,
+   951→        "operation_templates": templates,
+   952→    }
+   953→

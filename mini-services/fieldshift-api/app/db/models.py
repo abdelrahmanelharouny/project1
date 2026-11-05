@@ -1119,9 +1119,11 @@ class FieldState(Base, TimestampMixin):
     effect, a temporal reference period, the resolved environmental feature
     run (+ a verbatim copy of its observation manifest), an optional water
     plan and rotation run, the resolved knowledge pack set, and crop history
-    ids as of the reference time. Soil (M6B) and management (M6C) domains do
-    not exist in this repository and are represented explicitly as
-    `not_implemented` in `domain_availability` — never fabricated.
+    ids as of the reference time. Soil (M6B) and management (M6C) are
+    integrated as data domains but are NOT pinned by field states: they are
+    represented explicitly as `not_implemented` in `domain_availability`
+    (with reasons), and their run-artifact integrity is censused by the M7.7
+    digital twin — never fabricated.
 
     Recomputation creates a NEW row; nothing is rewritten (same immutability
     contract as water plans).
@@ -1359,3 +1361,11 @@ class ScenarioValidationRecord(Base):
             name="ck_scenario_validation_status",
         ),
     )
+
+
+# M6B (soil), M6C (field management) and M7.3–M7.7 models are reconstructed 1:1
+# from migrations 0007_soil_intelligence … 0013_digital_twin and re-exported
+# here so that `from app.db import models as dbm` exposes the full registry on
+# a single declarative Base (see app/db/models_m6bc_m7.py).
+from app.db.models_m6bc_m7 import *  # noqa: E402,F401,F403
+from app.db.models_m6bc_m7 import __all__ as _M6BC_M7_ALL  # noqa: E402,F401

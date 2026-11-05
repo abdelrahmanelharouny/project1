@@ -1,0 +1,1242 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Management workspace (M6C): cover crops, soil cover, residue, erosion
+     5→ * screening and operations planning — one tab, six sub-views, Simple/Expert.
+     6→ *
+     7→ * Honesty rules mirrored from the backend:
+     8→ * - missing data is shown as missing ("—", "not evaluated") — never zero
+     9→ * - SYNTHETIC warnings surface wherever the evidence run is synthetic
+    10→ * - statuses render with colour AND text (accessibility)
+    11→ * - nothing here silently relaxes a backend refusal
+    12→ */
+    13→
+    14→import { useMemo, useState } from 'react'
+    15→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+    16→import {
+    17→  CalendarDays,
+    18→  Layers,
+    19→  Leaf,
+    20→  Mountain,
+    21→  Recycle,
+    22→  ShieldAlert,
+    23→  Sprout,
+    24→} from 'lucide-react'
+    25→import {
+    26→  Accordion,
+    27→  AccordionContent,
+    28→  AccordionItem,
+    29→  AccordionTrigger,
+    30→} from '@/components/ui/accordion'
+    31→import { Badge } from '@/components/ui/badge'
+    32→import { Button } from '@/components/ui/button'
+    33→import {
+    34→  Card,
+    35→  CardContent,
+    36→  CardDescription,
+    37→  CardHeader,
+    38→  CardTitle,
+    39→} from '@/components/ui/card'
+    40→import { Input } from '@/components/ui/input'
+    41→import { Label } from '@/components/ui/label'
+    42→import {
+    43→  Select,
+    44→  SelectContent,
+    45→  SelectItem,
+    46→  SelectTrigger,
+    47→  SelectValue,
+    48→} from '@/components/ui/select'
+    49→import { Separator } from '@/components/ui/separator'
+    50→import { Skeleton } from '@/components/ui/skeleton'
+    51→import { Switch } from '@/components/ui/switch'
+    52→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    53→import { FieldPicker } from '@/components/fieldshift/field-picker'
+    54→import { SyntheticBadge } from '@/components/fieldshift/badges'
+    55→import { useFieldShiftUi } from '@/lib/store'
+    56→import { describeError } from '@/lib/api'
+    57→import {
+    58→  createCoverCropPlan,
+    59→  createCoverCropPlanItem,
+    60→  createCoverObservation,
+    61→  createErosionAssessment,
+    62→  createFarmResource,
+    63→  createManagementPlan,
+    64→  createResidueFlow,
+    65→  createResidueRecord,
+    66→  createScheduleRun,
+    67→  generateOperations,
+    68→  getCoverTimeline,
+    69→  getResidueLedger,
+    70→  listCoverCropPlanItems,
+    71→  listCoverCropPlans,
+    72→  listFarmResources,
+    73→  listFieldOperations,
+    74→  listManagementPractices,
+    75→  listOperationTemplates,
+    76→  patchOperation,
+    77→} from '@/lib/api'
+    78→import type {
+    79→  CoverCandidate,
+    80→  CoverMetrics,
+    81→  CoverTimelineResponse,
+    82→  ErosionRun,
+    83→  ManagementPlan,
+    84→  ResidueLedgerResponse,
+    85→  ScheduleRun,
+    86→} from '@/lib/types'
+    87→
+    88→// ---------------------------------------------------------------- helpers
+    89→
+    90→function today(): string {
+    91→  return new Date().toISOString().slice(0, 10)
+    92→}
+    93→
+    94→function daysAgo(n: number): string {
+    95→  const d = new Date()
+    96→  d.setDate(d.getDate() - n)
+    97→  return d.toISOString().slice(0, 10)
+    98→}
+    99→
+   100→function StatusBadge({ status }: { status: string }) {
+   101→  const tone =
+   102→    status === 'eligible' || status === 'evaluated' || status === 'succeeded' || status === 'scheduled'
+   103→      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+   104→      : status === 'conditional'
+   105→        ? 'border-amber-200 bg-amber-50 text-amber-900'
+   106→        : status === 'excluded' || status === 'failed' || status === 'over_allocated'
+   107→          ? 'border-red-200 bg-red-50 text-red-800'
+   108→          : status === 'not_evaluated' || status === 'unknown' || status === 'unscheduled'
+   109→            ? 'border-stone-300 bg-stone-100 text-stone-600'
+   110→            : 'border-stone-200 bg-stone-50 text-stone-700'
+   111→  return (
+   112→    <Badge variant="outline" className={`px-1.5 py-0 text-[10px] ${tone}`}>
+   113→      {status.replace(/_/g, ' ')}
+   114→    </Badge>
+   115→  )
+   116→}
+   117→
+   118→function SectionStatus({ status, message }: { status: string; message?: string | null }) {
+   119→  return (
+   120→    <div className="flex flex-col gap-1">
+   121→      <StatusBadge status={status} />
+   122→      {message ? <p className="text-xs text-stone-500">{message}</p> : null}
+   123→    </div>
+   124→  )
+   125→}
+   126→
+   127→function HonestEmpty({ children }: { children: React.ReactNode }) {
+   128→  return (
+   129→    <p className="rounded-md border border-dashed border-stone-300 bg-stone-50 px-3 py-2 text-sm text-stone-500">
+   130→      {children}
+   131→    </p>
+   132→  )
+   133→}
+   134→
+   135→function ErrorNote({ error }: { error: unknown }) {
+   136→  if (!error) return null
+   137→  const described = describeError(error)
+   138→  return (
+   139→    <p className="text-xs font-medium text-red-700" role="alert">
+   140→      {described.title}
+   141→      {described.description ? ` — ${described.description}` : ''}
+   142→    </p>
+   143→  )
+   144→}
+   145→
+   146→function Metric({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+   147→  return (
+   148→    <div className="rounded-lg border border-stone-200 bg-white px-3 py-2">
+   149→      <p className="text-[11px] uppercase tracking-wide text-stone-500">{label}</p>
+   150→      <p className="text-lg font-semibold text-stone-900">{value}</p>
+   151→      {hint ? <p className="text-[11px] text-stone-400">{hint}</p> : null}
+   152→    </div>
+   153→  )
+   154→}
+   155→
+   156→// ------------------------------------------------------------ main view
+   157→
+   158→const SUB_VIEWS = [
+   159→  { value: 'plan', label: 'Overview', icon: <Sprout className="h-3.5 w-3.5" aria-hidden /> },
+   160→  { value: 'covers', label: 'Cover Crops', icon: <Leaf className="h-3.5 w-3.5" aria-hidden /> },
+   161→  { value: 'timeline', label: 'Soil Cover', icon: <Layers className="h-3.5 w-3.5" aria-hidden /> },
+   162→  { value: 'residue', label: 'Residue', icon: <Recycle className="h-3.5 w-3.5" aria-hidden /> },
+   163→  { value: 'erosion', label: 'Erosion', icon: <ShieldAlert className="h-3.5 w-3.5" aria-hidden /> },
+   164→  { value: 'operations', label: 'Operations', icon: <CalendarDays className="h-3.5 w-3.5" aria-hidden /> },
+   165→] as const
+   166→
+   167→type SubView = (typeof SUB_VIEWS)[number]['value']
+   168→
+   169→export function Management() {
+   170→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   171→  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+   172→  const selectedFarmId = useFieldShiftUi((s) => s.selectedFarmId)
+   173→  const [view, setView] = useState<SubView>('plan')
+   174→  const [expert, setExpert] = useState(false)
+   175→
+   176→  return (
+   177→    <div className="space-y-4">
+   178→      <Card>
+   179→        <CardHeader className="pb-3">
+   180→          <div className="flex flex-wrap items-start justify-between gap-3">
+   181→            <div>
+   182→              <CardTitle className="flex items-center gap-2 text-base">
+   183→                <Sprout className="h-4 w-4 text-emerald-700" aria-hidden />
+   184→                Field management
+   185→              </CardTitle>
+   186→              <CardDescription>
+   187→                Cover crops, soil cover, residues, erosion screening and the
+   188→                operations calendar — every recommendation discloses its
+   189→                evidence, and missing knowledge stays missing.
+   190→              </CardDescription>
+   191→            </div>
+   192→            <div className="flex items-center gap-2 text-xs text-stone-500">
+   193→              <span aria-hidden>Simple</span>
+   194→              <Switch checked={expert} onCheckedChange={setExpert} aria-label="Toggle expert mode" />
+   195→              <span aria-hidden>Expert</span>
+   196→            </div>
+   197→          </div>
+   198→        </CardHeader>
+   199→        <CardContent className="space-y-3">
+   200→          <FieldPicker
+   201→            value={selectedField?.id ?? null}
+   202→            onValueChange={setSelectedField}
+   203→            emptyHint={
+   204→              <p className="text-sm text-stone-500">
+   205→                Create a farm and field first — management planning is field-based.
+   206→              </p>
+   207→            }
+   208→          />
+   209→          {selectedField ? (
+   210→            <Tabs value={view} onValueChange={(v) => setView(v as SubView)}>
+   211→              <div className="-mx-1 overflow-x-auto pb-1 scrollbar-thin">
+   212→                <TabsList className="mx-1 inline-flex min-w-max">
+   213→                  {SUB_VIEWS.map((s) => (
+   214→                    <TabsTrigger key={s.value} value={s.value} className="gap-1.5 px-2.5 text-xs">
+   215→                      {s.icon}
+   216→                      {s.label}
+   217→                    </TabsTrigger>
+   218→                  ))}
+   219→                </TabsList>
+   220→              </div>
+   221→              <TabsContent value="plan" className="mt-3">
+   222→                <PlanView fieldId={selectedField.id} expert={expert} />
+   223→              </TabsContent>
+   224→              <TabsContent value="covers" className="mt-3">
+   225→                <CoverStudio fieldId={selectedField.id} expert={expert} />
+   226→              </TabsContent>
+   227→              <TabsContent value="timeline" className="mt-3">
+   228→                <TimelineView fieldId={selectedField.id} expert={expert} />
+   229→              </TabsContent>
+   230→              <TabsContent value="residue" className="mt-3">
+   231→                <ResidueView fieldId={selectedField.id} expert={expert} />
+   232→              </TabsContent>
+   233→              <TabsContent value="erosion" className="mt-3">
+   234→                <ErosionView fieldId={selectedField.id} expert={expert} />
+   235→              </TabsContent>
+   236→              <TabsContent value="operations" className="mt-3">
+   237→                <OperationsView fieldId={selectedField.id} farmId={selectedFarmId ?? selectedField.farmId} expert={expert} />
+   238→              </TabsContent>
+   239→            </Tabs>
+   240→          ) : (
+   241→            <HonestEmpty>Pick a field above to see its management plan.</HonestEmpty>
+   242→          )}
+   243→        </CardContent>
+   244→      </Card>
+   245→    </div>
+   246→  )
+   247→}
+   248→
+   249→// ------------------------------------------------------------ plan view
+   250→
+   251→function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   252→  const qc = useQueryClient()
+   253→  const [created, setCreated] = useState<ManagementPlan | null>(null)
+   254→  const [error, setError] = useState<unknown>(null)
+   255→
+   256→  const createPlan = useMutation({
+   257→    mutationFn: () =>
+   258→      createManagementPlan(fieldId, {
+   259→        window_start: daysAgo(180),
+   260→        window_end: today(),
+   261→        season_label: undefined,
+   262→        label: 'Management plan',
+   263→      }),
+   264→    onSuccess: (plan) => {
+   265→      setCreated(plan)
+   266→      setError(null)
+   267→      qc.invalidateQueries({ queryKey: ['management-plan', fieldId] })
+   268→    },
+   269→    onError: setError,
+   270→  })
+   271→
+   272→  const plan = created
+   273→  if (!plan) {
+   274→    return (
+   275→      <div className="space-y-3">
+   276→        <p className="text-sm text-stone-600">
+   277→          Build a seasonal management overview for this field: what grew, where
+   278→          the soil is exposed, what is planned, and what needs your attention.
+   279→        </p>
+   280→        <Button onClick={() => createPlan.mutate()} disabled={createPlan.isPending} className="bg-emerald-700 hover:bg-emerald-800">
+   281→          {createPlan.isPending ? 'Building…' : 'Build management plan'}
+   282→        </Button>
+   283→        <ErrorNote error={error} />
+   284→      </div>
+   285→    )
+   286→  }
+   287→
+   288→  const r = plan.result
+   289→  const m = r.soil_cover.metrics
+   290→  return (
+   291→    <div className="space-y-4" data-testid="management-plan">
+   292→      {plan.warnings.map((w, i) => (
+   293→        <p key={i} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+   294→          {w}
+   295→        </p>
+   296→      ))}
+   297→
+   298→      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+   299→        <Metric label="Protective cover" value={`${m.days_protective_cover} d`} hint={`of ${m.window_days} days`} />
+   300→        <Metric label="Known bare" value={`${m.days_known_bare} d`} hint={m.longest_bare_interval ? `longest ${m.longest_bare_interval_days} d` : 'no bare evidence'} />
+   301→        <Metric label="Unknown" value={`${m.days_unknown} d`} hint="never counted as bare" />
+   302→        <Metric label="Open checks" value={r.checks.length} hint="items needing attention" />
+   303→      </div>
+   304→
+   305→      <Accordion type="multiple" defaultValue={['checks', 'season']} className="w-full">
+   306→        <AccordionItem value="season">
+   307→          <AccordionTrigger className="text-sm">
+   308→            Season context <StatusBadge status={r.season_context.status} />
+   309→          </AccordionTrigger>
+   310→          <AccordionContent className="space-y-2 text-sm text-stone-600">
+   311→            {r.season_context.recent_crop_history.length === 0 ? (
+   312→              <HonestEmpty>{r.season_context.message ?? 'No crop history recorded.'}</HonestEmpty>
+   313→            ) : (
+   314→              <ul className="space-y-1">
+   315→                {r.season_context.recent_crop_history.map((h, i) => (
+   316→                  <li key={i} className="flex flex-wrap gap-2 text-xs">
+   317→                    <span className="font-medium text-stone-800">{h.crop_label}</span>
+   318→                    <span>{h.sowing_date ?? '—'} → {h.harvest_date ?? '—'}</span>
+   319→                    {h.season_label ? <Badge variant="outline" className="px-1 py-0 text-[10px]">{h.season_label}</Badge> : null}
+   320→                  </li>
+   321→                ))}
+   322→              </ul>
+   323→            )}
+   324→          </AccordionContent>
+   325→        </AccordionItem>
+   326→
+   327→        <AccordionItem value="checks">
+   328→          <AccordionTrigger className="text-sm">Unresolved agronomic checks</AccordionTrigger>
+   329→          <AccordionContent className="space-y-2">
+   330→            {r.checks.length === 0 ? (
+   331→              <p className="text-sm text-emerald-800">No open checks — data coverage is good.</p>
+   332→            ) : (
+   333→              r.checks.map((c, i) => (
+   334→                <div key={i} className="flex items-start gap-2 text-xs">
+   335→                  <Badge variant="outline" className={c.severity === 'warning' ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-stone-300 bg-stone-50 text-stone-600'}>
+   336→                    {c.severity}
+   337→                  </Badge>
+   338→                  <span className="text-stone-600">{c.message}</span>
+   339→                </div>
+   340→              ))
+   341→            )}
+   342→          </AccordionContent>
+   343→        </AccordionItem>
+   344→
+   345→        <AccordionItem value="sections">
+   346→          <AccordionTrigger className="text-sm">Module status</AccordionTrigger>
+   347→          <AccordionContent>
+   348→            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   349→              {[
+   350→                { label: 'Cover crops', ...r.cover_crop },
+   351→                { label: 'Residue', ...r.residue },
+   352→                { label: 'Erosion', ...r.erosion },
+   353→                { label: 'Operations', ...r.operations },
+   354→                { label: 'Water (M6A)', ...r.water },
+   355→              ].map((s) => (
+   356→                <div key={s.label} className="rounded-lg border border-stone-200 p-3">
+   357→                  <p className="text-xs font-semibold text-stone-700">{s.label}</p>
+   358→                  <div className="mt-1"><SectionStatus status={s.status} message={s.message} /></div>
+   359→                </div>
+   360→              ))}
+   361→            </div>
+   362→          </AccordionContent>
+   363→        </AccordionItem>
+   364→
+   365→        <AccordionItem value="ops">
+   366→          <AccordionTrigger className="text-sm">Next operations</AccordionTrigger>
+   367→          <AccordionContent className="space-y-1">
+   368→            {r.operations.next_operations.length === 0 ? (
+   369→              <HonestEmpty>{r.operations.message ?? 'No operations recorded.'}</HonestEmpty>
+   370→            ) : (
+   371→              r.operations.next_operations.map((o) => (
+   372→                <div key={o.id} className="flex flex-wrap items-center gap-2 text-xs">
+   373→                  <StatusBadge status={o.status} />
+   374→                  <span className="font-medium text-stone-800">{o.title}</span>
+   375→                  <span className="text-stone-500">
+   376→                    {o.scheduled_start ?? o.earliest_start ?? 'no window'} … {o.scheduled_end ?? o.latest_finish ?? ''}
+   377→                  </span>
+   378→                  {o.status_reason ? <span className="text-amber-800">{o.status_reason}</span> : null}
+   379→                </div>
+   380→              ))
+   381→            )}
+   382→          </AccordionContent>
+   383→        </AccordionItem>
+   384→
+   385→        {expert ? (
+   386→          <>
+   387→            <AccordionItem value="practice">
+   388→              <AccordionTrigger className="text-sm">Practice guidance (cited, reference knowledge)</AccordionTrigger>
+   389→              <AccordionContent>
+   390→                <div className="max-h-64 space-y-1 overflow-y-auto scrollbar-thin pr-1">
+   391→                  {r.practice_guidance.practices.map((p) => (
+   392→                    <div key={p.practice_code} className="flex flex-wrap items-center gap-2 text-xs">
+   393→                      <span className="font-medium text-stone-800">{p.name}</span>
+   394→                      <Badge variant="outline" className="px-1 py-0 text-[10px]">{p.practice_family}</Badge>
+   395→                      <StatusBadge status={p.validation_status} />
+   396→                    </div>
+   397→                  ))}
+   398→                </div>
+   399→                <p className="mt-2 text-[11px] text-stone-500">{r.practice_guidance.note}</p>
+   400→              </AccordionContent>
+   401→            </AccordionItem>
+   402→            <AccordionItem value="prov">
+   403→              <AccordionTrigger className="text-sm">Provenance & versions</AccordionTrigger>
+   404→              <AccordionContent className="space-y-1 text-xs text-stone-600">
+   405→                <p>Engine: {plan.engine_version}</p>
+   406→                <p className="break-all">Checksum: <span className="font-mono">{plan.checksum_sha256}</span></p>
+   407→                {Object.entries(plan.not_evaluated).map(([k, v]) => (
+   408→                  <p key={k}><span className="font-medium">{k.replace(/_/g, ' ')}:</span> {v}</p>
+   409→                ))}
+   410→              </AccordionContent>
+   411→            </AccordionItem>
+   412→          </>
+   413→        ) : null}
+   414→      </Accordion>
+   415→    </div>
+   416→  )
+   417→}
+   418→
+   419→// ------------------------------------------------------------ cover studio
+   420→
+   421→function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   422→  const qc = useQueryClient()
+   423→  const [windowStart, setWindowStart] = useState(today())
+   424→  const [windowEnd, setWindowEnd] = useState(daysAgo(-120))
+   425→  const [nextCrop, setNextCrop] = useState('')
+   426→  const [plan, setPlan] = useState<CoverPlan | null>(null)
+   427→  const [adopted, setAdopted] = useState<string | null>(null)
+   428→  const [error, setError] = useState<unknown>(null)
+   429→
+   430→  const items = useQuery({
+   431→    queryKey: ['cover-items', fieldId],
+   432→    queryFn: () => import('@/lib/api').then((m) => m.listCoverCropPlanItems(fieldId)),
+   433→    enabled: Boolean(fieldId),
+   434→  })
+   435→
+   436→  const run = useMutation({
+   437→    mutationFn: () => createCoverCropPlan(fieldId, { window_start: windowStart, window_end: windowEnd, next_crop_label: nextCrop || undefined }),
+   438→    onSuccess: (p) => {
+   439→      setPlan(p)
+   440→      setError(null)
+   441→      qc.invalidateQueries({ queryKey: ['cover-items', fieldId] })
+   442→    },
+   443→    onError: setError,
+   444→  })
+   445→
+   446→  const adopt = useMutation({
+   447→    mutationFn: (candidate: CoverCandidate) =>
+   448→      createCoverCropPlanItem(fieldId, {
+   449→        crop_label: candidate.crop_code,
+   450→        plan_run_id: plan?.id,
+   451→        intended_sowing_start: candidate.sowing_window?.[0],
+   452→        intended_termination_window_start: undefined,
+   453→      }),
+   454→    onSuccess: (item) => {
+   455→      setAdopted(item.id)
+   456→      qc.invalidateQueries({ queryKey: ['cover-items', fieldId] })
+   457→    },
+   458→    onError: setError,
+   459→  })
+   460→
+   461→  const candidates = plan?.result.candidates ?? []
+   462→
+   463→  return (
+   464→    <div className="space-y-4">
+   465→      <p className="text-sm text-stone-600">
+   466→        Evaluate cover-crop candidates for a window. Missing knowledge (no
+   467→        regional calendar, no water curve, no termination guidance) keeps a
+   468→        candidate <span className="font-medium">conditional</span> — it is
+   469→        never presented as a proven recommendation.
+   470→      </p>
+   471→      <div className="grid gap-2 sm:grid-cols-4">
+   472→        <div className="space-y-1">
+   473→          <Label htmlFor="cover-start" className="text-xs">Window start</Label>
+   474→          <Input id="cover-start" type="date" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} className="h-9 text-sm" />
+   475→        </div>
+   476→        <div className="space-y-1">
+   477→          <Label htmlFor="cover-end" className="text-xs">Window end</Label>
+   478→          <Input id="cover-end" type="date" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} className="h-9 text-sm" />
+   479→        </div>
+   480→        <div className="space-y-1">
+   481→          <Label htmlFor="cover-next" className="text-xs">Next crop (optional)</Label>
+   482→          <Input id="cover-next" value={nextCrop} onChange={(e) => setNextCrop(e.target.value)} placeholder="e.g. maize" className="h-9 text-sm" />
+   483→        </div>
+   484→        <div className="flex items-end">
+   485→          <Button onClick={() => run.mutate()} disabled={run.isPending} className="w-full bg-emerald-700 hover:bg-emerald-800">
+   486→            {run.isPending ? 'Evaluating…' : 'Evaluate candidates'}
+   487→          </Button>
+   488→        </div>
+   489→      </div>
+   490→      <ErrorNote error={error} />
+   491→
+   492→      {plan ? (
+   493→        <div className="space-y-3" data-testid="cover-candidates">
+   494→          {plan.warnings.map((w, i) => (
+   495→            <p key={i} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{w}</p>
+   496→          ))}
+   497→          {candidates.length === 0 ? (
+   498→            <HonestEmpty>
+   499→              No cover-crop-capable species in the active knowledge base could be
+   500→              evaluated — an honest empty result.
+   501→            </HonestEmpty>
+   502→          ) : (
+   503→            candidates.map((c) => (
+   504→              <Card key={c.crop_code} className="border-stone-200">
+   505→                <CardHeader className="pb-2">
+   506→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   507→                    <CardTitle className="text-sm">{c.crop_label}</CardTitle>
+   508→                    <div className="flex items-center gap-2">
+   509→                      <StatusBadge status={c.status} />
+   510→                      {adopted === c.crop_code || items.data?.items.some((i) => i.crop_label === c.crop_code) ? (
+   511→                        <Badge variant="outline" className="border-emerald-300 bg-emerald-50 px-1.5 py-0 text-[10px] text-emerald-800">in plan</Badge>
+   512→                      ) : null}
+   513→                    </div>
+   514→                  </div>
+   515→                  <CardDescription>{c.trade_off_note}</CardDescription>
+   516→                </CardHeader>
+   517→                <CardContent className="space-y-2 text-xs text-stone-600">
+   518→                  <div className="flex flex-wrap gap-1">
+   519→                    {c.functions.map((f) => (
+   520→                      <Badge key={f.function_code} variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-800">
+   521→                        {f.function_code.replace(/_/g, ' ')}
+   522→                      </Badge>
+   523→                    ))}
+   524→                  </div>
+   525→                  <ul className="space-y-1">
+   526→                    {c.conditions.map((cond, i) => (
+   527→                      <li key={i} className="flex gap-2">
+   528→                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+   529→                        <span>{cond.message}</span>
+   530→                      </li>
+   531→                    ))}
+   532→                  </ul>
+   533→                  {c.sowing_window ? (
+   534→                    <p className="text-[11px]">Sowing window (reference): {c.sowing_window[0]} → {c.sowing_window[1]}</p>
+   535→                  ) : null}
+   536→                  {expert ? (
+   537→                    <Accordion type="single" collapsible className="w-full">
+   538→                      <AccordionItem value="dims">
+   539→                        <AccordionTrigger className="text-xs">Dimension detail</AccordionTrigger>
+   540→                        <AccordionContent>
+   541→                          <div className="space-y-1">
+   542→                            {Object.entries(c.dimensions).map(([k, d]) => (
+   543→                              <div key={k} className="flex flex-wrap items-center gap-2">
+   544→                                <StatusBadge status={d.status} />
+   545→                                <span className="font-mono text-[10px] text-stone-500">{k}</span>
+   546→                                <span className="text-stone-600">{d.message}</span>
+   547→                              </div>
+   548→                            ))}
+   549→                          </div>
+   550→                        </AccordionContent>
+   551→                      </AccordionItem>
+   552→                    </Accordion>
+   553→                  ) : null}
+   554→                  {c.status !== 'excluded' ? (
+   555→                    <Button
+   556→                      size="sm"
+   557→                      variant="outline"
+   558→                      className="h-8 text-xs"
+   559→                      onClick={() => adopt.mutate(c)}
+   560→                      disabled={adopt.isPending}
+   561→                    >
+   562→                      Adopt into plan
+   563→                    </Button>
+   564→                  ) : null}
+   565→                </CardContent>
+   566→              </Card>
+   567→            ))
+   568→          )}
+   569→        </div>
+   570→      ) : null}
+   571→
+   572→      {items.data && items.data.items.length > 0 ? (
+   573→        <div className="space-y-1">
+   574→          <p className="text-xs font-semibold text-stone-700">Adopted cover decisions</p>
+   575→          {items.data.items.map((i) => (
+   576→            <div key={i.id} className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
+   577→              <StatusBadge status={i.status} />
+   578→              <span className="font-medium text-stone-800">{i.crop_label}</span>
+   579→              <span>{i.season_label ?? ''}</span>
+   580→            </div>
+   581→          ))}
+   582→        </div>
+   583→      ) : null}
+   584→    </div>
+   585→  )
+   586→}
+   587→
+   588→// ------------------------------------------------------------ timeline view
+   589→
+   590→const CLASS_COLOR: Record<string, string> = {
+   591→  protective: 'bg-emerald-500',
+   592→  bare: 'bg-amber-600',
+   593→  unknown: 'bg-stone-300',
+   594→}
+   595→
+   596→function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   597→  const [start, setStart] = useState(daysAgo(180))
+   598→  const [end, setEnd] = useState(today())
+   599→  const timeline = useQuery({
+   600→    queryKey: ['cover-timeline', fieldId, start, end],
+   601→    queryFn: () => getCoverTimeline(fieldId, start, end),
+   602→    enabled: Boolean(fieldId),
+   603→  })
+   604→  const qc = useQueryClient()
+   605→  const [obsDate, setObsDate] = useState(today())
+   606→  const [obsState, setObsState] = useState('bare')
+   607→  const [error, setError] = useState<unknown>(null)
+   608→
+   609→  const addObs = useMutation({
+   610→    mutationFn: () => createCoverObservation(fieldId, { observed_date: obsDate, cover_state: obsState }),
+   611→    onSuccess: () => {
+   612→      setError(null)
+   613→      qc.invalidateQueries({ queryKey: ['cover-timeline', fieldId] })
+   614→    },
+   615→    onError: setError,
+   616→  })
+   617→
+   618→  const data = timeline.data
+   619→  const months = useMemo(() => {
+   620→    if (!data) return []
+   621→    // downsample timeline to per-day cells grouped by month for the strip
+   622→    return data.timeline
+   623→  }, [data])
+   624→
+   625→  return (
+   626→    <div className="space-y-4">
+   627→      <div className="flex flex-wrap items-end gap-2">
+   628→        <div className="space-y-1">
+   629→          <Label htmlFor="tl-start" className="text-xs">From</Label>
+   630→          <Input id="tl-start" type="date" value={start} onChange={(e) => setStart(e.target.value)} className="h-9 text-sm" />
+   631→        </div>
+   632→        <div className="space-y-1">
+   633→          <Label htmlFor="tl-end" className="text-xs">To</Label>
+   634→          <Input id="tl-end" type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="h-9 text-sm" />
+   635→        </div>
+   636→      </div>
+   637→
+   638→      {timeline.isLoading ? <Skeleton className="h-40 w-full" /> : null}
+   639→      <ErrorNote error={timeline.error} />
+   640→
+   641→      {data ? (
+   642→        <div className="space-y-3">
+   643→          <div className="flex flex-wrap gap-3 text-[11px] text-stone-600">
+   644→            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.protective}`} aria-hidden /> protective cover</span>
+   645→            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.bare}`} aria-hidden /> known bare</span>
+   646→            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.unknown}`} aria-hidden /> unknown (not bare)</span>
+   647→          </div>
+   648→
+   649→          {/* timeline strip: one cell per day (wrapped, labeled by month) */}
+   650→          <div className="overflow-hidden rounded-lg border border-stone-200 p-2">
+   651→            <div className="flex flex-wrap gap-px" role="img" aria-label="Daily soil cover status strip">
+   652→              {data.timeline.map((d) => (
+   653→                <span
+   654→                  key={d.date}
+   655→                  title={`${d.date}: ${d.classification}${d.states.length ? ` (${d.states.join(', ')})` : ''}`}
+   656→                  className={`h-3 w-3 shrink-0 rounded-sm ${CLASS_COLOR[d.classification] ?? CLASS_COLOR.unknown}`}
+   657→                />
+   658→              ))}
+   659→            </div>
+   660→          </div>
+   661→
+   662→          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+   663→            <Metric label="Protective" value={`${data.metrics.days_protective_cover} d`} />
+   664→            <Metric label="Known bare" value={`${data.metrics.days_known_bare} d`} />
+   665→            <Metric label="Unknown" value={`${data.metrics.days_unknown} d`} />
+   666→            <Metric
+   667→              label="Longest bare"
+   668→              value={data.metrics.longest_bare_interval_days ? `${data.metrics.longest_bare_interval_days} d` : '—'}
+   669→              hint={data.metrics.longest_bare_interval ? data.metrics.longest_bare_interval.join(' → ') : 'no bare evidence'}
+   670→            />
+   671→          </div>
+   672→
+   673→          <p className="text-[11px] text-stone-500">{data.thresholds.note}</p>
+   674→
+   675→          <Separator />
+   676→
+   677→          <div className="space-y-2">
+   678→            <p className="text-xs font-semibold text-stone-700">Record a cover observation</p>
+   679→            <div className="flex flex-wrap items-end gap-2">
+   680→              <div className="space-y-1">
+   681→                <Label htmlFor="obs-date" className="text-xs">Date</Label>
+   682→                <Input id="obs-date" type="date" value={obsDate} onChange={(e) => setObsDate(e.target.value)} className="h-9 text-sm" />
+   683→              </div>
+   684→              <div className="space-y-1">
+   685→                <Label htmlFor="obs-state" className="text-xs">Observed state</Label>
+   686→                <Select value={obsState} onValueChange={setObsState}>
+   687→                  <SelectTrigger id="obs-state" className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+   688→                  <SelectContent>
+   689→                    <SelectItem value="bare">Bare soil</SelectItem>
+   690→                    <SelectItem value="living_main_crop">Living main crop</SelectItem>
+   691→                    <SelectItem value="living_cover_crop">Living cover crop</SelectItem>
+   692→                    <SelectItem value="surface_residue">Surface residue</SelectItem>
+   693→                    <SelectItem value="mulch">Mulch</SelectItem>
+   694→                    <SelectItem value="unknown">Unknown</SelectItem>
+   695→                  </SelectContent>
+   696→                </Select>
+   697→              </div>
+   698→              <Button size="sm" variant="outline" className="h-9" onClick={() => addObs.mutate()} disabled={addObs.isPending}>
+   699→                {addObs.isPending ? 'Saving…' : 'Add observation'}
+   700→              </Button>
+   701→            </div>
+   702→            <ErrorNote error={error} />
+   703→          </div>
+   704→
+   705→          {expert ? (
+   706→            <Accordion type="single" collapsible>
+   707→              <AccordionItem value="method">
+   708→                <AccordionTrigger className="text-xs">Method & evidence notes</AccordionTrigger>
+   709→                <AccordionContent className="space-y-1 text-[11px] text-stone-600">
+   710→                  <p>{data.method.engine} · {data.method.version}</p>
+   711→                  {data.method.rules.map((r, i) => <p key={i}>· {r}</p>)}
+   712→                  {data.evidence_notes.map((n, i) => <p key={i} className="text-amber-800">· {n.detail}</p>)}
+   713→                  <p>Inputs: {Object.entries(data.inputs_summary).map(([k, v]) => `${k}=${v}`).join(' · ')}</p>
+   714→                </AccordionContent>
+   715→              </AccordionItem>
+   716→            </Accordion>
+   717→          ) : null}
+   718→        </div>
+   719→      ) : null}
+   720→    </div>
+   721→  )
+   722→}
+   723→
+   724→// ------------------------------------------------------------ residue view
+   725→
+   726→function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   727→  const qc = useQueryClient()
+   728→  const ledger = useQuery({
+   729→    queryKey: ['residue-ledger', fieldId],
+   730→    queryFn: () => getResidueLedger(fieldId),
+   731→    enabled: Boolean(fieldId),
+   732→  })
+   733→  const [crop, setCrop] = useState('')
+   734→  const [produced, setProduced] = useState('')
+   735→  const [flowType, setFlowType] = useState('retained_surface')
+   736→  const [flowKg, setFlowKg] = useState('')
+   737→  const [targetRecord, setTargetRecord] = useState<string | null>(null)
+   738→  const [error, setError] = useState<unknown>(null)
+   739→
+   740→  const addRecord = useMutation({
+   741→    mutationFn: () =>
+   742→      createResidueRecord(fieldId, {
+   743→        crop_label: crop,
+   744→        production_status: produced ? 'farmer_reported' : 'missing',
+   745→        produced_dm_kg: produced ? Number(produced) : undefined,
+   746→      }),
+   747→    onSuccess: (rec) => {
+   748→      setError(null)
+   749→      setCrop('')
+   750→      setProduced('')
+   751→      setTargetRecord(rec.id)
+   752→      qc.invalidateQueries({ queryKey: ['residue-ledger', fieldId] })
+   753→    },
+   754→    onError: setError,
+   755→  })
+   756→
+   757→  const addFlow = useMutation({
+   758→    mutationFn: () =>
+   759→      createResidueFlow(targetRecord as string, {
+   760→        flow_type: flowType,
+   761→        dm_kg: flowKg ? Number(flowKg) : undefined,
+   762→        dm_kg_status: flowKg ? 'farmer_reported' : 'unknown',
+   763→      }),
+   764→    onSuccess: () => {
+   765→      setError(null)
+   766→      setFlowKg('')
+   767→      qc.invalidateQueries({ queryKey: ['residue-ledger', fieldId] })
+   768→    },
+   769→    onError: setError,
+   770→  })
+   771→
+   772→  const data: ResidueLedgerResponse | undefined = ledger.data
+   773→
+   774→  return (
+   775→    <div className="space-y-4">
+   776→      <p className="text-sm text-stone-600">
+   777→        Residue flows on a dry-matter basis. Mass balance is enforced: flows
+   778→        above production are a hard error, and unknown production is never
+   779→        assumed to be zero.
+   780→      </p>
+   781→
+   782→      <div className="flex flex-wrap items-end gap-2">
+   783→        <div className="space-y-1">
+   784→          <Label htmlFor="res-crop" className="text-xs">Crop</Label>
+   785→          <Input id="res-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder="e.g. maize" className="h-9 w-40 text-sm" />
+   786→        </div>
+   787→        <div className="space-y-1">
+   788→          <Label htmlFor="res-prod" className="text-xs">Produced DM (kg, optional)</Label>
+   789→          <Input id="res-prod" type="number" min="0" value={produced} onChange={(e) => setProduced(e.target.value)} className="h-9 w-44 text-sm" />
+   790→        </div>
+   791→        <Button variant="outline" className="h-9" onClick={() => addRecord.mutate()} disabled={addRecord.isPending || !crop}>
+   792→          {addRecord.isPending ? 'Saving…' : 'Add residue record'}
+   793→        </Button>
+   794→      </div>
+   795→      <ErrorNote error={error} />
+   796→
+   797→      {ledger.isLoading ? <Skeleton className="h-32 w-full" /> : null}
+   798→      <ErrorNote error={ledger.error} />
+   799→
+   800→      {data ? (
+   801→        <div className="space-y-3">
+   802→          {data.warnings.map((w, i) => (
+   803→            <p key={i} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{w}</p>
+   804→          ))}
+   805→          {data.records.length === 0 ? (
+   806→            <HonestEmpty>No residue records yet — add one above after harvest.</HonestEmpty>
+   807→          ) : (
+   808→            data.records.map((rec) => (
+   809→              <Card key={rec.record.id} className="border-stone-200">
+   810→                <CardHeader className="pb-2">
+   811→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   812→                    <CardTitle className="text-sm">{rec.record.crop_label}</CardTitle>
+   813→                    <StatusBadge status={rec.balance.status} />
+   814→                  </div>
+   815→                  <CardDescription>
+   816→                    produced {rec.record.produced_dm_kg !== null ? `${rec.record.produced_dm_kg} kg DM` : 'unknown'} ·
+   817→                    {' '}{rec.record.production_status.replace(/_/g, ' ')}
+   818→                  </CardDescription>
+   819→                </CardHeader>
+   820→                <CardContent className="space-y-2 text-xs text-stone-600">
+   821→                  {rec.flows.map((f) => (
+   822→                    <div key={f.id} className="flex flex-wrap items-center gap-2">
+   823→                      <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{f.flow_type.replace(/_/g, ' ')}</Badge>
+   824→                      <span>{f.dm_kg !== null ? `${f.dm_kg} kg` : 'mass unknown'}</span>
+   825→                      <span className="text-stone-400">{f.dm_kg_status}</span>
+   826→                    </div>
+   827→                  ))}
+   828→                  <p>
+   829→                    Σ flows {rec.balance.total_flow_dm_kg} kg · unaccounted{' '}
+   830→                    {rec.balance.unaccounted_dm_kg !== null ? `${rec.balance.unaccounted_dm_kg} kg` : 'not computable'}
+   831→                  </p>
+   832→                  {expert && rec.derived.total_nitrogen_kg !== undefined ? (
+   833→                    <p className="text-[11px]">
+   834→                      Nitrogen in flows ≈ {String(rec.derived.total_nitrogen_kg)} kg (bookkeeping — not counted in the
+   835→                      M6B nutrient budget; no SOC claim)
+   836→                    </p>
+   837→                  ) : null}
+   838→                  {targetRecord === rec.record.id ? (
+   839→                    <div className="flex flex-wrap items-end gap-2 border-t border-stone-100 pt-2">
+   840→                      <div className="space-y-1">
+   841→                        <Label htmlFor={`flow-type-${rec.record.id}`} className="text-xs">Flow</Label>
+   842→                        <Select value={flowType} onValueChange={setFlowType}>
+   843→                          <SelectTrigger id={`flow-type-${rec.record.id}`} className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+   844→                          <SelectContent>
+   845→                            <SelectItem value="retained_surface">Retained on surface</SelectItem>
+   846→                            <SelectItem value="incorporated">Incorporated</SelectItem>
+   847→                            <SelectItem value="removed_baled">Removed / baled</SelectItem>
+   848→                            <SelectItem value="grazed">Grazed</SelectItem>
+   849→                            <SelectItem value="burned">Burned</SelectItem>
+   850→                            <SelectItem value="other_loss">Other loss</SelectItem>
+   851→                            <SelectItem value="unknown">Unknown fate</SelectItem>
+   852→                          </SelectContent>
+   853→                        </Select>
+   854→                      </div>
+   855→                      <div className="space-y-1">
+   856→                        <Label htmlFor={`flow-kg-${rec.record.id}`} className="text-xs">DM kg (optional)</Label>
+   857→                        <Input id={`flow-kg-${rec.record.id}`} type="number" min="0" value={flowKg} onChange={(e) => setFlowKg(e.target.value)} className="h-9 w-36 text-sm" />
+   858→                      </div>
+   859→                      <Button size="sm" variant="outline" className="h-9" onClick={() => addFlow.mutate()} disabled={addFlow.isPending}>
+   860→                        Add flow
+   861→                      </Button>
+   862→                    </div>
+   863→                  ) : (
+   864→                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setTargetRecord(rec.record.id)}>
+   865→                      Add flow to this record
+   866→                    </Button>
+   867→                  )}
+   868→                </CardContent>
+   869→              </Card>
+   870→            ))
+   871→          )}
+   872→        </div>
+   873→      ) : null}
+   874→    </div>
+   875→  )
+   876→}
+   877→
+   878→// ------------------------------------------------------------ erosion view
+   879→
+   880→function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   881→  const qc = useQueryClient()
+   882→  const [slopeClass, setSlopeClass] = useState('unknown')
+   883→  const [useRusle, setUseRusle] = useState(false)
+   884→  const [factors, setFactors] = useState({ R: '100', K: '0.25', LS: '1.0', C: '0.3', P: '0.5' })
+   885→  const [factorSource, setFactorSource] = useState('')
+   886→  const [run, setRun] = useState<ErosionRun | null>(null)
+   887→  const [error, setError] = useState<unknown>(null)
+   888→
+   889→  const assess = useMutation({
+   890→    mutationFn: () => {
+   891→      const input: Parameters<typeof createErosionAssessment>[1] = {
+   892→        window_start: daysAgo(365),
+   893→        window_end: today(),
+   894→        slope_evidence: slopeClass !== 'unknown' ? { slope_class: slopeClass } : undefined,
+   895→      }
+   896→      if (useRusle) {
+   897→        input.rusle_factors = Object.fromEntries(
+   898→          Object.entries(factors).map(([code, value]) => [
+   899→            code,
+   900→            {
+   901→              value: Number(value),
+   902→              source_reference: factorSource || 'unspecified local source',
+   903→              region_scope: 'farm_declared',
+   904→              unit_convention: 'metric_si',
+   905→            },
+   906→          ]),
+   907→        )
+   908→      }
+   909→      return createErosionAssessment(fieldId, input)
+   910→    },
+   911→    onSuccess: (r) => {
+   912→      setRun(r)
+   913→      setError(null)
+   914→      qc.invalidateQueries({ queryKey: ['erosion', fieldId] })
+   915→    },
+   916→    onError: setError,
+   917→  })
+   918→
+   919→  return (
+   920→    <div className="space-y-4">
+   921→      <p className="text-sm text-stone-600">
+   922→        Two separate outputs: a <span className="font-medium">screening</span>{' '}
+   923→        from your field records (never a soil-loss number), and an optional
+   924→        sheet-&amp;-rill calculation that runs <span className="font-medium">only</span> when
+   925→        you supply all five sourced factors. Gully, wind and channel processes
+   926→        are out of scope for this platform.
+   927→      </p>
+   928→
+   929→      <div className="flex flex-wrap items-end gap-2">
+   930→        <div className="space-y-1">
+   931→          <Label htmlFor="slope" className="text-xs">Slope class (from your knowledge)</Label>
+   932→          <Select value={slopeClass} onValueChange={setSlopeClass}>
+   933→            <SelectTrigger id="slope" className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
+   934→            <SelectContent>
+   935→              <SelectItem value="unknown">Not declared</SelectItem>
+   936→              <SelectItem value="flat">Flat</SelectItem>
+   937→              <SelectItem value="gentle">Gentle</SelectItem>
+   938→              <SelectItem value="moderate">Moderate</SelectItem>
+   939→              <SelectItem value="steep">Steep</SelectItem>
+   940→            </SelectContent>
+   941→          </Select>
+   942→        </div>
+   943→        <div className="flex items-center gap-2 pb-2 text-xs text-stone-500">
+   944→          <Switch checked={useRusle} onCheckedChange={setUseRusle} aria-label="Include RUSLE factors" id="rusle-toggle" />
+   945→          <Label htmlFor="rusle-toggle" className="text-xs">I have sourced R·K·LS·C·P factors</Label>
+   946→        </div>
+   947→        {useRusle ? (
+   948→          <div className="space-y-1">
+   949→            <Label htmlFor="factor-src" className="text-xs">Factor source</Label>
+   950→            <Input id="factor-src" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} placeholder="e.g. county soil survey 2024" className="h-9 w-52 text-sm" />
+   951→          </div>
+   952→        ) : null}
+   953→        <Button onClick={() => assess.mutate()} disabled={assess.isPending} className="bg-emerald-700 hover:bg-emerald-800">
+   954→          {assess.isPending ? 'Assessing…' : 'Run assessment'}
+   955→        </Button>
+   956→      </div>
+   957→
+   958→      {useRusle ? (
+   959→        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+   960→          {(['R', 'K', 'LS', 'C', 'P'] as const).map((code) => (
+   961→            <div key={code} className="space-y-1">
+   962→              <Label htmlFor={`factor-${code}`} className="text-xs">{code}</Label>
+   963→              <Input id={`factor-${code}`} value={factors[code]} onChange={(e) => setFactors({ ...factors, [code]: e.target.value })} className="h-9 text-sm" />
+   964→            </div>
+   965→          ))}
+   966→        </div>
+   967→      ) : null}
+   968→      <ErrorNote error={error} />
+   969→
+   970→      {run ? (
+   971→        <div className="space-y-3" data-testid="erosion-result">
+   972→          <Card className="border-stone-200">
+   973→            <CardHeader className="pb-2">
+   974→              <CardTitle className="flex items-center gap-2 text-sm">
+   975→                Screening <Badge variant="outline" className="px-1.5 py-0 text-[10px]">screening only — not a soil-loss prediction</Badge>
+   976→              </CardTitle>
+   977→            </CardHeader>
+   978→            <CardContent className="space-y-2 text-xs text-stone-600">
+   979→              {run.result.screening.concerns.length === 0 ? (
+   980→                <HonestEmpty>No evidence of concern found in the field records. Unknowns: {run.result.screening.unknowns.length}</HonestEmpty>
+   981→              ) : (
+   982→                run.result.screening.concerns.map((c, i) => (
+   983→                  <div key={i} className="flex items-start gap-2">
+   984→                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+   985→                    <span>{c.evidence} <span className="text-stone-400">({c.processes.join(', ')})</span></span>
+   986→                  </div>
+   987→                ))
+   988→              )}
+   989→              {run.result.screening.field_observed_signs.length > 0 ? (
+   990→                <div className="rounded-md border border-stone-200 bg-stone-50 p-2">
+   991→                  <p className="font-medium text-stone-700">Your observed erosion signs</p>
+   992→                  {run.result.screening.field_observed_signs.map((s, i) => <p key={i}>{s.description}</p>)}
+   993→                </div>
+   994→              ) : null}
+   995→              {run.result.screening.unknowns.length > 0 && expert ? (
+   996→                <ul className="space-y-0.5 text-[11px] text-stone-500">
+   997→                  {run.result.screening.unknowns.map((u, i) => <li key={i}>· {u}</li>)}
+   998→                </ul>
+   999→              ) : null}
+  1000→            </CardContent>
+  1001→          </Card>
+  1002→
+  1003→          {run.result.rusle.status !== 'not_evaluated' ? (
+  1004→            <Card className="border-stone-200">
+  1005→              <CardHeader className="pb-2">
+  1006→                <CardTitle className="text-sm">Sheet &amp; rill estimate (RUSLE-family)</CardTitle>
+  1007→                <CardDescription>
+  1008→                  {run.result.rusle.annual_soil_loss_a !== undefined
+  1009→                    ? `A ≈ ${run.result.rusle.annual_soil_loss_a} (${run.result.rusle.unit_convention} native unit) — screening grade, sheet & rill only`
+  1010→                    : run.result.rusle.message}
+  1011→                </CardDescription>
+  1012→              </CardHeader>
+  1013→              {expert && run.result.rusle.scope_disclosures ? (
+  1014→                <CardContent>
+  1015→                  <ul className="space-y-0.5 text-[11px] text-stone-500">
+  1016→                    {run.result.rusle.scope_disclosures.map((d, i) => <li key={i}>· {d}</li>)}
+  1017→                  </ul>
+  1018→                </CardContent>
+  1019→              ) : null}
+  1020→            </Card>
+  1021→          ) : null}
+  1022→
+  1023→          {run.result.alternatives.length > 0 ? (
+  1024→            <Card className="border-stone-200">
+  1025→              <CardHeader className="pb-2">
+  1026→                <CardTitle className="text-sm">Conservation alternatives (cited mechanisms — not a ranking)</CardTitle>
+  1027→              </CardHeader>
+  1028→              <CardContent>
+  1029→                <Accordion type="single" collapsible className="w-full">
+  1030→                  {run.result.alternatives.map((a) => (
+  1031→                    <AccordionItem key={a.practice_code} value={a.practice_code}>
+  1032→                      <AccordionTrigger className="text-xs">{a.name}</AccordionTrigger>
+  1033→                      <AccordionContent className="space-y-1 text-[11px] text-stone-600">
+  1034→                        {a.mechanisms.map((m, i) => (
+  1035→                          <p key={i}>· {m.text} {m.citation ? <span className="text-stone-400">— {m.citation.citation_text}</span> : null}</p>
+  1036→                        ))}
+  1037→                        <p className="text-stone-400">{a.quantitative_note}</p>
+  1038→                      </AccordionContent>
+  1039→                    </AccordionItem>
+  1040→                  ))}
+  1041→                </Accordion>
+  1042→              </CardContent>
+  1043→            </Card>
+  1044→          ) : null}
+  1045→        </div>
+  1046→      ) : null}
+  1047→    </div>
+  1048→  )
+  1049→}
+  1050→
+  1051→// ------------------------------------------------------------ operations view
+  1052→
+  1053→function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: string | null; expert: boolean }) {
+  1054→  const qc = useQueryClient()
+  1055→  const [crop, setCrop] = useState('')
+  1056→  const [hoursPerDay, setHoursPerDay] = useState('8')
+  1057→  const [resourceType, setResourceType] = useState('tractor')
+  1058→  const [resourceName, setResourceName] = useState('')
+  1059→  const [schedule, setSchedule] = useState<ScheduleRun | null>(null)
+  1060→  const [error, setError] = useState<unknown>(null)
+  1061→
+  1062→  const ops = useQuery({
+  1063→    queryKey: ['operations', fieldId],
+  1064→    queryFn: () => listFieldOperations(fieldId),
+  1065→    enabled: Boolean(fieldId),
+  1066→  })
+  1067→  const resources = useQuery({
+  1068→    queryKey: ['resources', farmId],
+  1069→    queryFn: () => listFarmResources(farmId as string),
+  1070→    enabled: Boolean(farmId),
+  1071→  })
+  1072→  const templates = useQuery({
+  1073→    queryKey: ['operation-templates'],
+  1074→    queryFn: listOperationTemplates,
+  1075→  })
+  1076→
+  1077→  const generate = useMutation({
+  1078→    mutationFn: () => generateOperations(fieldId, { crop_label: crop, window_year: new Date().getFullYear() + 1 }),
+  1079→    onSuccess: () => {
+  1080→      setError(null)
+  1081→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+  1082→    },
+  1083→    onError: setError,
+  1084→  })
+  1085→  const addResource = useMutation({
+  1086→    mutationFn: () => createFarmResource(farmId as string, { resource_type: resourceType, name: resourceName || resourceType }),
+  1087→    onSuccess: () => {
+  1088→      setError(null)
+  1089→      setResourceName('')
+  1090→      qc.invalidateQueries({ queryKey: ['resources', farmId] })
+  1091→    },
+  1092→    onError: setError,
+  1093→  })
+  1094→  const scheduleRun = useMutation({
+  1095→    mutationFn: () =>
+  1096→      createScheduleRun(fieldId, { hours_per_workday: Number(hoursPerDay) || undefined }),
+  1097→    onSuccess: (r) => {
+  1098→      setSchedule(r)
+  1099→      setError(null)
+  1100→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+  1101→    },
+  1102→    onError: setError,
+  1103→  })
+  1104→  const complete = useMutation({
+  1105→    mutationFn: (opId: string) => patchOperation(opId, { status: 'completed', completion_date: today() }),
+  1106→    onSuccess: () => {
+  1107→      setError(null)
+  1108→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+  1109→    },
+  1110→    onError: setError,
+  1111→  })
+  1112→
+  1113→  return (
+  1114→    <div className="space-y-4">
+  1115→      <div className="flex flex-wrap items-end gap-2">
+  1116→        <div className="space-y-1">
+  1117→          <Label htmlFor="gen-crop" className="text-xs">Generate operations for crop</Label>
+  1118→          <Input id="gen-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder="e.g. maize" className="h-9 w-40 text-sm" />
+  1119→        </div>
+  1120→        <Button variant="outline" className="h-9" onClick={() => generate.mutate()} disabled={generate.isPending || !crop}>
+  1121→          {generate.isPending ? 'Generating…' : 'Generate from templates'}
+  1122→        </Button>
+  1123→        <div className="space-y-1">
+  1124→          <Label htmlFor="hpd" className="text-xs">Hours per workday</Label>
+  1125→          <Input id="hpd" type="number" min="1" value={hoursPerDay} onChange={(e) => setHoursPerDay(e.target.value)} className="h-9 w-24 text-sm" />
+  1126→        </div>
+  1127→        <Button onClick={() => scheduleRun.mutate()} disabled={scheduleRun.isPending} className="bg-emerald-700 hover:bg-emerald-800">
+  1128→          {scheduleRun.isPending ? 'Scheduling…' : 'Schedule operations'}
+  1129→        </Button>
+  1130→      </div>
+  1131→      <ErrorNote error={error ?? ops.error} />
+  1132→
+  1133→      <div className="grid gap-3 lg:grid-cols-2">
+  1134→        <Card className="border-stone-200">
+  1135→          <CardHeader className="pb-2">
+  1136→            <CardTitle className="text-sm">Operations</CardTitle>
+  1137→            <CardDescription>
+  1138→              Planned work derived from cited templates. Durations are yours to
+  1139→              supply — the engine invents none, and nothing unscheduled is
+  1140→              hidden.
+  1141→            </CardDescription>
+  1142→          </CardHeader>
+  1143→          <CardContent className="space-y-2">
+  1144→            {ops.isLoading ? <Skeleton className="h-24 w-full" /> : null}
+  1145→            {ops.data && ops.data.items.length === 0 ? (
+  1146→              <HonestEmpty>No operations yet — generate them for a crop above.</HonestEmpty>
+  1147→            ) : null}
+  1148→            {ops.data?.items.map((op) => {
+  1149→              const entry = schedule?.result.entries.find((e) => e.operation_id === op.id)
+  1150→              return (
+  1151→                <div key={op.id} className="rounded-lg border border-stone-100 p-2 text-xs">
+  1152→                  <div className="flex flex-wrap items-center gap-2">
+  1153→                    <StatusBadge status={op.status} />
+  1154→                    <span className="font-medium text-stone-800">{op.title}</span>
+  1155→                    <span className="text-stone-500">
+  1156→                      {op.scheduled_start ?? op.earliest_start ?? 'no window'}
+  1157→                      {op.scheduled_end ?? op.latest_finish ? ` → ${op.scheduled_end ?? op.latest_finish}` : ''}
+  1158→                    </span>
+  1159→                    {op.status !== 'completed' ? (
+  1160→                      <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-[11px]" onClick={() => complete.mutate(op.id)} disabled={complete.isPending}>
+  1161→                        Mark done
+  1162→                      </Button>
+  1163→                    ) : null}
+  1164→                  </div>
+  1165→                  {entry && entry.status === 'unscheduled' && entry.reason ? (
+  1166→                    <p className="mt-1 text-[11px] text-amber-800">{entry.reason}</p>
+  1167→                  ) : null}
+  1168→                  {op.status_reason ? <p className="mt-1 text-[11px] text-amber-800">{op.status_reason}</p> : null}
+  1169→                </div>
+  1170→              )
+  1171→            })}
+  1172→          </CardContent>
+  1173→        </Card>
+  1174→
+  1175→        <Card className="border-stone-200">
+  1176→          <CardHeader className="pb-2">
+  1177→            <CardTitle className="text-sm">Machinery & labour</CardTitle>
+  1178→            <CardDescription>Your resources — capacity is never assumed.</CardDescription>
+  1179→          </CardHeader>
+  1180→          <CardContent className="space-y-2">
+  1181→            <div className="flex flex-wrap items-end gap-2">
+  1182→              <div className="space-y-1">
+  1183→                <Label htmlFor="res-type" className="text-xs">Type</Label>
+  1184→                <Select value={resourceType} onValueChange={setResourceType}>
+  1185→                  <SelectTrigger id="res-type" className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
+  1186→                  <SelectContent>
+  1187→                    <SelectItem value="tractor">Tractor</SelectItem>
+  1188→                    <SelectItem value="implement">Implement</SelectItem>
+  1189→                    <SelectItem value="seeder">Seeder</SelectItem>
+  1190→                    <SelectItem value="sprayer">Sprayer</SelectItem>
+  1191→                    <SelectItem value="harvester">Harvester</SelectItem>
+  1192→                    <SelectItem value="baler">Baler</SelectItem>
+  1193→                    <SelectItem value="contractor">Contractor</SelectItem>
+  1194→                    <SelectItem value="labor_crew">Labour crew</SelectItem>
+  1195→                  </SelectContent>
+  1196→                </Select>
+  1197→              </div>
+  1198→              <div className="space-y-1">
+  1199→                <Label htmlFor="res-name" className="text-xs">Name</Label>
+  1200→                <Input id="res-name" value={resourceName} onChange={(e) => setResourceName(e.target.value)} placeholder="e.g. Ford 5000" className="h-9 w-36 text-sm" />
+  1201→              </div>
+  1202→              <Button size="sm" variant="outline" className="h-9" onClick={() => addResource.mutate()} disabled={addResource.isPending || !farmId}>
+  1203→                Add
+  1204→              </Button>
+  1205→            </div>
+  1206→            {resources.data?.items.length ? (
+  1207→              <div className="flex flex-wrap gap-1">
+  1208→                {resources.data.items.map((r) => (
+  1209→                  <Badge key={r.id} variant="outline" className="px-1.5 py-0 text-[10px]">{r.name}</Badge>
+  1210→                ))}
+  1211→              </div>
+  1212→            ) : (
+  1213→              <HonestEmpty>No resources registered — scheduling will report every operation as unscheduled.</HonestEmpty>
+  1214→            )}
+  1215→            {schedule ? (
+  1216→              <div className="border-t border-stone-100 pt-2 text-[11px] text-stone-600">
+  1217→                <p className="font-medium text-stone-700">Last schedule run</p>
+  1218→                <p>
+  1219→                  {schedule.result.solver.status} ·{' '}
+  1220→                  {schedule.result.entries.filter((e) => e.status === 'scheduled').length} scheduled ·{' '}
+  1221→                  {schedule.result.entries.filter((e) => e.status === 'unscheduled').length} unscheduled
+  1222→                </p>
+  1223→                <p className="text-stone-500">
+  1224→                  Weather checks pending (no forecast provider) · soil readiness is a manual check.
+  1225→                </p>
+  1226→                {schedule.result.conflicts.map((c, i) => (
+  1227→                  <p key={i} className="text-red-700">{c.message}</p>
+  1228→                ))}
+  1229→              </div>
+  1230→            ) : null}
+  1231→            {expert && templates.data ? (
+  1232→              <p className="text-[11px] text-stone-400">
+  1233→                Template pack: {templates.data.total} templates · validation status {templates.data.operation_templates[0]?.validation_status ?? '—'}
+  1234→              </p>
+  1235→            ) : null}
+  1236→          </CardContent>
+  1237→        </Card>
+  1238→      </div>
+  1239→    </div>
+  1240→  )
+  1241→}
+  1242→

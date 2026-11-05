@@ -1,3 +1,0 @@
-- script:
-  - test -f $PREFIX/lib/libminizip${SHLIB_EXT}
-  - test ! -f $PREFIX/lib/libminizip.a

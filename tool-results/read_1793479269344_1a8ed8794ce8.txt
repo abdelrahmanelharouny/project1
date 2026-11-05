@@ -1,0 +1,657 @@
+     1→     1→"""Water plan orchestration (Milestone 6A) — the DB bridge for the pure water
+     2→     2→engine (mirrors `app.rotation.service`).
+     3→     3→
+     4→     4→Pipeline: validate request → load active knowledge → pick ONE evidence feature
+     5→     5→run → build WaterEvidence (month-of-year climatology of ET0 and precipitation)
+     6→     6→→ build SoilWaterInputs (farmer-measured, PTF-over-texture, or none) → plan
+     7→     7→each season with the pure engine → persist an immutable snapshot.
+     8→     8→"""
+     9→     9→
+    10→    10→from __future__ import annotations
+    11→    11→
+    12→    12→import uuid
+    13→    13→from datetime import date, datetime, UTC
+    14→    14→from typing import Any
+    15→    15→
+    16→    16→from sqlalchemy import select
+    17→    17→from sqlalchemy.orm import Session
+    18→    18→
+    19→    19→from app.core.errors import NotFound, ValidationFailed
+    20→    20→from app.db import models as dbm
+    21→    21→from app.knowledge.service import load_knowledge
+    22→    22→from app.rotation.service import (
+    23→    23→    MAX_SEASONS,
+    24→    24→    SOIL_VARIABLES,
+    25→    25→    _pick_evidence_run,
+    26→    26→    _validate_seasons,
+    27→    27→    _soil_evidence,
+    28→    28→)
+    29→    29→from app.water import effective_rainfall as pe_mod
+    30→    30→from app.water import planner as planner_mod
+    31→    31→from app.water import soil as soil_mod
+    32→    32→from app.water.contracts import (
+    33→    33→    EFFECTIVE_RAINFALL_METHODS,
+    34→    34→    IRRIGATION_EFFICIENCY_CLASSES,
+    35→    35→    PTF_VERSION,
+    36→    36→    SOIL_SOURCES,
+    37→    37→    WATER_ENGINE_VERSION,
+    38→    38→    WATER_METHODS_VERSION,
+    39→    39→    EfficiencyInput,
+    40→    40→    SoilWaterInputs,
+    41→    41→    WaterEvidence,
+    42→    42→    WaterPlanRequest,
+    43→    43→)
+    44→    44→from app.water.knowledge import water_knowledge_map
+    45→    45→from app.water.planner import plan_rotation_water
+    46→    46→from app.water.requirements import mm_to_m3
+    47→    47→
+    48→    48→MIN_CLIMATE_COVERAGE = 0.9  # same floor as rotation climate evidence
+    49→    49→
+    50→    50→
+    51→    51→def _season_climate_evidence(
+    52→    52→    run: dbm.FeatureRun,
+    53→    53→    season_label: str,
+    54→    54→    start: date,
+    55→    55→    end: date,
+    56→    56→) -> tuple[WaterEvidence | None, list[str]]:
+    57→    57→    """Month-of-year climatology of ET0 and precipitation for one season window
+    58→    58→    from a single feature run (the same historical-proxy basis as rotation)."""
+    59→    59→    import calendar as cal
+    60→    60→
+    61→    61→    monthly: dict[str, dict[int, list[tuple[int, float]]]] = {}
+    62→    62→    for row in run.values:
+    63→    63→        if row.aggregation_level != "monthly" or row.value is None:
+    64→    64→            continue
+    65→    65→        monthly.setdefault(row.feature_code, {}).setdefault(
+    66→    66→            row.period_start.month, []
+    67→    67→        ).append((row.period_start.year, row.value))
+    68→    68→
+    69→    69→    def collect_month_means(code: str) -> list[tuple[int, int, float]]:
+    70→    70→        table = monthly.get(code, {})
+    71→    71→        out: list[tuple[int, int, float]] = []
+    72→    72→        y, m = start.year, start.month
+    73→    73→        while (y, m) <= (end.year, end.month):
+    74→    74→            entries = table.get(m)
+    75→    75→            if entries:
+    76→    76→                out.append((y, m, sum(v for _yr, v in entries) / len(entries)))
+    77→    77→            m += 1
+    78→    78→            if m == 13:
+    79→    79→                y, m = y + 1, 1
+    80→    80→        return out
+    81→    81→
+    82→    82→    et0 = collect_month_means("reference_et0_total_monthly")
+    83→    83→    precip = collect_month_means("precipitation_total_monthly")
+    84→    84→
+    85→    85→    warnings: list[str] = []
+    86→    86→    if not et0:
+    87→    87→        warnings.append(
+    88→    88→            f"Season '{season_label}': no monthly ET0 feature values in the evidence "
+    89→    89→            "run — crop ETc will not be evaluable (missing evidence is never zero)."
+    90→    90→        )
+    91→    91→    if not precip:
+    92→    92→        warnings.append(
+    93→    93→            f"Season '{season_label}': no monthly precipitation feature values in the "
+    94→    94→            "evidence run — the rainfall credit will be unknown (conservative "
+    95→    95→            "requirement, disclosed)."
+    96→    96→        )
+    97→    97→
+    98→    98→    years_used = sorted({
+    99→    99→        y
+   100→   100→        for table in monthly.values()
+   101→   101→        for entries in table.values()
+   102→   102→        for y, _v in entries
+   103→   103→    })
+   104→   104→    evidence = WaterEvidence(
+   105→   105→        feature_run_id=str(run.id),
+   106→   106→        is_synthetic=bool(run.is_synthetic),
+   107→   107→        monthly_et0=tuple(et0),
+   108→   108→        monthly_precip=tuple(precip),
+   109→   109→        coverage_ratio=1.0 if et0 else 0.0,
+   110→   110→        years_used=tuple(years_used),
+   111→   111→        basis=(
+   112→   112→            f"month-of-year climatology from feature run {str(run.id)[:8]} "
+   113→   113→            f"({f'years {years_used[0]}-{years_used[-1]}' if years_used else 'no years'}) "
+   114→   114→            "— a historical proxy, NOT a forecast for the planning season."
+   115→   115→        ),
+   116→   116→    )
+   117→   117→    return evidence, warnings
+   118→   118→
+   119→   119→
+   120→   120→def _efficiency_from_payload(
+   121→   121→    payload_eff: dict[str, Any] | None,
+   122→   122→) -> EfficiencyInput | None:
+   123→   123→    """Efficiency from an explicit farmer value or a method class (the FAO
+   124→   124→    TM1 Annex I Table 8 indicative values). A method class value is a
+   125→   125→    REFERENCE choice, recorded with its citation."""
+   126→   126→    if payload_eff is None:
+   127→   127→        return None
+   128→   128→    if not isinstance(payload_eff, dict):
+   129→   129→        raise ValidationFailed(
+   130→   130→            "irrigation_efficiency must be an object.",
+   131→   131→            details=[{"field": "irrigation_efficiency"}],
+   132→   132→        )
+   133→   133→    value = payload_eff.get("value")
+   134→   134→    method_class = payload_eff.get("method_class")
+   135→   135→    if value is not None:
+   136→   136→        try:
+   137→   137→            value = float(value)
+   138→   138→        except (TypeError, ValueError):
+   139→   139→            raise ValidationFailed(
+   140→   140→                "irrigation_efficiency.value must be a number.",
+   141→   141→                details=[{"field": "irrigation_efficiency"}],
+   142→   142→            ) from None
+   143→   143→        if not 0 < value <= 1:
+   144→   144→            raise ValidationFailed(
+   145→   145→                "irrigation_efficiency.value must be within (0, 1].",
+   146→   146→                details=[{"field": "irrigation_efficiency", "reason": str(value)}],
+   147→   147→            )
+   148→   148→        return EfficiencyInput(
+   149→   149→            value=value,
+   150→   150→            evidence_class="farmer_reported_record",
+   151→   151→            citation_text="Farmer-supplied field application efficiency.",
+   152→   152→            method_class=method_class,
+   153→   153→        )
+   154→   154→    if method_class is not None:
+   155→   155→        for entry in IRRIGATION_EFFICIENCY_CLASSES:
+   156→   156→            if entry["method_class"] == method_class:
+   157→   157→                return EfficiencyInput(
+   158→   158→                    value=float(entry["efficiency"]),
+   159→   159→                    evidence_class=entry["evidence_class"],
+   160→   160→                    citation_text=entry["citation_text"],
+   161→   161→                    method_class=method_class,
+   162→   162→                )
+   163→   163→        raise ValidationFailed(
+   164→   164→            f"Unknown irrigation method class '{method_class}'.",
+   165→   165→            details=[{
+   166→   166→                "field": "irrigation_efficiency",
+   167→   167→                "reason": ", ".join(e["method_class"] for e in IRRIGATION_EFFICIENCY_CLASSES),
+   168→   168→            }],
+   169→   169→        )
+   170→   170→    raise ValidationFailed(
+   171→   171→        "irrigation_efficiency needs 'value' (farmer-measured) or 'method_class'.",
+   172→   172→        details=[{"field": "irrigation_efficiency"}],
+   173→   173→    )
+   174→   174→
+   175→   175→
+   176→   176→def build_soil_water_inputs(
+   177→   177→    db: Session,
+   178→   178→    field: dbm.Field,
+   179→   179→    payload: dict[str, Any],
+   180→   180→) -> tuple[SoilWaterInputs | None, list[str], dict[str, Any]]:
+   181→   181→    """Assemble soil water-holding inputs from the requested source.
+   182→   182→
+   183→   183→    - farmer_measured: explicit θFC/θWP (+ optional Zr/p) from the request
+   184→   184→      (evidence class farmer_reported_record);
+   185→   185→    - ptf_texture: Saxton & Rawls (2006) over the field's latest soil
+   186→   186→      observations (sand/clay/SOC), with the single-layer disclosure;
+   187→   187→    - none: no soil inputs — the FAO-33 no-storage fallback applies."""
+   188→   188→    source = payload.get("soil_source") or "none"
+   189→   189→    warnings: list[str] = []
+   190→   190→    meta: dict[str, Any] = {"soil_source": source}
+   191→   191→    if source not in SOIL_SOURCES:
+   192→   192→        raise ValidationFailed(
+   193→   193→            f"Unknown soil_source '{source}'.",
+   194→   194→            details=[{"field": "soil_source", "reason": ", ".join(SOIL_SOURCES)}],
+   195→   195→        )
+   196→   196→    if source == "none":
+   197→   197→        return None, warnings, meta
+   198→   198→
+   199→   199→    if source == "farmer_measured":
+   200→   200→        fs = payload.get("farmer_soil") or {}
+   201→   201→        theta_fc = fs.get("theta_fc")
+   202→   202→        theta_wp = fs.get("theta_wp")
+   203→   203→        if theta_fc is None or theta_wp is None:
+   204→   204→            raise ValidationFailed(
+   205→   205→                "soil_source 'farmer_measured' requires farmer_soil.theta_fc and "
+   206→   206→                "farmer_soil.theta_wp (m3/m3).",
+   207→   207→                details=[{"field": "farmer_soil"}],
+   208→   208→            )
+   209→   209→        try:
+   210→   210→            theta_fc, theta_wp = float(theta_fc), float(theta_wp)
+   211→   211→        except (TypeError, ValueError):
+   212→   212→            raise ValidationFailed(
+   213→   213→                "farmer_soil.theta_fc/theta_wp must be numbers.",
+   214→   214→                details=[{"field": "farmer_soil"}],
+   215→   215→            ) from None
+   216→   216→        if not (0 < theta_wp < theta_fc <= 0.6):
+   217→   217→            raise ValidationFailed(
+   218→   218→                "farmer_soil contents must satisfy 0 < θWP < θFC ≤ 0.6 (m3/m3).",
+   219→   219→                details=[{"field": "farmer_soil", "reason": f"{theta_wp} !< {theta_fc}"}],
+   220→   220→            )
+   221→   221→        zr = fs.get("zr_m")
+   222→   222→        p_table = fs.get("p_table")
+   223→   223→        inputs = SoilWaterInputs(
+   224→   224→            theta_fc=theta_fc,
+   225→   225→            theta_fc_evidence_class="farmer_reported_record",
+   226→   226→            theta_wp=theta_wp,
+   227→   227→            theta_wp_evidence_class="farmer_reported_record",
+   228→   228→            zr_m=float(zr) if zr is not None else None,
+   229→   229→            zr_evidence_class="farmer_reported_record" if zr is not None else None,
+   230→   230→            p_table=float(p_table) if p_table is not None else None,
+   231→   231→            p_evidence_class="farmer_reported_record" if p_table is not None else None,
+   232→   232→            source_label="farmer_measured",
+   233→   233→            source_notes=(
+   234→   234→                "Soil water-holding characteristics supplied by the farmer "
+   235→   235→                "(farmer_reported_record) — not independently verified.",
+   236→   236→            ),
+   237→   237→        )
+   238→   238→        meta["farmer_soil"] = fs
+   239→   239→        return inputs, warnings, meta
+   240→   240→
+   241→   241→    # ptf_texture
+   242→   242→    rows = db.execute(
+   243→   243→        select(dbm.Observation)
+   244→   244→        .where(
+   245→   245→            dbm.Observation.field_id == field.id,
+   246→   246→            dbm.Observation.variable_code.in_(SOIL_VARIABLES),
+   247→   247→            dbm.Observation.value.is_not(None),
+   248→   248→        )
+   249→   249→        .order_by(dbm.Observation.observed_at.desc())
+   250→   250→        .limit(50)
+   251→   251→    ).scalars().all()
+   252→   252→    latest: dict[str, dbm.Observation] = {}
+   253→   253→    for obs in rows:
+   254→   254→        latest.setdefault(obs.variable_code, obs)
+   255→   255→    sand = latest.get("soil_sand_content")
+   256→   256→    clay = latest.get("soil_clay_content")
+   257→   257→    soc = latest.get("soil_organic_carbon")
+   258→   258→    if sand is None or clay is None:
+   259→   259→        warnings.append(
+   260→   260→            "soil_source 'ptf_texture' requested but the field has no sand/clay "
+   261→   261→            "observations — the PTF estimate is refused (never extrapolated) and "
+   262→   262→            "the plan falls back to the no-storage FAO-33 method."
+   263→   263→        )
+   264→   264→        return None, warnings, {**meta, "ptf": "refused_missing_texture"}
+   265→   265→    sand_frac = float(sand.value) / 1000.0  # g/kg → fraction
+   266→   266→    clay_frac = float(clay.value) / 1000.0
+   267→   267→    om_percent = (
+   268→   268→        soil_mod.organic_carbon_to_om_percent(float(soc.value)) if soc is not None else None
+   269→   269→    )
+   270→   270→    notes = [
+   271→   271→        "θFC/θWP ESTIMATED by the Saxton & Rawls (2006) pedotransfer function over "
+   272→   272→        "texture (evidence class global_soil_prediction; PTF version "
+   273→   273→        f"{PTF_VERSION}); a texture-based model estimate, not a measurement.",
+   274→   274→        "The PTF inputs are the field's latest soil observations. If they come from "
+   275→   275→        "SoilGrids, they describe the 0-5 cm layer ASSUMED representative of the "
+   276→   276→        "root zone — a single-layer extrapolation explicitly disclosed (backlog S-6).",
+   277→   277→    ]
+   278→   278→    if om_percent is None:
+   279→   279→        notes.append(
+   280→   280→            "No organic-carbon observation available — the PTF OM term is set to 0 "
+   281→   281→            "(a disclosed simplification, typically a small effect)."
+   282→   282→        )
+   283→   283→        om_used = 0.0
+   284→   284→    else:
+   285→   285→        om_used = om_percent
+   286→   286→        notes.append(
+   287→   287→            "Organic matter derived from soil organic carbon via the van Bemmelen "
+   288→   288→            "factor (OM ≈ SOC × 1.724)."
+   289→   289→        )
+   290→   290→    try:
+   291→   291→        est = soil_mod.saxton_rawls_2006(sand_frac, clay_frac, om_used)
+   292→   292→    except soil_mod.PTFDomainError as exc:
+   293→   293→        warnings.append(
+   294→   294→            f"The field's texture is outside the Saxton-Rawls validity domain "
+   295→   295→            f"({exc}) — the PTF estimate is refused and the plan falls back to the "
+   296→   296→            "no-storage FAO-33 method."
+   297→   297→        )
+   298→   298→        return None, warnings, {**meta, "ptf": "refused_domain"}
+   299→   299→    meta["ptf"] = {
+   300→   300→        "ptf_version": PTF_VERSION,
+   301→   301→        "sand_fraction": sand_frac,
+   302→   302→        "clay_fraction": clay_frac,
+   303→   303→        "om_percent": round(om_used, 4),
+   304→   304→        "theta_fc": est["theta_fc_33kPa"],
+   305→   305→        "theta_wp": est["theta_wp_1500kPa"],
+   306→   306→        "input_evidence_classes": {
+   307→   307→            "sand": sand.evidence_class,
+   308→   308→            "clay": clay.evidence_class,
+   309→   309→            "organic_carbon": soc.evidence_class if soc else None,
+   310→   310→        },
+   311→   311→    }
+   312→   312→    inputs = SoilWaterInputs(
+   313→   313→        theta_fc=est["theta_fc_33kPa"],
+   314→   314→        theta_fc_evidence_class="global_soil_prediction",
+   315→   315→        theta_wp=est["theta_wp_1500kPa"],
+   316→   316→        theta_wp_evidence_class="global_soil_prediction",
+   317→   317→        zr_m=None,   # Zr comes from the crop knowledge (pack) in the planner caller
+   318→   318→        zr_evidence_class=None,
+   319→   319→        p_table=None,  # p comes from the crop knowledge (pack)
+   320→   320→        p_evidence_class=None,
+   321→   321→        source_label="ptf_texture",
+   322→   322→        source_notes=tuple(notes),
+   323→   323→    )
+   324→   324→    return inputs, warnings, meta
+   325→   325→
+   326→   326→
+   327→   327→def start_water_plan(
+   328→   328→    db: Session,
+   329→   329→    *,
+   330→   330→    field: dbm.Field,
+   331→   331→    payload: dict[str, Any],
+   332→   332→    created_by: Any = None,
+   333→   333→) -> dbm.WaterPlan:
+   334→   334→    """Validate, execute inline and persist a water plan (202-style job)."""
+   335→   335→    idempotency_key = payload.get("idempotency_key")
+   336→   336→    if idempotency_key:
+   337→   337→        existing = db.scalar(
+   338→   338→            select(dbm.WaterPlan).where(
+   339→   339→                dbm.WaterPlan.idempotency_key == idempotency_key,
+   340→   340→                dbm.WaterPlan.field_id == field.id,
+   341→   341→            )
+   342→   342→        )
+   343→   343→        if existing is not None:
+   344→   344→            return existing
+   345→   345→
+   346→   346→    raw_seasons = payload.get("seasons") or []
+   347→   347→    if not raw_seasons:
+   348→   348→        raise ValidationFailed(
+   349→   349→            "At least one season is required.",
+   350→   350→            details=[{"field": "seasons"}],
+   351→   351→        )
+   352→   352→    season_specs = _validate_seasons(raw_seasons)
+   353→   353→    if len(season_specs) > MAX_SEASONS:
+   354→   354→        raise ValidationFailed(
+   355→   355→            f"At most {MAX_SEASONS} seasons per water plan.",
+   356→   356→            details=[{"field": "seasons"}],
+   357→   357→        )
+   358→   358→
+   359→   359→    # crop assignments: per-season crop_code required (knowledge-base crops)
+   360→   360→    assignments_in = payload.get("crop_assignments") or []
+   361→   361→    if not isinstance(assignments_in, list) or len(assignments_in) != len(season_specs):
+   362→   362→        raise ValidationFailed(
+   363→   363→            "crop_assignments must list one crop_code per season.",
+   364→   364→            details=[{"field": "crop_assignments"}],
+   365→   365→        )
+   366→   366→    sowings_in = payload.get("sowing_dates") or {}
+   367→   367→
+   368→   368→    pe_method = payload.get("effective_rainfall_method") or "fao_aglw_1986"
+   369→   369→    if pe_method not in EFFECTIVE_RAINFALL_METHODS:
+   370→   370→        raise ValidationFailed(
+   371→   371→            f"Unknown effective_rainfall_method '{pe_method}'.",
+   372→   372→            details=[{"field": "effective_rainfall_method"}],
+   373→   373→        )
+   374→   374→    pe_fraction = payload.get("pe_fraction")
+   375→   375→    if pe_method == "constant_fraction":
+   376→   376→        if pe_fraction is None:
+   377→   377→            raise ValidationFailed(
+   378→   378→                "effective_rainfall_method 'constant_fraction' requires pe_fraction.",
+   379→   379→                details=[{"field": "pe_fraction"}],
+   380→   380→            )
+   381→   381→        pe_fraction = float(pe_fraction)
+   382→   382→        if not 0 <= pe_fraction <= 1:
+   383→   383→            raise ValidationFailed(
+   384→   384→                "pe_fraction must be within [0, 1].",
+   385→   385→                details=[{"field": "pe_fraction"}],
+   386→   386→            )
+   387→   387→    elif pe_fraction is not None:
+   388→   388→        raise ValidationFailed(
+   389→   389→            "pe_fraction is only valid with the constant_fraction method.",
+   390→   390→            details=[{"field": "pe_fraction"}],
+   391→   391→        )
+   392→   392→
+   393→   393→    efficiency = _efficiency_from_payload(payload.get("irrigation_efficiency"))
+   394→   394→
+   395→   395→    allocation = payload.get("water_allocation_m3")
+   396→   396→    if allocation is not None:
+   397→   397→        try:
+   398→   398→            allocation = float(allocation)
+   399→   399→        except (TypeError, ValueError):
+   400→   400→            raise ValidationFailed(
+   401→   401→                "water_allocation_m3 must be a number.",
+   402→   402→                details=[{"field": "water_allocation_m3"}],
+   403→   403→            ) from None
+   404→   404→        if allocation <= 0:
+   405→   405→            raise ValidationFailed(
+   406→   406→                "water_allocation_m3 must be positive.",
+   407→   407→                details=[{"field": "water_allocation_m3"}],
+   408→   408→            )
+   409→   409→
+   410→   410→    knowledge = load_knowledge(db)
+   411→   411→    if not knowledge.crops:
+   412→   412→        raise ValidationFailed(
+   413→   413→            "No active knowledge pack with crops — import a knowledge pack first.",
+   414→   414→            details=[{"field": "knowledge"}],
+   415→   415→        )
+   416→   416→    wk_map = water_knowledge_map(knowledge)
+   417→   417→
+   418→   418→    soil_inputs, soil_warnings, soil_meta = build_soil_water_inputs(db, field, payload)
+   419→   419→
+   420→   420→    area_ha = float(field.area_ha)
+   421→   421→    label = str(payload.get("label") or "Seasonal water plan")[:120]
+   422→   422→
+   423→   423→    run = dbm.WaterPlan(
+   424→   424→        field_id=field.id,
+   425→   425→        status="running",
+   426→   426→        label=label,
+   427→   427→        seasons=[
+   428→   428→            {"label": s.label, "start_date": s.start_date.isoformat(), "end_date": s.end_date.isoformat()}
+   429→   429→            for s in season_specs
+   430→   430→        ],
+   431→   431→        crop_assignments=list(assignments_in),
+   432→   432→        methods={
+   433→   433→            "water_engine_version": WATER_ENGINE_VERSION,
+   434→   434→            "methods_version": WATER_METHODS_VERSION,
+   435→   435→            "effective_rainfall_method": pe_method,
+   436→   436→            "pe_fraction": pe_fraction,
+   437→   437→            "irrigation_efficiency": (
+   438→   438→                {
+   439→   439→                    "value": efficiency.value,
+   440→   440→                    "evidence_class": efficiency.evidence_class,
+   441→   441→                    "method_class": efficiency.method_class,
+   442→   442→                }
+   443→   443→                if efficiency
+   444→   444→                else None
+   445→   445→            ),
+   446→   446→            "soil_source": soil_meta.get("soil_source", "none"),
+   447→   447→            "ptf": soil_meta.get("ptf"),
+   448→   448→        },
+   449→   449→        soil_inputs={
+   450→   450→            "theta_fc": soil_inputs.theta_fc if soil_inputs else None,
+   451→   451→            "theta_wp": soil_inputs.theta_wp if soil_inputs else None,
+   452→   452→            "zr_m": soil_inputs.zr_m if soil_inputs else None,
+   453→   453→            "p_table": soil_inputs.p_table if soil_inputs else None,
+   454→   454→            "source_label": soil_inputs.source_label if soil_inputs else "none",
+   455→   455→            "evidence_classes": (
+   456→   456→                {
+   457→   457→                    "theta_fc": soil_inputs.theta_fc_evidence_class,
+   458→   458→                    "theta_wp": soil_inputs.theta_wp_evidence_class,
+   459→   459→                    "zr": soil_inputs.zr_evidence_class,
+   460→   460→                    "p": soil_inputs.p_evidence_class,
+   461→   461→                }
+   462→   462→                if soil_inputs
+   463→   463→                else {}
+   464→   464→            ),
+   465→   465→        },
+   466→   466→        water_engine_version=WATER_ENGINE_VERSION,
+   467→   467→        methods_version=WATER_METHODS_VERSION,
+   468→   468→        water_allocation_m3=allocation,
+   469→   469→        request_parameters=dict(payload.get("request_parameters") or {}),
+   470→   470→        idempotency_key=idempotency_key,
+   471→   471→        created_by=getattr(created_by, "id", None),
+   472→   472→    )
+   473→   473→    db.add(run)
+   474→   474→    db.flush()
+   475→   475→
+   476→   476→    try:
+   477→   477→        evidence_run = _pick_evidence_run(db, field.id, payload.get("evidence_run_id"))
+   478→   478→        warnings: list[str] = []
+   479→   479→        if evidence_run is None:
+   480→   480→            warnings.append(
+   481→   481→                "No succeeded feature run exists for this field — every "
+   482→   482→                "climate-informed dimension stays unevaluated."
+   483→   483→            )
+   484→   484→        if evidence_run is not None and evidence_run.is_synthetic:
+   485→   485→            warnings.append(
+   486→   486→                "The evidence feature run used SYNTHETIC data — every climate-informed "
+   487→   487→                "outcome is a demonstration, never real farm evidence."
+   488→   488→            )
+   489→   489→
+   490→   490→        requests: list[tuple[WaterPlanRequest, Any, WaterEvidence]] = []
+   491→   491→        not_evaluated: dict[str, list[str]] = {}
+   492→   492→        season_results: list[dict[str, Any]] = []
+   493→   493→        feature_run_ids: list[str] = []
+   494→   494→        fallback_soil = None
+   495→   495→        if soil_inputs is not None and soil_inputs.zr_m is None:
+   496→   496→            # PTF/farmer path without explicit Zr: the crop's pack rooting depth
+   497→   497→            # is used per season (disclosed); store the decision here.
+   498→   498→            fallback_soil = soil_inputs
+   499→   499→
+   500→   500→        for season_spec, crop_assignment in zip(season_specs, assignments_in):
+   501→   501→            crop_code = (crop_assignment or {}).get("crop_code") if isinstance(crop_assignment, dict) else crop_assignment
+   502→   502→            if not crop_code:
+   503→   503→                raise ValidationFailed(
+   504→   504→                    f"Season '{season_spec.label}' needs a crop_code.",
+   505→   505→                    details=[{"field": "crop_assignments"}],
+   506→   506→                )
+   507→   507→            crop = knowledge.crops.get(crop_code)
+   508→   508→            if crop is None:
+   509→   509→                raise ValidationFailed(
+   510→   510→                    f"Unknown crop_code '{crop_code}' — the knowledge base has no such crop.",
+   511→   511→                    details=[{"field": "crop_assignments", "reason": crop_code}],
+   512→   512→                )
+   513→   513→            wk = wk_map[crop_code]
+   514→   514→            if evidence_run is None:
+   515→   515→                season_evidence = WaterEvidence(
+   516→   516→                    feature_run_id="none", is_synthetic=False,
+   517→   517→                    basis="no feature run available — no climate evidence",
+   518→   518→                )
+   519→   519→                warnings.append(
+   520→   520→                    f"Season '{season_spec.label}': planned without climate evidence; "
+   521→   521→                    "all water quantities not evaluated."
+   522→   522→                )
+   523→   523→            else:
+   524→   524→                season_evidence, ev_warnings = _season_climate_evidence(
+   525→   525→                    evidence_run, season_spec.label, season_spec.start_date, season_spec.end_date
+   526→   526→                )
+   527→   527→                warnings.extend(ev_warnings)
+   528→   528→                if str(evidence_run.id) not in feature_run_ids:
+   529→   529→                    feature_run_ids.append(str(evidence_run.id))
+   530→   530→
+   531→   531→            sowing_raw = sowings_in.get(season_spec.label) if isinstance(sowings_in, dict) else None
+   532→   532→            sowing_date = None
+   533→   533→            if sowing_raw:
+   534→   534→                try:
+   535→   535→                    sowing_date = date.fromisoformat(str(sowing_raw))
+   536→   536→                except ValueError:
+   537→   537→                    raise ValidationFailed(
+   538→   538→                        f"sowing_dates['{season_spec.label}'] must be an ISO date.",
+   539→   539→                        details=[{"field": "sowing_dates"}],
+   540→   540→                    ) from None
+   541→   541→
+   542→   542→            soil_for_season = None
+   543→   543→            if fallback_soil is not None:
+   544→   544→                # Zr from the crop's verified pack range midpoint (disclosed)
+   545→   545→                zr = wk.zr_reference_m
+   546→   546→                if zr is None and fallback_soil.zr_m is not None:
+   547→   547→                    zr = fallback_soil.zr_m
+   548→   548→                soil_for_season = SoilWaterInputs(
+   549→   549→                    theta_fc=fallback_soil.theta_fc,
+   550→   550→                    theta_fc_evidence_class=fallback_soil.theta_fc_evidence_class,
+   551→   551→                    theta_wp=fallback_soil.theta_wp,
+   552→   552→                    theta_wp_evidence_class=fallback_soil.theta_wp_evidence_class,
+   553→   553→                    zr_m=zr,
+   554→   554→                    zr_evidence_class="knowledge_pack_table22_midpoint" if zr is not None else None,
+   555→   555→                    p_table=wk.p_table if wk.p_table is not None else fallback_soil.p_table,
+   556→   556→                    p_evidence_class=wk.p_source.get("evidence_class") if (wk.p_table is not None and wk.p_source) else None,
+   557→   557→                    source_label=fallback_soil.source_label,
+   558→   558→                    source_notes=fallback_soil.source_notes,
+   559→   559→                )
+   560→   560→            elif soil_inputs is not None:
+   561→   561→                soil_for_season = soil_inputs
+   562→   562→
+   563→   563→            request = WaterPlanRequest(
+   564→   564→                season_label=season_spec.label,
+   565→   565→                start_date=season_spec.start_date,
+   566→   566→                end_date=season_spec.end_date,
+   567→   567→                crop_code=crop_code,
+   568→   568→                sowing_date=sowing_date,
+   569→   569→                pe_method=pe_method,
+   570→   570→                pe_fraction=pe_fraction,
+   571→   571→                soil=soil_for_season,
+   572→   572→                efficiency=efficiency,
+   573→   573→                water_allocation_m3=allocation,
+   574→   574→                area_ha=area_ha,
+   575→   575→            )
+   576→   576→            requests.append((request, wk, season_evidence))
+   577→   577→
+   578→   578→        plan_result = plan_rotation_water(requests)
+   579→   579→        season_results = plan_result["seasons"]
+   580→   580→
+   581→   581→        for sp in season_results:
+   582→   582→            if sp["missing_evidence"]:
+   583→   583→                not_evaluated[sp["season_label"]] = sp["missing_evidence"]
+   584→   584→
+   585→   585→        run.status = "succeeded"
+   586→   586→        run.result = plan_result
+   587→   587→        run.warnings = warnings
+   588→   588→        run.not_evaluated = not_evaluated
+   589→   589→        run.feature_run_ids = feature_run_ids
+   590→   590→        run.knowledge_pack_refs = [dict(r) for r in knowledge.pack_refs]
+   591→   591→        run.checksum_sha256 = _plan_snapshot_checksum(plan_result, run)
+   592→   592→        run.completed_at = datetime.now(UTC)
+   593→   593→        db.flush()
+   594→   594→    except ValidationFailed:
+   595→   595→        run.status = "failed"
+   596→   596→        run.error_summary = "validation failed"
+   597→   597→        run.completed_at = datetime.now(UTC)
+   598→   598→        raise
+   599→   599→    except Exception as exc:  # noqa: BLE001 — job failure accounting
+   600→   600→        run.status = "failed"
+   601→   601→        run.error_summary = f"{type(exc).__name__}: {exc}"
+   602→   602→        run.completed_at = datetime.now(UTC)
+   603→   603→        db.flush()
+   604→   604→        raise
+   605→   605→    return run
+   606→   606→
+   607→   607→
+   608→   608→def _plan_snapshot_checksum(plan_result: dict[str, Any], run: dbm.WaterPlan) -> str:
+   609→   609→    import hashlib
+   610→   610→    import json
+   611→   611→
+   612→   612→    payload = {
+   613→   613→        "engine": run.water_engine_version,
+   614→   614→        "methods": run.methods_version,
+   615→   615→        "seasons": run.seasons,
+   616→   616→        "assignments": run.crop_assignments,
+   617→   617→        "methods_cfg": run.methods,
+   618→   618→        "soil": run.soil_inputs,
+   619→   619→        "allocation": run.water_allocation_m3,
+   620→   620→        "totals": [
+   621→   621→            s["totals"] for s in plan_result.get("seasons", [])
+   622→   622→        ],
+   623→   623→        "packs": run.knowledge_pack_refs,
+   624→   624→    }
+   625→   625→    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+   626→   626→    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+   627→   627→
+   628→   628→
+   629→   629→# ---------------------------------------------------------------- serializers
+   630→   630→
+   631→   631→
+   632→   632→def plan_payload(plan: dbm.WaterPlan, *, include_result: bool = True) -> dict[str, Any]:
+   633→   633→    data: dict[str, Any] = {
+   634→   634→        "id": str(plan.id),
+   635→   635→        "field_id": str(plan.field_id),
+   636→   636→        "status": plan.status,
+   637→   637→        "label": plan.label,
+   638→   638→        "seasons": plan.seasons,
+   639→   639→        "crop_assignments": plan.crop_assignments,
+   640→   640→        "methods": plan.methods,
+   641→   641→        "soil_inputs": plan.soil_inputs,
+   642→   642→        "warnings": plan.warnings,
+   643→   643→        "not_evaluated": plan.not_evaluated,
+   644→   644→        "water_engine_version": plan.water_engine_version,
+   645→   645→        "methods_version": plan.methods_version,
+   646→   646→        "feature_run_ids": plan.feature_run_ids,
+   647→   647→        "knowledge_pack_refs": plan.knowledge_pack_refs,
+   648→   648→        "water_allocation_m3": plan.water_allocation_m3,
+   649→   649→        "checksum_sha256": plan.checksum_sha256,
+   650→   650→        "error_summary": plan.error_summary,
+   651→   651→        "created_at": plan.created_at.isoformat() if plan.created_at else None,
+   652→   652→        "status_url": f"/api/v1/water-plans/{plan.id}",
+   653→   653→    }
+   654→   654→    if include_result:
+   655→   655→        data["result"] = plan.result
+   656→   656→    return data
+   657→   657→
