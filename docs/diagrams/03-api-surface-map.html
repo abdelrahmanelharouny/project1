@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1150px; margin: 0 auto; padding: 48px 52px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 34px; }
+
+  .era { border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC; padding: 22px 20px 18px; position: relative; margin-bottom: 26px; }
+  .era-label {
+    position: absolute; top: -11px; left: 16px; background: #FFFFFF; padding: 0 10px;
+    font-size: 12px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .era-total {
+    position: absolute; top: -14px; right: 16px; background: #FFFFFF; padding: 0 10px;
+    font-size: 12px; font-weight: 700; color: #64748B; font-variant-numeric: tabular-nums;
+  }
+  .cards { display: flex; flex-wrap: wrap; gap: 14px; }
+
+  .card {
+    background: #FFFFFF; border: 1.5px solid #94A3B8; border-radius: 10px;
+    padding: 12px 16px; min-width: 168px; max-width: 260px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .card .c-name { font-size: 13.5px; font-weight: 700; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+  .card .c-prefix { font-size: 11px; color: var(--sub); font-family: ui-monospace, 'SF Mono', Menlo, monospace; margin-top: 2px; }
+  .card .c-count { font-size: 12px; color: var(--sub); margin-top: 7px; }
+  .card .c-count b { font-size: 17px; color: #111827; font-variant-numeric: tabular-nums; margin-right: 3px; }
+
+  .card.blue   { border-color: #3B82F6; background: #F8FBFF; }
+  .card.teal   { border-color: #14B8A6; background: #F7FEFD; }
+  .card.purple { border-color: #8B5CF6; background: #FCFBFF; }
+  .card.amber  { border-color: #F59E0B; background: #FFFCF5; }
+  .card.green  { border-color: #10B981; background: #F7FEFA; }
+  .card.slate  { border-color: #64748B; background: #FBFCFE; }
+
+  .legend { display: flex; gap: 18px; justify-content: center; margin-top: 6px; flex-wrap: wrap; }
+  .legend span { font-size: 12px; color: #475569; display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; border-width: 1.5px; border-style: solid; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">FieldShift REST API Surface &mdash; 133 paths &middot; 18 routers</div>
+  <div class="subtitle">Unique route templates per router under <b>/api/v1</b>, grouped by capability era &middot; all bearer-token protected except health</div>
+
+  <div class="era">
+    <div class="era-label">Platform &middot; M1&ndash;M2</div><div class="era-total">24 paths</div>
+    <div class="cards">
+      <div class="card slate"><div class="c-name">health</div><div class="c-prefix">/api/v1/health</div><div class="c-count"><b>2</b>public liveness / readiness</div></div>
+      <div class="card slate"><div class="c-name">auth</div><div class="c-prefix">/api/v1/auth</div><div class="c-count"><b>4</b>login &middot; demo &middot; me &middot; logout</div></div>
+      <div class="card slate"><div class="c-name">farms</div><div class="c-prefix">/api/v1/farms</div><div class="c-count"><b>2</b>farm registry</div></div>
+      <div class="card slate"><div class="c-name">fields</div><div class="c-prefix">/api/v1/fields</div><div class="c-count"><b>4</b>boundaries &middot; geometry</div></div>
+      <div class="card slate"><div class="c-name">data_platform</div><div class="c-prefix">/api/v1/data</div><div class="c-count"><b>12</b>sources &middot; products &middot; ingestion jobs</div></div>
+    </div>
+  </div>
+
+  <div class="era">
+    <div class="era-label">Intelligence core &middot; M3&ndash;M6A</div><div class="era-total">24 paths</div>
+    <div class="cards">
+      <div class="card blue"><div class="c-name">features</div><div class="c-prefix">/api/v1/features</div><div class="c-count"><b>5</b>engine &middot; definitions &middot; runs</div></div>
+      <div class="card blue"><div class="c-name">knowledge</div><div class="c-prefix">/api/v1/knowledge</div><div class="c-count"><b>9</b>packs &middot; sources &middot; crops</div></div>
+      <div class="card blue"><div class="c-name">rotation</div><div class="c-prefix">/api/v1/rotation</div><div class="c-count"><b>6</b>rules &middot; strategies &middot; runs</div></div>
+      <div class="card blue"><div class="c-name">water</div><div class="c-prefix">/api/v1/water</div><div class="c-count"><b>4</b>irrigation plans</div></div>
+    </div>
+  </div>
+
+  <div class="era">
+    <div class="era-label">Soil &amp; management science &middot; M6B / M6C</div><div class="era-total">42 paths</div>
+    <div class="cards">
+      <div class="card teal"><div class="c-name">soil</div><div class="c-prefix">/api/v1/soil</div><div class="c-count"><b>19</b>samplings &middot; layers &middot; USDA texture &middot; SOC stock &middot; assessments</div></div>
+      <div class="card teal"><div class="c-name">management</div><div class="c-prefix">/api/v1/management</div><div class="c-count"><b>23</b>nutrient budgets &middot; cover crops &middot; residue &middot; operations &middot; plans</div></div>
+    </div>
+  </div>
+
+  <div class="era">
+    <div class="era-label">Field state &amp; scenarios &middot; M7.1&ndash;M7.2</div><div class="era-total">16 paths</div>
+    <div class="cards">
+      <div class="card purple"><div class="c-name">field_states</div><div class="c-prefix">/api/v1/field-states</div><div class="c-count"><b>5</b>immutable snapshots &middot; checksums</div></div>
+      <div class="card purple"><div class="c-name">scenarios</div><div class="c-prefix">/api/v1/scenarios</div><div class="c-count"><b>11</b>types &middot; lineage &middot; validation records</div></div>
+    </div>
+  </div>
+
+  <div class="era" style="margin-bottom: 0;">
+    <div class="era-label">Analysis &amp; decision &middot; M7.3&ndash;M7.7</div><div class="era-total">27 paths</div>
+    <div class="cards">
+      <div class="card amber"><div class="c-name">scenario_executions</div><div class="c-prefix">/api/v1/scenario-executions</div><div class="c-count"><b>6</b>runs &middot; derived observations</div></div>
+      <div class="card amber"><div class="c-name">sensitivity</div><div class="c-prefix">/api/v1/sensitivity</div><div class="c-count"><b>7</b>OAT &middot; grids &middot; uncertainty</div></div>
+      <div class="card amber"><div class="c-name">robust_rotation</div><div class="c-prefix">/api/v1/robust-rotation</div><div class="c-count"><b>8</b>sets &middot; strategies &middot; evaluations</div></div>
+      <div class="card amber"><div class="c-name">decision</div><div class="c-prefix">/api/v1/decisions</div><div class="c-count"><b>3</b>side-by-side comparisons</div></div>
+      <div class="card amber"><div class="c-name">digital_twin</div><div class="c-prefix">/api/v1/digital-twin</div><div class="c-count"><b>3</b>twin validations</div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  #mindmap { padding: 60px; display: inline-block; min-width: 100%; position: relative; }
+  #mindmap > svg.lines { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+
+  #mindmap[data-intent="nature"] .root-node { background: linear-gradient(135deg, #166534, #15803D); box-shadow: 0 4px 12px rgba(22,101,52,0.25); }
+
+  .root-node {
+    color: white; font-size: 20px; font-weight: 700; text-align: center;
+    padding: 18px 28px; border-radius: 12px; white-space: nowrap; flex-shrink: 0; align-self: center;
+  }
+  .root-node .root-sub { display: block; font-size: 12px; font-weight: 500; color: #D1FAE5; margin-top: 4px; }
+
+  .tree-layout { display: flex; align-items: center; gap: 0; position: relative; }
+  .left-side, .right-side { display: flex; flex-direction: column; gap: 26px; }
+  .left-side { margin-right: 70px; }
+  .right-side { margin-left: 70px; }
+  .branch { display: flex; align-items: center; }
+  /* branch-node always adjacent to root: children render AWAY from center */
+  .left-side .branch { flex-direction: row-reverse; justify-content: flex-start; }
+  .right-side .branch { flex-direction: row; justify-content: flex-start; }
+
+  .branch-node {
+    font-size: 15px; font-weight: 600; padding: 10px 20px; border-radius: 8px;
+    white-space: nowrap; flex-shrink: 0; border: 2px solid; background: #F8FAFC;
+  }
+  .children { display: flex; flex-direction: column; gap: 8px; }
+  .left-side .children { align-items: flex-end; padding-right: 18px; }
+  .right-side .children { align-items: flex-start; padding-left: 18px; }
+
+  .leaf {
+    font-size: 13px; font-weight: 500; color: #334155;
+    padding: 5px 12px; background: #FAFAFA; border-radius: 12px;
+    border: 1px solid #E5E7EB; white-space: nowrap; line-height: 1.5;
+    width: fit-content;
+  }
+  .leaf-desc { font-size: 12px; color: #94A3B8; font-weight: 400; margin-left: 7px; }
+  .leaf-desc::before { content: '\2014 '; color: #CBD5E1; }
+
+  .c-blue   { background: #EFF6FF; border-color: #3B82F6; color: #1E40AF; }
+  .c-teal   { background: #F0FDFA; border-color: #14B8A6; color: #134E4A; }
+  .c-purple { background: #F5F3FF; border-color: #8B5CF6; color: #5B21B6; }
+  .c-amber  { background: #FFF7ED; border-color: #F59E0B; color: #92400E; }
+  .c-green  { background: #F0FDF4; border-color: #10B981; color: #065F46; }
+</style>
+</head>
+<body>
+<div id="mindmap" data-intent="nature">
+  <div class="tree-layout">
+
+    <div class="left-side">
+      <div class="branch">
+        <div class="branch-node c-blue">Foundation</div>
+        <div class="children">
+          <div class="leaf">Overview<span class="leaf-desc">KPIs &middot; system health &middot; field map</span></div>
+          <div class="leaf">Farms &amp; Fields<span class="leaf-desc">boundary versions &middot; map &middot; field picker</span></div>
+          <div class="leaf">Observations<span class="leaf-desc">lab &amp; sensor data &middot; quality flags</span></div>
+          <div class="leaf">Features<span class="leaf-desc">definitions &middot; runs &middot; values</span></div>
+        </div>
+      </div>
+      <div class="branch">
+        <div class="branch-node c-teal">Agronomy Engines</div>
+        <div class="children">
+          <div class="leaf">Rotation<span class="leaf-desc">rules &middot; strategies &middot; runs</span></div>
+          <div class="leaf">Water<span class="leaf-desc">irrigation plans</span></div>
+          <div class="leaf">Soil<span class="leaf-desc">USDA texture &middot; SOC &middot; assessments</span></div>
+          <div class="leaf">Management<span class="leaf-desc">nutrients &middot; cover crops &middot; residue &middot; plans</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="center-root">
+      <div class="root-node">FieldShift Workspace<span class="root-sub">single &ldquo;/&rdquo; route &middot; 15 tabs &middot; auth-gated</span></div>
+    </div>
+
+    <div class="right-side">
+      <div class="branch">
+        <div class="branch-node c-purple">Field State &amp; Scenarios</div>
+        <div class="children">
+          <div class="leaf">Field State<span class="leaf-desc">immutable, checksummed baseline (M7.1)</span></div>
+          <div class="leaf">Scenarios<span class="leaf-desc">types &middot; lineage &middot; validation (M7.2)</span></div>
+        </div>
+      </div>
+      <div class="branch">
+        <div class="branch-node c-amber">Decision Pipeline</div>
+        <div class="children">
+          <div class="leaf">Sensitivity<span class="leaf-desc">OAT &middot; 2-D grids &middot; uncertainty items</span></div>
+          <div class="leaf">Robust Plan<span class="leaf-desc">scenario sets &middot; strategies (M7.5)</span></div>
+          <div class="leaf">Decisions<span class="leaf-desc">side-by-side comparisons (M7.6)</span></div>
+          <div class="leaf">Digital Twin<span class="leaf-desc">validations vs. reality (M7.7)</span></div>
+        </div>
+      </div>
+      <div class="branch">
+        <div class="branch-node c-green">Outputs &amp; Access</div>
+        <div class="children">
+          <div class="leaf">Data Passport<span class="leaf-desc">provenance &middot; completeness &middot; gaps</span></div>
+          <div class="leaf">Auth Gate<span class="leaf-desc">login &middot; demo workspace seeding</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script>
+function drawAllLines() {
+  const map = document.getElementById('mindmap');
+  if (!map) { console.error('no #mindmap'); return; }
+  const cRect = map.getBoundingClientRect();
+  const old = map.querySelector('svg.lines');
+  if (old) old.remove();
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('lines');
+  svg.setAttribute('width', cRect.width);
+  svg.setAttribute('height', cRect.height);
+  svg.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1;';
+  let lineCount = 0;
+  function rel(el) {
+    const r = el.getBoundingClientRect();
+    return { cx: r.left - cRect.left + r.width/2, cy: r.top - cRect.top + r.height/2,
+             left: r.left - cRect.left, right: r.right - cRect.left };
+  }
+  function drawLine(x1, y1, x2, y2, color, width) {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', Math.round(x1)); l.setAttribute('y1', Math.round(y1));
+    l.setAttribute('x2', Math.round(x2)); l.setAttribute('y2', Math.round(y2));
+    l.setAttribute('stroke', color); l.setAttribute('stroke-width', width);
+    l.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(l); lineCount++;
+  }
+  const lineStyles = [
+    { color: '#64748B', width: 2.5 },
+    { color: '#94A3B8', width: 2 },
+    { color: '#A8B4C2', width: 1.5 },
+    { color: '#B8C2CC', width: 1.2 },
+    { color: '#CBD5E1', width: 1 },
+  ];
+  function getLineStyle(branchColor, depth) {
+    const s = lineStyles[Math.min(depth, lineStyles.length - 1)];
+    return { color: s.color, width: s.width };
+  }
+  function connect(parentEl, childEls, color, width, dir) {
+    if (!childEls.length) return;
+    const p = rel(parentEl);
+    const startX = dir === 'left' ? p.left : p.right;
+    const startY = p.cy;
+    if (childEls.length === 1) {
+      const c = rel(childEls[0]);
+      const endX = dir === 'left' ? c.right : c.left;
+      const midY = Math.round((startY + c.cy) / 2);
+      drawLine(startX, midY, endX, midY, color, width);
+      return;
+    }
+    let closestEdge;
+    if (dir === 'left') closestEdge = Math.max(...childEls.map(ch => rel(ch).right));
+    else closestEdge = Math.min(...childEls.map(ch => rel(ch).left));
+    const childClearance = 16;
+    const midpoint = startX + (closestEdge - startX) / 2;
+    const midFromChild = dir === 'left' ? closestEdge + childClearance : closestEdge - childClearance;
+    const midX = dir === 'left' ? Math.min(midpoint, midFromChild) : Math.max(midpoint, midFromChild);
+    drawLine(startX, startY, midX, startY, color, width);
+    const allCYs = childEls.map(ch => rel(ch).cy);
+    const minY = Math.min(startY, ...allCYs);
+    const maxY = Math.max(startY, ...allCYs);
+    drawLine(midX, minY, midX, maxY, color, width);
+    childEls.forEach(ch => {
+      const c = rel(ch);
+      const endX = dir === 'left' ? c.right : c.left;
+      drawLine(midX, c.cy, endX, c.cy, color, width);
+    });
+  }
+  const NODE_SEL = '.branch-node, .sub-node, .leaf, .deep-node';
+  const CONTAINER_SEL = ':scope > .children, :scope > .leaf-group, :scope > .deep-group';
+  function processChildren(parentNodeEl, containerEl, branchColor, depth, dir) {
+    if (!containerEl) return;
+    const childNodeEls = [];
+    for (const wrapper of containerEl.children) {
+      const nodeEl = wrapper.matches?.(NODE_SEL) ? wrapper : wrapper.querySelector(NODE_SEL);
+      if (nodeEl) childNodeEls.push(nodeEl);
+    }
+    if (!childNodeEls.length) return;
+    const style = getLineStyle(branchColor, depth);
+    connect(parentNodeEl, childNodeEls, style.color, style.width, dir);
+    for (const wrapper of containerEl.children) {
+      const nodeEl = wrapper.matches?.(NODE_SEL) ? wrapper : wrapper.querySelector(NODE_SEL);
+      if (!nodeEl) continue;
+      wrapper.querySelectorAll(CONTAINER_SEL).forEach(nc =>
+        processChildren(nodeEl, nc, branchColor, depth + 1, dir));
+    }
+  }
+  const rootNode = map.querySelector('.root-node');
+  if (!rootNode) { console.error('no .root-node'); return; }
+  const leftBranches = map.querySelectorAll('.left-side > .branch');
+  const leftBranchNodes = [];
+  leftBranches.forEach(b => { const n = b.querySelector('.branch-node'); if (n) leftBranchNodes.push(n); });
+  if (leftBranchNodes.length) connect(rootNode, leftBranchNodes, lineStyles[0].color, lineStyles[0].width, 'left');
+  leftBranches.forEach(b => {
+    const n = b.querySelector('.branch-node'); if (!n) return;
+    processChildren(n, b.querySelector(':scope > .children'), null, 1, 'left');
+  });
+  const rightBranches = map.querySelectorAll('.right-side > .branch');
+  const rightBranchNodes = [];
+  rightBranches.forEach(b => { const n = b.querySelector('.branch-node'); if (n) rightBranchNodes.push(n); });
+  if (rightBranchNodes.length) connect(rootNode, rightBranchNodes, lineStyles[0].color, lineStyles[0].width, 'right');
+  rightBranches.forEach(b => {
+    const n = b.querySelector('.branch-node'); if (!n) return;
+    processChildren(n, b.querySelector(':scope > .children'), null, 1, 'right');
+  });
+  map.insertBefore(svg, map.firstChild);
+  console.log('drew ' + lineCount + ' lines');
+}
+window.addEventListener('load', () => setTimeout(drawAllLines, 300));
+</script>
+</body>
+</html>

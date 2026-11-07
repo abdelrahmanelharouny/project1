@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1240px; margin: 0 auto; padding: 48px 52px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 34px; }
+
+  .band { border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC; padding: 24px 20px 18px; position: relative; margin-bottom: 26px; }
+  .band-label { position: absolute; top: -11px; left: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; }
+  .band-total { position: absolute; top: -14px; right: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #64748B; font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap; }
+
+  .dm {
+    background: #FFFFFF; border: 1.5px solid #94A3B8; border-radius: 10px;
+    padding: 12px 15px; flex: 1 1 180px; max-width: 300px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .dm .d-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .dm .d-name { font-size: 13.5px; font-weight: 700; }
+  .dm .d-count { font-size: 12px; font-weight: 700; color: #64748B; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dm .d-count small { font-weight: 400; color: #9CA3AF; }
+  .dm ul { list-style: none; margin: 8px 0 0; padding: 0; }
+  .dm li { font-size: 11.5px; color: #475569; font-family: ui-monospace, 'SF Mono', Menlo, monospace; line-height: 1.75; white-space: nowrap; }
+  .dm li::before { content: '\25AA'; color: #CBD5E1; margin-right: 6px; }
+
+  .dm.blue   { border-color: #3B82F6; background: #F8FBFF; }
+  .dm.teal   { border-color: #14B8A6; background: #F7FEFD; }
+  .dm.purple { border-color: #8B5CF6; background: #FCFBFF; }
+  .dm.amber  { border-color: #F59E0B; background: #FFFCF5; }
+  .dm.green  { border-color: #10B981; background: #F7FEFA; }
+
+  .footnote { text-align: center; font-size: 12px; color: var(--sub); margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">FieldShift Data Model &mdash; 79 tables across 5 capability eras</div>
+  <div class="subtitle">PostgreSQL 16.10 + PostGIS 3.5.0 &middot; database <b>fieldshift</b> &middot; Alembic head <b>0014_merge_m6bc_m7</b> &middot; grouped by capability era</div>
+
+  <div class="band">
+    <div class="band-label">Foundation &middot; M1&ndash;M2</div><div class="band-total">14 tables</div>
+    <div class="row">
+      <div class="dm blue"><div class="d-head"><span class="d-name">Identity &amp; Tenancy</span><span class="d-count">4 <small>tables</small></span></div>
+        <ul><li>users</li><li>organizations</li><li>memberships</li><li>auth_tokens</li></ul></div>
+      <div class="dm blue"><div class="d-head"><span class="d-name">Farms &amp; Geo Base</span><span class="d-count">4 <small>tables</small></span></div>
+        <ul><li>farms</li><li>fields (PostGIS geometry)</li><li>field_boundary_versions</li><li>farm_constraints</li></ul></div>
+      <div class="dm blue"><div class="d-head"><span class="d-name">Data Platform</span><span class="d-count">3 <small>tables</small></span></div>
+        <ul><li>data_sources</li><li>dataset_products</li><li>ingestion_jobs</li></ul></div>
+      <div class="dm blue"><div class="d-head"><span class="d-name">Observations &amp; Audit</span><span class="d-count">3 <small>tables</small></span></div>
+        <ul><li>observations</li><li>observation_quality_flags</li><li>audit_events</li></ul></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <div class="band-label">Agronomy intelligence &middot; M3&ndash;M6A</div><div class="band-total">18 tables</div>
+    <div class="row">
+      <div class="dm green"><div class="d-head"><span class="d-name">Feature Engine</span><span class="d-count">3 <small>tables</small></span></div>
+        <ul><li>feature_definitions</li><li>feature_runs</li><li>feature_values</li></ul></div>
+      <div class="dm green"><div class="d-head"><span class="d-name">Knowledge &amp; Crop Catalog</span><span class="d-count">8 <small>tables</small></span></div>
+        <ul><li>knowledge_packs</li><li>knowledge_sources</li><li>crop_families</li><li>crops</li><li>crop_varieties</li><li>crop_traits</li><li>crop_calendar_windows</li><li>crop_water_parameters</li></ul></div>
+      <div class="dm green"><div class="d-head"><span class="d-name">Rotation</span><span class="d-count">6 <small>tables</small></span></div>
+        <ul><li>rotation_rules</li><li>rotation_strategies</li><li>rotation_runs</li><li>agronomist_reviews</li><li>crop_history</li><li>farmer_preferences</li></ul></div>
+      <div class="dm green"><div class="d-head"><span class="d-name">Water</span><span class="d-count">1 <small>table</small></span></div>
+        <ul><li>water_plans</li></ul></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <div class="band-label">Authoritative baseline &middot; M7.1&ndash;M7.2</div><div class="band-total">3 tables</div>
+    <div class="row">
+      <div class="dm purple"><div class="d-head"><span class="d-name">Field State</span><span class="d-count">1 <small>table</small></span></div>
+        <ul><li>field_states (immutable snapshot)</li></ul></div>
+      <div class="dm purple"><div class="d-head"><span class="d-name">Scenario Domain</span><span class="d-count">2 <small>tables</small></span></div>
+        <ul><li>scenarios (immutability trigger)</li><li>scenario_validation_records (append-only)</li></ul></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <div class="band-label">Soil &amp; management science &middot; M6B / M6C</div><div class="band-total">28 tables</div>
+    <div class="row">
+      <div class="dm teal" style="max-width: 250px;"><div class="d-head"><span class="d-name">Soil (M6B)</span><span class="d-count">7 <small>tables</small></span></div>
+        <ul><li>soil_laboratories</li><li>soil_analytical_methods</li><li>soil_sampling_events</li><li>soil_samples</li><li>soil_sample_layers</li><li>soil_measurements</li><li>soil_management_events</li></ul></div>
+      <div class="dm teal" style="flex: 2.2 1 300px; max-width: 560px;"><div class="d-head"><span class="d-name">Management (M6C)</span><span class="d-count">21 <small>tables</small></span></div>
+        <div style="display:flex; gap: 22px;">
+          <ul style="flex:1;"><li>nutrient_products</li><li>nutrient_applications</li><li>nutrient_removals</li><li>soc_stock_runs</li><li>nutrient_budget_runs</li><li>soil_assessment_runs</li><li>practice_definitions</li><li>operation_templates</li><li>soil_cover_observations</li><li>cover_crop_plans</li><li>cover_crop_plan_items</li></ul>
+          <ul style="flex:1;"><li>residue_records</li><li>residue_flow_events</li><li>residue_quality_measurements</li><li>erosion_assessment_runs</li><li>farm_resources</li><li>field_operations</li><li>operation_dependencies</li><li>operation_schedule_runs</li><li>management_plans</li><li>management_plan_feedback</li></ul>
+        </div></div>
+    </div>
+  </div>
+
+  <div class="band" style="margin-bottom: 0;">
+    <div class="band-label">Decision engine &middot; M7.3&ndash;M7.7</div><div class="band-total">16 tables</div>
+    <div class="row">
+      <div class="dm amber"><div class="d-head"><span class="d-name">Scenario Execution (M7.3)</span><span class="d-count">3 <small>tables</small></span></div>
+        <ul><li>scenario_execution_runs</li><li>scenario_derived_observations</li><li>scenario_derived_features</li></ul></div>
+      <div class="dm amber"><div class="d-head"><span class="d-name">Sensitivity (M7.4)</span><span class="d-count">7 <small>tables</small></span></div>
+        <ul><li>sensitivity_analyses</li><li>sensitivity_evaluations</li><li>sensitivity_feature_values</li><li>sensitivity_oat_responses</li><li>sensitivity_grid_cells</li><li>sensitivity_grid_summaries</li><li>sensitivity_uncertainty_items</li></ul></div>
+      <div class="dm amber"><div class="d-head"><span class="d-name">Robust Rotation (M7.5)</span><span class="d-count">4 <small>tables</small></span></div>
+        <ul><li>scenario_sets</li><li>robust_rotation_runs</li><li>robust_rotation_strategies</li><li>robust_scenario_evaluations</li></ul></div>
+      <div class="dm amber"><div class="d-head"><span class="d-name">Decision &amp; Twin (M7.6&ndash;7)</span><span class="d-count">2 <small>tables</small></span></div>
+        <ul><li>decision_comparisons</li><li>digital_twin_validations</li></ul></div>
+    </div>
+  </div>
+
+  <div class="footnote" style="margin-top: 24px;">+ alembic_version bookkeeping table &rarr; 81 physical tables &middot; scenario immutability enforced by database triggers, not application code</div>
+</div>
+</body>
+</html>

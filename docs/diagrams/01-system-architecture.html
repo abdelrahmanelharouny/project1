@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --text: #111827; --text-sub: #6B7280; --text-muted: #9CA3AF;
+    --bg: #FFFFFF; --border: #E5E7EB; --connector: #94A3B8;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+  }
+  #root { width: fit-content; min-width: 1080px; margin: 0 auto; padding: 48px 56px; background: #FFFFFF; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--text-sub); text-align: center; margin-top: 8px; margin-bottom: 36px; }
+
+  .band {
+    border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC;
+    padding: 22px 22px 18px; position: relative;
+  }
+  .band-label {
+    position: absolute; top: -11px; left: 18px; background: #FFFFFF;
+    padding: 0 10px; font-size: 12px; font-weight: 700; color: #475569;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .band-row { display: flex; gap: 16px; align-items: stretch; justify-content: center; flex-wrap: wrap; }
+
+  .node {
+    background: #FFFFFF; border: 2px solid #64748B; border-radius: 10px;
+    padding: 14px 18px; min-width: 200px; max-width: 300px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .node .n-title { font-size: 15px; font-weight: 700; line-height: 1.35; }
+  .node .n-sub { font-size: 12px; color: var(--text-sub); margin-top: 3px; font-weight: 600; }
+  .node .n-desc { font-size: 12px; color: var(--text-sub); margin-top: 6px; line-height: 1.55; }
+  .node ul { margin: 6px 0 0 0; padding-left: 16px; }
+  .node li { font-size: 12px; color: var(--text-sub); line-height: 1.6; }
+
+  .node.client { background: #FAFAF9; border-color: #78716C; }
+  .node.frontend { background: #F0FDF4; border-color: #15803D; }
+  .node.backend { background: #EFF6FF; border-color: #2563EB; max-width: 560px; }
+  .node.data { background: #FFF7ED; border-color: #C2410C; }
+  .node.ops { background: #F5F3FF; border-color: #6D28D9; }
+  .node.gateway { background: #FFFFFF; border-color: #475569; border-radius: 22px; max-width: 420px; }
+
+  .arrow-wrap { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 0; }
+  .arrow {
+    display: flex; flex-direction: column; align-items: center; line-height: 1;
+  }
+  .arrow .stem { width: 2px; height: 16px; background: var(--connector); }
+  .arrow .head {
+    width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent;
+    border-top: 8px solid var(--connector);
+  }
+  .arrow-label {
+    font-size: 12px; color: #334155; background: #F1F5F9; border: 1px solid #E2E8F0;
+    border-radius: 12px; padding: 4px 12px; font-weight: 600; white-space: nowrap;
+  }
+
+  .router-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-width: 520px; }
+  .chip {
+    font-size: 11px; color: #1E40AF; background: #F0F7FF; border: 1px solid #BFDBFE;
+    border-radius: 10px; padding: 2px 9px; white-space: nowrap; font-weight: 500;
+  }
+  .chip b { font-weight: 700; }
+
+  .stats { display: flex; gap: 10px; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
+  .stat {
+    font-size: 12.5px; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0;
+    border-radius: 10px; padding: 7px 14px;
+  }
+  .stat b { color: #111827; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">FieldShift System Architecture</div>
+  <div class="subtitle">Global agricultural decision-intelligence platform &mdash; modular monolith behind a single gateway port</div>
+
+  <!-- CLIENT -->
+  <div class="band">
+    <div class="band-label">Client</div>
+    <div class="band-row">
+      <div class="node client">
+        <div class="n-title">Browser</div>
+        <div class="n-sub">Preview Panel / IM gateway</div>
+        <div class="n-desc">Loads the single <b>/</b> route workspace; all interaction happens client-side after hydration (maplibre-gl requires no SSR).</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-wrap">
+    <div class="arrow"><div class="stem"></div><div class="head"></div></div>
+    <div class="arrow-label">HTTPS &mdash; the only externally exposed port</div>
+    <div class="arrow"><div class="stem"></div><div class="head"></div></div>
+  </div>
+
+  <!-- EDGE -->
+  <div class="band">
+    <div class="band-label">Edge</div>
+    <div class="band-row">
+      <div class="node gateway">
+        <div class="n-title">Caddy Gateway &nbsp;:81</div>
+        <div class="n-sub">reverse proxy + port multiplexer</div>
+        <div class="n-desc">Forwards <b>?XTransformPort=NNNN</b> requests to internal services &mdash; relative-path only, no absolute URLs in the client. Supports WebSocket upgrade for real-time features.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-wrap">
+    <div class="arrow"><div class="stem"></div><div class="head"></div></div>
+    <div class="arrow-label">:3000 &nbsp;&middot;&nbsp; SSR + static assets</div>
+    <div class="arrow"><div class="stem"></div><div class="head"></div></div>
+  </div>
+
+  <!-- APP TIER -->
+  <div class="band">
+    <div class="band-label">Application tier</div>
+    <div class="band-row">
+      <div class="node frontend">
+        <div class="n-title">Next.js 16 Web App</div>
+        <div class="n-sub">App Router &middot; TypeScript &middot; port 3000</div>
+        <ul>
+          <li>Tailwind CSS 4 + shadcn/ui, Lucide icons</li>
+          <li>Zustand (UI state) + TanStack Query (server state)</li>
+          <li>maplibre-gl field map, 15-tab workspace</li>
+          <li>Rewrites <b>/api/v1/*</b> &rarr; 127.0.0.1:3030</li>
+        </ul>
+      </div>
+      <div class="node backend">
+        <div class="n-title">FastAPI Modular Monolith</div>
+        <div class="n-sub">uvicorn &middot; port 3030 &middot; /api/v1</div>
+        <div class="router-chips">
+          <span class="chip">auth <b>4</b></span><span class="chip">farms <b>2</b></span>
+          <span class="chip">fields <b>4</b></span><span class="chip">data_platform <b>12</b></span>
+          <span class="chip">features <b>5</b></span><span class="chip">knowledge <b>9</b></span>
+          <span class="chip">rotation <b>6</b></span><span class="chip">water <b>4</b></span>
+          <span class="chip">field_states <b>5</b></span><span class="chip">scenarios <b>11</b></span>
+          <span class="chip">soil <b>19</b></span><span class="chip">management <b>23</b></span>
+          <span class="chip">scenario_executions <b>6</b></span><span class="chip">sensitivity <b>7</b></span>
+          <span class="chip">robust_rotation <b>8</b></span><span class="chip">decision <b>3</b></span>
+          <span class="chip">digital_twin <b>3</b></span><span class="chip">health <b>2</b></span>
+        </div>
+        <div class="n-desc" style="margin-top:10px">
+          <b>Domain engines:</b> geospatial (PostGIS + PyProj geodesics) &middot; soil-engine 1.0.0 (USDA texture triangle, SOC stock) &middot; feature engine &middot; rotation planner &middot; water intelligence &middot; scenario execution &middot; sensitivity (OAT + 2-D grids) &middot; robust rotation (OR-Tools CP-SAT) &middot; decision comparisons &middot; digital twin.
+          <br><b>Auth:</b> bearer tokens, demo workspace seeding. <b>Honesty rule:</b> missing capability is reported as <i>unknown</i>, never as poor health.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-wrap">
+    <div class="arrow"><div class="stem"></div><div class="head"></div></div>
+    <div class="arrow-label">SQLAlchemy (psycopg2) &middot; Alembic migrations</div>
+    <div class="arrow"><div class="stem"></div><div class="head"></div></div>
+  </div>
+
+  <!-- DATA TIER -->
+  <div class="band">
+    <div class="band-label">Data tier</div>
+    <div class="band-row">
+      <div class="node data">
+        <div class="n-title">PostgreSQL 16.10 + PostGIS 3.5.0</div>
+        <div class="n-sub">port 5433 &middot; unix socket /tmp &middot; TCP 127.0.0.1 only</div>
+        <ul>
+          <li>81 tables, single database <b>fieldshift</b></li>
+          <li>Alembic head <b>0014_merge_m6bc_m7</b> (merge point of M6B/M6C soil-management line and M7 line)</li>
+          <li>Geometry columns via PostGIS; DB-level immutability triggers on finalized scenarios</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPS -->
+  <div class="band" style="margin-top: 22px;">
+    <div class="band-label">Operations &amp; supervision</div>
+    <div class="band-row">
+      <div class="node ops" style="max-width: 330px;">
+        <div class="n-title">daemonize.py</div>
+        <div class="n-sub">double-fork daemon launcher</div>
+        <div class="n-desc">fork &rarr; setsid &rarr; fork &rarr; execvp; services survive the launching shell and log to dedicated files.</div>
+      </div>
+      <div class="node ops" style="max-width: 330px;">
+        <div class="n-title">Watchdog cron</div>
+        <div class="n-sub">every 10 minutes</div>
+        <div class="n-desc">Checks pg_isready &rarr; API /health/ready &rarr; web <b>/</b>; auto-restarts any down service via daemonize; never rebuilds on its own.</div>
+      </div>
+      <div class="node ops" style="max-width: 330px;">
+        <div class="n-title">Reset-proof layout</div>
+        <div class="n-sub">/home/z/fieldshift-*</div>
+        <div class="n-desc">Runtime environments (pgenv + pgdata, API venv, frontend build) live outside the project directory so sandbox clean-ups of node_modules/.venv cannot break them.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>18</b> API routers</div>
+    <div class="stat"><b>133</b> REST paths</div>
+    <div class="stat"><b>81</b> tables</div>
+    <div class="stat"><b>15</b> workspace tabs</div>
+    <div class="stat"><b>M1 &rarr; M7.7</b> delivered milestones</div>
+  </div>
+</div>
+</body>
+</html>
