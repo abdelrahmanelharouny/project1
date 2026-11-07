@@ -1,0 +1,912 @@
+     1→# CSS Mind Map Rendering Engine
+     2→
+     3→> **⚠️ Before writing any code, read [`_rules.md`](references/_rules.md) — three non-negotiable rules on overlap, hierarchy, and color.**
+     4→
+     5→**Core principle: Content-driven, not template-driven. First analyze the content structure, then decide on the layout, and finally render.**
+     6→
+     7→---
+     8→
+     9→## Step 1: Content Analysis
+    10→
+    11→After receiving a mind map requirement, **don't write any HTML/CSS yet**. First parse the content into a tree structure, then calculate key metrics.
+    12→
+    13→### 1.1 Build Tree JSON
+    14→
+    15→```
+    16→Input: "How to work efficiently from home", branches include "Environment Setup", "Time Management", "Tool Selection"...
+    17→    ↓
+    18→Output:
+    19→{
+    20→  "root": "在家如何高效办公",
+    21→  "branches": [
+    22→    {
+    23→      "label": "环境准备",
+    24→      "children": ["独立工作区", "降噪耳机", "人体工学椅"]
+    25→    },
+    26→    {
+    27→      "label": "时间管理",
+    28→      "children": [
+    29→        { "label": "番茄工作法", "children": ["25分钟专注", "5分钟休息"] },
+    30→        "日程规划",
+    31→        "避免多任务"
+    32→      ]
+    33→    },
+    34→    ...
+    35→  ]
+    36→}
+    37→```
+    38→
+    39→### 1.2 Key Metrics
+    40→
+    41→| Metric | Calculation Method | What It Affects |
+    42→|------|---------|---------|
+    43→| `branchCount` | Number of first-level branches | Choose single-sided/dual-sided expansion |
+    44→| `maxDepth` | Maximum nesting depth | Canvas width, whether sub-branch is needed |
+    45→| `maxChildren` | Maximum children per node | Vertical height of that branch |
+    46→| `totalNodes` | Total number of all nodes | Overall canvas size |
+    47→| `maxTextLen` | Longest text character count | Node width, whether line breaks are needed |
+    48→| `branchWeights[]` | Total descendants per first-level branch | Left-right balance allocation |
+    49→
+    50→### 1.3 Example Analysis
+    51→
+    52→```
+    53→Content: "产品经理核心技能", 6 L1 branches, max depth 3, total 35 nodes, max text length 12 chars
+    54→→ branchCount=6, maxDepth=3, totalNodes=35, maxTextLen=12
+    55→→ branchWeights=[8, 5, 7, 4, 6, 5]
+    56→```
+    57→
+    58→---
+    59→
+    60→## Step 2: Layout Decision
+    61→
+    62→Based on the metrics from Step 1, choose a layout scheme. The following are reference suggestions, not hard rules—adjust flexibly according to actual content.
+    63→
+    64→### 2.1 Layout Selection Guide
+    65→
+    66→**Core principle: Use simple layouts for less content, dual-sided layouts for more content, avoid one side becoming too long.**
+    67→
+    68→```
+    69→Few branches (roughly ≤4), simple content?
+    70→  → Style A: Right-expanding tree (single-sided, compact)
+    71→
+    72→Many branches (roughly ≥5), or single side would be too long?
+    73→  → Style B: Left-right expanding tree (dual-sided balanced, most common)
+    74→
+    75→User explicitly requests a specific form?
+    76→  → "cards"/"modules" → Style C: Card grid
+    77→  → "fishbone"/"root cause analysis" → Style D: Fishbone diagram
+    78→```
+    79→
+    80→**Why not use radial layout?** Radial layout (spreading from center outward) almost inevitably causes node overlap when there are more than 3-4 branches, and is extremely difficult to debug. Not recommended.
+    81→
+    82→### 2.2 Canvas Size Calculation
+    83→
+    84→Don't use fixed sizes. Calculate based on content:
+    85→
+    86→```python
+    87→def calc_canvas(branch_count, max_depth, total_nodes, max_text_len, layout):
+    88→    # Width: depends on depth and text length
+    89→    node_width = max(120, max_text_len * 14)  # ~14px per CJK char (including padding)
+    90→    if layout == 'left-right':
+    91→        width = node_width * max_depth * 2 + 200  # Dual-sided, 200px in center for root node
+    92→    else:
+    93→        width = node_width * max_depth + 200  # Single-sided
+    94→
+    95→    # Height: depends on max branch vertical expansion
+    96→    if layout == 'left-right':
+    97→        max_side_nodes = total_nodes // 2 + 2  # rough estimate of single-side nodes
+    98→    else:
+    99→        max_side_nodes = total_nodes
+   100→    height = max_side_nodes * 32 + 200  # ~32px per leaf (including gap)
+   101→
+   102→    # Lower bounds
+   103→    width = max(width, 1200)
+   104→    height = max(height, 600)
+   105→    
+   106→    return width, height
+   107→```
+   108→
+   109→### 2.3 Left-Right Branch Allocation (Style B)
+   110→
+   111→Goal: Achieve similar visual weight on both sides.
+   112→
+   113→```python
+   114→def balance_branches(branch_weights):
+   115→    """Greedy bin-packing: sort by weight descending, alternate left/right"""
+   116→    indexed = sorted(enumerate(branch_weights), key=lambda x: -x[1])
+   117→    left, right = [], []
+   118→    left_sum, right_sum = 0, 0
+   119→    for idx, weight in indexed:
+   120→        if left_sum <= right_sum:
+   121→            left.append(idx)
+   122→            left_sum += weight
+   123→        else:
+   124→            right.append(idx)
+   125→            right_sum += weight
+   126→    return left, right
+   127→    # e.g.: weights=[8,5,7,4,6,5] → left=[0,3,5] right=[2,4,1] → 17 vs 18
+   128→```
+   129→
+   130→### 2.4 Node Styling Decision
+   131→
+   132→**Principle: The deeper the level, the lighter the visual weight.** This way readers can distinguish main branches from details at a glance.
+   133→
+   134→```
+   135→Root node → most prominent: dark solid background, large font (~20px)
+   136→L1 branches → next prominent: light fill + colored border, medium font (~15px)
+   137→L2 nodes → lighter still: paler fill + thin border, medium-small font (~13px)
+   138→Leaf nodes → lightest: capsule frame or plain text, small font (~12-13px)
+   139→```
+   140→
+   141→**Key: Leaves should not have the same visual weight as first-level branches.** Leaves' padding, gap, and border thickness should all be significantly smaller than their parent. Otherwise the chart will be vertically too long and lack hierarchy.
+   142→
+   143→---
+   144→
+   145→## Step 3: Rendering
+   146→
+   147→Based on the decisions from Step 2, generate HTML + CSS + JS.
+   148→
+   149→### 3.1 Playwright Screenshot (Universal)
+   150→
+   151→```python
+   152→import asyncio
+   153→from playwright.async_api import async_playwright
+   154→
+   155→async def mindmap_to_png(html_path, png_path, width=1600):
+   156→    async with async_playwright() as p:
+   157→        browser = await p.chromium.launch(headless=True)
+   158→        page = await browser.new_page(viewport={'width': width, 'height': 1200}, device_scale_factor=2)
+   159→        await page.goto(f'file://{html_path}', wait_until='networkidle')
+   160→        await page.wait_for_timeout(500)
+   161→        
+   162→        el = page.locator('#mindmap')
+   163→        bbox = await el.bounding_box()
+   164→        # First expansion: ensure content is not clipped
+   165→        expand_w = max(width, int(bbox['width'] + 100))
+   166→        expand_h = int(bbox['height'] + 100)
+   167→        await page.set_viewport_size({'width': expand_w, 'height': expand_h})
+   168→        await page.wait_for_timeout(200)
+   169→        
+   170→        # Call connector script
+   171→        await page.evaluate('if(typeof drawAllLines==="function") drawAllLines()')
+   172→        await page.wait_for_timeout(200)
+   173→        
+   174→        # Second contraction: measure actual content right edge, trim right-side blank space
+   175→        trim = await page.evaluate('''() => {
+   176→            const map = document.getElementById('mindmap');
+   177→            const nodes = map.querySelectorAll('.root-node,.branch-node,.sub-node,.leaf,.deep-node');
+   178→            const mapRect = map.getBoundingClientRect();
+   179→            let maxR = 0, maxB = 0;
+   180→            nodes.forEach(n => {
+   181→                const r = n.getBoundingClientRect();
+   182→                maxR = Math.max(maxR, r.right - mapRect.left);
+   183→                maxB = Math.max(maxB, r.bottom - mapRect.top);
+   184→            });
+   185→            return { contentW: Math.ceil(maxR) + 80, contentH: Math.ceil(maxB) + 80 };
+   186→        }''')
+   187→        await page.set_viewport_size({'width': trim['contentW'], 'height': trim['contentH']})
+   188→        await page.wait_for_timeout(200)
+   189→        # Redraw connectors (viewport changed so coordinates change)
+   190→        await page.evaluate('if(typeof drawAllLines==="function") drawAllLines()')
+   191→        await page.wait_for_timeout(200)
+   192→        
+   193→        await el.screenshot(path=png_path)
+   194→        await browser.close()
+   195→        
+   196→        import os
+   197→        print(f'✅ {png_path} ({os.path.getsize(png_path)/1024:.0f}KB)')
+   198→```
+   199→
+   200→### 3.2 Universal Recursive Connector Script v4-fix (All Styles)
+   201→
+   202→This script automatically handles tree connectors of **any depth** (3, 4, 5 levels... all work). HTML for styles A and B should include this script at the end.
+   203→
+   204→**⚠️ DOM Structure Convention (connector script depends on this structure):**
+   205→
+   206→```
+   207→#mindmap
+   208→  .tree-layout                      ← flex container (for left-right tree)
+   209→    .left-side                      ← left branch area
+   210→      .branch.c-{color}            ← L1 branch (must have color class)
+   211→        .branch-node               ← L1 node
+   212→        .children                  ← L2 container
+   213→          div                      ← child wrapper
+   214→            .sub-node              ← L2 node
+   215→            .leaf-group            ← L3 container
+   216→              div / .leaf          ← leaf or wrapper with deeper levels
+   217→                .leaf              ← L3 leaf
+   218→                .deep-group        ← L4 container (recursive, same as above)
+   219→                  .deep-node       ← L4/L5 node
+   220→    .center-root
+   221→      .root-node                   ← root node
+   222→    .right-side                    ← right branches (same structure as .left-side)
+   223→```
+   224→
+   225→**Also supports legacy structure (.branches/.right-branches/.left-branches), backward compatible.**
+   226→
+   227→**⚠️ CSS Indentation Rules (connectors depend on child nodes having offset relative to parent, no indentation = broken connectors):**
+   228→```css
+   229→/* .tree-layout structure (new version) must include these paddings */
+   230→.left-side .children, .left-side .leaf-group, .left-side .deep-group {
+   231→  align-items: flex-end; padding-right: 16px;
+   232→}
+   233→.right-side .children, .right-side .leaf-group, .right-side .deep-group {
+   234→  align-items: flex-start; padding-left: 16px;
+   235→}
+   236→```
+   237→
+   238→**Common causes of missing connectors/layout errors:**
+   239→- **⚠️ `.sub-branch` missing `display: flex`** (most critical! Without flex, `flex-direction: row-reverse` doesn't work, left-side leaves won't expand left, instead all pile up on the right)
+   240→- **⚠️ Child node containers missing padding-left/padding-right** (without indentation, child nodes align with parent, midX is outside child nodes, connectors break)
+   241→- **⚠️ `.lr-tree` / `.tree` should not have `z-index`** (creates stacking context, covers SVG connectors)
+   242→- **⚠️ Leaf nodes must NOT stretch to equal width** — each leaf should size to its own text content (`white-space: nowrap` or `width: fit-content`). Never add `width: 100%`, `flex-grow: 1`, or `align-items: stretch` to leaf containers. Leaves with shorter text should be narrower than leaves with longer text.
+   243→- Leaf container not named `.leaf-group` (using `.child-list`, `.sub-items`, etc.)
+   244→- Deep-level container not named `.deep-group`
+   245→- `#mindmap` missing `position: relative`
+   246→
+   247→**Key improvements (v4-fix vs v2):**
+   248→- **No transparency**—use solid color blend for fading (`color + '80'` is almost invisible on white background)
+   249→- **Recursively process `.children`, `.leaf-group`, `.deep-group`**—no longer limited to 3 levels
+   250→- **Vertical line draws complete range**—one line from `min(Y)` to `max(Y)`, instead of drawing per child node
+   251→
+   252→```javascript
+   253→/**
+   254→ * Universal recursive connector script v4-fix
+   255→ * - Supports any nesting depth (recursively processes .children + .leaf-group + .deep-group)
+   256→ * - Unified gray-tone connectors (#64748B → #94A3B8 → #A8B4C2), visually clean
+   257→ * - Direction logic:
+   258→ *   dir='left': startX=parent.left → midX(left-biased) → endX=child.right
+   259→ *   dir='right': startX=parent.right → midX(right-biased) → endX=child.left
+   260→ */
+   261→function drawAllLines() {
+   262→  const map = document.getElementById('mindmap');
+   263→  if (!map) { console.error('❌ #mindmap not found'); return; }
+   264→  const cRect = map.getBoundingClientRect();
+   265→
+   266→  const old = map.querySelector('svg.lines');
+   267→  if (old) old.remove();
+   268→
+   269→  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+   270→  svg.classList.add('lines');
+   271→  svg.setAttribute('width', cRect.width);
+   272→  svg.setAttribute('height', cRect.height);
+   273→  svg.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1;';
+   274→  let lineCount = 0;
+   275→
+   276→  function rel(el) {
+   277→    const r = el.getBoundingClientRect();
+   278→    return {
+   279→      cx: r.left - cRect.left + r.width/2,
+   280→      cy: r.top - cRect.top + r.height/2,
+   281→      left: r.left - cRect.left,
+   282→      right: r.right - cRect.left,
+   283→    };
+   284→  }
+   285→
+   286→  function drawLine(x1, y1, x2, y2, color, width) {
+   287→    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+   288→    // Round to nearest pixel to prevent sub-pixel misalignment (visual kinks)
+   289→    l.setAttribute('x1', Math.round(x1)); l.setAttribute('y1', Math.round(y1));
+   290→    l.setAttribute('x2', Math.round(x2)); l.setAttribute('y2', Math.round(y2));
+   291→    l.setAttribute('stroke', color); l.setAttribute('stroke-width', width);
+   292→    l.setAttribute('stroke-linecap', 'round');
+   293→    svg.appendChild(l);
+   294→    lineCount++;
+   295→  }
+   296→
+   297→  // ─── Unified gray connectors (decreasing by depth, visually clean) ───
+   298→  const lineStyles = [
+   299→    { color: '#64748B', width: 2.5 },  // root → L1
+   300→    { color: '#94A3B8', width: 2 },    // L1 → L2
+   301→    { color: '#A8B4C2', width: 1.5 },  // L2 → L3
+   302→    { color: '#B8C2CC', width: 1.2 },  // L3 → L4
+   303→    { color: '#CBD5E1', width: 1 },    // L4 → L5
+   304→  ];
+   305→  function getLineStyle(branchColor, depth) {
+   306→    const s = lineStyles[Math.min(depth, lineStyles.length - 1)];
+   307→    return { color: s.color, width: s.width };
+   308→  }
+   309→
+   310→  // ─── Connector direction ───
+   311→  // dir='left': parent.left → midX → child.right (each child gets its own polyline)
+   312→  // dir='right': parent.right → midX → child.left
+   313→  //
+   314→  // [Principle] midX is the X coordinate of the vertical line; it must be in the gap between parent and children.
+   315→  // Use a fraction of the parent-to-nearest-child distance as offset, so:
+   316→  //   - Large node spacing → large offset, lines spread out
+   317→  //   - Small node spacing → small offset, lines compact without crossing text
+   318→  // All children in the same connect() call share one midX, ensuring vertical line alignment.
+   319→  function connect(parentEl, childEls, color, width, dir) {
+   320→    if (!childEls.length) return;
+   321→    const p = rel(parentEl);
+   322→    const startX = dir === 'left' ? p.left : p.right;
+   323→    const startY = p.cy;
+   324→
+   325→    // Special case: single child — draw one straight horizontal line, no vertical spine
+   326→    if (childEls.length === 1) {
+   327→      const c = rel(childEls[0]);
+   328→      const endX = dir === 'left' ? c.right : c.left;
+   329→      const midY = Math.round((startY + c.cy) / 2);
+   330→      drawLine(startX, midY, endX, midY, color, width);
+   331→      return;
+   332→    }
+   333→
+   334→    // Find the closest child edge to calculate available space
+   335→    let closestEdge;
+   336→    if (dir === 'left') {
+   337→      closestEdge = Math.max(...childEls.map(ch => rel(ch).right));
+   338→    } else {
+   339→      closestEdge = Math.min(...childEls.map(ch => rel(ch).left));
+   340→    }
+   341→    // Place midX at the midpoint between parent edge and closest child edge,
+   342→    // but guarantee at least 16px clearance from child nodes
+   343→    const childClearance = 16;
+   344→    const midpoint = startX + (closestEdge - startX) / 2;
+   345→    const midFromChild = dir === 'left' ? closestEdge + childClearance : closestEdge - childClearance;
+   346→    // Use the position that's further from children (safer)
+   347→    const midX = dir === 'left'
+   348→      ? Math.min(midpoint, midFromChild)
+   349→      : Math.max(midpoint, midFromChild);
+   350→
+   351→    drawLine(startX, startY, midX, startY, color, width);
+   352→
+   353→    // Draw ONE continuous vertical line spanning from parent to the last child
+   354→    const allCYs = childEls.map(ch => rel(ch).cy);
+   355→    const minY = Math.min(startY, ...allCYs);
+   356→    const maxY = Math.max(startY, ...allCYs);
+   357→    drawLine(midX, minY, midX, maxY, color, width);
+   358→
+   359→    // Then draw horizontal lines from the vertical spine to each child
+   360→    childEls.forEach(ch => {
+   361→      const c = rel(ch);
+   362→      const endX = dir === 'left' ? c.right : c.left;
+   363→      const endY = c.cy;
+   364→      drawLine(midX, endY, endX, endY, color, width);
+   365→    });
+   366→  }
+   367→
+   368→  // ─── Recursively process subtree (supports .children + .leaf-group + .deep-group) ───
+   369→  const NODE_SEL = '.branch-node, .sub-node, .leaf, .deep-node';
+   370→  const CONTAINER_SEL = ':scope > .children, :scope > .leaf-group, :scope > .deep-group';
+   371→
+   372→  function processChildren(parentNodeEl, containerEl, branchColor, depth, dir) {
+   373→    if (!containerEl) return;
+   374→    const childNodeEls = [];
+   375→    for (const wrapper of containerEl.children) {
+   376→      const nodeEl = wrapper.matches?.(NODE_SEL) ? wrapper : wrapper.querySelector(NODE_SEL);
+   377→      if (nodeEl) childNodeEls.push(nodeEl);
+   378→    }
+   379→    if (!childNodeEls.length) return;
+   380→    const style = getLineStyle(branchColor, depth);
+   381→    connect(parentNodeEl, childNodeEls, style.color, style.width, dir);
+   382→
+   383→    for (const wrapper of containerEl.children) {
+   384→      const nodeEl = wrapper.matches?.(NODE_SEL) ? wrapper : wrapper.querySelector(NODE_SEL);
+   385→      if (!nodeEl) continue;
+   386→      wrapper.querySelectorAll(CONTAINER_SEL).forEach(nc =>
+   387→        processChildren(nodeEl, nc, branchColor, depth + 1, dir)
+   388→      );
+   389→    }
+   390→  }
+   391→
+   392→  // ─── Main flow ───
+   393→  const rootNode = map.querySelector('.root-node');
+   394→  if (!rootNode) { console.error('❌ .root-node not found'); return; }
+   395→  const rp = rel(rootNode);
+   396→
+   397→  // Left side: collect all L1 branch-nodes, draw polylines with connect() (with vertical spine)
+   398→  const leftSel = '.left-side > .branch, .left-branches > .left-branch, .left-branches > div';
+   399→  const leftBranches = map.querySelectorAll(leftSel);
+   400→  const leftBranchNodes = [];
+   401→  leftBranches.forEach(branch => {
+   402→    const bNode = branch.querySelector('.branch-node');
+   403→    if (bNode) leftBranchNodes.push(bNode);
+   404→  });
+   405→  if (leftBranchNodes.length) {
+   406→    connect(rootNode, leftBranchNodes, lineStyles[0].color, lineStyles[0].width, 'left');
+   407→  }
+   408→  leftBranches.forEach(branch => {
+   409→    const bNode = branch.querySelector('.branch-node');
+   410→    if (!bNode) return;
+   411→    processChildren(bNode, branch.querySelector(':scope > .children'), null, 1, 'left');
+   412→  });
+   413→
+   414→  // Right side: same as above
+   415→  const rightSel = '.right-side > .branch, .branches > .branch, .right-branches > .right-branch';
+   416→  const rightBranches = map.querySelectorAll(rightSel);
+   417→  const rightBranchNodes = [];
+   418→  rightBranches.forEach(branch => {
+   419→    const bNode = branch.querySelector('.branch-node');
+   420→    if (bNode) rightBranchNodes.push(bNode);
+   421→  });
+   422→  if (rightBranchNodes.length) {
+   423→    connect(rootNode, rightBranchNodes, lineStyles[0].color, lineStyles[0].width, 'right');
+   424→  }
+   425→  rightBranches.forEach(branch => {
+   426→    const bNode = branch.querySelector('.branch-node');
+   427→    if (!bNode) return;
+   428→    processChildren(bNode, branch.querySelector(':scope > .children'), null, 1, 'right');
+   429→  });
+   430→
+   431→  map.insertBefore(svg, map.firstChild);
+   432→  console.log(`✅ Drew ${lineCount} lines`);
+   433→}
+   434→```
+   435→
+   436→**How to call (at end of HTML):**
+   437→```html
+   438→<script>
+   439→  /* ← paste the drawAllLines function above */
+   440→  window.addEventListener('load', () => setTimeout(drawAllLines, 300));
+   441→</script>
+   442→```
+   443→
+   444→### 3.3 Universal CSS Base (Shared by All Styles)
+   445→
+   446→```css
+   447→* { margin: 0; padding: 0; box-sizing: border-box; }
+   448→body {
+   449→  background: #FFFFFF;
+   450→  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'SimHei', sans-serif;
+   451→}
+   452→#mindmap { padding: 60px; display: inline-block; min-width: 100%; position: relative; }
+   453→#mindmap > svg.lines {
+   454→  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+   455→  pointer-events: none; z-index: 0;
+   456→}
+   457→
+   458→/* ─── Root Node ─── */
+   459→/* ─── Topic Intent Color System ─── */
+   460→/* Model picks ONE intent based on content semantics. Add data-intent="xxx" to #mindmap.
+   461→   DO NOT manually write hex colors for root node — use intent system only. */
+   462→
+   463→/* Intent → Root Node + Branch Palette mapping */
+   464→#mindmap[data-intent="professional"] .root-node { background: linear-gradient(135deg, #1E3A5F, #2D4A6F); box-shadow: 0 4px 12px rgba(30,58,95,0.25); }
+   465→#mindmap[data-intent="technical"]    .root-node { background: linear-gradient(135deg, #334155, #475569); box-shadow: 0 4px 12px rgba(51,65,85,0.25); }
+   466→#mindmap[data-intent="medical"]      .root-node { background: linear-gradient(135deg, #0F766E, #0D9488); box-shadow: 0 4px 12px rgba(15,118,110,0.25); }
+   467→#mindmap[data-intent="education"]    .root-node { background: linear-gradient(135deg, #9A3412, #B45309); box-shadow: 0 4px 12px rgba(154,52,18,0.25); }
+   468→#mindmap[data-intent="creative"]     .root-node { background: linear-gradient(135deg, #7C3AED, #8B5CF6); box-shadow: 0 4px 12px rgba(124,58,237,0.25); }
+   469→#mindmap[data-intent="finance"]      .root-node { background: linear-gradient(135deg, #1E3A5F, #1E40AF); box-shadow: 0 4px 12px rgba(30,58,95,0.25); }
+   470→#mindmap[data-intent="nature"]       .root-node { background: linear-gradient(135deg, #166534, #15803D); box-shadow: 0 4px 12px rgba(22,101,52,0.25); }
+   471→#mindmap[data-intent="warning"]      .root-node { background: linear-gradient(135deg, #991B1B, #B91C1C); box-shadow: 0 4px 12px rgba(153,27,27,0.25); }
+   472→#mindmap[data-intent="neutral"]      .root-node { background: linear-gradient(135deg, #334155, #475569); box-shadow: 0 4px 12px rgba(51,65,85,0.25); }
+   473→
+   474→/*
+   475→Intent Selection Guide (for model):
+   476→  professional → corporate reports, strategy, management, business plans
+   477→  technical    → software, engineering, architecture, systems, AI/ML
+   478→  medical      → healthcare, clinical, pharmaceutical, nursing, anatomy
+   479→  education    → teaching, learning, curriculum, training, academic
+   480→  creative     → design, art, marketing, branding, media
+   481→  finance      → banking, investment, accounting, economics, trading
+   482→  nature       → environment, ecology, agriculture, biology, geography
+   483→  warning      → risk analysis, safety, incident review, compliance, audit
+   484→  neutral      → general topics, mixed content, unclear domain
+   485→
+   486→Recommended branch color combos per intent:
+   487→  professional → [blue, teal, cyan]
+   488→  technical    → [blue, purple, cyan]
+   489→  medical      → [teal, green, blue]
+   490→  education    → [amber, green, blue]
+   491→  creative     → [purple, amber, cyan]
+   492→  finance      → [blue, green, cyan]
+   493→  nature       → [green, teal, amber]
+   494→  warning      → [red, amber, cyan]
+   495→  neutral      → [blue, green, purple]
+   496→*/
+   497→
+   498→.root-node {
+   499→  color: white; font-size: 20px; font-weight: 700;
+   500→  padding: 18px 28px; border-radius: 12px;
+   501→  white-space: nowrap; flex-shrink: 0; align-self: center;
+   502→}
+   503→/* Fallback if no intent specified — defaults to professional blue */
+   504→#mindmap:not([data-intent]) .root-node {
+   505→  background: linear-gradient(135deg, #1E3A5F, #2D4A6F);
+   506→  box-shadow: 0 4px 12px rgba(30,58,95,0.25);
+   507→}
+   508→
+   509→/* ─── Container Layout ─── */
+   510→.tree { display: flex; align-items: flex-start; gap: 0; position: relative; }
+   511→.branches { display: flex; flex-direction: column; gap: 16px; margin-left: 60px; }
+   512→.branch, .sub-branch { display: flex; align-items: flex-start; gap: 0; }
+   513→
+   514→/* ─── First-Level Branch Node ─── */
+   515→.branch-node {
+   516→  font-size: 15px; font-weight: 600;
+   517→  padding: 10px 20px; border-radius: 8px;
+   518→  white-space: nowrap; flex-shrink: 0; border: 2px solid;
+   519→}
+   520→/* ─── Second-Level Sub-Node (when has children) ─── */
+   521→.sub-node {
+   522→  font-size: 13px; font-weight: 500;
+   523→  padding: 7px 14px; border-radius: 6px;
+   524→  white-space: nowrap; flex-shrink: 0; border: 1.5px solid;
+   525→  background: #F8FAFC;
+   526→}
+   527→/* ─── Leaf Node ─── */
+   528→/* Default: lightweight capsule frame */
+   529→.leaf {
+   530→  font-size: 13px; font-weight: 400; color: #475569;
+   531→  padding: 4px 10px; background: #FAFAFA;
+   532→  border-radius: 12px; border: 1px solid #E5E7EB;
+   533→  white-space: nowrap; line-height: 1.5;
+   534→}
+   535→/* Text-only mode (more compact, add class="leaf text-only") */
+   536→.leaf.text-only {
+   537→  background: none; border: none; padding: 2px 0; border-radius: 0;
+   538→}
+   539→/* Leaf supplementary description */
+   540→.leaf-desc {
+   541→  font-size: 12px; color: #94A3B8; font-weight: 400; margin-left: 8px;
+   542→}
+   543→.leaf-desc::before { content: '— '; color: #CBD5E1; }
+   544→
+   545→/* ─── Child Node Container ─── */
+   546→/* Principle: The deeper the level, the smaller the gap, but not so small that connectors and text overlap */
+   547→.children { display: flex; flex-direction: column; gap: 6px; margin-left: 48px; align-items: flex-start; }
+   548→.children:has(.sub-branch) { gap: 10px; }  /* sub-branch is larger than leaf, needs more spacing */
+   549→.sub-branch .children { gap: 5px; margin-left: 40px; align-items: flex-start; }
+   550→.sub-branch .sub-branch .children { gap: 4px; margin-left: 36px; align-items: flex-start; }
+   551→/* Tip: If leaf text and connectors overlap, prioritize increasing gap */
+   552→
+   553→/* ─── Color System (for distinguishing different branches) ─── */
+   554→.c-blue { background: #EFF6FF; border-color: #3B82F6; color: #1E40AF; }
+   555→.c-green { background: #F0FDF4; border-color: #10B981; color: #065F46; }
+   556→.c-amber { background: #FFF7ED; border-color: #F59E0B; color: #92400E; }
+   557→.c-purple { background: #F5F3FF; border-color: #8B5CF6; color: #5B21B6; }
+   558→.c-red { background: #FEF2F2; border-color: #EF4444; color: #991B1B; }
+   559→.c-cyan { background: #ECFEFF; border-color: #06B6D4; color: #155E75; }
+   560→.c-teal { background: #F0FDFA; border-color: #14B8A6; color: #134E4A; }
+   561→
+   562→/* Second-level sub-node inherits branch color scheme (lighter) */
+   563→.c-blue .sub-node { background: #F0F7FF; border-color: #93C5FD; color: #1E40AF; }
+   564→.c-green .sub-node { background: #F2FDF6; border-color: #6EE7B7; color: #065F46; }
+   565→.c-amber .sub-node { background: #FFF9F0; border-color: #FCD34D; color: #92400E; }
+   566→.c-purple .sub-node { background: #F8F6FF; border-color: #C4B5FD; color: #5B21B6; }
+   567→.c-red .sub-node { background: #FFF5F5; border-color: #FCA5A5; color: #991B1B; }
+   568→.c-cyan .sub-node { background: #F0FEFF; border-color: #67E8F9; color: #155E75; }
+   569→.c-teal .sub-node { background: #F2FDFA; border-color: #5EEAD4; color: #134E4A; }
+   570→```
+   571→
+   572→---
+   573→
+   574→## Style A: Right-Expanding Tree (Simple scenarios with branchCount ≤ 4 or maxDepth ≤ 2)
+   575→
+   576→### HTML Structure
+   577→
+   578→```html
+   579→<!DOCTYPE html>
+   580→<html lang="zh">
+   581→<head>
+   582→<meta charset="UTF-8">
+   583→<style>
+   584→  /* ← paste the "Universal CSS Base" above */
+   585→</style>
+   586→</head>
+   587→<body>
+   588→<div id="mindmap" data-intent="professional">
+   589→  <div class="tree">
+   590→    <div class="root-node">中心主题</div>
+   591→    <div class="branches">
+   592→
+   593→      <div class="branch">
+   594→        <div class="branch-node c-blue">一级分支A</div>
+   595→        <div class="children">
+   596→          <div class="leaf">叶子1</div>
+   597→          <div class="leaf">叶子2</div>
+   598→        </div>
+   599→      </div>
+   600→
+   601→      <div class="branch">
+   602→        <div class="branch-node c-green">一级分支B</div>
+   603→        <div class="children">
+   604→          <div class="sub-branch">
+   605→            <div class="sub-node c-green">二级有下级</div>
+   606→            <div class="children">
+   607→              <div class="leaf">三级叶子1</div>
+   608→              <div class="leaf">三级叶子2</div>
+   609→            </div>
+   610→          </div>
+   611→          <div class="leaf">二级叶子</div>
+   612→        </div>
+   613→      </div>
+   614→
+   615→    </div>
+   616→  </div>
+   617→</div>
+   618→<script>
+   619→  /* ← paste the "Universal Recursive Connector Script" */
+   620→  drawAllLines();
+   621→</script>
+   622→</body>
+   623→</html>
+   624→```
+   625→
+   626→---
+   627→
+   628→## Style B: Left-Right Expanding Tree (Standard scenario with branchCount ≥ 5, most common)
+   629→
+   630→### Additional CSS (append after universal base)
+   631→
+   632→```css
+   633→/* ─── Left-Right Expanding Layout ─── */
+   634→.lr-tree { display: flex; align-items: center; gap: 0; position: relative; }
+   635→.lr-tree .root-node {
+   636→  padding: 20px 32px; border-radius: 14px;
+   637→  margin: 0 60px; text-align: center;
+   638→}
+   639→
+   640→/* ⚠️ sub-branch must be flex, otherwise flex-direction: row-reverse won't work, leaves won't expand left */
+   641→.sub-branch { display: flex; align-items: flex-start; gap: 0; }
+   642→
+   643→.left-branches { display: flex; flex-direction: column; gap: 16px; }
+   644→.left-branch { display: flex; align-items: flex-start; flex-direction: row-reverse; gap: 0; }
+   645→.left-branch .children {
+   646→  display: flex; flex-direction: column; gap: 6px;
+   647→  margin-right: 48px; align-items: flex-end;
+   648→}
+   649→.left-branch .children:has(.sub-branch) { gap: 10px; }
+   650→.left-branch .sub-branch .children { gap: 5px; margin-right: 40px; margin-left: 0; align-items: flex-end; }
+   651→.left-branch .sub-branch { flex-direction: row-reverse; }
+   652→
+   653→.right-branches { display: flex; flex-direction: column; gap: 16px; }
+   654→.right-branch { display: flex; align-items: flex-start; gap: 0; }
+   655→.right-branch .children {
+   656→  display: flex; flex-direction: column; gap: 6px; margin-left: 48px; align-items: flex-start;
+   657→}
+   658→.right-branch .children:has(.sub-branch) { gap: 10px; }
+   659→.right-branch .sub-branch .children { gap: 5px; margin-left: 40px; align-items: flex-start; }
+   660→```
+   661→
+   662→### HTML Structure
+   663→
+   664→```html
+   665→<div id="mindmap" data-intent="professional">
+   666→  <div class="lr-tree">
+   667→
+   668→    <!-- Left branches (allocated by balance_branches) -->
+   669→    <div class="left-branches">
+   670→      <div class="left-branch">
+   671→        <div class="branch-node c-purple">分支D（放左边）</div>
+   672→        <div class="children">
+   673→          <div class="leaf">叶子1</div>
+   674→          <div class="leaf">叶子2</div>
+   675→        </div>
+   676→      </div>
+   677→      <!-- More left branches... -->
+   678→    </div>
+   679→
+   680→    <div class="root-node">中心主题</div>
+   681→
+   682→    <!-- Right branches -->
+   683→    <div class="right-branches">
+   684→      <div class="right-branch">
+   685→        <div class="branch-node c-blue">分支A（放右边）</div>
+   686→        <div class="children">
+   687→          <div class="leaf">叶子1</div>
+   688→          <div class="leaf">叶子2</div>
+   689→        </div>
+   690→      </div>
+   691→      <!-- More right branches... -->
+   692→    </div>
+   693→
+   694→  </div>
+   695→</div>
+   696→<script>
+   697→  /* ← paste the "Universal Recursive Connector Script" */
+   698→  drawAllLines();  // v4: auto-handles both left and right sides
+   699→</script>
+   700→```
+   701→
+   702→---
+   703→
+   704→## Style C: Card Grid (when user explicitly requests "cards" / "modules")
+   705→
+   706→> ⚠️ This is not a mind map — it's a modular display. No connectors; use cards + color coding to show relationships.
+   707→
+   708→```html
+   709→<!DOCTYPE html>
+   710→<html lang="zh">
+   711→<head>
+   712→<meta charset="UTF-8">
+   713→<style>
+   714→  * { margin: 0; padding: 0; box-sizing: border-box; }
+   715→  body {
+   716→    background: #FFFFFF;
+   717→    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'SimHei', sans-serif;
+   718→  }
+   719→  #mindmap { padding: 48px 64px; }
+   720→  .map-title {
+   721→    font-size: 24px; font-weight: 700; color: #1E293B; text-align: center;
+   722→    margin-bottom: 8px;
+   723→  }
+   724→  .map-subtitle {
+   725→    font-size: 14px; color: #64748B; text-align: center;
+   726→    margin-bottom: 36px;
+   727→  }
+   728→  .card-grid {
+   729→    display: grid;
+   730→    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+   731→    gap: 20px; max-width: 1000px; margin: 0 auto;
+   732→  }
+   733→  .card {
+   734→    background: #FFFFFF; border-radius: 12px;
+   735→    padding: 20px; border: 1px solid #E2E8F0;
+   736→    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+   737→  }
+   738→  .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid; }
+   739→  .card-title { font-size: 15px; font-weight: 600; }
+   740→  .card-icon {
+   741→    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+   742→    font-size: 16px; border-radius: 50%; flex-shrink: 0;
+   743→  }
+   744→  .card-items { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+   745→  .card-items li {
+   746→    font-size: 13px; color: #475569; padding-left: 16px; position: relative;
+   747→  }
+   748→  .card-items li::before {
+   749→    content: ''; position: absolute; left: 0; top: 8px;
+   750→    width: 6px; height: 6px; border-radius: 50%;
+   751→  }
+   752→
+   753→  /* Color variants */
+   754→  .card.blue .card-header { border-color: #3B82F6; }
+   755→  .card.blue .card-icon { background: #EFF6FF; }
+   756→  .card.blue .card-title { color: #1E40AF; }
+   757→  .card.blue li::before { background: #3B82F6; }
+   758→
+   759→  .card.green .card-header { border-color: #10B981; }
+   760→  .card.green .card-icon { background: #F0FDF4; }
+   761→  .card.green .card-title { color: #065F46; }
+   762→  .card.green li::before { background: #10B981; }
+   763→
+   764→  .card.amber .card-header { border-color: #F59E0B; }
+   765→  .card.amber .card-icon { background: #FFF7ED; }
+   766→  .card.amber .card-title { color: #92400E; }
+   767→  .card.amber li::before { background: #F59E0B; }
+   768→
+   769→  .card.purple .card-header { border-color: #8B5CF6; }
+   770→  .card.purple .card-icon { background: #F5F3FF; }
+   771→  .card.purple .card-title { color: #5B21B6; }
+   772→  .card.purple li::before { background: #8B5CF6; }
+   773→</style>
+   774→</head>
+   775→<body>
+   776→<div id="mindmap" data-intent="professional">
+   777→  <div class="map-title">标题</div>
+   778→  <div class="map-subtitle">副标题</div>
+   779→  <div class="card-grid">
+   780→    <div class="card blue">
+   781→      <div class="card-header">
+   782→        <div class="card-icon">📋</div>
+   783→        <div class="card-title">模块A</div>
+   784→      </div>
+   785→      <ul class="card-items">
+   786→        <li>条目1</li>
+   787→        <li>条目2</li>
+   788→      </ul>
+   789→    </div>
+   790→    <!-- More cards... -->
+   791→  </div>
+   792→</div>
+   793→</body>
+   794→</html>
+   795→```
+   796→
+   797→---
+   798→
+   799→## Style D: Fishbone Diagram (Problem Analysis / Root Cause)
+   800→
+   801→Best for problem analysis, root cause tracing, quality management (Ishikawa diagram).
+   802→
+   803→```html
+   804→<!DOCTYPE html>
+   805→<html lang="zh">
+   806→<head>
+   807→<meta charset="UTF-8">
+   808→<style>
+   809→  * { margin: 0; padding: 0; box-sizing: border-box; }
+   810→  body {
+   811→    background: #FFFFFF;
+   812→    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'SimHei', sans-serif;
+   813→  }
+   814→  #mindmap { padding: 48px 64px; }
+   815→  .fishbone { position: relative; }
+   816→  .spine { display: flex; align-items: center; gap: 0; }
+   817→  .spine-line { flex: 1; height: 3px; background: #1E293B; }
+   818→  .spine-head {
+   819→    width: 0; height: 0;
+   820→    border-left: 16px solid #1E293B;
+   821→    border-top: 10px solid transparent;
+   822→    border-bottom: 10px solid transparent;
+   823→  }
+   824→  .result-node {
+   825→    background: #1E293B; color: white;
+   826→    font-size: 16px; font-weight: 700;
+   827→    padding: 12px 24px; border-radius: 8px;
+   828→    white-space: nowrap; margin-left: 4px;
+   829→  }
+   830→  .bone-branches {
+   831→    position: absolute; left: 80px; right: 200px; top: 50%;
+   832→    display: flex; justify-content: space-around;
+   833→  }
+   834→  .bone { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+   835→  .bone.up { transform: translateY(calc(-100% - 20px)); }
+   836→  .bone.down { transform: translateY(20px); }
+   837→  .bone-title {
+   838→    font-size: 14px; font-weight: 600;
+   839→    padding: 8px 16px; border-radius: 8px; white-space: nowrap;
+   840→  }
+   841→  .bone-items { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+   842→  .bone-item {
+   843→    font-size: 12px; color: #64748B;
+   844→    padding: 3px 10px; background: #F8FAFC;
+   845→    border-radius: 4px; border: 1px solid #E2E8F0; white-space: nowrap;
+   846→  }
+   847→  .bone-line { width: 2px; height: 24px; background: #CBD5E1; }
+   848→</style>
+   849→</head>
+   850→<body>
+   851→<div id="mindmap" data-intent="professional">
+   852→  <div class="fishbone">
+   853→    <div class="spine">
+   854→      <div class="spine-line"></div>
+   855→      <div class="spine-head"></div>
+   856→      <div class="result-node">问题/结果</div>
+   857→    </div>
+   858→    <!-- Upper causes -->
+   859→    <div class="bone-branches" style="transform: translateY(calc(-50% - 20px));">
+   860→      <div class="bone">
+   861→        <div class="bone-items">
+   862→          <div class="bone-item">子原因1</div>
+   863→          <div class="bone-item">子原因2</div>
+   864→        </div>
+   865→        <div class="bone-line"></div>
+   866→        <div class="bone-title" style="background:#EFF6FF;color:#1E40AF;border:1.5px solid #3B82F6;">原因类别A</div>
+   867→      </div>
+   868→    </div>
+   869→    <!-- Lower causes -->
+   870→    <div class="bone-branches" style="transform: translateY(calc(-50% + 20px));">
+   871→      <div class="bone">
+   872→        <div class="bone-title" style="background:#F0FDF4;color:#065F46;border:1.5px solid #10B981;">原因类别B</div>
+   873→        <div class="bone-line"></div>
+   874→        <div class="bone-items">
+   875→          <div class="bone-item">子原因1</div>
+   876→          <div class="bone-item">子原因2</div>
+   877→        </div>
+   878→      </div>
+   879→    </div>
+   880→  </div>
+   881→</div>
+   882→</body>
+   883→</html>
+   884→```
+   885→
+   886→---
+   887→
+   888→## Quality Checklist
+   889→
+   890→After rendering, verify against this checklist:
+   891→
+   892→1. **Content complete** — Every node from the original requirement is in the map, nothing missing
+   893→2. **Clear hierarchy** — L1 branches and leaves are instantly distinguishable (different bg/border/font-weight)
+   894→3. **No overlap** — No boxes covering boxes, no lines through text
+   895→4. **Connectors visible** — Every parent-child pair has a connector, no orphan leaves. Connector color ≥ `#94A3B8` (too light = invisible)
+   896→5. **Connector direction correct** — Left-side leaves extend left, right-side extends right
+   897→6. **Proportions reasonable** — Map is not extremely narrow/tall (target aspect ratio 1:1 to 3:1), visually comfortable
+   898→7. **Text readable** — At final output size, smallest text is legible. Reference: root 18px+, L1 15px+, L2 13px+, leaves 12px+
+   899→8. **Roughly balanced** (Style B) — Visual weight approximately equal on both sides, doesn't need to be symmetric. Target ≤30% difference
+   900→9. **Canvas large enough** — No nodes clipped, sufficient padding on all sides (reference 60px+)
+   901→10. **No large blank areas on right** — Screenshot trimmed to content edge
+   902→
+   903→---
+   904→
+   905→## ⛔ Radial Layout Warning
+   906→
+   907→**Radial layout is strongly discouraged.** Using `position: absolute` for fixed branch positions leads to overlap when branches increase, and deep levels cannot be handled.
+   908→
+   909→If content is very simple (reference: ≤3 branches, ≤3 children per branch, text ≤6 chars, depth ≤2, total ≤12 nodes), it's technically possible, but tree layout is always the safer choice.
+   910→
+   911→**No code template provided.** If conditions are met, manually adjust based on Style A.
+   912→
