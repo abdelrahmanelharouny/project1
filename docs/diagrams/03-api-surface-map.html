@@ -42,15 +42,22 @@
   .legend { display: flex; gap: 18px; justify-content: center; margin-top: 6px; flex-wrap: wrap; }
   .legend span { font-size: 12px; color: #475569; display: inline-flex; align-items: center; gap: 6px; }
   .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; border-width: 1.5px; border-style: solid; }
+  .dot.slate  { border-color: #64748B; background: #F1F5F9; }
+  .dot.blue   { border-color: #3B82F6; background: #EFF6FF; }
+  .dot.teal   { border-color: #14B8A6; background: #F0FDFA; }
+  .dot.purple { border-color: #8B5CF6; background: #F5F3FF; }
+  .dot.amber  { border-color: #F59E0B; background: #FFF7ED; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
 </style>
 </head>
 <body>
 <div id="root">
-  <div class="title">FieldShift REST API Surface &mdash; 133 paths &middot; 18 routers</div>
-  <div class="subtitle">Unique route templates per router under <b>/api/v1</b>, grouped by capability era &middot; all bearer-token protected except health</div>
+  <div class="title">FieldShift REST API Surface &mdash; 133 endpoints &middot; 18 routers</div>
+  <div class="subtitle">Unique route templates per router under <b>/api/v1</b>, grouped by functional domain &middot; all endpoints bearer-token protected except public health checks</div>
 
   <div class="era">
-    <div class="era-label">Platform &middot; M1&ndash;M2</div><div class="era-total">24 paths</div>
+    <div class="era-label">Platform Foundation</div><div class="era-total">24 endpoints</div>
     <div class="cards">
       <div class="card slate"><div class="c-name">health</div><div class="c-prefix">/api/v1/health</div><div class="c-count"><b>2</b>public liveness / readiness</div></div>
       <div class="card slate"><div class="c-name">auth</div><div class="c-prefix">/api/v1/auth</div><div class="c-count"><b>4</b>login &middot; demo &middot; me &middot; logout</div></div>
@@ -61,7 +68,7 @@
   </div>
 
   <div class="era">
-    <div class="era-label">Intelligence core &middot; M3&ndash;M6A</div><div class="era-total">24 paths</div>
+    <div class="era-label">Agronomic Intelligence</div><div class="era-total">24 endpoints</div>
     <div class="cards">
       <div class="card blue"><div class="c-name">features</div><div class="c-prefix">/api/v1/features</div><div class="c-count"><b>5</b>engine &middot; definitions &middot; runs</div></div>
       <div class="card blue"><div class="c-name">knowledge</div><div class="c-prefix">/api/v1/knowledge</div><div class="c-count"><b>9</b>packs &middot; sources &middot; crops</div></div>
@@ -71,7 +78,7 @@
   </div>
 
   <div class="era">
-    <div class="era-label">Soil &amp; management science &middot; M6B / M6C</div><div class="era-total">42 paths</div>
+    <div class="era-label">Soil &amp; Management Science</div><div class="era-total">42 endpoints</div>
     <div class="cards">
       <div class="card teal"><div class="c-name">soil</div><div class="c-prefix">/api/v1/soil</div><div class="c-count"><b>19</b>samplings &middot; layers &middot; USDA texture &middot; SOC stock &middot; assessments</div></div>
       <div class="card teal"><div class="c-name">management</div><div class="c-prefix">/api/v1/management</div><div class="c-count"><b>23</b>nutrient budgets &middot; cover crops &middot; residue &middot; operations &middot; plans</div></div>
@@ -79,7 +86,7 @@
   </div>
 
   <div class="era">
-    <div class="era-label">Field state &amp; scenarios &middot; M7.1&ndash;M7.2</div><div class="era-total">16 paths</div>
+    <div class="era-label">Field Baseline &amp; Scenario Governance</div><div class="era-total">16 endpoints</div>
     <div class="cards">
       <div class="card purple"><div class="c-name">field_states</div><div class="c-prefix">/api/v1/field-states</div><div class="c-count"><b>5</b>immutable snapshots &middot; checksums</div></div>
       <div class="card purple"><div class="c-name">scenarios</div><div class="c-prefix">/api/v1/scenarios</div><div class="c-count"><b>11</b>types &middot; lineage &middot; validation records</div></div>
@@ -87,7 +94,7 @@
   </div>
 
   <div class="era" style="margin-bottom: 0;">
-    <div class="era-label">Analysis &amp; decision &middot; M7.3&ndash;M7.7</div><div class="era-total">27 paths</div>
+    <div class="era-label">Analysis &amp; Decision Support</div><div class="era-total">27 endpoints</div>
     <div class="cards">
       <div class="card amber"><div class="c-name">scenario_executions</div><div class="c-prefix">/api/v1/scenario-executions</div><div class="c-count"><b>6</b>runs &middot; derived observations</div></div>
       <div class="card amber"><div class="c-name">sensitivity</div><div class="c-prefix">/api/v1/sensitivity</div><div class="c-count"><b>7</b>OAT &middot; grids &middot; uncertainty</div></div>
@@ -95,6 +102,19 @@
       <div class="card amber"><div class="c-name">decision</div><div class="c-prefix">/api/v1/decisions</div><div class="c-count"><b>3</b>side-by-side comparisons</div></div>
       <div class="card amber"><div class="c-name">digital_twin</div><div class="c-prefix">/api/v1/digital-twin</div><div class="c-count"><b>3</b>twin validations</div></div>
     </div>
+  </div>
+
+  <div class="legend" style="margin-top: 26px;">
+    <span><i class="dot slate"></i>Platform Foundation</span>
+    <span><i class="dot blue"></i>Agronomic Intelligence</span>
+    <span><i class="dot teal"></i>Soil &amp; Management Science</span>
+    <span><i class="dot purple"></i>Field Baseline &amp; Scenario Governance</span>
+    <span><i class="dot amber"></i>Analysis &amp; Decision Support</span>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 3 of 9</span>
   </div>
 </div>
 </body>

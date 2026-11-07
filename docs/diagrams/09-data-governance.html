@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1240px; margin: 0 auto; padding: 48px 52px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 34px; }
+
+  .band { border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC; padding: 24px 20px 18px; position: relative; margin-bottom: 26px; }
+  .band-label { position: absolute; top: -11px; left: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; }
+  .band-claim { position: absolute; top: -14px; right: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #64748B; }
+  .row { display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap; }
+
+  .gcard {
+    background: #FFFFFF; border: 1.5px solid #94A3B8; border-radius: 10px;
+    padding: 12px 15px; flex: 1 1 240px; max-width: 340px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .gcard .g-name { font-size: 13.5px; font-weight: 700; }
+  .gcard .g-desc { font-size: 12px; color: #475569; line-height: 1.6; margin-top: 5px; }
+  .gcard .g-desc i { color: #64748B; font-style: normal; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; }
+
+  .gcard.slate  { border-color: #64748B; background: #FBFCFE; }
+  .gcard.purple { border-color: #8B5CF6; background: #FCFBFF; }
+  .gcard.amber  { border-color: #F59E0B; background: #FFFCF5; }
+
+  .passport {
+    border: 2px solid #8B5CF6; border-radius: 14px; background: linear-gradient(135deg, #FCFBFF, #F5F3FF);
+    padding: 18px 22px; margin-bottom: 26px;
+  }
+  .passport .p-title { font-size: 15px; font-weight: 800; color: #4C1D95; }
+  .passport .p-sub { font-size: 12.5px; color: #5B21B6; margin-top: 3px; }
+  .passport .p-items { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .p-item {
+    font-size: 12px; color: #4C1D95; background: #FFFFFF; border: 1px solid #DDD6FE;
+    border-radius: 10px; padding: 6px 12px; font-weight: 600;
+  }
+
+  .strip { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 2px; }
+  .strip .stat { font-size: 12.5px; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 7px 14px; }
+  .strip .stat b { color: #111827; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">Data Governance &amp; Provenance &mdash; the Data Passport Model</div>
+  <div class="subtitle">Four control layers ensure every number shown to a decision-maker can be traced, reproduced and defended</div>
+
+  <div class="band">
+    <div class="band-label">Layer 1 &middot; Input provenance</div><div class="band-claim">nothing enters untracked</div>
+    <div class="row">
+      <div class="gcard slate"><div class="g-name">Source registry</div><div class="g-desc">Every external dataset is registered with origin, license and update cadence before ingestion. <i>data_sources &middot; dataset_products</i></div></div>
+      <div class="gcard slate"><div class="g-name">Ingestion audit</div><div class="g-desc">Each data load is tracked end-to-end &mdash; schedule, status, row counts and failures. <i>ingestion_jobs</i></div></div>
+      <div class="gcard slate"><div class="g-name">Observation quality flags</div><div class="g-desc">Manual and sensor observations carry explicit quality flags; flagged data never silently enters analysis. <i>observation_quality_flags</i></div></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <div class="band-label">Layer 2 &middot; Baseline integrity</div><div class="band-claim">the truth cannot be edited</div>
+    <div class="row">
+      <div class="gcard purple"><div class="g-name">Immutable field state</div><div class="g-desc">The authoritative field baseline is content-locked with a checksum &mdash; any change produces a new state, never a modification of history.</div></div>
+      <div class="gcard purple"><div class="g-name">Append-only validation</div><div class="g-desc">Scenario validation history is append-only; corrections arrive as new records, never as overwrites.</div></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <div class="band-label">Layer 3 &middot; Scenario governance</div><div class="band-claim">evidence classes enforced by the database</div>
+    <div class="row">
+      <div class="gcard purple"><div class="g-name">Evidence-class binding</div><div class="g-desc">Each scenario type is bound to an evidence class &mdash; <i>observed</i>, <i>hypothetical</i>, or <i>not_available</i> &mdash; enforced by database constraints.</div></div>
+      <div class="gcard purple"><div class="g-name">Lineage protection</div><div class="g-desc">Restricting foreign keys preserve the parent&ndash;child chain from the baseline to every derived scenario; lineage cannot be severed.</div></div>
+      <div class="gcard purple"><div class="g-name">Finality triggers</div><div class="g-desc">Finalized scenarios are frozen by database triggers &mdash; and a scenario whose evidence class is <i>not_available</i> can never be finalized.</div></div>
+    </div>
+  </div>
+
+  <div class="band" style="margin-bottom: 22px;">
+    <div class="band-label">Layer 4 &middot; Honest output</div><div class="band-claim">uncertainty is published, not hidden</div>
+    <div class="row">
+      <div class="gcard amber"><div class="g-name">&ldquo;Unknown&rdquo; policy</div><div class="g-desc">A missing capability is reported as <i>unknown</i> &mdash; never disguised as poor health, zero risk, or a fabricated estimate.</div></div>
+      <div class="gcard amber"><div class="g-name">Twin validation</div><div class="g-desc">Model predictions are continuously checked against observed reality; divergence is measured and reported, not hidden.</div></div>
+      <div class="gcard amber"><div class="g-name">Requirements ladder</div><div class="g-desc">Every comparison records which data requirements were satisfied, partially met, or missing &mdash; so conclusions carry their own caveats.</div></div>
+    </div>
+  </div>
+
+  <div class="passport">
+    <div class="p-title">The Data Passport &mdash; issued with every result</div>
+    <div class="p-sub">A machine-readable companion that travels with each output, answering the reviewer&rsquo;s questions before they are asked:</div>
+    <div class="p-items">
+      <span class="p-item">data provenance &mdash; where each input came from</span>
+      <span class="p-item">completeness &mdash; what is present and what is missing</span>
+      <span class="p-item">engine versions &mdash; exactly which code produced the numbers</span>
+      <span class="p-item">honest gaps &mdash; capabilities not yet available</span>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="stat"><b>Checksum-locked</b> baselines</div>
+    <div class="stat"><b>Append-only</b> validation records</div>
+    <div class="stat"><b>Trigger-enforced</b> immutability</div>
+    <div class="stat"><b>Data Passport</b> on every result</div>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 9 of 9</span>
+  </div>
+</div>
+</body>
+</html>

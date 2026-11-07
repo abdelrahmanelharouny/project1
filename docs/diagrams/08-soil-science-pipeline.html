@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; --connector: #94A3B8; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1080px; max-width: 1180px; margin: 0 auto; padding: 48px 56px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 34px; }
+
+  .phase {
+    border: 1.5px solid #CBD5E1; border-radius: 14px; background: #F8FAFC;
+    padding: 16px 20px 16px; position: relative;
+  }
+  .phase-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .phase-num {
+    font-size: 12px; font-weight: 800; color: #FFFFFF;
+    border-radius: 12px; padding: 3px 11px; letter-spacing: 0.04em; white-space: nowrap;
+  }
+  .phase-title { font-size: 16px; font-weight: 700; }
+  .phase-tag { font-size: 12px; color: #64748B; font-weight: 600; white-space: nowrap; margin-left: auto; }
+  .steps { display: flex; gap: 12px; flex-wrap: wrap; }
+  .step {
+    background: #FFFFFF; border: 1.5px solid #94A3B8; border-radius: 9px;
+    padding: 10px 14px; flex: 1 1 240px; max-width: 320px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .step .s-name { font-size: 13.5px; font-weight: 600; }
+  .step .s-desc { font-size: 12px; color: var(--sub); line-height: 1.55; margin-top: 4px; }
+
+  /* same-hue teal progression: light -> deeper */
+  .p1 { background: #F6FCFB; border-color: #CDE7E3; } .p1 .phase-num { background: #4FA8A0; }
+  .p2 { background: #F0F9F8; border-color: #BBDCD7; } .p2 .phase-num { background: #3F948C; }
+  .p3 { background: #EAF6F4; border-color: #A9D1CB; } .p3 .phase-num { background: #2F8078; }
+  .p4 { background: #E4F2F0; border-color: #97C6BF; } .p4 .phase-num { background: #1F6C64; }
+  .p5 { background: #DEEEEB; border-color: #85BBB3; } .p5 .phase-num { background: #0F5850; }
+
+  .arrow-wrap { display: flex; flex-direction: column; align-items: center; padding: 8px 0; line-height: 1; }
+  .arrow-wrap .stem { width: 2px; height: 14px; background: var(--connector); }
+  .arrow-wrap .head { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--connector); }
+  .arrow-label { font-size: 11.5px; color: #475569; background: #F1F5F9; border: 1px solid #E2E8F0; border-radius: 10px; padding: 3px 11px; margin-bottom: 6px; font-weight: 600; }
+
+  .closing {
+    margin-top: 22px; border: 1.5px solid #A9D1CB; border-radius: 12px; background: #EAF6F4;
+    padding: 12px 18px; font-size: 12.5px; color: #134E4A; line-height: 1.6; text-align: center;
+  }
+  .closing b { color: #0F5850; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">Soil Intelligence Pipeline</div>
+  <div class="subtitle">From laboratory sample to management response &mdash; the scientific core of the platform</div>
+
+  <div class="phase p1">
+    <div class="phase-head"><span class="phase-num">STAGE 1</span><span class="phase-title">Sample acquisition &mdash; provenance first</span><span class="phase-tag">laboratories &middot; methods &middot; sampling events</span></div>
+    <div class="steps">
+      <div class="step"><div class="s-name">Laboratory &amp; method registry</div><div class="s-desc">Accredited laboratories and standardized analytical methods are registered before any data arrives, so every measurement carries method provenance.</div></div>
+      <div class="step"><div class="s-name">Geo-referenced sampling</div><div class="s-desc">Field sampling events produce samples split into depth layers, each with documented location, date and sampling protocol.</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
+
+  <div class="phase p2">
+    <div class="phase-head"><span class="phase-num">STAGE 2</span><span class="phase-title">Laboratory analysis &mdash; structured measurements</span><span class="phase-tag">layer-resolved results</span></div>
+    <div class="steps">
+      <div class="step"><div class="s-name">Layer-resolved results</div><div class="s-desc">Texture fractions, organic carbon, pH and nutrient results are stored per depth layer, each linked to the laboratory and method that produced it.</div></div>
+      <div class="step"><div class="s-name">Visible anomalies</div><div class="s-desc">Suspect values carry explicit quality flags rather than silent exclusion &mdash; analysts see what was flagged and why.</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
+
+  <div class="phase p3">
+    <div class="phase-head"><span class="phase-num">STAGE 3</span><span class="phase-title">Scientific processing &mdash; soil engine v1.0</span><span class="phase-tag">deterministic &middot; versioned &middot; reproducible</span></div>
+    <div class="steps">
+      <div class="step"><div class="s-name">USDA texture triangle</div><div class="s-desc">Sand, silt and clay fractions are classified into the standard USDA textural classes, with composition validation against the triangle geometry.</div></div>
+      <div class="step"><div class="s-name">SOC stock computation</div><div class="s-desc">Organic carbon concentration &times; bulk density &times; layer thickness yields soil organic carbon stock per layer and per profile.</div></div>
+      <div class="step"><div class="s-name">Geodesic geometry</div><div class="s-desc">Field areas and distances are computed on the reference ellipsoid (PostGIS + PyProj) &mdash; no flat-map distortion at any latitude.</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
+
+  <div class="phase p4">
+    <div class="phase-head"><span class="phase-num">STAGE 4</span><span class="phase-title">Integrated assessment</span><span class="phase-tag">whole-profile view</span></div>
+    <div class="steps">
+      <div class="step"><div class="s-name">Soil condition assessment</div><div class="s-desc">Texture, SOC stock and soil-cover observations are combined into a per-field soil condition assessment with full input traceability.</div></div>
+      <div class="step"><div class="s-name">Honest gaps</div><div class="s-desc">Inputs that are missing are reported as <i>unknown</i> &mdash; never interpolated away, never presented as measured fact.</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
+
+  <div class="phase p5">
+    <div class="phase-head"><span class="phase-num">STAGE 5</span><span class="phase-title">Management response</span><span class="phase-tag">from assessment to action</span></div>
+    <div class="steps">
+      <div class="step"><div class="s-name">Nutrient budgeting</div><div class="s-desc">Product applications and crop removals are balanced per field, anchored to the measured soil status.</div></div>
+      <div class="step"><div class="s-name">Cover-crop &amp; residue planning</div><div class="s-desc">Species selection, planting windows and residue flows are planned to protect and build soil condition.</div></div>
+      <div class="step"><div class="s-name">Operations &amp; scheduling</div><div class="s-desc">Erosion assessments, operation templates and dependency-aware schedules turn plans into executable field work.</div></div>
+    </div>
+  </div>
+
+  <div class="closing"><b>Consolidated management plans</b> feed the authoritative field-state baseline and the scenario analysis pipeline &mdash; see Figure 5 (decision pipeline) and Figure 9 (data governance).</div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 8 of 9</span>
+  </div>
+</div>
+</body>
+</html>

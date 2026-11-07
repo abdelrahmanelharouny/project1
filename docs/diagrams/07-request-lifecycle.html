@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; --connector: #64748B; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1560px; margin: 0 auto; padding: 48px 56px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 36px; }
+
+  #seq { position: relative; width: 1440px; margin: 0 auto; height: 1210px; }
+
+  .actor {
+    position: absolute; top: 0; width: 176px; text-align: center;
+    background: #FFFFFF; border: 2px solid #64748B; border-radius: 10px;
+    padding: 9px 8px 8px; z-index: 3; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .actor .a-name { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+  .actor .a-sub { font-size: 11px; color: var(--sub); margin-top: 2px; font-weight: 600; }
+  .actor.browser { border-color: #78716C; background: #FAFAF9; }
+  .actor.gateway { }
+  .actor.web     { border-color: #15803D; background: #F0FDF4; }
+  .actor.api     { border-color: #2563EB; background: #EFF6FF; }
+  .actor.db      { border-color: #C2410C; background: #FFF7ED; }
+
+  .lifeline { position: absolute; top: 68px; width: 0; border-left: 1.5px dashed #CBD5E1; z-index: 0; }
+
+  .phase-band {
+    position: absolute; left: 0; right: 0; height: 34px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #475569;
+    background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 0 14px; z-index: 1;
+  }
+  .phase-band .pb-tag {
+    font-size: 11px; font-weight: 800; color: #FFFFFF; background: #475569;
+    border-radius: 10px; padding: 2px 10px; letter-spacing: 0.04em;
+  }
+
+  .msg { position: absolute; z-index: 2; }
+  .m-label {
+    position: absolute; bottom: 5px; left: 0; width: 100%; text-align: center;
+    font-size: 12px; font-weight: 600; color: #334155; white-space: nowrap;
+  }
+  .m-label .m-num {
+    display: inline-block; font-size: 10.5px; font-weight: 800; color: #475569;
+    background: #F1F5F9; border: 1px solid #E2E8F0; border-radius: 9px; padding: 0 7px; margin-right: 6px;
+  }
+  .m-line { position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--connector); }
+  .m-line.dashed { background: none; border-top: 2px dashed #94A3B8; height: 0; }
+  .m-head-r { position: absolute; right: -1px; top: -5px; width: 0; height: 0;
+    border-left: 9px solid var(--connector); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .m-line.dashed .m-head-r { border-left-color: #94A3B8; }
+  .m-head-l { position: absolute; left: -1px; top: -5px; width: 0; height: 0;
+    border-right: 9px solid #94A3B8; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+
+  .self-note {
+    position: absolute; z-index: 2; width: 300px;
+    border: 1.5px solid #94A3B8; border-left: 4px solid #475569; background: #F8FAFC;
+    border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #334155; line-height: 1.5;
+  }
+  .self-note b { color: #111827; }
+  .self-stub { position: absolute; height: 2px; background: #94A3B8; z-index: 1; }
+
+  .note-band {
+    position: absolute; left: 0; right: 0; display: flex; gap: 14px; z-index: 1;
+  }
+  .note-card {
+    flex: 1; border: 1.5px solid #CBD5E1; background: #FFFFFF; border-radius: 10px;
+    padding: 11px 15px; font-size: 12px; color: #475569; line-height: 1.6;
+  }
+  .note-card b { color: #111827; }
+
+  .fig-foot { margin-top: 34px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">Security &amp; Request Lifecycle</div>
+  <div class="subtitle">How an unauthenticated login becomes a workspace-scoped, audited data exchange &mdash; five participants, two phases</div>
+
+  <div id="seq">
+    <!-- participants -->
+    <div class="actor browser" style="left: 62px;"><div class="a-name">Web Browser</div><div class="a-sub">user agent</div></div>
+    <div class="actor gateway" style="left: 357px;"><div class="a-name">Edge Gateway</div><div class="a-sub">Caddy reverse proxy</div></div>
+    <div class="actor web"     style="left: 652px;"><div class="a-name">Web Application</div><div class="a-sub">Next.js &middot; :3000</div></div>
+    <div class="actor api"     style="left: 947px;"><div class="a-name">API Service</div><div class="a-sub">FastAPI &middot; :3030</div></div>
+    <div class="actor db"      style="left: 1242px;"><div class="a-name">Database</div><div class="a-sub">PostgreSQL + PostGIS &middot; :5433</div></div>
+
+    <!-- lifelines -->
+    <div class="lifeline" style="left: 150px; height: 1120px;"></div>
+    <div class="lifeline" style="left: 445px; height: 1120px;"></div>
+    <div class="lifeline" style="left: 740px; height: 1120px;"></div>
+    <div class="lifeline" style="left: 1035px; height: 1120px;"></div>
+    <div class="lifeline" style="left: 1300px; height: 1120px;"></div>
+
+    <!-- PHASE A -->
+    <div class="phase-band" style="top: 92px;"><span class="pb-tag">Phase A</span> Authentication &amp; session issue</div>
+
+    <div class="msg" style="top: 176px; left: 150px; width: 295px;">
+      <div class="m-label"><span class="m-num">1</span>POST /api/v1/auth/login &mdash; credentials over HTTPS</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 232px; left: 445px; width: 295px;">
+      <div class="m-label"><span class="m-num">2</span>route to web entry &middot; :3000</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 288px; left: 740px; width: 295px;">
+      <div class="m-label"><span class="m-num">3</span>rewrite /api/v1/* &rarr; API service &middot; :3030</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+
+    <div class="self-stub" style="top: 336px; left: 1035px; width: 26px;"></div>
+    <div class="self-note" style="top: 316px; left: 1065px;">
+      <b>4 &middot; Verify credentials</b> &mdash; check password against the user record, resolve the caller&rsquo;s organization and workspace membership.
+    </div>
+
+    <div class="msg" style="top: 424px; left: 1035px; width: 265px;">
+      <div class="m-label"><span class="m-num">5</span>credential &amp; membership lookup</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 480px; left: 1035px; width: 265px;">
+      <div class="m-label"><span class="m-num">6</span>verified identity</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+    <div class="msg" style="top: 536px; left: 150px; width: 1150px;">
+      <div class="m-label"><span class="m-num">7</span>HTTP 200 &mdash; bearer token issued &middot; workspace context returned</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+
+    <!-- PHASE B -->
+    <div class="phase-band" style="top: 610px;"><span class="pb-tag">Phase B</span> Authenticated workspace request</div>
+
+    <div class="msg" style="top: 694px; left: 150px; width: 295px;">
+      <div class="m-label"><span class="m-num">8</span>GET /api/v1/scenarios/types &middot; Authorization: Bearer</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 750px; left: 445px; width: 295px;">
+      <div class="m-label"><span class="m-num">9</span>forward &middot; :3000</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 806px; left: 740px; width: 295px;">
+      <div class="m-label"><span class="m-num">10</span>proxy &middot; :3030</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+
+    <div class="self-stub" style="top: 854px; left: 1035px; width: 26px;"></div>
+    <div class="self-note" style="top: 834px; left: 1065px;">
+      <b>11 &middot; Authorize</b> &mdash; validate the bearer token, scope the query to the caller&rsquo;s workspace, check route-level authorization.
+    </div>
+
+    <div class="msg" style="top: 942px; left: 1035px; width: 265px;">
+      <div class="m-label"><span class="m-num">12</span>parameterized SQL &mdash; pooled connections</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 998px; left: 1035px; width: 265px;">
+      <div class="m-label"><span class="m-num">13</span>result sets</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+    <div class="msg" style="top: 1054px; left: 150px; width: 1150px;">
+      <div class="m-label"><span class="m-num">14</span>HTTP 200 &mdash; JSON response + Data Passport provenance metadata</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+
+    <!-- bottom notes -->
+    <div class="note-band" style="top: 1118px;">
+      <div class="note-card"><b>Public endpoints.</b> Only <b>/api/v1/health</b> liveness and readiness checks are reachable without a token. Every other endpoint requires a valid bearer token issued by the authentication service.</div>
+      <div class="note-card"><b>Audit trail.</b> Security-relevant actions (logins, token issue and revoke, data changes) are recorded in an append-only audit table, and every query is scoped to the caller&rsquo;s organization.</div>
+      <div class="note-card"><b>Connection hygiene.</b> Database connections are pooled and recycled on a fixed schedule, so long-lived services never hold stale sessions.</div>
+    </div>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 7 of 9</span>
+  </div>
+</div>
+</body>
+</html>

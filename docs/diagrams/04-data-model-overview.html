@@ -35,15 +35,17 @@
   .dm.green  { border-color: #10B981; background: #F7FEFA; }
 
   .footnote { text-align: center; font-size: 12px; color: var(--sub); margin-top: 4px; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
 </style>
 </head>
 <body>
 <div id="root">
-  <div class="title">FieldShift Data Model &mdash; 79 tables across 5 capability eras</div>
-  <div class="subtitle">PostgreSQL 16.10 + PostGIS 3.5.0 &middot; database <b>fieldshift</b> &middot; Alembic head <b>0014_merge_m6bc_m7</b> &middot; grouped by capability era</div>
+  <div class="title">FieldShift Data Model &mdash; 81 tables across five functional domains</div>
+  <div class="subtitle">PostgreSQL 16.10 + PostGIS 3.5.0 &middot; database <b>fieldshift</b> &middot; version-controlled schema migrations (Alembic) &middot; grouped by functional domain</div>
 
   <div class="band">
-    <div class="band-label">Foundation &middot; M1&ndash;M2</div><div class="band-total">14 tables</div>
+    <div class="band-label">Platform Foundation</div><div class="band-total">14 tables</div>
     <div class="row">
       <div class="dm blue"><div class="d-head"><span class="d-name">Identity &amp; Tenancy</span><span class="d-count">4 <small>tables</small></span></div>
         <ul><li>users</li><li>organizations</li><li>memberships</li><li>auth_tokens</li></ul></div>
@@ -57,7 +59,7 @@
   </div>
 
   <div class="band">
-    <div class="band-label">Agronomy intelligence &middot; M3&ndash;M6A</div><div class="band-total">18 tables</div>
+    <div class="band-label">Agronomic Intelligence</div><div class="band-total">18 tables</div>
     <div class="row">
       <div class="dm green"><div class="d-head"><span class="d-name">Feature Engine</span><span class="d-count">3 <small>tables</small></span></div>
         <ul><li>feature_definitions</li><li>feature_runs</li><li>feature_values</li></ul></div>
@@ -71,7 +73,7 @@
   </div>
 
   <div class="band">
-    <div class="band-label">Authoritative baseline &middot; M7.1&ndash;M7.2</div><div class="band-total">3 tables</div>
+    <div class="band-label">Field Baseline &amp; Scenario Governance</div><div class="band-total">3 tables</div>
     <div class="row">
       <div class="dm purple"><div class="d-head"><span class="d-name">Field State</span><span class="d-count">1 <small>table</small></span></div>
         <ul><li>field_states (immutable snapshot)</li></ul></div>
@@ -81,11 +83,11 @@
   </div>
 
   <div class="band">
-    <div class="band-label">Soil &amp; management science &middot; M6B / M6C</div><div class="band-total">28 tables</div>
+    <div class="band-label">Soil &amp; Management Science</div><div class="band-total">28 tables</div>
     <div class="row">
-      <div class="dm teal" style="max-width: 250px;"><div class="d-head"><span class="d-name">Soil (M6B)</span><span class="d-count">7 <small>tables</small></span></div>
+      <div class="dm teal" style="max-width: 250px;"><div class="d-head"><span class="d-name">Soil Science</span><span class="d-count">7 <small>tables</small></span></div>
         <ul><li>soil_laboratories</li><li>soil_analytical_methods</li><li>soil_sampling_events</li><li>soil_samples</li><li>soil_sample_layers</li><li>soil_measurements</li><li>soil_management_events</li></ul></div>
-      <div class="dm teal" style="flex: 2.2 1 300px; max-width: 560px;"><div class="d-head"><span class="d-name">Management (M6C)</span><span class="d-count">21 <small>tables</small></span></div>
+      <div class="dm teal" style="flex: 2.2 1 300px; max-width: 560px;"><div class="d-head"><span class="d-name">Management Science</span><span class="d-count">21 <small>tables</small></span></div>
         <div style="display:flex; gap: 22px;">
           <ul style="flex:1;"><li>nutrient_products</li><li>nutrient_applications</li><li>nutrient_removals</li><li>soc_stock_runs</li><li>nutrient_budget_runs</li><li>soil_assessment_runs</li><li>practice_definitions</li><li>operation_templates</li><li>soil_cover_observations</li><li>cover_crop_plans</li><li>cover_crop_plan_items</li></ul>
           <ul style="flex:1;"><li>residue_records</li><li>residue_flow_events</li><li>residue_quality_measurements</li><li>erosion_assessment_runs</li><li>farm_resources</li><li>field_operations</li><li>operation_dependencies</li><li>operation_schedule_runs</li><li>management_plans</li><li>management_plan_feedback</li></ul>
@@ -94,20 +96,25 @@
   </div>
 
   <div class="band" style="margin-bottom: 0;">
-    <div class="band-label">Decision engine &middot; M7.3&ndash;M7.7</div><div class="band-total">16 tables</div>
+    <div class="band-label">Analysis &amp; Decision Support</div><div class="band-total">16 tables</div>
     <div class="row">
-      <div class="dm amber"><div class="d-head"><span class="d-name">Scenario Execution (M7.3)</span><span class="d-count">3 <small>tables</small></span></div>
+      <div class="dm amber"><div class="d-head"><span class="d-name">Scenario Execution</span><span class="d-count">3 <small>tables</small></span></div>
         <ul><li>scenario_execution_runs</li><li>scenario_derived_observations</li><li>scenario_derived_features</li></ul></div>
-      <div class="dm amber"><div class="d-head"><span class="d-name">Sensitivity (M7.4)</span><span class="d-count">7 <small>tables</small></span></div>
+      <div class="dm amber"><div class="d-head"><span class="d-name">Sensitivity Analysis</span><span class="d-count">7 <small>tables</small></span></div>
         <ul><li>sensitivity_analyses</li><li>sensitivity_evaluations</li><li>sensitivity_feature_values</li><li>sensitivity_oat_responses</li><li>sensitivity_grid_cells</li><li>sensitivity_grid_summaries</li><li>sensitivity_uncertainty_items</li></ul></div>
-      <div class="dm amber"><div class="d-head"><span class="d-name">Robust Rotation (M7.5)</span><span class="d-count">4 <small>tables</small></span></div>
+      <div class="dm amber"><div class="d-head"><span class="d-name">Robust Planning</span><span class="d-count">4 <small>tables</small></span></div>
         <ul><li>scenario_sets</li><li>robust_rotation_runs</li><li>robust_rotation_strategies</li><li>robust_scenario_evaluations</li></ul></div>
-      <div class="dm amber"><div class="d-head"><span class="d-name">Decision &amp; Twin (M7.6&ndash;7)</span><span class="d-count">2 <small>tables</small></span></div>
+      <div class="dm amber"><div class="d-head"><span class="d-name">Decision &amp; Digital Twin</span><span class="d-count">2 <small>tables</small></span></div>
         <ul><li>decision_comparisons</li><li>digital_twin_validations</li></ul></div>
     </div>
   </div>
 
-  <div class="footnote" style="margin-top: 24px;">+ alembic_version bookkeeping table &rarr; 81 physical tables &middot; scenario immutability enforced by database triggers, not application code</div>
+  <div class="footnote" style="margin-top: 24px;">79 domain tables plus PostGIS bookkeeping (<b>spatial_ref_sys</b>) and schema-migration versioning (<b>alembic_version</b>) &rarr; 81 physical tables &middot; scenario immutability is enforced by database triggers, not application code</div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 4 of 9</span>
+  </div>
 </div>
 </body>
 </html>

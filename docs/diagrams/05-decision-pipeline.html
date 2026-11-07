@@ -42,39 +42,41 @@
   .arrow-wrap .stem { width: 2px; height: 14px; background: var(--connector); }
   .arrow-wrap .head { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--connector); }
   .arrow-label { font-size: 11.5px; color: #475569; background: #F1F5F9; border: 1px solid #E2E8F0; border-radius: 10px; padding: 3px 11px; margin-bottom: 6px; font-weight: 600; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
 </style>
 </head>
 <body>
 <div id="root">
   <div class="title">FieldShift Decision Intelligence Pipeline</div>
-  <div class="subtitle">From observed truth to defensible recommendations &mdash; six milestones, each adds one layer of trust</div>
+  <div class="subtitle">From observed truth to defensible recommendations &mdash; six stages, each adding one layer of trust</div>
 
   <div class="phase p1">
-    <div class="phase-head"><span class="phase-num">PHASE 1</span><span class="phase-title">Freeze the truth &mdash; authoritative baseline</span><span class="phase-mile">M7.1 Field State</span></div>
+    <div class="phase-head"><span class="phase-num">STAGE 1</span><span class="phase-title">Freeze the truth &mdash; authoritative baseline</span><span class="phase-mile">Field State Baseline</span></div>
     <div class="steps">
       <div class="step"><div class="s-name">Immutable field snapshot</div><div class="s-desc">Observed data only &mdash; boundaries, observations, soil, water. Content-locked with snapshot checksum.</div></div>
-      <div class="step"><div class="s-name">Honest gap reporting</div><div class="s-desc">Missing capability is reported as &ldquo;0 available / 6 missing &mdash; unknown&rdquo;, never as poor health.</div></div>
+      <div class="step"><div class="s-name">Honest gap reporting</div><div class="s-desc">Missing capabilities are reported explicitly as <i>unknown</i> &mdash; never disguised as poor health or fabricated values.</div></div>
     </div>
   </div>
 
   <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
 
   <div class="phase p2">
-    <div class="phase-head"><span class="phase-num">PHASE 2</span><span class="phase-title">Pose the question &mdash; scenario definitions</span><span class="phase-mile">M7.2 Scenario Domain</span></div>
+    <div class="phase-head"><span class="phase-num">STAGE 2</span><span class="phase-title">Pose the question &mdash; scenario definitions</span><span class="phase-mile">Scenario Governance</span></div>
     <div class="steps">
       <div class="step"><div class="s-name">historical_observed</div><div class="s-desc">Evidence class: observed. What actually happened on the field.</div></div>
       <div class="step"><div class="s-name">hypothetical what-if / intervention</div><div class="s-desc">Evidence class: hypothetical. Plausible futures built on the baseline.</div></div>
       <div class="step"><div class="s-name">climate / forecast (contract-only)</div><div class="s-desc">Evidence class: not_available &mdash; can never reach a finalized status. No fabricated projections.</div></div>
-      <div class="step"><div class="s-name">Lineage &amp; immutability</div><div class="s-desc">FK RESTRICT lineage + DB trigger freezes finalized scenarios; type&harr;evidence binding enforced by CHECK.</div></div>
+      <div class="step"><div class="s-name">Lineage &amp; immutability</div><div class="s-desc">Restricting foreign keys protect the scenario lineage; a database trigger freezes finalized scenarios, and every scenario type is bound to its evidence class at the database level.</div></div>
     </div>
   </div>
 
   <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
 
   <div class="phase p3">
-    <div class="phase-head"><span class="phase-num">PHASE 3</span><span class="phase-title">Run the world &mdash; scenario execution</span><span class="phase-mile">M7.3 Execution Engine</span></div>
+    <div class="phase-head"><span class="phase-num">STAGE 3</span><span class="phase-title">Run the world &mdash; scenario execution</span><span class="phase-mile">Scenario Execution Engine</span></div>
     <div class="steps">
-      <div class="step"><div class="s-name">scenario_execution_runs</div><div class="s-desc">Executes a scenario against its parent Field State baseline with the same engines used for reality.</div></div>
+      <div class="step"><div class="s-name">Execution runs</div><div class="s-desc">Executes a scenario against its parent field-state baseline with the same engines used for observed reality &mdash; results are directly comparable.</div></div>
       <div class="step"><div class="s-name">Derived observations &amp; features</div><div class="s-desc">Outputs become scenario-derived observations + feature values, comparable with observed data.</div></div>
     </div>
   </div>
@@ -82,18 +84,18 @@
   <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
 
   <div class="phase p4">
-    <div class="phase-head"><span class="phase-num">PHASE 4</span><span class="phase-title">Stress-test the answers</span><span class="phase-mile">M7.4 Sensitivity &nbsp;+&nbsp; M7.5 Robust Rotation</span></div>
+    <div class="phase-head"><span class="phase-num">STAGE 4</span><span class="phase-title">Stress-test the answers</span><span class="phase-mile">Sensitivity Analysis &nbsp;+&nbsp; Robust Planning</span></div>
     <div class="steps">
       <div class="step"><div class="s-name">One-at-a-time + 2-D grids</div><div class="s-desc">OAT responses per feature; two-factor grid cells and summaries expose interaction effects.</div></div>
-      <div class="step"><div class="s-name">Uncertainty register</div><div class="s-desc">sensitivity_uncertainty_items carry explicit confidence context per evaluation.</div></div>
-      <div class="step"><div class="s-name">Robust strategies (OR-Tools)</div><div class="s-desc">Rotation strategies optimized across scenario sets, ranked by worst-case scenario evaluation.</div></div>
+      <div class="step"><div class="s-name">Uncertainty register</div><div class="s-desc">A structured uncertainty register records explicit confidence context for every evaluation.</div></div>
+      <div class="step"><div class="s-name">Robust strategies (optimization)</div><div class="s-desc">Rotation strategies optimized across whole scenario sets with constraint programming, ranked by worst-case evaluation.</div></div>
     </div>
   </div>
 
   <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
 
   <div class="phase p5">
-    <div class="phase-head"><span class="phase-num">PHASE 5</span><span class="phase-title">Decide with evidence</span><span class="phase-mile">M7.6 Decision Comparisons</span></div>
+    <div class="phase-head"><span class="phase-num">STAGE 5</span><span class="phase-title">Decide with evidence</span><span class="phase-mile">Decision Comparisons</span></div>
     <div class="steps">
       <div class="step"><div class="s-name">Side-by-side comparisons</div><div class="s-desc">Strategies and scenarios compared on shared metrics with generated explanations.</div></div>
       <div class="step"><div class="s-name">Requirements ladder</div><div class="s-desc">Each comparison records which data requirements were satisfied, partial, or missing.</div></div>
@@ -103,11 +105,16 @@
   <div class="arrow-wrap"><div class="stem"></div><div class="head"></div></div>
 
   <div class="phase p6">
-    <div class="phase-head"><span class="phase-num">PHASE 6</span><span class="phase-title">Earn trust &mdash; validate &amp; document</span><span class="phase-mile">M7.7 Digital Twin &nbsp;+&nbsp; Data Passport</span></div>
+    <div class="phase-head"><span class="phase-num">STAGE 6</span><span class="phase-title">Earn trust &mdash; validate &amp; document</span><span class="phase-mile">Digital Twin &nbsp;+&nbsp; Data Passport</span></div>
     <div class="steps">
       <div class="step"><div class="s-name">Digital twin validations</div><div class="s-desc">Re-simulate known history and measure divergence between predicted and observed reality.</div></div>
       <div class="step"><div class="s-name">Data Passport</div><div class="s-desc">Every result ships with provenance, completeness, engine versions and honest gaps.</div></div>
     </div>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 5 of 9</span>
   </div>
 </div>
 </body>

@@ -45,27 +45,30 @@
   .legend { display: flex; gap: 10px; justify-content: center; margin-top: 24px; flex-wrap: wrap; }
   .legend .stat { font-size: 12px; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 6px 13px; }
   .legend .stat b { color: #111827; font-variant-numeric: tabular-nums; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
 </style>
 </head>
 <body>
 <div id="root">
   <div class="title">FieldShift Deployment &amp; Operations Topology</div>
-  <div class="subtitle">Single-tenant cloud sandbox &mdash; source, runtime and supervision are deliberately separated to survive environment resets</div>
+  <div class="subtitle">Single-tenant cloud deployment &mdash; source, runtime and supervision are deliberately separated for resilience and reproducibility</div>
 
   <div class="cols">
     <div class="col">
-      <div class="col-head">Source of truth<small>/home/z/my-project &middot; git main</small></div>
+      <div class="col-head">Source of truth<small>Git repository &middot; main branch</small></div>
       <div class="box src">
         <div class="b-title">Next.js source tree</div>
         <div class="b-desc">src/app (single / route), src/components/fieldshift (15-tab workspace), Tailwind + shadcn/ui; built with the Node toolchain.</div>
       </div>
       <div class="box src">
-        <div class="b-title">mini-services/fieldshift-api</div>
-        <div class="b-desc">FastAPI app (18 routers), Alembic migrations (16 revisions), domain engines, scripts/daemonize.py, scripts/ensure_db.py.</div>
+        <div class="b-title">FastAPI service source</div>
+        <div class="b-sub">mini-services/fieldshift-api</div>
+        <div class="b-desc">FastAPI app (18 routers), Alembic migrations (16 revisions), domain engines, process launcher and database bootstrap scripts.</div>
       </div>
       <div class="box src">
-        <div class="b-title">db/bin + docs</div>
-        <div class="b-desc">micromamba binary (recreates PostgreSQL env), architecture docs, and the diagram sources that produced this set.</div>
+        <div class="b-title">Environment bootstrap &amp; documentation</div>
+        <div class="b-desc">Reproducible PostgreSQL environment bootstrap (micromamba), architecture documentation and technical references.</div>
       </div>
     </div>
 
@@ -76,21 +79,21 @@
     </div>
 
     <div class="col">
-      <div class="col-head">Runtime &mdash; reset-proof<small>outside the project directory</small></div>
+      <div class="col-head">Runtime environment<small>isolated from the source tree</small></div>
       <div class="box run">
-        <div class="b-title">/home/z/fieldshift-app</div>
-        <div class="b-sub">frontend production build &middot; :3000</div>
-        <div class="b-desc">Next.js standalone bundle (node server.js); survives project-directory clean-ups.</div>
+        <div class="b-title">Web application runtime</div>
+        <div class="b-sub">Next.js standalone build &middot; :3000</div>
+        <div class="b-desc">Compiled production bundle (Node server); independent of source-tree toolchains.</div>
       </div>
       <div class="box run">
-        <div class="b-title">/home/z/fieldshift-api-venv</div>
+        <div class="b-title">API runtime environment</div>
         <div class="b-sub">uvicorn &middot; :3030</div>
         <div class="b-desc">Pinned requirements: fastapi, sqlalchemy, pyproj, shapely, rasterio, OR-Tools, geoalchemy2.</div>
       </div>
       <div class="box run">
-        <div class="b-title">/home/z/fieldshift-pg</div>
-        <div class="b-sub">pgenv + pgdata &middot; :5433</div>
-        <div class="b-desc">PostgreSQL 16.10 + PostGIS 3.5.0 (conda-forge), TCP 127.0.0.1 + unix socket /tmp.</div>
+        <div class="b-title">Database runtime</div>
+        <div class="b-sub">PostgreSQL cluster &middot; :5433</div>
+        <div class="b-desc">PostgreSQL 16.10 + PostGIS 3.5.0; network access restricted to localhost.</div>
       </div>
     </div>
 
@@ -101,34 +104,39 @@
     </div>
 
     <div class="col">
-      <div class="col-head">Supervision<small>cron &middot; every 10 minutes</small></div>
+      <div class="col-head">Supervision<small>scheduled health checks &middot; 10-minute cycle</small></div>
       <div class="box sup">
-        <div class="b-title">Stack watchdog</div>
+        <div class="b-title">Automated stack supervision</div>
         <div class="b-sub">3 checks in strict order</div>
-        <div class="b-desc">1&nbsp;&middot;&nbsp;pg_isready on :5433 &rarr; start if needed<br>2&nbsp;&middot;&nbsp;GET /api/v1/health/ready (only after PG is up) &rarr; restart uvicorn<br>3&nbsp;&middot;&nbsp;GET web / &rarr; restart node server.js</div>
+        <div class="b-desc">1&nbsp;&middot;&nbsp;PostgreSQL readiness &rarr; start if needed<br>2&nbsp;&middot;&nbsp;API /health/ready (only after database is up) &rarr; restart API<br>3&nbsp;&middot;&nbsp;Web root response &rarr; restart web server</div>
       </div>
       <div class="box sup">
-        <div class="b-title">daemonize.py</div>
-        <div class="b-sub">survives the shell that started it</div>
-        <div class="b-desc">Double-fork + setsid daemon launcher; every restart command wraps its service with it.</div>
+        <div class="b-title">Detached process launcher</div>
+        <div class="b-sub">daemonize.py</div>
+        <div class="b-desc">Double-fork + new session; every supervised restart launches its service detached from any interactive shell.</div>
       </div>
       <div class="box sup">
-        <div class="b-title">Escalation rule</div>
-        <div class="b-sub">watchdog never rebuilds</div>
-        <div class="b-desc">If binaries are missing (environment reset), the watchdog reports and stops &mdash; rebuilding is a user-approved action.</div>
+        <div class="b-title">Escalation policy</div>
+        <div class="b-sub">supervision never rebuilds</div>
+        <div class="b-desc">If runtime artifacts are missing, supervision reports and stops &mdash; rebuilding is an explicit, approved operation.</div>
       </div>
     </div>
   </div>
 
   <div class="threat">
-    <div class="t-title">Threat model &mdash; sandbox reset</div>
-    <div class="t-desc">The sandbox periodically <b>recycles processes</b> and <b>deletes large untracked directories</b> inside the project (node_modules, venvs) and can <b>reset /home/z/fieldshift-*</b> entirely. Recovery playbook: rsync source from the /tmp recovery copy &rarr; recreate pgenv with micromamba at a fresh prefix &rarr; initdb + ensure_db &rarr; alembic upgrade head &rarr; rebuild API venv &rarr; restart daemons &rarr; re-seed demo workspace. Git history and /tmp survive every reset observed so far.</div>
+    <div class="t-title">Environment resilience &amp; recovery</div>
+    <div class="t-desc">The hosting environment periodically <b>recycles processes</b> and may <b>clear ephemeral directories</b>. The recovery playbook restores the full stack from version control: restore source from the recovery copy &rarr; recreate the PostgreSQL environment with the bootstrap tool &rarr; initialize and migrate the database &rarr; rebuild runtime environments &rarr; restart supervised services &rarr; re-seed the demonstration workspace. Git history and the recovery copy persist across resets.</div>
   </div>
 
   <div class="legend">
     <div class="stat">External entry: gateway <b>:81</b> only</div>
-    <div class="stat">Internal: <b>3000</b> web &middot; <b>3030</b> API &middot; <b>5433</b> PG</div>
-    <div class="stat">Recovery time after full reset: <b>&lt; 10 min</b></div>
+    <div class="stat">Internal: <b>3000</b> web &middot; <b>3030</b> API &middot; <b>5433</b> database</div>
+    <div class="stat">Full-stack recovery time: <b>&lt; 10 min</b></div>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 6 of 9</span>
   </div>
 </div>
 </body>

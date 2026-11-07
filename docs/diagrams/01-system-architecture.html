@@ -67,6 +67,8 @@
   }
   .chip b { font-weight: 700; }
 
+  .fig-foot { margin-top: 34px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
+
   .stats { display: flex; gap: 10px; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
   .stat {
     font-size: 12.5px; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0;
@@ -85,9 +87,9 @@
     <div class="band-label">Client</div>
     <div class="band-row">
       <div class="node client">
-        <div class="n-title">Browser</div>
-        <div class="n-sub">Preview Panel / IM gateway</div>
-        <div class="n-desc">Loads the single <b>/</b> route workspace; all interaction happens client-side after hydration (maplibre-gl requires no SSR).</div>
+        <div class="n-title">Web Browser</div>
+        <div class="n-sub">Any modern browser &middot; no plug-ins required</div>
+        <div class="n-desc">Loads the single <b>/</b> route workspace; the interactive field map (maplibre-gl) runs entirely client-side after hydration.</div>
       </div>
     </div>
   </div>
@@ -103,9 +105,9 @@
     <div class="band-label">Edge</div>
     <div class="band-row">
       <div class="node gateway">
-        <div class="n-title">Caddy Gateway &nbsp;:81</div>
-        <div class="n-sub">reverse proxy + port multiplexer</div>
-        <div class="n-desc">Forwards <b>?XTransformPort=NNNN</b> requests to internal services &mdash; relative-path only, no absolute URLs in the client. Supports WebSocket upgrade for real-time features.</div>
+        <div class="n-title">Edge Gateway &mdash; Caddy</div>
+        <div class="n-sub">reverse proxy &middot; the only externally exposed port</div>
+        <div class="n-desc">Terminates all external traffic and routes each request to the appropriate internal service. Supports WebSocket upgrade for real-time features; no database or service port is reachable from outside.</div>
       </div>
     </div>
   </div>
@@ -145,8 +147,8 @@
           <span class="chip">digital_twin <b>3</b></span><span class="chip">health <b>2</b></span>
         </div>
         <div class="n-desc" style="margin-top:10px">
-          <b>Domain engines:</b> geospatial (PostGIS + PyProj geodesics) &middot; soil-engine 1.0.0 (USDA texture triangle, SOC stock) &middot; feature engine &middot; rotation planner &middot; water intelligence &middot; scenario execution &middot; sensitivity (OAT + 2-D grids) &middot; robust rotation (OR-Tools CP-SAT) &middot; decision comparisons &middot; digital twin.
-          <br><b>Auth:</b> bearer tokens, demo workspace seeding. <b>Honesty rule:</b> missing capability is reported as <i>unknown</i>, never as poor health.
+          <b>Domain engines:</b> geospatial (PostGIS + PyProj geodesics) &middot; soil science engine v1.0 (USDA texture triangle, SOC stock) &middot; feature engine &middot; rotation planner &middot; water intelligence &middot; scenario execution &middot; sensitivity (one-at-a-time + 2-D grids) &middot; robust planning (constraint optimization) &middot; decision comparisons &middot; digital twin.
+          <br><b>Security:</b> bearer-token authentication with workspace-scoped authorization. <b>Data honesty policy:</b> a missing capability is reported as <i>unknown</i>, never as poor health.
         </div>
       </div>
     </div>
@@ -164,11 +166,11 @@
     <div class="band-row">
       <div class="node data">
         <div class="n-title">PostgreSQL 16.10 + PostGIS 3.5.0</div>
-        <div class="n-sub">port 5433 &middot; unix socket /tmp &middot; TCP 127.0.0.1 only</div>
+        <div class="n-sub">port 5433 &middot; network access restricted to localhost</div>
         <ul>
-          <li>81 tables, single database <b>fieldshift</b></li>
-          <li>Alembic head <b>0014_merge_m6bc_m7</b> (merge point of M6B/M6C soil-management line and M7 line)</li>
-          <li>Geometry columns via PostGIS; DB-level immutability triggers on finalized scenarios</li>
+          <li>81 tables in a single database, <b>fieldshift</b></li>
+          <li>Version-controlled schema migrations (Alembic) with a single merged head</li>
+          <li>Geometry columns via PostGIS; database-level immutability triggers on finalized scenarios</li>
         </ul>
       </div>
     </div>
@@ -179,29 +181,34 @@
     <div class="band-label">Operations &amp; supervision</div>
     <div class="band-row">
       <div class="node ops" style="max-width: 330px;">
-        <div class="n-title">daemonize.py</div>
+        <div class="n-title">Process Supervisor</div>
         <div class="n-sub">double-fork daemon launcher</div>
-        <div class="n-desc">fork &rarr; setsid &rarr; fork &rarr; execvp; services survive the launching shell and log to dedicated files.</div>
+        <div class="n-desc">Services are launched detached from the starting shell and log to dedicated files &mdash; operation does not depend on an interactive session.</div>
       </div>
       <div class="node ops" style="max-width: 330px;">
-        <div class="n-title">Watchdog cron</div>
-        <div class="n-sub">every 10 minutes</div>
-        <div class="n-desc">Checks pg_isready &rarr; API /health/ready &rarr; web <b>/</b>; auto-restarts any down service via daemonize; never rebuilds on its own.</div>
+        <div class="n-title">Automated Supervision</div>
+        <div class="n-sub">health-check cycle &middot; every 10 minutes</div>
+        <div class="n-desc">Checks PostgreSQL readiness, then API <b>/health/ready</b>, then the web root &mdash; and restarts any service found down. Restarts only; rebuilding artifacts is always a deliberate, approved action.</div>
       </div>
       <div class="node ops" style="max-width: 330px;">
-        <div class="n-title">Reset-proof layout</div>
-        <div class="n-sub">/home/z/fieldshift-*</div>
-        <div class="n-desc">Runtime environments (pgenv + pgdata, API venv, frontend build) live outside the project directory so sandbox clean-ups of node_modules/.venv cannot break them.</div>
+        <div class="n-title">Isolated Runtime Layout</div>
+        <div class="n-sub">runtime &ne; source tree</div>
+        <div class="n-desc">Runtime environments (database cluster, Python environment, frontend build) live outside the source tree, so dependency clean-ups cannot damage running services.</div>
       </div>
     </div>
   </div>
 
   <div class="stats">
     <div class="stat"><b>18</b> API routers</div>
-    <div class="stat"><b>133</b> REST paths</div>
-    <div class="stat"><b>81</b> tables</div>
-    <div class="stat"><b>15</b> workspace tabs</div>
-    <div class="stat"><b>M1 &rarr; M7.7</b> delivered milestones</div>
+    <div class="stat"><b>133</b> REST endpoints</div>
+    <div class="stat"><b>81</b> database tables</div>
+    <div class="stat"><b>15</b> workspace modules</div>
+    <div class="stat"><b>5</b> functional domains</div>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 1 of 9</span>
   </div>
 </div>
 </body>
