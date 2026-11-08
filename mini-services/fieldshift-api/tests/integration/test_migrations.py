@@ -6,6 +6,7 @@ drop -> create -> upgrade head -> downgrade base -> upgrade head again.
 
 import os
 import subprocess
+import sys
 
 import psycopg2
 import pytest
@@ -26,8 +27,16 @@ def _psql(dbname: str, sql: str) -> None:
 def _alembic(*args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["FIELDSHIFT_DATABASE_URL"] = SCRATCH_URL
+    # Prefer an in-project virtualenv when present; otherwise run alembic from
+    # the CURRENT interpreter (works when the suite runs from any venv path,
+    # e.g. /home/z/fieldshift-api-venv in the sandbox or the CI runner).
+    local_alembic = os.path.join(ROOT, ".venv", "bin", "alembic")
+    if os.path.exists(local_alembic):
+        cmd = [local_alembic, *args]
+    else:
+        cmd = [sys.executable, "-m", "alembic", *args]
     return subprocess.run(
-        [os.path.join(ROOT, ".venv", "bin", "alembic"), *args],
+        cmd,
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=180,
     )
 

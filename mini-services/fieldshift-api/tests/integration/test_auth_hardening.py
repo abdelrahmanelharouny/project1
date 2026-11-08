@@ -246,24 +246,25 @@ class TestRbacMatrix:
         viewer_membership_id = member_payload["id"]
         assert {"id", "user_id", "email", "display_name", "role_code", "status", "created_at"} <= set(member_payload)
 
-        # The registered viewer also owns their registration org (org B), and
-        # farm creation targets `next(iter(principal.org_ids()))`. Remove the
-        # org-B membership row directly so the org-A role gates below resolve
-        # deterministically.
-        org_b_membership = db.scalar(
-            select(Membership).where(
-                Membership.user_id == uuid.UUID(viewer["user"]["id"]),
-                Membership.id != uuid.UUID(viewer_membership_id),
-            )
+        # Farm creation targets the principal's OLDEST active membership org
+        # (deterministic — their own registration org). A viewer may still
+        # create farms THERE (they own that org); what RBAC forbids is
+        # touching org A: farm mutation, members, engine runs.
+        own_farm = client.post(
+            "/api/v1/farms",
+            headers=viewer_headers,
+            json={"name": "Viewer Own Farm", "country_code": "EG"},
         )
-        assert org_b_membership is not None
-        db.delete(org_b_membership)
-        db.commit()
+        assert own_farm.status_code == 201, own_farm.text
 
-        # viewer: read OK, farm creation 403 (manager+ required), rotation
-        # run creation 403 (agronomist+ required, BEFORE any engine work).
+        # viewer: read org-A farm OK; mutating org A 403; rotation run
+        # creation 403 (agronomist+ required, BEFORE any engine work).
         assert client.get(f"/api/v1/farms/{farm['id']}", headers=viewer_headers).status_code == 200
-        assert _create_farm(client, viewer_headers, "Viewer Farm").status_code == 403
+        assert client.patch(
+            f"/api/v1/farms/{farm['id']}",
+            headers=viewer_headers,
+            json={"name": "Hijack"},
+        ).status_code == 403
         rotation = client.post(
             f"/api/v1/fields/{field['id']}/rotation-runs",
             headers=viewer_headers,

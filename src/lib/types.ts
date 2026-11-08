@@ -66,6 +66,10 @@ export interface AuthResponse {
   token: string
   token_type: string
   expires_at: string
+  /** Rotating refresh token (P0-2). Reuse of a superseded refresh token
+   * revokes the whole session family server-side. */
+  refresh_token?: string
+  refresh_expires_at?: string
   user: User
   organization: OrganizationRef
   organizations?: MembershipRef[]

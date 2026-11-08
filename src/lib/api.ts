@@ -59,6 +59,7 @@ import type {
 } from './types'
 
 export const TOKEN_STORAGE_KEY = 'fieldshift_token'
+export const REFRESH_STORAGE_KEY = 'fieldshift_refresh'
 const PORT_QUERY = 'XTransformPort=3030'
 
 /** Coverage window enforced by the backend for ingestion jobs. */
@@ -123,6 +124,46 @@ export function setToken(token: string | null): void {
     window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
   } else {
     window.localStorage.removeItem(TOKEN_STORAGE_KEY)
+    window.localStorage.removeItem(REFRESH_STORAGE_KEY)
+  }
+}
+
+function getRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(REFRESH_STORAGE_KEY)
+}
+
+function setRefreshToken(token: string | null): void {
+  if (typeof window === 'undefined') return
+  if (token) {
+    window.localStorage.setItem(REFRESH_STORAGE_KEY, token)
+  } else {
+    window.localStorage.removeItem(REFRESH_STORAGE_KEY)
+  }
+}
+
+/**
+ * Exchange the stored refresh token for a fresh access+refresh pair
+ * (rotating refresh: the presented token is revoked server-side; reusing a
+ * superseded token revokes the whole session family).
+ */
+export async function refreshSession(): Promise<boolean> {
+  const refresh = getRefreshToken()
+  if (!refresh) return false
+  try {
+    const payload = await request<AuthResponse>(
+      '/api/v1/auth/refresh',
+      { method: 'POST', body: { refresh_token: refresh }, anonymous: true },
+      { skipAuthRetry: true },
+    )
+    if (!payload?.token) return false
+    setToken(payload.token)
+    setRefreshToken(payload.refresh_token ?? null)
+    return true
+  } catch {
+    // Invalid/expired/reused refresh — drop the stored session.
+    setToken(null)
+    return false
   }
 }
 
@@ -135,7 +176,16 @@ interface RequestOptions {
   anonymous?: boolean
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+interface RequestInternals {
+  /** Prevent recursive 401→refresh retries (used by refreshSession itself). */
+  skipAuthRetry?: boolean
+}
+
+async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+  internals: RequestInternals = {},
+): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   if (!options.anonymous) {
@@ -178,6 +228,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!response.ok) {
     const envelope = payload as ApiErrorBody | null
     const error = envelope && typeof envelope === 'object' && 'error' in envelope ? envelope.error : undefined
+    // Rotating-refresh retry (P0-2): an access token may have simply expired
+    // while the session is still valid. Try ONE refresh, then retry the
+    // original request once. Never recurse from the refresh call itself.
+    if (
+      response.status === 401 &&
+      !options.anonymous &&
+      !internals.skipAuthRetry &&
+      !path.includes('/auth/refresh')
+    ) {
+      const refreshed = await refreshSession()
+      if (refreshed) {
+        return request<T>(path, options, { skipAuthRetry: true })
+      }
+    }
     throw new ApiError({
       status: response.status,
       code: error?.code ?? `HTTP_${response.status}`,
@@ -211,11 +275,18 @@ export function seedDemo(): Promise<SeedDemoResponse> {
 // --- auth -------------------------------------------------------------------
 
 export function register(input: RegisterInput): Promise<AuthResponse> {
-  return request<AuthResponse>('/api/v1/auth/register', { method: 'POST', body: input, anonymous: true })
+  return storeAuth(request<AuthResponse>('/api/v1/auth/register', { method: 'POST', body: input, anonymous: true }))
 }
 
 export function login(input: LoginInput): Promise<AuthResponse> {
-  return request<AuthResponse>('/api/v1/auth/login', { method: 'POST', body: input, anonymous: true })
+  return storeAuth(request<AuthResponse>('/api/v1/auth/login', { method: 'POST', body: input, anonymous: true }))
+}
+
+/** Persist the refresh token alongside the access token after login/register. */
+async function storeAuth(payloadPromise: Promise<AuthResponse>): Promise<AuthResponse> {
+  const payload = await payloadPromise
+  if (payload?.refresh_token) setRefreshToken(payload.refresh_token)
+  return payload
 }
 
 export function getMe(): Promise<MeResponse> {

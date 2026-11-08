@@ -102,6 +102,43 @@ def client():
 @pytest.fixture(autouse=True)
 def clean_tables():
     yield
+    for attempt in range(2):
+        try:
+            with engine.begin() as conn:
+                # Fail fast instead of hanging the suite: lock waits cap at
+                # 10s and any single statement at 120s (a stuck smgr truncate
+                # on this storage previously blocked runs indefinitely).
+                conn.exec_driver_sql("SET lock_timeout = '10s'")
+                conn.exec_driver_sql("SET statement_timeout = '120s'")
+                # One statement for ALL tables: TRUNCATE of the full set needs
+                # no CASCADE (every referencing table is included) and issues
+                # one relation-lock cycle instead of ~80.
+                tables = ", ".join(f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables))
+                conn.exec_driver_sql(f"TRUNCATE TABLE {tables}")
+            return
+        except Exception:
+            if attempt == 1:
+                raise
+            # Retry once with the historical per-table CASCADE path on a
+            # FRESH transaction (the failed attempt aborts its transaction —
+            # retrying on it would raise InFailedSqlTransaction).
+            with engine.begin() as conn:
+                conn.exec_driver_sql("SET lock_timeout = '10s'")
+                conn.exec_driver_sql("SET statement_timeout = '300s'")
+                for table in reversed(Base.metadata.sorted_tables):
+                    conn.exec_driver_sql(f'TRUNCATE TABLE "{table.name}" CASCADE')
+
+
+@pytest.fixture(scope="session", autouse=False)
+def purge_stale_rows_before_session_DISABLED():
+    """Wipe rows left behind by killed previous runs BEFORE any test runs.
+
+    Killed pytest processes can leave BackgroundJob rows in 'queued' — a new
+    session's worker-pool startup (crash recovery) would re-enqueue and
+    execute them on worker threads concurrently with this session's TRUNCATE
+    cleanup, deadlocking on table locks. Purging first makes recovery a
+    no-op for this session.
+    """
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(text(f'TRUNCATE TABLE "{table.name}" CASCADE'))

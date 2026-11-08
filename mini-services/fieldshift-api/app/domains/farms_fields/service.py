@@ -5,6 +5,7 @@ Business logic stays here — HTTP routers only parse/serialize (Master rule 16)
 
 import json
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -34,12 +35,18 @@ def create_farm(db: Session, principal: Any, payload: dict[str, Any]) -> Farm:
     # RBAC (P0-2): farm creation is a manager+ mutation in the organization
     # the farm is created in (the principal's first active org — same org
     # selection the tenant model has always used here).
-    org_ids = principal.org_ids()
-    if not org_ids:
+    # Deterministic org selection: the principal's OLDEST active membership
+    # (their original organization). Historical behavior picked an arbitrary
+    # set element — with multi-org users that landed farms in a random org
+    # and made role checks non-reproducible. Ties break by organization id.
+    active = [m for m in principal.memberships if m.status == "active"]
+    if not active:
         raise Forbidden("You do not belong to an active organization.")
-    principal.require_org_role(next(iter(org_ids)), "manager")
+    active.sort(key=lambda m: (m.created_at or datetime.now(UTC), m.organization_id))
+    target_org_id = active[0].organization_id
+    principal.require_org_role(target_org_id, "manager")
     farm = Farm(
-        organization_id=next(iter(org_ids)),
+        organization_id=target_org_id,
         name=payload["name"].strip(),
         country_code=payload["country_code"].strip().upper(),
         admin_region=(payload.get("admin_region") or "").strip() or None,
