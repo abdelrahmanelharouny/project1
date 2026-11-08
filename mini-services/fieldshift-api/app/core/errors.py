@@ -81,6 +81,65 @@ class Conflict(FieldShiftError):
     code = "CONFLICT"
 
 
+class AccountLocked(FieldShiftError):
+    """Sign-in blocked by the temporary failed-login lockout (P0-2).
+
+    Carries `retry_after_seconds` so clients can show a countdown; the value
+    is also rendered into the structured error details.
+    """
+
+    status_code = 423  # HTTP 423 Locked
+    code = "ACCOUNT_LOCKED"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: int,
+        details: list[dict[str, Any]] | None = None,
+        code: str | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            details=[{"retry_after_seconds": retry_after_seconds}] + (details or []),
+            code=code,
+            status_code=status_code,
+        )
+        self.retry_after_seconds = retry_after_seconds
+
+
+class TooManyRequests(FieldShiftError):
+    """Sliding-window rate limit exceeded (P0-2). Carries `retry_after_seconds`."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "RATE_LIMITED"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: int,
+        details: list[dict[str, Any]] | None = None,
+        code: str | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            details=[{"retry_after_seconds": retry_after_seconds}] + (details or []),
+            code=code,
+            status_code=status_code,
+        )
+        self.retry_after_seconds = retry_after_seconds
+
+
+class EmailNotVerified(FieldShiftError):
+    """Sign-in denied because the account's email address is not verified (P0-2)."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "EMAIL_NOT_VERIFIED"
+
+
 class InsufficientData(FieldShiftError):
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "INSUFFICIENT_DATA"
@@ -120,9 +179,14 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(FieldShiftError)
     async def domain_error_handler(request: Request, exc: FieldShiftError) -> JSONResponse:
         request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        headers = None
+        if isinstance(exc, (TooManyRequests, AccountLocked)):
+            # Rate limiter and lockout advertise when the client may retry.
+            headers = {"Retry-After": str(max(int(exc.retry_after_seconds), 1))}
         return JSONResponse(
             status_code=exc.status_code,
             content=_error_payload(exc.code, exc.message, exc.details, request_id),
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

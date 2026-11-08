@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.errors import Conflict, NotFound, ValidationFailed
 from app.db import models as dbm
-from app.domains.identity.service import get_field_for_principal, get_principal
+from app.domains.identity.service import get_field_for_principal, get_principal, require_farm_role
 from app.robust_rotation import contracts as rc
 from app.robust_rotation import service as robust_service
 
@@ -168,6 +168,8 @@ def create_robust_run(
 ) -> dict:
     row = _get_set_scoped(db, set_id, principal)
     field = get_field_for_principal(db, principal, row.field_id)
+    # RBAC (P0-2): robust-rotation runs are heavy engine work — agronomist+.
+    require_farm_role(db, principal, db.get(dbm.Farm, field.farm_id), "agronomist")
     run = robust_service.start_robust_rotation_run(
         db, row, field, payload=payload or {}, created_by=principal.user
     )

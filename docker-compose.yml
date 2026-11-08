@@ -1,0 +1,136 @@
+# FieldShift — full-stack orchestration (db + api + web + gateway).
+#
+# Run from the repository root:
+#
+#   docker compose up --build
+#
+# Port convention mirrors the development sandbox:
+#   3000  Next.js web
+#   3030  FieldShift FastAPI
+#   5433  PostgreSQL 16 + PostGIS 3.5 (host) -> 5432 (container)
+#     81  Caddy gateway (?XTransformPort=<port> routing)
+#
+# The `api` service applies Alembic migrations (alembic upgrade head) before
+# serving traffic. Every service has a restart policy and a healthcheck.
+# Environment values can be overridden via a root `.env` file — see
+# .env.example.
+
+name: fieldshift
+
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${FIELDSHIFT_COMPOSE_PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${FIELDSHIFT_COMPOSE_PG_PASSWORD:-postgres}
+      POSTGRES_DB: ${FIELDSHIFT_COMPOSE_PG_DB:-fieldshift}
+    ports:
+      # Host 5433 -> container 5432: keeps the sandbox convention where the
+      # backend and tests expect PostgreSQL on 5433.
+      - "${FIELDSHIFT_COMPOSE_PG_PORT:-5433}:5432"
+    volumes:
+      - fieldshift-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FIELDSHIFT_COMPOSE_PG_USER:-postgres} -d ${FIELDSHIFT_COMPOSE_PG_DB:-fieldshift}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      context: ./mini-services/fieldshift-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Inside the compose network the database service is `db:5432`; the host
+      # mapping 5433 exists only for tools running on the host.
+      FIELDSHIFT_DATABASE_URL: postgresql+psycopg2://${FIELDSHIFT_COMPOSE_PG_USER:-postgres}:${FIELDSHIFT_COMPOSE_PG_PASSWORD:-postgres}@db:5432/${FIELDSHIFT_COMPOSE_PG_DB:-fieldshift}
+      # Demo conveniences (POST /api/v1/dev/seed-demo, auto-verified
+      # registration). Set to 0 for anything beyond a local demo.
+      FIELDSHIFT_DEV_MODE: "1"
+      FIELDSHIFT_ENVIRONMENT: development
+      # Comma-separated browser origins allowed by CORS; empty disables the
+      # CORS middleware (fine when the gateway is strictly same-origin).
+      FIELDSHIFT_CORS_ALLOW_ORIGINS: ${FIELDSHIFT_CORS_ALLOW_ORIGINS:-}
+      # Application settings passed through from the root .env (defaults
+      # mirror app/core/config.py; see .env.example for annotations).
+      FIELDSHIFT_PASSWORD_PBKDF2_ITERATIONS: ${FIELDSHIFT_PASSWORD_PBKDF2_ITERATIONS:-600000}
+      FIELDSHIFT_AUTH_TOKEN_TTL_SECONDS: ${FIELDSHIFT_AUTH_TOKEN_TTL_SECONDS:-43200}
+      FIELDSHIFT_DEFAULT_PAGE_SIZE: ${FIELDSHIFT_DEFAULT_PAGE_SIZE:-50}
+      FIELDSHIFT_MAX_PAGE_SIZE: ${FIELDSHIFT_MAX_PAGE_SIZE:-500}
+      FIELDSHIFT_MAX_IMPORT_FILE_BYTES: ${FIELDSHIFT_MAX_IMPORT_FILE_BYTES:-32000000}
+      # Reserved settings (in-flight workstreams; ignored by current config).
+      FIELDSHIFT_AUTH_RATE_LIMIT_PER_MINUTE: ${FIELDSHIFT_AUTH_RATE_LIMIT_PER_MINUTE:-10}
+      FIELDSHIFT_RATE_LIMIT_GLOBAL_PER_MIN: ${FIELDSHIFT_RATE_LIMIT_GLOBAL_PER_MIN:-300}
+      FIELDSHIFT_JOB_WORKERS: ${FIELDSHIFT_JOB_WORKERS:-2}
+      FIELDSHIFT_REFRESH_TOKEN_TTL_HOURS: ${FIELDSHIFT_REFRESH_TOKEN_TTL_HOURS:-168}
+    ports:
+      - "3030:3030"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Migrate, then serve. `exec` hands PID 1 to uvicorn so SIGTERM reaches
+    # the server and `docker compose stop` shuts down cleanly. Migration 0001
+    # issues CREATE EXTENSION IF NOT EXISTS postgis (superuser on the image).
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 3030"]
+    healthcheck:
+      # Liveness: /api/v1/health. Readiness incl. the PostGIS check is
+      # /api/v1/health/ready. python:3.12-slim has no curl/wget, hence urllib.
+      test: ["CMD", "python", "-c", "import sys, urllib.request as u; r = u.urlopen('http://127.0.0.1:3030/api/v1/health', timeout=4); sys.exit(0 if r.status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  web:
+    build:
+      # Next.js repo root. The Dockerfile uses the oven/bun images:
+      # deps (bun install --frozen-lockfile) -> builder (bun run build;
+      # the package.json build script copies .next/static and public/ into
+      # .next/standalone/) -> runner (standalone server on 3000).
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      # oven/bun:1-slim has no curl/wget; use the bun runtime itself.
+      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:3000/').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  gateway:
+    image: caddy:2
+    restart: unless-stopped
+    # The stock Caddyfile reverse-proxies to `localhost:{query.XTransformPort}`
+    # and `localhost:3000`. Inside a bridge network those upstreams would be
+    # the caddy container itself, so the gateway runs with host networking
+    # (Linux) and reaches the host-published ports 3000/3030 directly. Port 81
+    # is therefore bound by caddy itself; no `ports:` mapping is used.
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - web
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:81/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  fieldshift-pgdata:

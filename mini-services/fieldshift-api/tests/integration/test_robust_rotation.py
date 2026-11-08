@@ -633,5 +633,16 @@ class TestVerification:
         assert body["strategy_count"] >= 2
 
     def test_migration_head(self, db):
+        """Pin-free guard: applied revision must equal the alembic head from the
+        migrations script directory (stays valid across future migrations)."""
+        import os as _os
+
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        cfg = Config(_os.path.join(_root, "alembic.ini"))
+        cfg.set_main_option("script_location", _os.path.join(_root, "migrations"))
+        expected = ScriptDirectory.from_config(cfg).get_current_head()
         row = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        assert row == "0014_merge_m6bc_m7"
+        assert row == expected

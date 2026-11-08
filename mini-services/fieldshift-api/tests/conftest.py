@@ -10,9 +10,23 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-TEST_DB_URL = "postgresql+psycopg2://postgres@127.0.0.1:5433/fieldshift_test"
+TEST_DB_URL = os.environ.get(
+    "FIELDSHIFT_TEST_DB_URL",
+    "postgresql+psycopg2://postgres@127.0.0.1:5433/fieldshift_test",
+)
 os.environ["FIELDSHIFT_DATABASE_URL"] = TEST_DB_URL
 os.environ["FIELDSHIFT_ENVIRONMENT"] = "test"
+# Sandbox parity (auth hardening P0-2): registration auto-verifies emails,
+# matching the dev server which runs with FIELDSHIFT_DEV_MODE=true via .env.
+os.environ.setdefault("FIELDSHIFT_DEV_MODE", "true")
+# The per-IP auth rate limiter would count ALL tests against the shared
+# "testclient" key; disable it suite-wide. Dedicated hardening tests
+# monkeypatch settings.auth_rate_limit_per_minute and reset the store.
+os.environ.setdefault("FIELDSHIFT_AUTH_RATE_LIMIT_PER_MINUTE", "0")
+# Async jobs (P0-3): keep legacy inline ingestion suite-wide (existing tests
+# assert synchronous completion). Dedicated background-job tests start the
+# executor explicitly via start_workers() + wait_for_job().
+os.environ.setdefault("FIELDSHIFT_JOB_WORKERS", "0")
 
 import psycopg2  # noqa: E402
 import pytest  # noqa: E402

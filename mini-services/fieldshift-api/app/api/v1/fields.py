@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.domains.farms_fields import service as field_service
-from app.domains.identity.service import get_farm_for_principal, get_field_for_principal, get_principal
+from app.domains.identity.service import (
+    get_farm_for_principal,
+    get_field_for_principal,
+    get_principal,
+    require_farm_role,
+)
 from app.db import models as dbm
 
 router = APIRouter(tags=["fields"])
@@ -39,6 +44,8 @@ def create_field(
     db: Session = Depends(get_db),
 ) -> dict:
     farm = get_farm_for_principal(db, principal, farm_id)
+    # RBAC (P0-2): field creation is a manager+ mutation.
+    require_farm_role(db, principal, farm, "manager")
     return field_service.create_field(
         db, principal, farm, name=payload.name, geometry=payload.geometry,
         change_reason=payload.change_reason,
@@ -66,6 +73,11 @@ def get_field(
     return field_service.field_payload(db, field)
 
 
+def _farm_of_field(db: Session, field: Any) -> Any:
+    """Resolve the owning farm of a tenant-scoped field (for role gates)."""
+    return db.get(dbm.Farm, field.farm_id)
+
+
 @router.patch("/fields/{field_id}")
 def patch_field(
     field_id: uuid.UUID,
@@ -74,6 +86,8 @@ def patch_field(
     db: Session = Depends(get_db),
 ) -> dict:
     field = get_field_for_principal(db, principal, field_id)
+    # RBAC (P0-2): field edits are manager+ mutations on the field's farm.
+    require_farm_role(db, principal, _farm_of_field(db, field), "manager")
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"]:
         field.name = data["name"].strip()
@@ -89,6 +103,8 @@ def add_boundary_version(
     db: Session = Depends(get_db),
 ) -> dict:
     field = get_field_for_principal(db, principal, field_id)
+    # RBAC (P0-2): boundary changes are manager+ mutations on the field's farm.
+    require_farm_role(db, principal, _farm_of_field(db, field), "manager")
     return field_service.update_field_boundary(
         db, principal, field, geometry=payload.geometry, change_reason=payload.change_reason
     )

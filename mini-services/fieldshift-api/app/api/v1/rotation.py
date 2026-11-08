@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.errors import NotFound, ValidationFailed
 from app.db import models as dbm
-from app.domains.identity.service import get_field_for_principal, get_principal
+from app.domains.identity.service import get_field_for_principal, get_principal, require_farm_role
 from app.knowledge.service import load_knowledge
 from app.rotation import candidates as candidates_mod
 from app.rotation import service as rotation_service
@@ -158,6 +158,8 @@ def generate_candidates(
     """Per-season candidate generation (M5.3) — no optimization, pure
     eligibility assessment with explanations."""
     field = get_field_for_principal(db, principal, field_id)
+    # RBAC (P0-2): candidate generation drives the rotation engine — agronomist+.
+    require_farm_role(db, principal, db.get(dbm.Farm, field.farm_id), "agronomist")
     knowledge = load_knowledge(db)
     if not knowledge.crops:
         raise ValidationFailed(
@@ -218,6 +220,9 @@ def create_rotation_run(
     db: Session = Depends(get_db),
 ) -> dict:
     field = get_field_for_principal(db, principal, field_id)
+    # RBAC (P0-2): heavy engine creation is an agronomist+ mutation. Enforced
+    # BEFORE any engine/knowledge work (403 precedes payload validation).
+    require_farm_role(db, principal, db.get(dbm.Farm, field.farm_id), "agronomist")
     run = rotation_service.start_rotation_run(
         db,
         field=field,

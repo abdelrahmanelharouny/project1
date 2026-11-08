@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.errors import Forbidden
 from app.db.models import AuditEvent, Farm, Field, FieldBoundaryVersion, Observation
 from app.geospatial.validation import (
     GeometryValidationResult,
@@ -30,8 +31,15 @@ def _ha(m2: float) -> float:
 
 # ------------------------------------------------------------------ farms
 def create_farm(db: Session, principal: Any, payload: dict[str, Any]) -> Farm:
+    # RBAC (P0-2): farm creation is a manager+ mutation in the organization
+    # the farm is created in (the principal's first active org — same org
+    # selection the tenant model has always used here).
+    org_ids = principal.org_ids()
+    if not org_ids:
+        raise Forbidden("You do not belong to an active organization.")
+    principal.require_org_role(next(iter(org_ids)), "manager")
     farm = Farm(
-        organization_id=next(iter(principal.org_ids())),
+        organization_id=next(iter(org_ids)),
         name=payload["name"].strip(),
         country_code=payload["country_code"].strip().upper(),
         admin_region=(payload.get("admin_region") or "").strip() or None,

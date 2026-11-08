@@ -448,6 +448,9 @@ def import_knowledge_pack(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
+    # RBAC (P0-2): knowledge packs are platform-level (no farm scope), so the
+    # gate is org-level — manager+ in at least one of the principal's orgs.
+    principal.require_any_org_role("manager")
     pack_row, report, created = import_pack(
         db,
         body.pack,
@@ -494,6 +497,8 @@ def activate_pack(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
+    # RBAC (P0-2): activation/retirement is platform-level — manager+ in any org.
+    principal.require_any_org_role("manager")
     pack = db.get(dbm.KnowledgePack, pack_id)
     if pack is None:
         raise NotFound("Knowledge pack not found.")

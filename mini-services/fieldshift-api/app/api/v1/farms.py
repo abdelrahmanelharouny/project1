@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.domains.farms_fields import service as farm_service
-from app.domains.identity.service import get_principal
+from app.domains.identity.service import get_principal, require_farm_role
 
 router = APIRouter(prefix="/farms", tags=["farms"])
 
@@ -74,6 +74,8 @@ def patch_farm(
     from app.domains.identity.service import get_farm_for_principal
 
     farm = get_farm_for_principal(db, principal, farm_id)
+    # RBAC (P0-2): farm edits are manager+ mutations.
+    require_farm_role(db, principal, farm, "manager")
     data = payload.model_dump(exclude_unset=True)
     for key, value in data.items():
         setattr(farm, key, value)

@@ -12,8 +12,10 @@ from app.api.v1 import (
     field_states,
     fields,
     health,
+    jobs,
     knowledge,
     management,
+    members,
     robust_rotation,
     rotation,
     scenario_executions,
@@ -26,8 +28,13 @@ from app.api.v1 import (
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
+api_router.include_router(members.router)
 api_router.include_router(farms.router)
 api_router.include_router(fields.router)
+# jobs BEFORE data_platform: its literal /jobs/background routes must win
+# over data_platform's parameterized /jobs/{job_id} (FastAPI matches in
+# registration order).
+api_router.include_router(jobs.router)
 api_router.include_router(data_platform.router)
 api_router.include_router(features.router)
 api_router.include_router(knowledge.router)

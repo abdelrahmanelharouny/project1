@@ -283,6 +283,17 @@ class TestProtection:
 
 
 class TestMigrationHead:
-    def test_head_is_0012(self, db):
+    def test_head_matches_script_directory(self, db):
+        """Pin-free guard: the applied revision must equal the alembic head
+        computed from the migrations script directory (stays valid across
+        future migrations instead of pinning a hard-coded revision id)."""
+        import os as _os
+
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        cfg = Config(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "alembic.ini"))
+        cfg.set_main_option("script_location", _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "migrations"))
+        expected = ScriptDirectory.from_config(cfg).get_current_head()
         row = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        assert row == "0014_merge_m6bc_m7"
+        assert row == expected

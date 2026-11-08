@@ -16,7 +16,11 @@ from app.core.database import get_db
 from app.core.errors import InvalidDateRange, NotFound, UnsupportedVariable, ValidationFailed
 from app.data_platform.contracts.observations import validate_provider_request
 from app.data_platform.contracts.variables import catalog_payload, DATA_DICTIONARY_VERSION
-from app.data_platform.ingestion.service import create_import_job, start_ingestion_job
+from app.data_platform.ingestion.service import (
+    create_import_job,
+    start_ingestion_job,
+    submit_ingestion_job,
+)
 from app.data_platform.registry.provider_registry import get_provider_registry
 from app.db import models as dbm
 from app.domains.identity.service import get_field_for_principal, get_principal
@@ -134,6 +138,10 @@ def create_data_job(
     options = _provider_options(payload.provider_code, payload)
     if hasattr(provider, "validate_request"):
         provider.validate_request(variables=payload.variables, options=options)
+    # Async execution (P0-3): with workers enabled the provider fetch runs on
+    # the background worker pool and the 202 response keeps its exact shape
+    # (status 'queued'; clients poll the unchanged status URL). With
+    # job_workers <= 0 the legacy inline execution is preserved.
     job = start_ingestion_job(
         db,
         field=field,
@@ -144,7 +152,10 @@ def create_data_job(
         options=options,
         idempotency_key=payload.idempotency_key,
         created_by=principal.id,
+        execute=settings.job_workers <= 0,
     )
+    if job.status == "queued" and settings.job_workers > 0:
+        submit_ingestion_job(job.id)
     return _job_payload(job)
 
 

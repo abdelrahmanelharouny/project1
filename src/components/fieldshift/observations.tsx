@@ -72,6 +72,7 @@ import {
   extractChirps,
   importObservationsCsv,
   MAX_JOB_YEARS,
+  pollJobUntilDone,
   validateJobWindow,
 } from '@/lib/api'
 import { humanizeCode } from '@/lib/format'
@@ -308,14 +309,25 @@ export function Observations() {
         end_date: jobEnd,
         ...(provider === 'synthetic' ? { profile, seed } : { model }),
       }),
-    onSuccess: (jobResult) => {
+    onSuccess: async (jobResult) => {
       if (!selectedField) return
       setJob({ fieldId: selectedField.id, data: jobResult })
-      if (jobResult.status === 'succeeded') {
+      // Backend executes on a background worker pool: 202 responses come back
+      // 'queued' — poll the status URL until terminal before reporting.
+      const finalJob =
+        jobResult.status === 'succeeded' || jobResult.status === 'failed'
+          ? jobResult
+          : await pollJobUntilDone(jobResult.job_id, {
+              onProgress: (snapshot) => {
+                setJob({ fieldId: selectedField.id, data: snapshot })
+              },
+            })
+      setJob({ fieldId: selectedField.id, data: finalJob })
+      if (finalJob.status === 'succeeded') {
         toast.success('Ingestion job succeeded', {
-          description: `${jobResult.records_received} records stored · ${jobResult.records_rejected} rejected.`,
+          description: `${finalJob.records_received} records stored · ${finalJob.records_rejected} rejected.`,
         })
-        const params = jobResult.request_parameters as { start_date?: string; end_date?: string }
+        const params = finalJob.request_parameters as { start_date?: string; end_date?: string }
         const start = params.start_date ?? jobStart
         const end = params.end_date ?? jobEnd
         setWindowStart(start)
@@ -325,7 +337,7 @@ export function Observations() {
           invalidateFieldData(selectedField.id)
         }
       } else {
-        toast.error('Ingestion job failed', { description: jobResult.error_summary ?? 'No error summary returned.' })
+        toast.error('Ingestion job failed', { description: finalJob.error_summary ?? 'No error summary returned.' })
       }
     },
     onError: (err) => {
@@ -337,18 +349,23 @@ export function Observations() {
 
   const csvImportMutation = useMutation({
     mutationFn: (fieldId: string) => importObservationsCsv(fieldId, csvFile as File),
-    onSuccess: (jobResult) => {
+    onSuccess: async (jobResult) => {
       if (!selectedField) return
       setCsvJob({ fieldId: selectedField.id, data: jobResult })
-      if (jobResult.status === 'succeeded') {
+      const finalJob =
+        jobResult.status === 'succeeded' || jobResult.status === 'failed'
+          ? jobResult
+          : await pollJobUntilDone(jobResult.job_id)
+      setCsvJob({ fieldId: selectedField.id, data: finalJob })
+      if (finalJob.status === 'succeeded') {
         toast.success('CSV import finished', {
-          description: `${jobResult.records_received} rows read · ${jobResult.records_rejected} rejected.`,
+          description: `${finalJob.records_received} rows read · ${finalJob.records_rejected} rejected.`,
         })
         invalidateFieldData(selectedField.id)
         setCsvFile(null)
         if (csvInputRef.current) csvInputRef.current.value = ''
       } else {
-        toast.error('CSV import failed', { description: jobResult.error_summary ?? undefined })
+        toast.error('CSV import failed', { description: finalJob.error_summary ?? undefined })
       }
     },
     onError: (err) => {
@@ -364,18 +381,23 @@ export function Observations() {
         periodKind: chirpsKind,
         productStatus: chirpsStatus,
       }),
-    onSuccess: (jobResult) => {
+    onSuccess: async (jobResult) => {
       if (!selectedField) return
       setChirpsJob({ fieldId: selectedField.id, data: jobResult })
-      if (jobResult.status === 'succeeded') {
+      const finalJob =
+        jobResult.status === 'succeeded' || jobResult.status === 'failed'
+          ? jobResult
+          : await pollJobUntilDone(jobResult.job_id)
+      setChirpsJob({ fieldId: selectedField.id, data: finalJob })
+      if (finalJob.status === 'succeeded') {
         toast.success('CHIRPS extraction finished', {
-          description: `${jobResult.records_received} observation(s) extracted from the raster.`,
+          description: `${finalJob.records_received} observation(s) extracted from the raster.`,
         })
         invalidateFieldData(selectedField.id)
         setChirpsFile(null)
         if (chirpsInputRef.current) chirpsInputRef.current.value = ''
       } else {
-        toast.error('CHIRPS extraction failed', { description: jobResult.error_summary ?? undefined })
+        toast.error('CHIRPS extraction failed', { description: finalJob.error_summary ?? undefined })
       }
     },
     onError: (err) => {

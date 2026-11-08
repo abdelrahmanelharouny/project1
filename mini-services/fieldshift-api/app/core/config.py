@@ -25,13 +25,38 @@ class Settings(BaseSettings):
     db_socket_dir: str = "/tmp"
 
     # Security
-    # Token lifetime in seconds (default 12h). PBKDF2 iterations kept moderate for
-    # sandbox CPUs; production should raise (>=600_000) — see KNOWN_LIMITATIONS.md.
+    # Token lifetime in seconds (default 12h).
     auth_token_ttl_seconds: int = 60 * 60 * 12
-    password_pbkdf2_iterations: int = 120_000
+    # PBKDF2 work factor for password hashing. The iteration count is EMBEDDED
+    # in every stored hash string (pbkdf2_sha256$<iters>$<salt>$<digest>), so
+    # raising this default keeps old hashes verifiable while new hashes are
+    # created at the stronger work factor.
+    password_pbkdf2_iterations: int = 600_000
+    # Refresh token lifetime (30 days). Refresh tokens rotate on every use;
+    # reuse of a rotated token revokes the whole token family.
+    auth_refresh_ttl_seconds: int = 60 * 60 * 24 * 30
+    # Account lockout: number of consecutive failed logins before the account
+    # is locked, and the lockout window in seconds (15 minutes default).
+    auth_max_failed_logins: int = 5
+    auth_lockout_seconds: int = 900
+    # Sliding-window rate limit for auth endpoints (per client IP per minute).
+    # 0 disables the limiter entirely (tests; dedicated sandboxes).
+    auth_rate_limit_per_minute: int = 10
+    # Single-use credential challenge TTLs: password reset (1h) and email
+    # verification (24h). Plaintext tokens are delivered out-of-band only.
+    password_reset_ttl_seconds: int = 3600
+    email_verification_ttl_seconds: int = 86400
 
-    # Dev conveniences. MUST be false in production (seed endpoint disabled).
-    dev_mode: bool = True
+    # Async jobs (P0-3): number of in-process worker threads executing
+    # background tasks (provider ingestion today). 0 disables the executor
+    # and keeps the legacy inline-in-request execution (used by tests).
+    job_workers: int = 2
+
+    # Dev conveniences. Secure-by-default: false unless explicitly enabled.
+    # The sandbox runs with FIELDSHIFT_DEV_MODE=true via .env (gitignored);
+    # docker-compose and production set false. MUST be false in production
+    # (seed endpoint disabled, registration auto-verifies emails when true).
+    dev_mode: bool = False
 
     # Pagination guards
     default_page_size: int = 50

@@ -1,0 +1,98 @@
+# FieldShift API-local orchestration (api + db + web).
+#
+# NOTE: the repository-root docker-compose.yml is the primary stack (it adds
+# the Caddy gateway on :81 and consumes the root .env). This file exists for
+# working from inside mini-services/fieldshift-api only.
+#
+# Port convention mirrors the sandbox: PostgreSQL on host 5433, API on 3030,
+# Next.js web on 3000. Run from this directory:
+#
+#   docker compose up --build
+#
+# The `api` service applies Alembic migrations before serving traffic.
+
+name: fieldshift
+
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fieldshift
+      POSTGRES_PASSWORD: fieldshift
+      POSTGRES_DB: fieldshift
+    ports:
+      # Host 5433 -> container 5432 (sandbox convention; keeps a local
+      # user-space PostgreSQL on 5433 from colliding).
+      - "5433:5432"
+    volumes:
+      - fieldshift-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fieldshift -d fieldshift"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Inside the compose network the database is `db:5432` (host mapping
+      # 5433 is only for tools running on the host). The env name must be
+      # FIELDSHIFT_DATABASE_URL — pydantic-settings maps it to the
+      # `database_url` setting in app/core/config.py.
+      FIELDSHIFT_DATABASE_URL: postgresql+psycopg2://fieldshift:fieldshift@db:5432/fieldshift
+      # Seed endpoint (POST /api/v1/dev/seed-demo) is disabled outside dev.
+      FIELDSHIFT_DEV_MODE: "false"
+      FIELDSHIFT_ENVIRONMENT: production
+    ports:
+      - "3030:3030"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # Slim image has no curl/wget; use stdlib urllib against /health.
+      test: ["CMD", "python", "-c", "import sys, urllib.request as u; r = u.urlopen('http://127.0.0.1:3030/api/v1/health', timeout=4); sys.exit(0 if r.status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Migrate, then serve. `exec` hands PID 1 to uvicorn so signals (SIGTERM)
+    # reach the server and `docker compose stop` shuts down cleanly.
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 3030"]
+
+  web:
+    build:
+      # Next.js repo root; the web Dockerfile lives there and produces the
+      # standalone output (next.config.ts has output: "standalone").
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # DOCUMENTED INTENT ONLY — see the NOTE below: next.config.ts currently
+      # hardcodes the rewrite target, so this variable has no effect today.
+      API_INTERNAL_URL: http://api:3030
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  fieldshift-pgdata:
+
+# NOTE (known limitation, deliberate: app code must not change here):
+# next.config.ts rewrites /api/v1/:path* -> http://127.0.0.1:3030/api/v1/:path*
+# as a hardcoded fallback. Inside the `web` container, 127.0.0.1 refers to the
+# web container itself, NOT the `api` service, so in a compose network the
+# rewrite cannot reach the API. Options until the rewrite target is
+# env-driven (e.g. process.env.API_INTERNAL_URL ?? "http://127.0.0.1:3030"):
+#   1. Front the stack with the Caddy gateway (sandbox setup): the browser
+#      calls relative paths with ?XTransformPort=3030 and Caddy routes to the
+#      API — `web` never proxies.
+#   2. On Linux, run `web` with network_mode: host so 127.0.0.1:3030 resolves
+#      to the host-published API port (remove the ports mapping then).
+#   3. Change the rewrite destination to read an env var (one-line config
+#      change) and set it to http://api:3030 here.

@@ -16,6 +16,7 @@ from app.core.config import settings
 
 PBKDF2_ITERATIONS = settings.password_pbkdf2_iterations
 TOKEN_TTL_SECONDS = settings.auth_token_ttl_seconds
+REFRESH_TOKEN_TTL_SECONDS = settings.auth_refresh_ttl_seconds
 
 
 def hash_password(password: str) -> str:
@@ -37,12 +38,21 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-def generate_token() -> tuple[str, str, datetime]:
-    """Return (plaintext_token, token_hash, expires_at)."""
+def generate_token(ttl_seconds: int | None = None) -> tuple[str, str, datetime]:
+    """Return (plaintext_token, token_hash, expires_at).
+
+    `ttl_seconds` defaults to the access-token TTL (TOKEN_TTL_SECONDS).
+    """
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    expires_at = datetime.now(UTC) + timedelta(seconds=TOKEN_TTL_SECONDS)
+    ttl = TOKEN_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
     return token, token_hash, expires_at
+
+
+def generate_refresh_token() -> tuple[str, str, datetime]:
+    """Return (plaintext_token, token_hash, expires_at) with the refresh TTL."""
+    return generate_token(ttl_seconds=REFRESH_TOKEN_TTL_SECONDS)
 
 
 def hash_token(token: str) -> str:

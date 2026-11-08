@@ -326,6 +326,34 @@ export function getJob(jobId: string): Promise<DataJob> {
   return request<DataJob>(`/api/v1/jobs/${jobId}`)
 }
 
+const JOB_TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled'])
+
+/**
+ * Poll an ingestion/import job until it reaches a terminal state.
+ *
+ * The backend executes data jobs on a background worker pool (202 + status
+ * 'queued'); when workers are disabled it still executes inline (the response
+ * is already terminal, returned as-is). Progress callbacks receive every
+ * intermediate snapshot (status/progress for UI feedback).
+ */
+export async function pollJobUntilDone(
+  jobId: string,
+  opts: { onProgress?: (job: DataJob) => void; intervalMs?: number; timeoutMs?: number } = {},
+): Promise<DataJob> {
+  const interval = opts.intervalMs ?? 1000
+  const deadline = Date.now() + (opts.timeoutMs ?? 180_000)
+  let current = await getJob(jobId)
+  while (!JOB_TERMINAL_STATUSES.has(current.status)) {
+    opts.onProgress?.(current)
+    if (Date.now() > deadline) {
+      throw new Error('Timed out waiting for the job to finish — check its status later.')
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval))
+    current = await getJob(jobId)
+  }
+  return current
+}
+
 export interface ObservationQuery {
   variableCode?: string
   start?: string

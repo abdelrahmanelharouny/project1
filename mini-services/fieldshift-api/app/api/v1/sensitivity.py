@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.errors import NotFound, ValidationFailed
 from app.db import models as dbm
-from app.domains.identity.service import get_field_for_principal, get_principal
+from app.domains.identity.service import get_field_for_principal, get_principal, require_farm_role
 from app.sensitivity import contracts as sc
 from app.sensitivity import service as sensitivity_service
 
@@ -58,6 +58,10 @@ def create_sensitivity_analysis(
     db: Session = Depends(get_db),
 ) -> dict:
     run = _get_run_scoped(db, run_id, principal)
+    # RBAC (P0-2): sensitivity analyses are heavy derived-engine work —
+    # agronomist+ on the owning run's field → farm.
+    field = db.get(dbm.Field, run.field_id)
+    require_farm_role(db, principal, db.get(dbm.Farm, field.farm_id), "agronomist")
     analysis = sensitivity_service.start_sensitivity_analysis(
         db, run, payload=payload, created_by=principal.user
     )

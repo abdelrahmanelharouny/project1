@@ -1,5 +1,6 @@
 """FieldShift API application factory (FastAPI, Master §9-10)."""
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 
@@ -12,10 +13,22 @@ from app.core.config import settings
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging, request_id_var
 
+logger = logging.getLogger("fieldshift.main")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    if settings.dev_mode:
+        # Auth hardening P0-2: surface insecure sandbox configuration loudly.
+        logger.warning(
+            "DEV_MODE enabled — /dev endpoints and auto-verified registration are exposed."
+        )
+    # Async jobs (P0-3): start the in-process worker pool (no-op when
+    # settings.job_workers <= 0) with crash-orphan recovery.
+    from app.core import jobs as background_jobs
+
+    started = background_jobs.start_workers()
     # Ensure the source/product registry rows exist (idempotent).
     from app.core.database import SessionLocal
     from app.data_platform.registry.seed_sources import seed_data_registry
@@ -31,6 +44,7 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
     yield
+    background_jobs.shutdown_workers()
 
 
 def create_app() -> FastAPI:

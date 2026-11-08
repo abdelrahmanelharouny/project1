@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.errors import NotFound, ValidationFailed
 from app.db import models as dbm
-from app.domains.identity.service import get_field_for_principal, get_principal
+from app.domains.identity.service import get_field_for_principal, get_principal, require_farm_role
 from app.scenario_execution import contracts as exc
 from app.scenario_execution import service as execution_service
 from app.scenarios import service as scenario_service
@@ -51,6 +51,9 @@ def execute_scenario(
     if scenario is None:
         raise NotFound("Scenario not found.")
     get_field_for_principal(db, principal, scenario.field_id)  # tenant scoping
+    # RBAC (P0-2): executing a scenario runs the heavy engine — agronomist+.
+    field = db.get(dbm.Field, scenario.field_id)
+    require_farm_role(db, principal, db.get(dbm.Farm, field.farm_id), "agronomist")
     idempotency_key = (payload or {}).get("idempotency_key") or None
     try:
         run = execution_service.start_scenario_execution(

@@ -1,0 +1,25 @@
+# Next.js web build context (repo root). Keeps the context small and keeps
+# the sandbox's node_modules/.next/logs out of the image.
+node_modules
+.next
+.git
+.env
+.env.*
+*.log
+dev.log
+server.log
+
+# Monorepo extras not needed by the web build
+mini-services
+db
+docs
+tests
+examples
+skills
+tool-results
+upload
+download
+deploy-verified-soil.png
+
+# Keep: package.json, bun.lock, next.config.ts, src/, public/, prisma/,
+# tailwind/postcss/eslint configs, tsconfig.json, components.json

@@ -290,6 +290,14 @@ def seed_default_packs(db: Session) -> None:
     from app.knowledge.packs.m6c_practices_pack import get_m6c_practices_pack
     from app.knowledge.packs.seed_pack_v1 import get_seed_pack
 
+    # Serialize concurrent seeders (app lifespan vs. any lazy re-bootstrap):
+    # interleaved multi-row pack INSERTs can deadlock on Postgres. The
+    # advisory xact lock releases with the session's transaction; latecomers
+    # then find the pack rows already present and skip (idempotent).
+    from sqlalchemy import text
+
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('fieldshift:seed:knowledge_packs'))"))
+
     for get_pack in (get_seed_pack, get_m6c_practices_pack):
         pack, _report, _created = import_pack(db, get_pack(), activate=True)
         superseded = db.scalars(

@@ -63,6 +63,14 @@ def _ensure_product(db: Session, source_id, **kwargs) -> DatasetProduct:
 
 
 def seed_data_registry(db: Session) -> None:
+    # Serialize concurrent seeders (app lifespan vs. lazy seeding inside a
+    # background ingestion worker): without this, two interleaved multi-row
+    # seed INSERTs can deadlock on Postgres. The advisory xact lock releases
+    # with the session's transaction; latecomers find rows already present
+    # and skip (idempotent).
+    from sqlalchemy import text
+
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('fieldshift:seed:data_registry'))"))
     # ------------------------------------------------ synthetic fixtures
     source = _ensure_source(
         db,

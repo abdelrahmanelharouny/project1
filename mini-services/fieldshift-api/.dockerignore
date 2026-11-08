@@ -1,0 +1,17 @@
+# Keep the API build context minimal (code + migrations + requirements only).
+.git
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+node_modules
+tests
+docs
+*.md
+.env
+.env.*
+!.env.example

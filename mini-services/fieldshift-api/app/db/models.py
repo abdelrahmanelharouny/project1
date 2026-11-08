@@ -60,9 +60,20 @@ class User(Base, TimestampMixin):
     preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
     timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="UTC")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Auth hardening (P0-2): consecutive failed password attempts, temporary
+    # lockout window and the email-verification gate. server_default values
+    # keep pre-hardening rows valid (migration 0015 mirrors them).
+    failed_login_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text_("0")
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text_("true")
+    )
 
     memberships: Mapped[list["Membership"]] = relationship(back_populates="user")
     tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user")
+    credential_tokens: Mapped[list["CredentialToken"]] = relationship(back_populates="user")
 
     __table_args__ = (Index("uq_users_email_lower", func.lower(email), unique=True),)
 
@@ -117,10 +128,55 @@ class AuthToken(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Auth hardening (P0-2): only access tokens may authenticate API calls;
+    # refresh tokens carry the rotation family id (reuse detection).
+    kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="access", server_default=text_("'access'")
+    )
+    family_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="tokens")
 
-    __table_args__ = (Index("uq_auth_tokens_hash", token_hash, unique=True),)
+    __table_args__ = (
+        Index("uq_auth_tokens_hash", token_hash, unique=True),
+        Index("ix_auth_tokens_family", family_id),
+        CheckConstraint("kind IN ('access','refresh')", name="ck_auth_tokens_kind"),
+    )
+
+
+class CredentialToken(Base):
+    """Single-use credential challenge tokens (P0-2).
+
+    Password-reset and email-verification challenges: only the SHA-256 token
+    hash is stored, rows are consumed exactly once (used_at) and expire after
+    a short TTL. The plaintext token is delivered out-of-band and is never
+    persisted.
+    """
+
+    __tablename__ = "credential_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="credential_tokens")
+
+    __table_args__ = (
+        Index("uq_credential_tokens_hash", token_hash, unique=True),
+        Index("ix_credential_tokens_user", user_id),
+        CheckConstraint(
+            "kind IN ('password_reset','email_verification')",
+            name="ck_credential_tokens_kind",
+        ),
+    )
 
 
 # ---------------------------------------------------------- farms / fields
@@ -272,6 +328,50 @@ class IngestionJob(Base, TimestampMixin):
         Index("uq_ingestion_idempotency", idempotency_key, unique=True,
                postgresql_where=text_("idempotency_key IS NOT NULL")),
         Index("ix_ingestion_jobs_field", field_id),
+    )
+
+
+# -------------------------------------------------------- background jobs
+class BackgroundJob(Base, TimestampMixin):
+    """Queue-level job record for work executed outside the HTTP request.
+
+    One row per submitted task. Domain tables (e.g. ``ingestion_jobs``) keep
+    their own domain-specific state; a BackgroundJob row references the domain
+    row via ``ref_kind``/``ref_id`` so clients can poll a single unified
+    endpoint (``GET /api/v1/jobs/background``) regardless of job kind.
+
+    Lifecycle: queued -> running -> succeeded | failed. Rows are never
+    hard-deleted (audit/provenance). Jobs left 'running' by a process crash
+    are marked failed('interrupted') on the next startup — only 'queued'
+    jobs are re-enqueued.
+    """
+
+    __tablename__ = "background_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(60), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stage: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    ref_kind: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    ref_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled')",
+            name="ck_background_job_status",
+        ),
+        CheckConstraint("progress >= 0 AND progress <= 100", name="ck_background_job_progress"),
+        Index("ix_background_jobs_status", status),
+        Index("ix_background_jobs_ref", ref_kind, ref_id),
+        Index("ix_background_jobs_created_by", created_by),
     )
 
 
