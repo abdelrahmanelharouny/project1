@@ -15,6 +15,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,8 @@ import { useFieldShiftUi } from '@/lib/store'
 import { AlertTriangle, CheckCircle2, Loader2, Network, ShieldCheck } from 'lucide-react'
 
 export default function DigitalTwin() {
+  const t = useTranslations('digitaltwin')
+  const tCommon = useTranslations('common')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const fieldId = selectedField?.id ?? null
   const queryClient = useQueryClient()
@@ -62,7 +65,7 @@ export default function DigitalTwin() {
         <Header />
         <Card>
           <CardContent className="py-10 text-center text-sm text-stone-500">
-            Select a field to inspect its digital twin.
+            {t('pickFieldDesc')}
           </CardContent>
         </Card>
       </div>
@@ -76,9 +79,9 @@ export default function DigitalTwin() {
       {validate.isError && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" aria-hidden />
-          <AlertTitle>Validation failed</AlertTitle>
+          <AlertTitle>{t('validationFailed')}</AlertTitle>
           <AlertDescription>
-            {validate.error instanceof ApiError ? validate.error.message : 'Unexpected error'}
+            {validate.error instanceof ApiError ? validate.error.message : tCommon('unexpectedError')}
           </AlertDescription>
         </Alert>
       )}
@@ -90,11 +93,8 @@ export default function DigitalTwin() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div className="min-w-0">
-            <CardTitle className="text-base">Integrity validation</CardTitle>
-            <CardDescription>
-              Bounded re-verification walk over the newest artifacts — checksums, parent
-              pins and lineage consistency.
-            </CardDescription>
+            <CardTitle className="text-base">{t('validationTitle')}</CardTitle>
+            <CardDescription>{t('validationDesc')}</CardDescription>
           </div>
           <Button size="sm" variant="outline" onClick={() => validate.mutate()} disabled={validate.isPending}>
             {validate.isPending ? (
@@ -102,7 +102,7 @@ export default function DigitalTwin() {
             ) : (
               <ShieldCheck className="mr-1 h-4 w-4" aria-hidden />
             )}
-            Validate now
+            {t('validateNow')}
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -112,11 +112,11 @@ export default function DigitalTwin() {
               <Table>
                 <TableHeader className="sticky top-0 bg-white">
                   <TableRow>
-                    <TableHead>When</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Checked</TableHead>
-                    <TableHead>Failed</TableHead>
-                    <TableHead>Report</TableHead>
+                    <TableHead>{t('colWhen')}</TableHead>
+                    <TableHead>{t('colStatus')}</TableHead>
+                    <TableHead>{t('colChecked')}</TableHead>
+                    <TableHead>{t('colFailed')}</TableHead>
+                    <TableHead>{t('colReport')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -155,39 +155,46 @@ export default function DigitalTwin() {
 }
 
 function Header() {
+  const t = useTranslations('digitaltwin')
   return (
     <div>
       <h2 className="flex items-center gap-2 text-lg font-semibold text-stone-900">
         <Network className="h-5 w-5 text-emerald-700" aria-hidden />
-        Field Digital Twin
+        {t('title')}
       </h2>
-      <p className="mt-1 text-sm text-stone-600">
-        Field identity, immutable snapshots, observed and derived data, scenario lineage,
-        analytical results and decisions — traceably connected. No predictive or
-        autonomous capability is claimed.
-      </p>
+      <p className="mt-1 text-sm text-stone-600">{t('desc')}</p>
     </div>
   )
 }
 
 function TwinView({ twin }: { twin: DigitalTwinView }) {
+  const t = useTranslations('digitaltwin')
+  const tCommon = useTranslations('common')
   const ic = twin.information_classes
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Field" value={twin.field_identity.field_name} sub={`${twin.field_identity.area_ha ?? '—'} ha · v${twin.field_identity.latest_boundary_version ?? '—'} boundary`} />
-        <StatCard label="Field States" value={String(twin.field_states.total)} sub="immutable snapshots" />
         <StatCard
-          label="Observed / Transformed / Calculated"
-          value={`${ic.observed_observations} / ${ic.scenario_derived_transformed_observations} / ${ic.calculated_feature_values}`}
-          sub="information classes"
+          label={t('statField')}
+          value={twin.field_identity.field_name}
+          sub={t('statFieldSub', {
+            area: twin.field_identity.area_ha ?? '—',
+            unit: tCommon('ha'),
+            version: twin.field_identity.latest_boundary_version ?? '—',
+          })}
         />
-        <StatCard label="Maturity" value={twin.maturity.classification} sub="honest classification" wide />
+        <StatCard label={t('statFieldStates')} value={String(twin.field_states.total)} sub={t('statSnapshots')} />
+        <StatCard
+          label={t('statClasses')}
+          value={`${ic.observed_observations} / ${ic.scenario_derived_transformed_observations} / ${ic.calculated_feature_values}`}
+          sub={t('statClassesSub')}
+        />
+        <StatCard label={t('statMaturity')} value={twin.maturity.classification} sub={t('statHonest')} wide />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Data coverage & freshness</CardTitle>
+          <CardTitle className="text-base">{t('coverageTitle')}</CardTitle>
           <CardDescription>{twin.observation_coverage.note}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -195,11 +202,11 @@ function TwinView({ twin }: { twin: DigitalTwinView }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Variable</TableHead>
-                  <TableHead>Observations</TableHead>
-                  <TableHead>First</TableHead>
-                  <TableHead>Last</TableHead>
-                  <TableHead>Age (days)</TableHead>
+                  <TableHead>{t('colVariable')}</TableHead>
+                  <TableHead>{t('colObservations')}</TableHead>
+                  <TableHead>{t('colFirst')}</TableHead>
+                  <TableHead>{t('colLast')}</TableHead>
+                  <TableHead>{t('colAge')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -220,15 +227,12 @@ function TwinView({ twin }: { twin: DigitalTwinView }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Scenario & analytical lineage</CardTitle>
-          <CardDescription>
-            Scenarios → executions → sensitivity → robust runs → decision documents, with
-            checksums at every link.
-          </CardDescription>
+          <CardTitle className="text-base">{t('lineageTitle')}</CardTitle>
+          <CardDescription>{t('lineageDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {twin.scenarios.length === 0 && (
-            <p className="text-xs text-stone-500">No scenarios on this field yet.</p>
+            <p className="text-xs text-stone-500">{t('noScenariosYet')}</p>
           )}
           {twin.scenarios.map((s) => (
             <div key={s.scenario_id} className="rounded-lg border border-stone-200 p-3 text-xs">
@@ -244,8 +248,11 @@ function TwinView({ twin }: { twin: DigitalTwinView }) {
               </div>
               {s.executions.map((e) => (
                 <p key={e.execution_run_id} className="mt-1 text-stone-500">
-                  execution {e.execution_run_id.slice(0, 8)} · {e.run_status} ·{' '}
-                  {e.output_checksum ? `out ${e.output_checksum.slice(0, 10)}…` : '—'}
+                  {t('executionLine', {
+                    id: e.execution_run_id.slice(0, 8),
+                    status: e.run_status,
+                    out: e.output_checksum ? t('outChecksum', { checksum: e.output_checksum.slice(0, 10) }) : '—',
+                  })}
                 </p>
               ))}
             </div>
@@ -253,18 +260,21 @@ function TwinView({ twin }: { twin: DigitalTwinView }) {
           {twin.robust_rotation.scenario_sets.map((s) => (
             <div key={s.scenario_set_id} className="rounded-lg border border-stone-200 p-3 text-xs">
               <span className="font-medium text-stone-800">{s.label}</span>
-              <span className="ml-2 text-stone-500">({s.member_count} scenarios)</span>
+              <span className="ml-2 text-stone-500">({t('memberCount', { count: s.member_count })})</span>
               {s.robust_runs.map((r) => (
                 <p key={r.robust_run_id} className="mt-1 text-stone-500">
-                  robust run {r.robust_run_id.slice(0, 8)} · {r.run_status} · solver {r.solver_status ?? '—'}
+                  {t('robustRunLine', { id: r.robust_run_id.slice(0, 8), status: r.run_status, solver: r.solver_status ?? '—' })}
                 </p>
               ))}
             </div>
           ))}
           {twin.decision_documents.map((d) => (
             <p key={d.decision_comparison_id} className="text-xs text-stone-500">
-              decision document “{d.title}” · {d.doc_status} ·{' '}
-              {d.document_checksum.slice(0, 10)}…
+              {t('decisionDocLine', {
+                title: d.title,
+                status: d.doc_status,
+                checksum: d.document_checksum.slice(0, 10),
+              })}
             </p>
           ))}
         </CardContent>
@@ -272,7 +282,7 @@ function TwinView({ twin }: { twin: DigitalTwinView }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Capabilities & readiness</CardTitle>
+          <CardTitle className="text-base">{t('capabilitiesTitle')}</CardTitle>
           <CardDescription>{twin.maturity.note}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -302,7 +312,7 @@ function TwinView({ twin }: { twin: DigitalTwinView }) {
             ))}
           </div>
           <div className="mt-3 rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs text-stone-600">
-            <p className="font-semibold text-stone-700">Not implemented (honest gap list)</p>
+            <p className="font-semibold text-stone-700">{t('notImplementedTitle')}</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
               {twin.maturity.not_implemented.map((c) => (
                 <li key={c}>{c}</li>
@@ -316,20 +326,24 @@ function TwinView({ twin }: { twin: DigitalTwinView }) {
 }
 
 function ValidationResult({ result }: { result: TwinValidationResponse }) {
+  const t = useTranslations('digitaltwin')
   return (
     <Alert>
       <CheckCircle2 className="h-4 w-4" aria-hidden />
       <AlertTitle>
         {result.overall_status === 'consistent'
-          ? 'Twin consistent'
+          ? t('consistent')
           : result.overall_status === 'inconsistent'
-            ? 'Inconsistencies found'
-            : 'No analytical artifacts yet'}
+            ? t('inconsistent')
+            : t('noArtifacts')}
       </AlertTitle>
       <AlertDescription>
         <p>
-          {result.report.summary.verified}/{result.report.summary.total_checked} artifacts verified ·{' '}
-          report {result.report_checksum.slice(0, 10)}…
+          {t('verificationSummary', {
+            verified: result.report.summary.verified,
+            total: result.report.summary.total_checked,
+            checksum: result.report_checksum.slice(0, 10),
+          })}
         </p>
         <p className="mt-1 text-stone-500">{result.report.bounds_note}</p>
         {result.report.artifact_checks.some((c) => !c.verified) && (

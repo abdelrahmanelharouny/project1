@@ -14,6 +14,7 @@ import {
   Ban,
 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -147,13 +148,13 @@ function FindingList({ findings }: { findings: Array<{ code: string; severity: s
 // Create form
 // ---------------------------------------------------------------------------
 
-const ADJUSTMENT_FIELDS: Array<{ key: string; label: string; placeholder: string }> = [
-  { key: 'temperature_delta_c', label: 'Temperature shift (°C)', placeholder: 'e.g. 2.0' },
-  { key: 'precipitation_multiplier', label: 'Precipitation ratio (×, 1 = unchanged)', placeholder: 'e.g. 0.8' },
-  { key: 'water_allocation_multiplier', label: 'Irrigation allocation ratio (×)', placeholder: 'e.g. 0.7' },
-  { key: 'precipitation_delta_mm', label: 'Precipitation shift (mm)', placeholder: 'e.g. -50' },
-  { key: 'seasonal_timing_shift_days', label: 'Seasonal timing shift (days)', placeholder: 'e.g. 10' },
-  { key: 'rainfall_period_shift_days', label: 'Rainfall period shift (days)', placeholder: 'e.g. -14' },
+const ADJUSTMENT_FIELDS: Array<{ key: string; labelKey: string; placeholderKey: string }> = [
+  { key: 'temperature_delta_c', labelKey: 'adjTemperature', placeholderKey: 'adjTemperaturePh' },
+  { key: 'precipitation_multiplier', labelKey: 'adjPrecipRatio', placeholderKey: 'adjPrecipRatioPh' },
+  { key: 'water_allocation_multiplier', labelKey: 'adjIrrigation', placeholderKey: 'adjIrrigationPh' },
+  { key: 'precipitation_delta_mm', labelKey: 'adjPrecipShift', placeholderKey: 'adjPrecipShiftPh' },
+  { key: 'seasonal_timing_shift_days', labelKey: 'adjSeasonTiming', placeholderKey: 'adjSeasonTimingPh' },
+  { key: 'rainfall_period_shift_days', labelKey: 'adjRainPeriod', placeholderKey: 'adjRainPeriodPh' },
 ]
 
 function CreateScenarioCard({
@@ -166,6 +167,7 @@ function CreateScenarioCard({
   taxonomy: ScenarioTaxonomy
 }) {
   const queryClient = useQueryClient()
+  const t = useTranslations('scenarios')
   const [name, setName] = useState('')
   const [scenarioType, setScenarioType] = useState('user_defined_stress')
   const [stateId, setStateId] = useState('')
@@ -179,8 +181,8 @@ function CreateScenarioCard({
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<string | null>(null)
 
-  const implementedTypes = taxonomy.types.filter((t) => t.capability === 'implemented')
-  const unimplementedTypes = taxonomy.types.filter((t) => t.capability !== 'implemented')
+  const implementedTypes = taxonomy.types.filter((typ) => typ.capability === 'implemented')
+  const unimplementedTypes = taxonomy.types.filter((typ) => typ.capability !== 'implemented')
   const isHypothetical = scenarioType !== 'historical_observed'
 
   const succeededStates = fieldStates.filter((s) => s.status === 'succeeded')
@@ -216,7 +218,13 @@ function CreateScenarioCard({
     },
     onSuccess: (scenario) => {
       setError(null)
-      setCreated(`${scenario.name} (v${scenario.scenario_version}, checksum ${shortHash(scenario.configuration_checksum)})`)
+      setCreated(
+        t('createdSummary', {
+          name: scenario.name,
+          version: scenario.scenario_version,
+          checksum: shortHash(scenario.configuration_checksum),
+        })
+      )
       setName('')
       queryClient.invalidateQueries({ queryKey: ['scenarios', fieldId] })
     },
@@ -231,39 +239,38 @@ function CreateScenarioCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <FlaskConical className="h-4 w-4 text-emerald-700" aria-hidden />
-          Define a scenario
+          {t('createTitle')}
         </CardTitle>
         <CardDescription>
-          A scenario is a checked, versioned <strong>definition</strong> against an immutable
-          Field State. Nothing is simulated in M7.2 — a valid configuration is not a result.
+          {t.rich('createDesc', { strong: (chunks) => <strong>{chunks}</strong> })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="scenario-name">Name</Label>
+            <Label htmlFor="scenario-name">{t('nameLabel')}</Label>
             <Input
               id="scenario-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Hot-dry stress 2016"
+              placeholder={t('namePlaceholder')}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="scenario-type">Scenario type</Label>
+            <Label htmlFor="scenario-type">{t('typeLabel')}</Label>
             <Select value={scenarioType} onValueChange={setScenarioType}>
-              <SelectTrigger id="scenario-type" aria-label="Scenario type">
+              <SelectTrigger id="scenario-type" aria-label={t('typeLabel')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {implementedTypes.map((t) => (
-                  <SelectItem key={t.scenario_type} value={t.scenario_type}>
-                    {t.display_name} — {t.evidence_classification}
+                {implementedTypes.map((typ) => (
+                  <SelectItem key={typ.scenario_type} value={typ.scenario_type}>
+                    {typ.display_name} — {typ.evidence_classification}
                   </SelectItem>
                 ))}
-                {unimplementedTypes.map((t) => (
-                  <SelectItem key={t.scenario_type} value={t.scenario_type} disabled>
-                    {t.display_name} — not implemented
+                {unimplementedTypes.map((typ) => (
+                  <SelectItem key={typ.scenario_type} value={typ.scenario_type} disabled>
+                    {t('notImplemented', { name: typ.display_name })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -272,7 +279,7 @@ function CreateScenarioCard({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="scenario-state">Parent Field State (immutable baseline)</Label>
+          <Label htmlFor="scenario-state">{t('parentStateLabel')}</Label>
           <Select
             value={stateId}
             onValueChange={(value) => {
@@ -284,18 +291,22 @@ function CreateScenarioCard({
               }
             }}
           >
-            <SelectTrigger id="scenario-state" aria-label="Parent field state">
-              <SelectValue placeholder="Select a succeeded field state…" />
+            <SelectTrigger id="scenario-state" aria-label={t('parentStateAria')}>
+              <SelectValue placeholder={t('parentStatePlaceholder')} />
             </SelectTrigger>
             <SelectContent>
               {succeededStates.length === 0 && (
                 <div className="px-3 py-2 text-xs text-stone-500">
-                  No succeeded field states yet — assemble one in the Field State tab first.
+                  {t('noStatesYet')}
                 </div>
               )}
               {succeededStates.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
-                  {s.label} · boundary v{s.boundary_version} · {shortHash(s.checksum_sha256)}
+                  {t('stateOption', {
+                    label: s.label,
+                    version: s.boundary_version,
+                    checksum: shortHash(s.checksum_sha256),
+                  })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -306,7 +317,7 @@ function CreateScenarioCard({
           <>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="period-start">Period start (UTC)</Label>
+                <Label htmlFor="period-start">{t('periodStart')}</Label>
                 <Input
                   id="period-start"
                   type="date"
@@ -315,7 +326,7 @@ function CreateScenarioCard({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="period-end">Period end (UTC)</Label>
+                <Label htmlFor="period-end">{t('periodEnd')}</Label>
                 <Input
                   id="period-end"
                   type="date"
@@ -326,18 +337,18 @@ function CreateScenarioCard({
             </div>
 
             <div>
-              <p className="mb-2 text-sm font-medium">Hypothetical assumptions</p>
+              <p className="mb-2 text-sm font-medium">{t('assumptionsTitle')}</p>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {ADJUSTMENT_FIELDS.map((f) => (
                   <div key={f.key} className="space-y-1">
                     <Label htmlFor={`adj-${f.key}`} className="text-xs">
-                      {f.label}
+                      {t(f.labelKey)}
                     </Label>
                     <Input
                       id={`adj-${f.key}`}
                       inputMode="decimal"
                       className="h-9"
-                      placeholder={f.placeholder}
+                      placeholder={t(f.placeholderKey)}
                       value={adjustments[f.key] ?? ''}
                       onChange={(e) => setAdjustments((prev) => ({ ...prev, [f.key]: e.target.value }))}
                     />
@@ -346,13 +357,13 @@ function CreateScenarioCard({
               </div>
               <div className="mt-3 space-y-1.5">
                 <Label htmlFor="assumption-desc" className="text-xs">
-                  Assumption description (recorded as user-defined & hypothetical)
+                  {t('assumptionDescLabel')}
                 </Label>
                 <Input
                   id="assumption-desc"
                   value={assumptionDescription}
                   onChange={(e) => setAssumptionDescription(e.target.value)}
-                  placeholder="e.g. hotter and drier growing season with reduced allocation"
+                  placeholder={t('assumptionDescPlaceholder')}
                 />
               </div>
             </div>
@@ -362,11 +373,9 @@ function CreateScenarioCard({
         {scenarioType === 'historical_observed' && (
           <Alert>
             <Info className="h-4 w-4" aria-hidden />
-            <AlertTitle>Observed reference</AlertTitle>
+            <AlertTitle>{t('observedRefTitle')}</AlertTitle>
             <AlertDescription>
-              A historical observed scenario carries no assumptions: it labels the parent
-              Field State&apos;s recorded condition as the reference. Evidence class:{' '}
-              <strong>observed</strong> — never a prediction.
+              {t.rich('observedRefDesc', { strong: (chunks) => <strong>{chunks}</strong> })}
             </AlertDescription>
           </Alert>
         )}
@@ -374,14 +383,14 @@ function CreateScenarioCard({
         {error && (
           <Alert variant="destructive">
             <ShieldAlert className="h-4 w-4" aria-hidden />
-            <AlertTitle>Could not create scenario</AlertTitle>
+            <AlertTitle>{t('createErrorTitle')}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
         {created && (
           <Alert>
             <BadgeCheck className="h-4 w-4 text-emerald-700" aria-hidden />
-            <AlertTitle>Scenario created (draft)</AlertTitle>
+            <AlertTitle>{t('createdTitle')}</AlertTitle>
             <AlertDescription>{created}</AlertDescription>
           </Alert>
         )}
@@ -391,7 +400,7 @@ function CreateScenarioCard({
           disabled={!stateId || mutation.isPending || !scenarioType}
           className="min-h-11"
         >
-          {mutation.isPending ? 'Creating…' : 'Create scenario definition'}
+          {mutation.isPending ? t('creating') : t('createButton')}
         </Button>
       </CardContent>
     </Card>
@@ -414,6 +423,8 @@ function ScenarioCard({
   compareTarget: string | null
 }) {
   const queryClient = useQueryClient()
+  const t = useTranslations('scenarios')
+  const tc = useTranslations('common')
   const [error, setError] = useState<string | null>(null)
   const [validation, setValidation] = useState<ScenarioValidateResponse | null>(null)
   const [verify, setVerify] = useState<ScenarioVerifyResponse | null>(null)
@@ -451,7 +462,11 @@ function ScenarioCard({
               </span>
             </CardTitle>
             <CardDescription className="mt-1 [overflow-wrap:anywhere]">
-              {scenario.scenario_type_display} · parent state {shortHash(scenario.parent_field_state_id)} · boundary v{scenario.boundary_version}
+              {t('cardSubtitle', {
+                type: scenario.scenario_type_display,
+                state: shortHash(scenario.parent_field_state_id),
+                version: scenario.boundary_version,
+              })}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -463,42 +478,45 @@ function ScenarioCard({
       <CardContent className="space-y-3">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-stone-600 sm:grid-cols-3">
           <div>
-            <dt className="text-stone-400">Period</dt>
+            <dt className="text-stone-400">{t('period')}</dt>
             <dd>
               {shortIso(scenario.period.start)} → {shortIso(scenario.period.end)}
             </dd>
           </div>
           <div>
-            <dt className="text-stone-400">Timezone</dt>
+            <dt className="text-stone-400">{t('timezone')}</dt>
             <dd>{scenario.timezone}</dd>
           </div>
           <div>
-            <dt className="text-stone-400">Config checksum</dt>
+            <dt className="text-stone-400">{t('configChecksum')}</dt>
             <dd className="break-all font-mono" title={scenario.configuration_checksum}>
               {shortHash(scenario.configuration_checksum)}
             </dd>
           </div>
           <div>
-            <dt className="text-stone-400">Schema</dt>
+            <dt className="text-stone-400">{t('schema')}</dt>
             <dd>{scenario.configuration_schema_version}</dd>
           </div>
           <div>
-            <dt className="text-stone-400">Parent snapshot checksum</dt>
+            <dt className="text-stone-400">{t('parentChecksum')}</dt>
             <dd className="break-all font-mono" title={scenario.parent_snapshot_checksum}>
               {shortHash(scenario.parent_snapshot_checksum)}
             </dd>
           </div>
           <div>
-            <dt className="text-stone-400">Finalized</dt>
+            <dt className="text-stone-400">{t('finalizedAt')}</dt>
             <dd>{scenario.finalized_at ? shortIso(scenario.finalized_at) : '—'}</dd>
           </div>
         </dl>
 
         {scenario.assumption_metadata && Object.keys(scenario.assumption_metadata).length > 0 && (
           <p className="min-w-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 [overflow-wrap:anywhere]">
-            <strong>Hypothetical assumptions</strong> ({String((scenario.assumption_metadata as Record<string, unknown>).origin ?? 'user_defined')}
-            , {String((scenario.assumption_metadata as Record<string, unknown>).status ?? 'hypothetical')}):{' '}
-            {String((scenario.assumption_metadata as Record<string, unknown>).description ?? '—')}
+            {t.rich('assumptionBlock', {
+              strong: (chunks) => <strong>{chunks}</strong>,
+              origin: String((scenario.assumption_metadata as Record<string, unknown>).origin ?? 'user_defined'),
+              status: String((scenario.assumption_metadata as Record<string, unknown>).status ?? 'hypothetical'),
+              description: String((scenario.assumption_metadata as Record<string, unknown>).description ?? '—'),
+            })}
           </p>
         )}
 
@@ -512,8 +530,12 @@ function ScenarioCard({
         {validation && (
           <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
             <p className="text-xs font-medium text-stone-700">
-              Validation: <span className="font-mono">{validation.validation_status}</span> → scenario{' '}
-              <span className="font-mono">{validation.scenario_status}</span> · rules {validation.validation_rule_version}
+              {t.rich('validationSummary', {
+                status: validation.validation_status,
+                scenarioStatus: validation.scenario_status,
+                rules: validation.validation_rule_version,
+                mono: (chunks) => <span className="font-mono">{chunks}</span>,
+              })}
             </p>
             <FindingList findings={validation.validation_result.findings} />
             <p className="mt-2 text-[11px] text-stone-500">{validation.note}</p>
@@ -528,21 +550,27 @@ function ScenarioCard({
               ) : (
                 <ShieldAlert className="h-3.5 w-3.5 text-red-700" aria-hidden />
               )}
-              Checksum valid: {String(verify.configuration_checksum_valid)} · parent state intact:{' '}
-              {String(verify.parent_state_exists && verify.parent_snapshot_checksum_matches)} · boundary record:{' '}
-              {String(verify.boundary_version_record_exists)}
+              {t('verifySummary', {
+                checksum: String(verify.configuration_checksum_valid),
+                parent: String(verify.parent_state_exists && verify.parent_snapshot_checksum_matches),
+                boundary: String(verify.boundary_version_record_exists),
+              })}
             </p>
           </div>
         )}
 
         {versions && (
           <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
-            <p className="text-xs font-medium text-stone-700">Version chain ({versions.chain_length})</p>
+            <p className="text-xs font-medium text-stone-700">{t('versionChain', { count: versions.chain_length })}</p>
             <ul className="mt-1 space-y-1">
               {versions.items.map((v) => (
                 <li key={v.id} className="break-all text-xs text-stone-600">
-                  v{v.scenario_version} · {v.scenario_status} · {shortHash(v.configuration_checksum)}
-                  {v.finalized_at ? ` · finalized ${shortIso(v.finalized_at)}` : ''}
+                  {t('versionItem', {
+                    version: v.scenario_version,
+                    status: v.scenario_status,
+                    checksum: shortHash(v.configuration_checksum),
+                  })}
+                  {v.finalized_at ? t('versionFinalized', { date: shortIso(v.finalized_at) }) : ''}
                 </li>
               ))}
             </ul>
@@ -551,19 +579,24 @@ function ScenarioCard({
 
         {lineage && (
           <div className="rounded-md border border-stone-200 bg-stone-50 p-3">
-            <p className="text-xs font-medium text-stone-700">Lineage</p>
+            <p className="text-xs font-medium text-stone-700">{t('lineageTitle')}</p>
             <ul className="mt-1 space-y-1 text-xs text-stone-600">
               {lineage.ancestors.map((a) => (
                 <li key={a.id} className="break-all">
-                  ↑ {a.name} (v{a.scenario_version}, {a.lineage_kind})
+                  {t('lineageAncestor', { name: a.name, version: a.scenario_version, kind: a.lineage_kind })}
                 </li>
               ))}
               <li>
-                ● this: {lineage.scenario_id} (v{lineage.scenario_version}, {lineage.lineage_kind})
+                {t('lineageThis', { id: lineage.scenario_id, version: lineage.scenario_version, kind: lineage.lineage_kind })}
               </li>
               {lineage.children.map((ch) => (
                 <li key={ch.id} className="break-all">
-                  ↓ {ch.name} (v{ch.scenario_version}, {ch.lineage_kind}, {ch.scenario_status})
+                  {t('lineageChild', {
+                    name: ch.name,
+                    version: ch.scenario_version,
+                    kind: ch.lineage_kind,
+                    status: ch.scenario_status,
+                  })}
                 </li>
               ))}
             </ul>
@@ -578,7 +611,7 @@ function ScenarioCard({
             disabled={isFinalized || isArchived || scenario.scenario_status === 'unsupported'}
             onClick={runAction(() => validateScenario(scenario.id), (data) => setValidation(data as ScenarioValidateResponse))}
           >
-            Validate
+            {t('validate')}
           </Button>
           <Button
             size="sm"
@@ -588,7 +621,7 @@ function ScenarioCard({
             onClick={runAction(() => finalizeScenario(scenario.id))}
           >
             <Lock className="mr-1 h-3.5 w-3.5" aria-hidden />
-            Finalize
+            {t('finalize')}
           </Button>
           <Button
             size="sm"
@@ -602,10 +635,10 @@ function ScenarioCard({
                 }),
               undefined
             )}
-            title="Create a new draft version of this finalized scenario"
+            title={t('newVersionTitle')}
           >
             <GitBranch className="mr-1 h-3.5 w-3.5" aria-hidden />
-            New version
+            {t('newVersion')}
           </Button>
           <Button
             size="sm"
@@ -616,7 +649,7 @@ function ScenarioCard({
               setLineage(null)
             })}
           >
-            Versions
+            {t('showVersions')}
           </Button>
           <Button
             size="sm"
@@ -627,7 +660,7 @@ function ScenarioCard({
               setVersions(null)
             })}
           >
-            Lineage
+            {t('showLineage')}
           </Button>
           <Button
             size="sm"
@@ -635,16 +668,16 @@ function ScenarioCard({
             className="min-h-9"
             onClick={runAction(() => verifyScenario(scenario.id), (data) => setVerify(data as ScenarioVerifyResponse))}
           >
-            Verify checksum
+            {t('verifyChecksum')}
           </Button>
           <Button
             size="sm"
             variant={compareTarget === scenario.id ? 'default' : 'outline'}
             className="min-h-9"
             onClick={() => onCompare(scenario.id)}
-            title="Select as comparison side A"
+            title={t('compareTitle')}
           >
-            Compare
+            {t('compare')}
           </Button>
           <Button
             size="sm"
@@ -653,7 +686,7 @@ function ScenarioCard({
             disabled={isFinalized || isArchived}
             onClick={runAction(() => archiveScenario(scenario.id))}
           >
-            Archive
+            {t('archive')}
           </Button>
           <Button
             size="sm"
@@ -662,7 +695,7 @@ function ScenarioCard({
             disabled={!canDelete}
             onClick={runAction(() => deleteScenario(scenario.id))}
           >
-            Delete
+            {tc('delete')}
           </Button>
         </div>
 
@@ -683,10 +716,11 @@ function ComparisonCard({
   result: ScenarioCompareResponse
   onClose: () => void
 }) {
+  const t = useTranslations('scenarios')
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Definition comparison</CardTitle>
+        <CardTitle className="text-base">{t('comparisonTitle')}</CardTitle>
         <CardDescription>{result.note}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -694,14 +728,19 @@ function ComparisonCard({
           {[result.scenario_a, result.scenario_b].map((s, i) => (
             <div key={s.id} className="min-w-0 rounded-md border border-stone-200 p-3">
               <p className="font-medium text-stone-800">
-                Side {i === 0 ? 'A' : 'B'}: {s.name} (v{s.scenario_version}, {s.scenario_status})
+                {t('comparisonSide', {
+                  side: i === 0 ? 'A' : 'B',
+                  name: s.name,
+                  version: s.scenario_version,
+                  status: s.scenario_status,
+                })}
               </p>
               <p className="mt-1 text-stone-600">
                 {s.scenario_type} · <EvidenceBadge classification={s.evidence_classification} label={s.evidence_classification} />
               </p>
-              <p className="break-all font-mono text-[11px] text-stone-500">checksum {shortHash(s.configuration_checksum)}</p>
+              <p className="break-all font-mono text-[11px] text-stone-500">{t('checksumLine', { checksum: shortHash(s.configuration_checksum) })}</p>
               <p className="text-stone-600">
-                parent {shortHash(s.parent_field_state_id)} · boundary v{s.boundary_version}
+                {t('comparisonParent', { parent: shortHash(s.parent_field_state_id), version: s.boundary_version })}
               </p>
             </div>
           ))}
@@ -710,7 +749,7 @@ function ComparisonCard({
         {result.warnings.length > 0 && (
           <Alert>
             <CircleAlert className="h-4 w-4" aria-hidden />
-            <AlertTitle>Compatibility warnings</AlertTitle>
+            <AlertTitle>{t('compatWarnings')}</AlertTitle>
             <AlertDescription>
               <ul className="list-disc space-y-1 pl-4">
                 {result.warnings.map((w, i) => (
@@ -723,8 +762,8 @@ function ComparisonCard({
 
         <div className="rounded-md border border-stone-200 p-3">
           <p className="text-xs font-medium text-stone-700">
-            Configuration differences ({result.configuration_diff.length})
-            {result.identical_configuration && ' — identical'}
+            {t('diffCount', { count: result.configuration_diff.length })}
+            {result.identical_configuration && t('identicalSuffix')}
           </p>
           {result.configuration_diff.length > 0 && (
             <ul className="mt-1 space-y-1 text-xs">
@@ -736,11 +775,11 @@ function ComparisonCard({
             </ul>
           )}
           <p className="mt-1 text-[11px] text-stone-500">
-            Period overlap fraction: {result.temporal_comparison.period_overlap_fraction ?? '—'}
+            {t('overlapFraction', { value: result.temporal_comparison.period_overlap_fraction ?? '—' })}
           </p>
         </div>
         <Button size="sm" variant="ghost" className="min-h-9" onClick={onClose}>
-          Close comparison
+          {t('closeComparison')}
         </Button>
       </CardContent>
     </Card>
@@ -752,6 +791,7 @@ function ComparisonCard({
 // ---------------------------------------------------------------------------
 
 export default function Scenarios() {
+  const t = useTranslations('scenarios')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const fieldId = selectedField?.id ?? null
@@ -804,11 +844,9 @@ export default function Scenarios() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Scenario Workspace</h2>
+          <h2 className="text-lg font-semibold text-stone-800">{t('workspaceTitle')}</h2>
           <p className="text-sm text-stone-500">
-            Define, validate, version and compare hypothetical field scenarios against immutable
-            Field States. Finalized scenarios can be executed (M7.3) for environmental
-            parameters; soil/management scenario dimensions stay unavailable.
+            {t('workspaceDesc')}
           </p>
         </div>
         <FieldPicker value={null} onValueChange={setSelectedField} />
@@ -818,7 +856,7 @@ export default function Scenarios() {
         <Card>
           <CardContent className="flex min-h-40 flex-col items-center justify-center gap-2 text-center">
             <Play className="h-8 w-8 text-stone-300" aria-hidden />
-            <p className="text-sm text-stone-500">Select a field to work with scenarios.</p>
+            <p className="text-sm text-stone-500">{t('selectFieldPrompt')}</p>
           </CardContent>
         </Card>
       )}
@@ -828,7 +866,7 @@ export default function Scenarios() {
           {capabilitiesQuery.data && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Platform scenario capabilities</CardTitle>
+                <CardTitle className="text-base">{t('capabilitiesTitle')}</CardTitle>
                 <CardDescription>{capabilitiesQuery.data.note}</CardDescription>
               </CardHeader>
               <CardContent>
@@ -848,8 +886,8 @@ export default function Scenarios() {
                   ))}
                 </div>
                 <p className="mt-3 text-xs text-stone-500">
-                  {capabilitiesQuery.data.execution.reason} Digital twin:{' '}
-                  {capabilitiesQuery.data.digital_twin_level}.
+                  {capabilitiesQuery.data.execution.reason}{' '}
+                  {t('digitalTwin', { level: capabilitiesQuery.data.digital_twin_level })}
                 </p>
               </CardContent>
             </Card>
@@ -867,7 +905,7 @@ export default function Scenarios() {
           {compareError && (
             <Alert variant="destructive">
               <ShieldAlert className="h-4 w-4" aria-hidden />
-              <AlertTitle>Comparison failed</AlertTitle>
+              <AlertTitle>{t('comparisonFailed')}</AlertTitle>
               <AlertDescription>{compareError}</AlertDescription>
             </Alert>
           )}
@@ -875,20 +913,20 @@ export default function Scenarios() {
           {compareSideA && (
             <Alert>
               <Info className="h-4 w-4" aria-hidden />
-              <AlertTitle>Comparison side A selected</AlertTitle>
-              <AlertDescription>Pick another scenario and press Compare.</AlertDescription>
+              <AlertTitle>{t('sideASelected')}</AlertTitle>
+              <AlertDescription>{t('sideAPrompt')}</AlertDescription>
             </Alert>
           )}
 
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-stone-700">
-              Scenarios on this field ({scenarios.length})
+              {t('scenariosCount', { count: scenarios.length })}
             </h3>
             {scenariosQuery.isLoading && <Skeleton className="h-24 w-full" />}
             {!scenariosQuery.isLoading && scenarios.length === 0 && (
               <Card>
                 <CardContent className="py-8 text-center text-sm text-stone-500">
-                  No scenarios defined yet. Create one above — start from a succeeded Field State.
+                  {t('noScenariosYet')}
                 </CardContent>
               </Card>
             )}

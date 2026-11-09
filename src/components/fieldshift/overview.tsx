@@ -1,10 +1,15 @@
 'use client'
 
+import { useCallback } from 'react'
+import { useLocale, useTranslations } from 'next-intl'
 import { FlaskConical, Map, Plus, RefreshCw, Ruler, Sprout, Tractor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFields, useFarms, useHealthReady } from '@/hooks/use-fieldshift'
+import { ClimateOverview } from '@/components/fieldshift/charts/climate-overview'
+import { DataCoverage } from '@/components/fieldshift/charts/data-coverage'
+import { FarmMap } from '@/components/fieldshift/farm-map'
 import { formatArea } from '@/lib/format'
 import { useFieldShiftUi } from '@/lib/store'
 
@@ -46,14 +51,10 @@ function StatCard({
   )
 }
 
-const SETUP_STEPS = [
-  'Create a farm — a country, timezone and currency context for your fields.',
-  'Draw or paste a field boundary (GeoJSON) — areas are computed geodesically.',
-  'Ingest synthetic observations (precipitation, temperature, ET₀…).',
-  'Open the Data Passport to see what analyses are ready.',
-]
-
 export function Overview() {
+  const t = useTranslations('overview')
+  const tMap = useTranslations('map')
+  const locale = useLocale()
   const farmsQuery = useFarms()
   const farms = farmsQuery.data?.items ?? []
   const firstFarm = farms[0] ?? null
@@ -62,8 +63,17 @@ export function Overview() {
   const healthReady = useHealthReady()
 
   const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
+  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const openCreateFarm = useFieldShiftUi((s) => s.openCreateFarm)
   const goToPassportFor = useFieldShiftUi((s) => s.goToPassportFor)
+
+  const handleMapSelect = useCallback(
+    (field: { id: string; name: string; farm_id: string }) => {
+      setSelectedField({ id: field.id, name: field.name, farmId: field.farm_id })
+      setActiveTab('farms')
+    },
+    [setActiveTab, setSelectedField],
+  )
 
   const fieldCount = farms.reduce((acc, farm) => acc + (farm.field_count ?? 0), 0)
   const totalAreaHa = farms.reduce((acc, farm) => acc + (farm.total_area_ha ?? 0), 0)
@@ -73,20 +83,18 @@ export function Overview() {
   return (
     <div className="space-y-6" aria-label="Overview">
       <div>
-        <h2 className="text-lg font-semibold text-stone-900">Welcome to your workspace</h2>
-        <p className="text-sm text-stone-500">
-          A calm view of your farms, boundaries and data readiness.
-        </p>
+        <h2 className="text-lg font-semibold text-stone-900">{t('title')}</h2>
+        <p className="text-sm text-stone-500">{t('subtitle')}</p>
       </div>
 
       {farmsQuery.isError ? (
         <Card className="border-red-200 bg-red-50">
           <CardContent className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-red-900">
-              Could not load your farms. {farmsQuery.error instanceof Error ? farmsQuery.error.message : ''}
+              {t('loadError')} {farmsQuery.error instanceof Error ? farmsQuery.error.message : ''}
             </p>
             <Button variant="outline" size="sm" onClick={() => farmsQuery.refetch()}>
-              <RefreshCw className="h-4 w-4" aria-hidden /> Retry
+              <RefreshCw className="h-4 w-4" aria-hidden /> {t('quickActions')}
             </Button>
           </CardContent>
         </Card>
@@ -95,23 +103,23 @@ export function Overview() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={<Tractor className="h-5 w-5" aria-hidden />}
-          label={farms.length === 1 ? 'Active farm' : 'Active farms'}
+          label={farms.length === 1 ? t('statFarmsOne') : t('statFarms')}
           value={String(farms.length)}
-          hint="Number of farms in your organization"
+          hint={t('statFarmsHint')}
           loading={loading}
         />
         <StatCard
           icon={<Map className="h-5 w-5" aria-hidden />}
-          label="Fields with boundaries"
+          label={t('statFields')}
           value={String(fieldCount)}
-          hint="Total number of fields across farms"
+          hint={t('statFieldsHint')}
           loading={loading}
         />
         <StatCard
           icon={<Ruler className="h-5 w-5" aria-hidden />}
-          label="Total area (hectares)"
-          value={`${formatArea(totalAreaHa)} ha`}
-          hint="Sum of farm total areas in hectares"
+          label={t('statArea')}
+          value={`${formatArea(totalAreaHa, locale)} ${t('dbAreaUnit')}`}
+          hint={t('statAreaHint')}
           loading={loading}
         />
         <Card className="border-stone-200 bg-white shadow-sm">
@@ -125,43 +133,60 @@ export function Overview() {
               />
               <p className="text-sm font-medium text-stone-900">
                 {healthReady.data
-                  ? `PostgreSQL ${healthReady.data.server_version} + PostGIS ${healthReady.data.postgis_version}`
+                  ? t('dbOk', { server: healthReady.data.server_version, postgis: healthReady.data.postgis_version })
                   : healthReady.isError
-                    ? 'Database status unknown'
-                    : 'Checking database…'}
+                    ? t('dbUnknown')
+                    : t('dbChecking')}
               </p>
             </div>
-            <p className="mt-1 text-xs text-stone-500">
-              Field areas use geodesic WGS84 math (PostGIS + PyProj).
-            </p>
+            <p className="mt-1 text-xs text-stone-500">{t('dbGeodesic')}</p>
           </CardContent>
         </Card>
       </div>
+
+      {!empty && firstField ? (
+        <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+          <ClimateOverview fieldId={firstField.id} />
+          <DataCoverage fieldId={firstField.id} />
+        </div>
+      ) : null}
 
       {empty ? (
         <Card className="border-emerald-200 bg-emerald-50/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base text-emerald-900">
-              <Sprout className="h-5 w-5" aria-hidden /> Set up your first slice
+              <Sprout className="h-5 w-5" aria-hidden /> {t('setupTitle')}
             </CardTitle>
-            <CardDescription className="text-emerald-800/80">
-              Nothing here yet — four short steps take you from blank workspace to a data passport.
-            </CardDescription>
+            <CardDescription className="text-emerald-800/80">{t('setupDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <ol className="space-y-2">
-              {SETUP_STEPS.map((step, index) => (
-                <li key={step} className="flex items-start gap-3 text-sm text-emerald-950">
+              {(['step1', 'step2', 'step3', 'step4'] as const).map((key, index) => (
+                <li key={key} className="flex items-start gap-3 text-sm text-emerald-950">
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-[11px] font-semibold text-emerald-50">
                     {index + 1}
                   </span>
-                  {step}
+                  {t(key)}
                 </li>
               ))}
             </ol>
             <Button className="bg-emerald-700 hover:bg-emerald-800" onClick={openCreateFarm}>
-              <Plus className="h-4 w-4" aria-hidden /> Create your first farm
+              <Plus className="h-4 w-4" aria-hidden /> {t('createFirstFarm')}
             </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!empty && firstFarm ? (
+        <Card className="border-stone-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">{tMap('farmMapTitle')} — {firstFarm.name}</CardTitle>
+            <CardDescription>
+              {tMap('farmMapDesc')} {tMap('clickHint')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FarmMap fields={fieldsQuery.data?.items ?? []} onFieldSelect={handleMapSelect} />
           </CardContent>
         </Card>
       ) : null}
@@ -170,8 +195,8 @@ export function Overview() {
         <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
           <Card className="border-stone-200 bg-white shadow-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Quick actions</CardTitle>
-              <CardDescription>Jump straight into the next useful step.</CardDescription>
+              <CardTitle className="text-base">{t('quickActions')}</CardTitle>
+              <CardDescription>{t('quickActionsDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               <Button
@@ -179,7 +204,7 @@ export function Overview() {
                 className="border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
                 onClick={openCreateFarm}
               >
-                <Plus className="h-4 w-4" aria-hidden /> Create a farm
+                <Plus className="h-4 w-4" aria-hidden /> {t('createFarm')}
               </Button>
               <Button
                 variant="outline"
@@ -192,32 +217,28 @@ export function Overview() {
                 }}
               >
                 <FlaskConical className="h-4 w-4" aria-hidden />
-                {firstField ? `Data Passport of “${firstField.name}”` : 'Data Passport — add a field first'}
+                {firstField ? t('passportOf', { name: firstField.name }) : t('passportNeedField')}
               </Button>
               <Button variant="outline" className="border-stone-300" onClick={() => setActiveTab('observations')}>
-                Ingest observations
+                {t('ingestObservations')}
               </Button>
             </CardContent>
           </Card>
 
           <Card className="border-stone-200 bg-white shadow-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">How to read this workspace</CardTitle>
-              <CardDescription>Decision support, not an autonomous agronomist.</CardDescription>
+              <CardTitle className="text-base">{t('howTitle')}</CardTitle>
+              <CardDescription>{t('howDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-stone-600">
               <p>
-                <strong className="font-medium text-stone-800">Farms & Fields</strong> holds boundaries and versions —
-                every boundary change is versioned, and areas are recomputed geodesically.
+                <strong className="font-medium text-stone-800">{t('howFarmsName')}</strong> {t('howFarms')}
               </p>
               <p>
-                <strong className="font-medium text-stone-800">Observations</strong> runs ingestion jobs against the
-                synthetic fixtures and the real Open-Meteo reanalysis archive, or imports your CSV records and CHIRPS
-                rasters — every source keeps its own honest evidence label.
+                <strong className="font-medium text-stone-800">{t('howObservationsName')}</strong> {t('howObservations')}
               </p>
               <p>
-                <strong className="font-medium text-stone-800">Data Passport</strong> is the honesty layer: what data
-                exists, how fresh it is, and which analyses are actually available.
+                <strong className="font-medium text-stone-800">{t('howPassportName')}</strong> {t('howPassport')}
               </p>
             </CardContent>
           </Card>

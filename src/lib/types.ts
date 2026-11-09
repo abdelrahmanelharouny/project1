@@ -75,6 +75,24 @@ export interface AuthResponse {
   organizations?: MembershipRef[]
 }
 
+/**
+ * P1 server-side session: what the /api/auth/* route handlers return AFTER
+ * stripping the token material. The access/refresh tokens themselves live in
+ * HttpOnly cookies and never reach JavaScript.
+ */
+export interface AuthSession {
+  user: User
+  organization: OrganizationRef | null
+  organizations?: MembershipRef[]
+  expires_at?: string
+}
+
+export interface DemoSession extends AuthSession {
+  note: string
+  farm_id: string
+  field_ids: string[]
+}
+
 export interface MeResponse {
   user: User
   organizations: MembershipRef[]

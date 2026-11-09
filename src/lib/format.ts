@@ -1,8 +1,9 @@
 /** Presentation helpers shared across FieldShift components. */
 
-export function formatArea(ha: number | null | undefined): string {
+/** Format hectares with the active UI locale (falls back to runtime locale). */
+export function formatArea(ha: number | null | undefined, locale?: string): string {
   if (ha === null || ha === undefined || Number.isNaN(ha)) return '—'
-  return ha.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return ha.toLocaleString(locale || undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 export function formatDay(iso: string | null | undefined): string {

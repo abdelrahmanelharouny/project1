@@ -14,6 +14,8 @@
 
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import {
   AlertTriangle,
   ChevronDown,
@@ -49,7 +51,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { ExportButton } from '@/components/fieldshift/export-button'
 import { FieldPicker } from '@/components/fieldshift/field-picker'
+import { WaterMonthlyChart } from '@/components/fieldshift/charts/water-monthly'
 import { useFieldShiftUi } from '@/lib/store'
 import {
   useKnowledgeCrops,
@@ -60,7 +64,6 @@ import {
 } from '@/hooks/use-fieldshift'
 import { createWaterPlan, deleteWaterPlan } from '@/lib/api'
 import { describeError } from '@/lib/api'
-import { useToast } from '@/hooks/use-toast'
 import type {
   WaterPlan,
   WaterPlanSeason,
@@ -86,6 +89,7 @@ const READINESS_STYLES: Record<string, string> = {
 }
 
 function ReadinessCard() {
+  const t = useTranslations('water')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const readiness = useWaterReadiness(selectedField?.id ?? null)
 
@@ -96,20 +100,17 @@ function ReadinessCard() {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
-          Water-knowledge readiness
+          {t('readinessTitle')}
         </CardTitle>
         <CardDescription>
-          Crop-by-crop coverage of the water knowledge base — complete,
-          partially documented, or deliberately missing (never guessed).
-          Everything is reference-grade until an agronomist confirms it
-          regionally.
+          {t('readinessDesc')}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {readiness.isLoading ? (
-          <p className="text-sm text-stone-500">Loading readiness…</p>
+          <p className="text-sm text-stone-500">{t('loadingReadiness')}</p>
         ) : readiness.isError ? (
-          <p className="text-sm text-red-700">Readiness unavailable.</p>
+          <p className="text-sm text-red-700">{t('readinessUnavailable')}</p>
         ) : readiness.data ? (
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {readiness.data.crops.map((crop: WaterReadinessCrop) => (
@@ -123,6 +124,7 @@ function ReadinessCard() {
 }
 
 function ReadinessRow({ crop }: { crop: WaterReadinessCrop }) {
+  const t = useTranslations('water')
   const [open, setOpen] = useState(false)
   const overallStyle =
     READINESS_STYLES[crop.overall] ?? READINESS_STYLES.missing
@@ -140,11 +142,11 @@ function ReadinessRow({ crop }: { crop: WaterReadinessCrop }) {
           </span>
           {crop.etc_computable ? (
             <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-800">
-              ETc computable
+              {t('etcComputable')}
             </Badge>
           ) : (
             <Badge variant="outline" className="border-stone-300 bg-stone-50 text-[10px] text-stone-500">
-              ETc not evaluated
+              {t('etcNotEvaluated')}
             </Badge>
           )}
         </span>
@@ -189,16 +191,16 @@ interface PlanSeasonForm {
   sowing: string
 }
 
-const PE_METHOD_LABELS: Record<string, string> = {
-  fao_aglw_1986: 'FAO-33 (Brouwer & Heibloem 1986)',
-  constant_fraction: 'Constant fraction (farmer-supplied)',
-  none: 'None — rainfall credit unknown',
+const PE_METHOD_LABEL_KEYS: Record<string, string> = {
+  fao_aglw_1986: 'peFao33',
+  constant_fraction: 'peConstantFraction',
+  none: 'peNone',
 }
 
 function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => void }) {
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const queryClient = useQueryClient()
-  const { toast } = useToast()
+  const t = useTranslations('water')
   const methods = useWaterMethods()
   const crops = useKnowledgeCrops(true)
 
@@ -229,10 +231,10 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
       const farmerSoilValid =
         soilSource === 'farmer_measured' && thetaFc !== '' && thetaWp !== ''
       if (soilSource === 'farmer_measured' && !farmerSoilValid) {
-        throw new Error('Farmer-measured soil needs field capacity and wilting point (m³/m³).')
+        throw new Error(t('farmerSoilRequired'))
       }
       return createWaterPlan(fieldId, {
-        label: `Water plan ${new Date().toISOString().slice(0, 10)}`,
+        label: t('defaultPlanName', { date: new Date().toISOString().slice(0, 10) }),
         seasons: seasons.map((s) => ({
           label: s.label || 'season',
           start_date: s.start,
@@ -268,11 +270,13 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
     onSuccess: (plan) => {
       queryClient.invalidateQueries({ queryKey: ['water-plans', selectedField?.id] })
       onPlanCreated(plan.id)
-      toast({ title: 'Water plan created', description: `Checksum ${plan.checksum_sha256?.slice(0, 12)}…` })
+      toast.success(t('planCreatedToast'), {
+        description: t('planCreatedDesc', { checksum: plan.checksum_sha256?.slice(0, 12) ?? '—' }),
+      })
     },
     onError: (err) => {
       const d = describeError(err)
-      toast({ title: d.title, description: d.description, variant: 'destructive' })
+      toast.error(d.title, { description: d.description })
     },
   })
 
@@ -288,22 +292,20 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <Droplets className="h-4 w-4 text-emerald-700" aria-hidden />
-              Seasonal water plan
+              {t('planTitle')}
             </CardTitle>
             <CardDescription>
-              ETc = Kc × ET0 (FAO-56 single curve), effective rainfall, the net
-              and gross irrigation requirement, and the allocation check —
-              every assumption disclosed with the result.
+              {t('planDesc')}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2 text-xs text-stone-500">
-            <span aria-hidden>Simple</span>
+            <span aria-hidden>{t('simple')}</span>
             <Switch
               checked={expert}
               onCheckedChange={setExpert}
-              aria-label="Toggle expert mode"
+              aria-label={t('toggleExpert')}
             />
-            <span aria-hidden>Expert</span>
+            <span aria-hidden>{t('expert')}</span>
           </div>
         </div>
       </CardHeader>
@@ -314,30 +316,30 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
               <Input
                 value={s.label}
                 onChange={(e) => updateSeason(i, { label: e.target.value })}
-                placeholder="Label"
+                placeholder={t('placeholderLabel')}
                 className="h-9 text-sm"
-                aria-label={`Season ${i + 1} label`}
+                aria-label={t('seasonLabelAria', { number: i + 1 })}
               />
               <Input
                 type="date"
                 value={s.start}
                 onChange={(e) => updateSeason(i, { start: e.target.value })}
                 className="h-9 text-sm"
-                aria-label={`Season ${i + 1} start`}
+                aria-label={t('seasonStartAria', { number: i + 1 })}
               />
               <Input
                 type="date"
                 value={s.end}
                 onChange={(e) => updateSeason(i, { end: e.target.value })}
                 className="h-9 text-sm"
-                aria-label={`Season ${i + 1} end`}
+                aria-label={t('seasonEndAria', { number: i + 1 })}
               />
               <Select
                 value={s.crop}
                 onValueChange={(v) => updateSeason(i, { crop: v })}
               >
-                <SelectTrigger className="h-9 text-sm" aria-label={`Season ${i + 1} crop`}>
-                  <SelectValue placeholder="Crop" />
+                <SelectTrigger className="h-9 text-sm" aria-label={t('seasonCropAria', { number: i + 1 })}>
+                  <SelectValue placeholder={t('placeholderCrop')} />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
                   {cropOptions.map((code) => (
@@ -353,8 +355,8 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
                   value={s.sowing}
                   onChange={(e) => updateSeason(i, { sowing: e.target.value })}
                   className="h-9 text-sm"
-                  aria-label={`Season ${i + 1} sowing date (optional)`}
-                  placeholder="Sowing"
+                  aria-label={t('seasonSowingAria', { number: i + 1 })}
+                  placeholder={t('placeholderSowing')}
                 />
               ) : (
                 <Button
@@ -364,7 +366,7 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
                   onClick={() => setSeasons((prev) => prev.filter((_, j) => j !== i))}
                   disabled={seasons.length === 1}
                 >
-                  Remove
+                  {t('remove')}
                 </Button>
               )}
             </div>
@@ -387,7 +389,7 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
             }
             disabled={seasons.length >= 4}
           >
-            Add season
+            {t('addSeason')}
           </Button>
         </div>
 
@@ -395,12 +397,12 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label htmlFor="water-allocation" className="text-xs text-stone-600">
-                Seasonal water allocation (m³)
+                {t('allocationLabel')}
               </Label>
               <Switch
                 checked={allocationEnabled}
                 onCheckedChange={setAllocationEnabled}
-                aria-label="Toggle allocation constraint"
+                aria-label={t('toggleAllocation')}
                 className="scale-90"
               />
             </div>
@@ -412,41 +414,38 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
               onChange={(e) => setAllocation(e.target.value)}
               disabled={!allocationEnabled}
               className="h-9 text-sm"
-              placeholder="Leave off if unknown — never assumed unlimited"
+              placeholder={t('allocationPlaceholder')}
             />
             {!allocationEnabled && (
               <p className="text-[11px] text-amber-700">
-                Allocation unknown — the plan reports it as unknown, never as
-                unlimited water.
+                {t('allocationUnknownNote')}
               </p>
             )}
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs text-stone-600">Soil water-holding inputs</Label>
+            <Label className="text-xs text-stone-600">{t('soilInputsLabel')}</Label>
             <Select value={soilSource} onValueChange={(v) => setSoilSource(v as typeof soilSource)}>
-              <SelectTrigger className="h-9 text-sm" aria-label="Soil source">
+              <SelectTrigger className="h-9 text-sm" aria-label={t('soilSourceAria')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none" className="text-sm">None — FAO-33 no-storage method</SelectItem>
-                <SelectItem value="farmer_measured" className="text-sm">Farmer-measured θFC/θWP</SelectItem>
-                <SelectItem value="ptf_texture" className="text-sm">Estimate from texture (Saxton-Rawls PTF)</SelectItem>
+                <SelectItem value="none" className="text-sm">{t('soilNone')}</SelectItem>
+                <SelectItem value="farmer_measured" className="text-sm">{t('soilFarmer')}</SelectItem>
+                <SelectItem value="ptf_texture" className="text-sm">{t('soilPtf')}</SelectItem>
               </SelectContent>
             </Select>
             {soilSource === 'farmer_measured' && (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Input type="number" step="0.01" min="0" max="0.6" value={thetaFc} onChange={(e) => setThetaFc(e.target.value)} className="h-9 text-sm" placeholder="θFC" aria-label="Field capacity m3/m3" />
-                <Input type="number" step="0.01" min="0" max="0.6" value={thetaWp} onChange={(e) => setThetaWp(e.target.value)} className="h-9 text-sm" placeholder="θWP" aria-label="Wilting point m3/m3" />
-                <Input type="number" step="0.1" min="0" value={zr} onChange={(e) => setZr(e.target.value)} className="h-9 text-sm" placeholder="Zr (m)" aria-label="Root zone depth metres (optional)" />
-                <Input type="number" step="0.01" min="0" max="1" value={pTable} onChange={(e) => setPTable(e.target.value)} className="h-9 text-sm" placeholder="p" aria-label="Depletion fraction (optional)" />
+                <Input type="number" step="0.01" min="0" max="0.6" value={thetaFc} onChange={(e) => setThetaFc(e.target.value)} className="h-9 text-sm" placeholder={t('placeholderThetaFc')} aria-label={t('ariaThetaFc')} />
+                <Input type="number" step="0.01" min="0" max="0.6" value={thetaWp} onChange={(e) => setThetaWp(e.target.value)} className="h-9 text-sm" placeholder={t('placeholderThetaWp')} aria-label={t('ariaThetaWp')} />
+                <Input type="number" step="0.1" min="0" value={zr} onChange={(e) => setZr(e.target.value)} className="h-9 text-sm" placeholder={t('placeholderZr')} aria-label={t('ariaZr')} />
+                <Input type="number" step="0.01" min="0" max="1" value={pTable} onChange={(e) => setPTable(e.target.value)} className="h-9 text-sm" placeholder={t('placeholderP')} aria-label={t('ariaP')} />
               </div>
             )}
             {soilSource === 'ptf_texture' && (
               <p className="text-[11px] text-stone-500">
-                Estimated from the field&apos;s texture observations
-                (Saxton &amp; Rawls 2006; validity domain enforced). A
-                texture-based estimate — never a measurement.
+                {t('ptfNote')}
               </p>
             )}
           </div>
@@ -455,15 +454,15 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
         {expert && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label className="text-xs text-stone-600">Effective-rainfall method</Label>
+              <Label className="text-xs text-stone-600">{t('peMethodLabel')}</Label>
               <Select value={peMethod} onValueChange={setPeMethod}>
-                <SelectTrigger className="h-9 text-sm" aria-label="Effective rainfall method">
+                <SelectTrigger className="h-9 text-sm" aria-label={t('peMethodAria')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {(methods.data?.effective_rainfall_methods ?? []).map((m) => (
                     <SelectItem key={m.code} value={m.code} className="text-sm">
-                      {PE_METHOD_LABELS[m.code] ?? m.code}
+                      {PE_METHOD_LABEL_KEYS[m.code] ? t(PE_METHOD_LABEL_KEYS[m.code]) : m.code}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -474,25 +473,25 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
                   value={peFraction}
                   onChange={(e) => setPeFraction(e.target.value)}
                   className="h-9 text-sm"
-                  placeholder="Fraction (0–1)"
-                  aria-label="Effective rainfall fraction"
+                  placeholder={t('placeholderFraction')}
+                  aria-label={t('ariaFraction')}
                 />
               )}
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label className="text-xs text-stone-600">Application efficiency</Label>
+                <Label className="text-xs text-stone-600">{t('efficiencyLabel')}</Label>
                 <Switch
                   checked={efficiencyEnabled}
                   onCheckedChange={setEfficiencyEnabled}
-                  aria-label="Toggle application efficiency"
+                  aria-label={t('toggleEfficiency')}
                   className="scale-90"
                 />
               </div>
               {efficiencyEnabled && (
                 <div className="grid grid-cols-2 gap-2">
                   <Select value={efficiencyClass} onValueChange={setEfficiencyClass}>
-                    <SelectTrigger className="h-9 text-sm" aria-label="Efficiency method class">
+                    <SelectTrigger className="h-9 text-sm" aria-label={t('efficiencyClassAria')}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -508,8 +507,8 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
                     value={efficiencyValue}
                     onChange={(e) => setEfficiencyValue(e.target.value)}
                     className="h-9 text-sm"
-                    placeholder="Or farmer value"
-                    aria-label="Farmer application efficiency"
+                    placeholder={t('placeholderFarmerValue')}
+                    aria-label={t('ariaFarmerEfficiency')}
                   />
                 </div>
               )}
@@ -523,7 +522,7 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
           onClick={() => selectedField.id && createMutation.mutate(selectedField.id)}
           disabled={createMutation.isPending || !selectedField.id}
         >
-          {createMutation.isPending ? 'Computing plan…' : 'Compute water plan'}
+          {createMutation.isPending ? t('computingPlan') : t('computePlan')}
         </Button>
       </CardContent>
     </Card>
@@ -533,35 +532,37 @@ function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => voi
 // ------------------------------------------------------------- results
 
 function AllocationBadge({ allocation }: { allocation: WaterPlanSeason['allocation'] }) {
+  const t = useTranslations('water')
   if (allocation.status === 'unknown') {
     return (
       <Badge variant="outline" className="border-stone-300 bg-stone-100 text-stone-600">
-        allocation unknown
+        {t('allocUnknown')}
       </Badge>
     )
   }
   if (allocation.status === 'not_evaluated') {
     return (
       <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
-        allocation not evaluated
+        {t('allocNotEvaluated')}
       </Badge>
     )
   }
   if (allocation.status === 'deficit') {
     return (
       <Badge variant="outline" className="border-red-200 bg-red-50 text-red-800">
-        deficit {fmt(allocation.deficit_m3, 0)} m³
+        {t('allocDeficit', { m3: fmt(allocation.deficit_m3, 0) })}
       </Badge>
     )
   }
   return (
     <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
-      within allocation ({Math.round((allocation.coverage_ratio ?? 0) * 100)}%)
+      {t('allocWithin', { percent: Math.round((allocation.coverage_ratio ?? 0) * 100) })}
     </Badge>
   )
 }
 
 function StageTimeline({ season }: { season: WaterPlanSeason }) {
+  const t = useTranslations('water')
   const stages = season.stages
   const maxEtc = Math.max(...stages.map((s) => s.etc_mm ?? 0), 1)
   const stageColors: Record<string, string> = {
@@ -572,13 +573,13 @@ function StageTimeline({ season }: { season: WaterPlanSeason }) {
   }
   return (
     <div className="space-y-2">
-      <div className="flex h-8 w-full overflow-hidden rounded-md border border-stone-200" role="img" aria-label="Seasonal ETc by growth stage">
+      <div className="flex h-8 w-full overflow-hidden rounded-md border border-stone-200" role="img" aria-label={t('stageAria')}>
         {stages.map((s) => (
           <div
             key={s.stage}
             className={`flex items-center justify-center ${stageColors[s.stage] ?? 'bg-stone-300'}`}
             style={{ width: `${((s.etc_mm ?? 0) / maxEtc) * 100}%` }}
-            title={`${s.stage}: ${fmt(s.etc_mm)} mm ETc over ${s.days_in_season} days`}
+            title={t('stageTooltip', { stage: s.stage, etc: fmt(s.etc_mm), days: s.days_in_season })}
           >
             <span className="truncate px-1 text-[10px] font-medium text-stone-800">
               {fmt(s.etc_mm, 0)} mm
@@ -590,14 +591,14 @@ function StageTimeline({ season }: { season: WaterPlanSeason }) {
         <table className="w-full min-w-[560px] text-left text-xs">
           <thead className="text-stone-500">
             <tr>
-              <th className="py-1 pr-2 font-medium">Stage</th>
-              <th className="py-1 pr-2 font-medium">Window</th>
-              <th className="py-1 pr-2 font-medium">Days</th>
-              <th className="py-1 pr-2 font-medium">Kc mean</th>
-              <th className="py-1 pr-2 font-medium">ETc (mm)</th>
-              <th className="py-1 pr-2 font-medium">Pe (mm)</th>
-              <th className="py-1 pr-2 font-medium">Dr end (mm)</th>
-              <th className="py-1 font-medium">Ks mean</th>
+              <th className="py-1 pr-2 font-medium">{t('thStage')}</th>
+              <th className="py-1 pr-2 font-medium">{t('thWindow')}</th>
+              <th className="py-1 pr-2 font-medium">{t('thDays')}</th>
+              <th className="py-1 pr-2 font-medium">{t('thKcMean')}</th>
+              <th className="py-1 pr-2 font-medium">{t('thEtc')}</th>
+              <th className="py-1 pr-2 font-medium">{t('thPe')}</th>
+              <th className="py-1 pr-2 font-medium">{t('thDrEnd')}</th>
+              <th className="py-1 font-medium">{t('thKsMean')}</th>
             </tr>
           </thead>
           <tbody>
@@ -623,19 +624,20 @@ function StageTimeline({ season }: { season: WaterPlanSeason }) {
 }
 
 function MonthlyTable({ season }: { season: WaterPlanSeason }) {
+  const t = useTranslations('water')
   return (
     <div className="overflow-x-auto scrollbar-thin">
       <table className="w-full min-w-[620px] text-left text-xs">
         <thead className="text-stone-500">
           <tr>
-            <th className="py-1 pr-2 font-medium">Month</th>
-            <th className="py-1 pr-2 font-medium">ET0 (mm)</th>
-            <th className="py-1 pr-2 font-medium">Kc mean</th>
-            <th className="py-1 pr-2 font-medium">ETc (mm)</th>
-            <th className="py-1 pr-2 font-medium">P (mm)</th>
-            <th className="py-1 pr-2 font-medium">Pe (mm)</th>
-            <th className="py-1 pr-2 font-medium">Net irr. (mm)</th>
-            <th className="py-1 font-medium">Dr end (mm)</th>
+            <th className="py-1 pr-2 font-medium">{t('thMonth')}</th>
+            <th className="py-1 pr-2 font-medium">{t('thEt0')}</th>
+            <th className="py-1 pr-2 font-medium">{t('thKcMean')}</th>
+            <th className="py-1 pr-2 font-medium">{t('thEtc')}</th>
+            <th className="py-1 pr-2 font-medium">{t('thP')}</th>
+            <th className="py-1 pr-2 font-medium">{t('thPe')}</th>
+            <th className="py-1 pr-2 font-medium">{t('thNetIrr')}</th>
+            <th className="py-1 font-medium">{t('thDrEnd')}</th>
           </tr>
         </thead>
         <tbody>
@@ -648,7 +650,7 @@ function MonthlyTable({ season }: { season: WaterPlanSeason }) {
               <td className="py-1 pr-2 text-stone-700">{fmt(m.kc_mean, 2)}</td>
               <td className="py-1 pr-2 text-stone-700">{fmt(m.etc_mm)}</td>
               <td className={`py-1 pr-2 ${m.precip_evidence_missing ? 'text-amber-700' : 'text-stone-700'}`}>
-                {m.precip_evidence_missing ? 'no evidence' : fmt(m.precip_mm)}
+                {m.precip_evidence_missing ? t('noEvidence') : fmt(m.precip_mm)}
               </td>
               <td className="py-1 pr-2 text-stone-700">{fmt(m.effective_rainfall_mm)}</td>
               <td className="py-1 pr-2 text-stone-700">{fmt(m.net_irrigation_mm)}</td>
@@ -662,13 +664,14 @@ function MonthlyTable({ season }: { season: WaterPlanSeason }) {
 }
 
 function LadderCard({ season }: { season: WaterPlanSeason }) {
-  const label: Record<string, string> = {
-    crop_evapotranspiration: 'Crop evapotranspiration (ETc)',
-    effective_rainfall: 'Effective rainfall (Pe)',
-    soil_water_contribution: 'Soil-water contribution (ΔSW)',
-    net_irrigation_requirement: 'Net irrigation requirement',
-    gross_irrigation_requirement: 'Gross irrigation requirement',
-    actual_irrigation_applied: 'Actual irrigation applied',
+  const t = useTranslations('water')
+  const labelKeys: Record<string, string> = {
+    crop_evapotranspiration: 'ladderEtc',
+    effective_rainfall: 'ladderPe',
+    soil_water_contribution: 'ladderDeltaSw',
+    net_irrigation_requirement: 'ladderNetIrr',
+    gross_irrigation_requirement: 'ladderGrossIrr',
+    actual_irrigation_applied: 'ladderActualIrr',
   }
   return (
     <div className="space-y-1.5">
@@ -678,14 +681,14 @@ function LadderCard({ season }: { season: WaterPlanSeason }) {
           <div key={step.quantity} className="flex items-start justify-between gap-3 text-xs">
             <span className="min-w-0">
               <span className={`font-medium ${muted ? 'text-stone-500' : 'text-stone-800'}`}>
-                {label[step.quantity] ?? step.quantity}
+                {labelKeys[step.quantity] ? t(labelKeys[step.quantity]) : step.quantity}
               </span>
               <span className="block text-stone-500">{step.basis}</span>
               {step.detail && <span className="block text-stone-400">{step.detail}</span>}
             </span>
             <span className="shrink-0 text-right">
               <span className={`font-semibold ${muted ? 'text-stone-400' : 'text-stone-900'}`}>
-                {step.value_mm === null ? '(not evaluated)' : `${fmt(step.value_mm, 1)} mm`}
+                {step.value_mm === null ? t('notEvaluated') : `${fmt(step.value_mm, 1)} mm`}
               </span>
               {season.volumes_m3[`${step.quantity}_m3`] !== undefined && !muted && (
                 <span className="block text-stone-500">
@@ -701,7 +704,21 @@ function LadderCard({ season }: { season: WaterPlanSeason }) {
 }
 
 function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
+  const t = useTranslations('water')
+  const tCommon = useTranslations('common')
   const totals = season.totals
+  // Flat monthly rows for the CSV/JSON export of the seasonal plan table.
+  const exportMonths = () =>
+    season.months.map((m) => ({
+      month_label: `${m.year}-${String(m.month).padStart(2, '0')}`,
+      precip_mm: m.precip_mm,
+      effective_rainfall_mm: m.effective_rainfall_mm,
+      et0_mm: m.et0_mm,
+      kc_mean: m.kc_mean,
+      etc_mm: m.etc_mm,
+      net_irrigation_mm: m.net_irrigation_mm,
+      dr_end_mm: m.dr_end_mm,
+    }))
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -709,20 +726,41 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
           <CardTitle className="text-sm font-semibold text-stone-800">
             {season.season_label} · {season.crop_code}
           </CardTitle>
-          <AllocationBadge allocation={season.allocation} />
+          <div className="flex items-center gap-2">
+            <ExportButton
+              baseFilename="water-plan-months"
+              getRows={exportMonths}
+              columns={[
+                { key: 'month_label', label: t('thMonth') },
+                { key: 'et0_mm', label: t('thEt0') },
+                { key: 'kc_mean', label: t('thKcMean') },
+                { key: 'etc_mm', label: t('thEtc') },
+                { key: 'precip_mm', label: t('thP') },
+                { key: 'effective_rainfall_mm', label: t('thPe') },
+                { key: 'net_irrigation_mm', label: t('thNetIrr') },
+                { key: 'dr_end_mm', label: t('thDrEnd') },
+              ]}
+            />
+            <AllocationBadge allocation={season.allocation} />
+          </div>
         </div>
         <CardDescription>
-          {season.season.start_date} → {season.season.end_date} · sowing{' '}
-          {season.sowing_date} · {fmt(season.area_ha, 2)} ha
+          {t('seasonDesc', {
+            start: season.season.start_date,
+            end: season.season.end_date,
+            sowing: season.sowing_date,
+            area: fmt(season.area_ha, 2),
+            unit: tCommon('ha'),
+          })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
-            { label: 'Reference ET0', value: `${fmt(totals.et0_mm)} mm`, hint: 'FAO-56 reference surface' },
-            { label: 'Crop ETc', value: `${fmt(totals.etc_mm)} mm`, hint: 'Kc × ET0' },
-            { label: 'Effective rainfall', value: `${fmt(totals.effective_rainfall_mm)} mm`, hint: season.effective_rainfall.method },
-            { label: 'Net irrigation', value: `${fmt(totals.net_irrigation_requirement_mm)} mm`, hint: '≈ ' + fmt(totals.volumes_m3.net_irrigation_requirement_m3, 0) + ' m³' },
+            { label: t('tileEt0'), value: `${fmt(totals.et0_mm)} mm`, hint: t('hintReferenceSurface') },
+            { label: t('tileEtc'), value: `${fmt(totals.etc_mm)} mm`, hint: t('hintKcEt0') },
+            { label: t('tileEffectiveRainfall'), value: `${fmt(totals.effective_rainfall_mm)} mm`, hint: season.effective_rainfall.method },
+            { label: t('tileNetIrrigation'), value: `${fmt(totals.net_irrigation_requirement_mm)} mm`, hint: '≈ ' + fmt(totals.volumes_m3.net_irrigation_requirement_m3, 0) + ' m³' },
           ].map((tile) => (
             <div key={tile.label} className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
               <p className="text-[11px] font-medium uppercase tracking-wide text-stone-500">{tile.label}</p>
@@ -735,13 +773,13 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="min-w-0 space-y-2">
             <p className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
-              <Gauge className="h-3.5 w-3.5 text-emerald-700" aria-hidden /> Growth-stage demand
+              <Gauge className="h-3.5 w-3.5 text-emerald-700" aria-hidden /> {t('growthStageDemand')}
             </p>
             <StageTimeline season={season} />
           </div>
           <div className="min-w-0 space-y-2">
             <p className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
-              <ScrollText className="h-3.5 w-3.5 text-emerald-700" aria-hidden /> Water ladder
+              <ScrollText className="h-3.5 w-3.5 text-emerald-700" aria-hidden /> {t('waterLadder')}
             </p>
             <LadderCard season={season} />
           </div>
@@ -750,20 +788,23 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
         <Accordion type="multiple" className="w-full">
           <AccordionItem value="months">
             <AccordionTrigger className="text-xs text-stone-600">
-              Monthly timeline
+              {t('monthlyTimeline')}
             </AccordionTrigger>
             <AccordionContent>
-              <MonthlyTable season={season} />
+              <WaterMonthlyChart months={season.months} />
+              <div className="mt-4">
+                <MonthlyTable season={season} />
+              </div>
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value="deficits">
             <AccordionTrigger className="text-xs text-stone-600">
-              Deficit windows ({season.deficit_windows.length})
+              {t('deficitWindows', { count: season.deficit_windows.length })}
             </AccordionTrigger>
             <AccordionContent>
               {season.deficit_windows.length === 0 ? (
                 <p className="text-xs text-stone-500">
-                  No root-zone stress windows or allocation shortfall identified.
+                  {t('noDeficitWindows')}
                 </p>
               ) : (
                 <ul className="space-y-1.5 text-xs text-stone-600">
@@ -772,8 +813,8 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
                       <span>
                         {String(w.kind).replace(/_/g, ' ')}
-                        {w.start_date ? `: ${String(w.start_date)} → ${String(w.end_date)} (${String(w.days)} days, max Dr ${fmt(Number(w.max_dr_mm))} mm)` : ''}
-                        {w.deficit_m3 ? `: shortfall ${fmt(Number(w.deficit_m3), 0)} m³` : ''}
+                        {w.start_date ? t('deficitPeriod', { start: String(w.start_date), end: String(w.end_date), days: String(w.days), dr: fmt(Number(w.max_dr_mm)) }) : ''}
+                        {w.deficit_m3 ? t('deficitShortfall', { m3: fmt(Number(w.deficit_m3), 0) }) : ''}
                         {w.detail ? ` — ${String(w.detail)}` : ''}
                       </span>
                     </li>
@@ -784,7 +825,7 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
           </AccordionItem>
           <AccordionItem value="method">
             <AccordionTrigger className="text-xs text-stone-600">
-              Methodology &amp; assumptions ({season.assumptions.length})
+              {t('methodologyAssumptions', { count: season.assumptions.length })}
             </AccordionTrigger>
             <AccordionContent>
               <ul className="list-disc space-y-1 pl-4 text-xs text-stone-600">
@@ -796,11 +837,11 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
           </AccordionItem>
           <AccordionItem value="missing">
             <AccordionTrigger className="text-xs text-stone-600">
-              Not evaluated ({season.missing_evidence.length})
+              {t('notEvaluatedCount', { count: season.missing_evidence.length })}
             </AccordionTrigger>
             <AccordionContent>
               {season.missing_evidence.length === 0 ? (
-                <p className="text-xs text-stone-500">Every dimension was evaluable.</p>
+                <p className="text-xs text-stone-500">{t('allDimensionsEvaluable')}</p>
               ) : (
                 <ul className="list-disc space-y-1 pl-4 text-xs text-amber-800">
                   {season.missing_evidence.map((m, i) => (
@@ -812,7 +853,7 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
           </AccordionItem>
           <AccordionItem value="sources">
             <AccordionTrigger className="text-xs text-stone-600">
-              Data provenance ({season.sources.length})
+              {t('dataProvenance', { count: season.sources.length })}
             </AccordionTrigger>
             <AccordionContent>
               <ul className="space-y-1 text-xs text-stone-600">
@@ -829,7 +870,7 @@ function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
               </ul>
               <p className="mt-2 flex items-center gap-1 text-[10px] text-stone-400">
                 <ShieldCheck className="h-3 w-3" aria-hidden />
-                plan checksum {season.checksum_sha256}
+                {t('planChecksum', { checksum: season.checksum_sha256 })}
               </p>
             </AccordionContent>
           </AccordionItem>
@@ -850,12 +891,12 @@ function PlanHistory({
 }) {
   const plans = useWaterPlans(selectedFieldId)
   const queryClient = useQueryClient()
-  const { toast } = useToast()
+  const t = useTranslations('water')
   const deleteMutation = useMutation({
     mutationFn: (planId: string) => deleteWaterPlan(planId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['water-plans', selectedFieldId] })
-      toast({ title: 'Plan deleted' })
+      toast.success(t('planDeletedToast'))
     },
   })
 
@@ -865,15 +906,14 @@ function PlanHistory({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Plan history</CardTitle>
+        <CardTitle className="text-base">{t('planHistoryTitle')}</CardTitle>
         <CardDescription>
-          Immutable snapshots — re-running a scenario creates a new plan, never
-          overwrites.
+          {t('planHistoryDesc')}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
-          <p className="text-sm text-stone-500">No plans yet.</p>
+          <p className="text-sm text-stone-500">{t('noPlansYet')}</p>
         ) : (
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {items.map((plan: WaterPlan) => (
@@ -913,7 +953,7 @@ function PlanHistory({
                   className="h-7 px-2 text-stone-400 hover:text-red-700"
                   onClick={() => deleteMutation.mutate(plan.id)}
                   disabled={deleteMutation.isPending}
-                  aria-label={`Delete plan ${plan.label}`}
+                  aria-label={t('deletePlanAria', { label: plan.label })}
                 >
                   ×
                 </Button>
@@ -927,6 +967,8 @@ function PlanHistory({
 }
 
 export function Water() {
+  const t = useTranslations('water')
+  const tCommon = useTranslations('common')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
@@ -942,19 +984,19 @@ export function Water() {
         <Card>
           <CardContent className="py-10 text-center text-sm text-stone-500">
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <span>Pick a field to plan its water. Methodology is public:</span>
+              <span>{t('pickFieldHint')}</span>
               <a
                 className="text-emerald-800 underline decoration-dotted"
                 href="#water-methods"
               >
-                see below
+                {t('seeBelow')}
               </a>
               <FieldPicker
                 value={null}
                 onValueChange={setSelectedField}
                 emptyHint={
                   <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
-                    Create a farm and field first
+                    {tCommon('createFarmField')}
                   </Button>
                 }
               />
@@ -986,14 +1028,16 @@ export function Water() {
                 </span>
                 <span className="flex items-center gap-3">
                   <span>
-                    rotation NIR total ≈{' '}
+                    {t('rotationNirTotal')}{' '}
                     <strong className="text-stone-900">
                       {fmt(plan.data.result.rotation_totals.net_irrigation_requirement_m3_sum, 0)} m³
                     </strong>
                   </span>
                   <span>
-                    engine {plan.data.result.engine_version} · methods{' '}
-                    {plan.data.result.methods_version}
+                    {t('engineMethods', {
+                      engine: plan.data.result.engine_version,
+                      methods: plan.data.result.methods_version,
+                    })}
                   </span>
                 </span>
               </CardContent>
@@ -1012,12 +1056,10 @@ export function Water() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <ScrollText className="h-4 w-4 text-emerald-700" aria-hidden />
-            Water methodology disclosures
+            {t('methodsTitle')}
           </CardTitle>
           <CardDescription>
-            Every calculation cites its published method. Methods that could not
-            be verified from primary sources are listed as not implemented —
-            never approximated.
+            {t('methodsDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1025,7 +1067,7 @@ export function Water() {
             <Accordion type="multiple" className="w-full">
               <AccordionItem value="pe">
                 <AccordionTrigger className="text-xs text-stone-600">
-                  Effective-rainfall methods ({methods.data.effective_rainfall_methods.length})
+                  {t('peMethodsCount', { count: methods.data.effective_rainfall_methods.length })}
                 </AccordionTrigger>
                 <AccordionContent>
                   <ul className="space-y-2 text-xs text-stone-600">
@@ -1042,7 +1084,7 @@ export function Water() {
               </AccordionItem>
               <AccordionItem value="soil">
                 <AccordionTrigger className="text-xs text-stone-600">
-                  Soil water-holding sources
+                  {t('soilSourcesTitle')}
                 </AccordionTrigger>
                 <AccordionContent>
                   <ul className="space-y-1.5 text-xs text-stone-600">
@@ -1056,7 +1098,7 @@ export function Water() {
               </AccordionItem>
               <AccordionItem value="efficiency">
                 <AccordionTrigger className="text-xs text-stone-600">
-                  Application-efficiency classes (FAO TM1 Annex I, Table 8)
+                  {t('efficiencyClassesTitle')}
                 </AccordionTrigger>
                 <AccordionContent>
                   <ul className="space-y-1.5 text-xs text-stone-600">
@@ -1071,7 +1113,7 @@ export function Water() {
               </AccordionItem>
               <AccordionItem value="not-implemented">
                 <AccordionTrigger className="text-xs text-stone-600">
-                  Deliberately not implemented ({methods.data.not_implemented.length})
+                  {t('notImplementedCount', { count: methods.data.not_implemented.length })}
                 </AccordionTrigger>
                 <AccordionContent>
                   <ul className="space-y-1.5 text-xs text-stone-600">
@@ -1082,13 +1124,13 @@ export function Water() {
                     ))}
                   </ul>
                   <p className="mt-2 text-[11px] text-stone-500">
-                    Unit identities: 1 mm over 1 ha = 10 m³; 1 mm over 1 m² = 1 L.
+                    {t('unitIdentities')}
                   </p>
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
           ) : (
-            <p className="text-sm text-stone-500">Loading methodology…</p>
+            <p className="text-sm text-stone-500">{t('loadingMethodology')}</p>
           )}
         </CardContent>
       </Card>

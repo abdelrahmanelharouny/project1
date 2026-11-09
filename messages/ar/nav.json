@@ -1,0 +1,23 @@
+{
+  "overview": "نظرة عامة",
+  "farms": "المزارع والحقول",
+  "observations": "القياسات",
+  "features": "الخصائص",
+  "rotation": "الدورة الزراعية",
+  "water": "المياه",
+  "fieldstate": "حالة الحقل",
+  "scenarios": "السيناريوهات",
+  "soil": "التربة",
+  "management": "الإدارة",
+  "sensitivity": "تحليل الحساسية",
+  "robustplan": "الخطة المتينة",
+  "decisions": "القرارات",
+  "digitaltwin": "التوأم الرقمي",
+  "passport": "جواز البيانات",
+  "signOut": "تسجيل الخروج",
+  "restoringSession": "جارٍ استعادة جلستك…",
+  "footerNote": "FieldShift — دعم للقرار، وليس خبيرًا زراعيًا مستقلًا.",
+  "footerSynthetic": "البيانات الاصطناعية موسومة دائمًا.",
+  "apiStatus": "حالة الواجهة…",
+  "apiVersion": "الواجهة v{version}"
+}

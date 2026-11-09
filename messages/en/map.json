@@ -1,0 +1,11 @@
+{
+  "farmMapTitle": "Farm map",
+  "farmMapDesc": "Field boundaries from the latest boundary version, drawn offline.",
+  "legend": "Legend",
+  "fieldLabel": "Field",
+  "areaHa": "{area} ha",
+  "clickHint": "Click a field to select it.",
+  "noFields": "No field boundaries to display yet.",
+  "obsCount": "{count} observations",
+  "mapAria": "Offline farm map showing {count} field boundaries"
+}

@@ -1,0 +1,1100 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Water Intelligence (Milestone 6A) — seasonal water planning with the
+     5→ * versioned water engine: growth-stage demand, effective rainfall, the
+     6→ * irrigation-requirement ladder, root-zone stress windows, allocation checks
+     7→ * and full methodology/provenance disclosures.
+     8→ *
+     9→ * Honesty contract surfaced here: missing evidence renders as "(not
+    10→ * evaluated)", an unknown allocation is reported as unknown (never
+    11→ * unlimited), synthetic evidence carries a banner, and every number traces to
+    12→ * a cited method or knowledge row (Expert mode shows checksums).
+    13→ */
+    14→
+    15→import { useMemo, useState } from 'react'
+    16→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+    17→import {
+    18→  AlertTriangle,
+    19→  ChevronDown,
+    20→  Droplets,
+    21→  Gauge,
+    22→  Info,
+    23→  Layers,
+    24→  ScrollText,
+    25→  ShieldCheck,
+    26→} from 'lucide-react'
+    27→import { Badge } from '@/components/ui/badge'
+    28→import { Button } from '@/components/ui/button'
+    29→import {
+    30→  Accordion,
+    31→  AccordionContent,
+    32→  AccordionItem,
+    33→  AccordionTrigger,
+    34→} from '@/components/ui/accordion'
+    35→import {
+    36→  Card,
+    37→  CardContent,
+    38→  CardDescription,
+    39→  CardHeader,
+    40→  CardTitle,
+    41→} from '@/components/ui/card'
+    42→import { Input } from '@/components/ui/input'
+    43→import { Label } from '@/components/ui/label'
+    44→import {
+    45→  Select,
+    46→  SelectContent,
+    47→  SelectItem,
+    48→  SelectTrigger,
+    49→  SelectValue,
+    50→} from '@/components/ui/select'
+    51→import { Switch } from '@/components/ui/switch'
+    52→import { FieldPicker } from '@/components/fieldshift/field-picker'
+    53→import { useFieldShiftUi } from '@/lib/store'
+    54→import {
+    55→  useKnowledgeCrops,
+    56→  useWaterMethods,
+    57→  useWaterPlan,
+    58→  useWaterPlans,
+    59→  useWaterReadiness,
+    60→} from '@/hooks/use-fieldshift'
+    61→import { createWaterPlan, deleteWaterPlan } from '@/lib/api'
+    62→import { describeError } from '@/lib/api'
+    63→import { useToast } from '@/hooks/use-toast'
+    64→import type {
+    65→  WaterPlan,
+    66→  WaterPlanSeason,
+    67→  WaterReadinessCrop,
+    68→} from '@/lib/types'
+    69→
+    70→function fmt(value: number | null | undefined, digits = 1): string {
+    71→  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+    72→  return value.toLocaleString(undefined, {
+    73→    minimumFractionDigits: digits,
+    74→    maximumFractionDigits: digits,
+    75→  })
+    76→}
+    77→
+    78→// ------------------------------------------------------------- readiness
+    79→
+    80→const READINESS_STYLES: Record<string, string> = {
+    81→  complete: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    82→  partial: 'bg-amber-100 text-amber-800 border-amber-200',
+    83→  missing: 'bg-stone-200 text-stone-600 border-stone-300',
+    84→  not_locally_validated: 'bg-orange-100 text-orange-800 border-orange-200',
+    85→  not_applicable: 'bg-stone-100 text-stone-500 border-stone-200',
+    86→}
+    87→
+    88→function ReadinessCard() {
+    89→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+    90→  const readiness = useWaterReadiness(selectedField?.id ?? null)
+    91→
+    92→  if (!selectedField) return null
+    93→
+    94→  return (
+    95→    <Card>
+    96→      <CardHeader className="pb-3">
+    97→        <CardTitle className="flex items-center gap-2 text-base">
+    98→          <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
+    99→          Water-knowledge readiness
+   100→        </CardTitle>
+   101→        <CardDescription>
+   102→          Crop-by-crop coverage of the water knowledge base — complete,
+   103→          partially documented, or deliberately missing (never guessed).
+   104→          Everything is reference-grade until an agronomist confirms it
+   105→          regionally.
+   106→        </CardDescription>
+   107→      </CardHeader>
+   108→      <CardContent>
+   109→        {readiness.isLoading ? (
+   110→          <p className="text-sm text-stone-500">Loading readiness…</p>
+   111→        ) : readiness.isError ? (
+   112→          <p className="text-sm text-red-700">Readiness unavailable.</p>
+   113→        ) : readiness.data ? (
+   114→          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+   115→            {readiness.data.crops.map((crop: WaterReadinessCrop) => (
+   116→              <ReadinessRow key={crop.crop_code} crop={crop} />
+   117→            ))}
+   118→          </div>
+   119→        ) : null}
+   120→      </CardContent>
+   121→    </Card>
+   122→  )
+   123→}
+   124→
+   125→function ReadinessRow({ crop }: { crop: WaterReadinessCrop }) {
+   126→  const [open, setOpen] = useState(false)
+   127→  const overallStyle =
+   128→    READINESS_STYLES[crop.overall] ?? READINESS_STYLES.missing
+   129→  return (
+   130→    <div className="rounded-lg border border-stone-200 bg-white">
+   131→      <button
+   132→        type="button"
+   133→        onClick={() => setOpen((v) => !v)}
+   134→        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+   135→        aria-expanded={open}
+   136→      >
+   137→        <span className="flex min-w-0 items-center gap-2">
+   138→          <span className="truncate text-sm font-medium text-stone-800">
+   139→            {crop.crop_code}
+   140→          </span>
+   141→          {crop.etc_computable ? (
+   142→            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-800">
+   143→              ETc computable
+   144→            </Badge>
+   145→          ) : (
+   146→            <Badge variant="outline" className="border-stone-300 bg-stone-50 text-[10px] text-stone-500">
+   147→              ETc not evaluated
+   148→            </Badge>
+   149→          )}
+   150→        </span>
+   151→        <span className="flex shrink-0 items-center gap-2">
+   152→          <Badge variant="outline" className={`text-[10px] capitalize ${overallStyle}`}>
+   153→            {crop.overall.replace('_', ' ')}
+   154→          </Badge>
+   155→          <ChevronDown className={`h-4 w-4 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+   156→        </span>
+   157→      </button>
+   158→      {open && (
+   159→        <div className="space-y-1.5 border-t border-stone-100 px-3 py-2">
+   160→          {Object.entries(crop.dimensions).map(([key, dim]) => (
+   161→            <div key={key} className="flex items-start justify-between gap-2 text-xs">
+   162→              <span className="min-w-0">
+   163→                <span className="font-medium capitalize text-stone-700">
+   164→                  {key.replace(/_/g, '')}
+   165→                </span>
+   166→                <span className="block text-stone-500">{dim.detail}</span>
+   167→              </span>
+   168→              <Badge
+   169→                variant="outline"
+   170→                className={`shrink-0 text-[10px] ${READINESS_STYLES[dim.status] ?? ''}`}
+   171→              >
+   172→                {dim.status.replace(/_/g, ' ')}
+   173→              </Badge>
+   174→            </div>
+   175→          ))}
+   176→        </div>
+   177→      )}
+   178→    </div>
+   179→  )
+   180→}
+   181→
+   182→// ------------------------------------------------------------- plan form
+   183→
+   184→interface PlanSeasonForm {
+   185→  label: string
+   186→  start: string
+   187→  end: string
+   188→  crop: string
+   189→  sowing: string
+   190→}
+   191→
+   192→const PE_METHOD_LABELS: Record<string, string> = {
+   193→  fao_aglw_1986: 'FAO-33 (Brouwer & Heibloem 1986)',
+   194→  constant_fraction: 'Constant fraction (farmer-supplied)',
+   195→  none: 'None — rainfall credit unknown',
+   196→}
+   197→
+   198→function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => void }) {
+   199→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   200→  const queryClient = useQueryClient()
+   201→  const { toast } = useToast()
+   202→  const methods = useWaterMethods()
+   203→  const crops = useKnowledgeCrops(true)
+   204→
+   205→  const [expert, setExpert] = useState(false)
+   206→  const [seasons, setSeasons] = useState<PlanSeasonForm[]>([
+   207→    { label: 'summer_2026', start: '2026-05-01', end: '2026-09-15', crop: 'maize', sowing: '' },
+   208→  ])
+   209→  const [allocation, setAllocation] = useState('45000')
+   210→  const [allocationEnabled, setAllocationEnabled] = useState(true)
+   211→  const [soilSource, setSoilSource] = useState<'none' | 'farmer_measured' | 'ptf_texture'>('none')
+   212→  const [thetaFc, setThetaFc] = useState('')
+   213→  const [thetaWp, setThetaWp] = useState('')
+   214→  const [zr, setZr] = useState('')
+   215→  const [pTable, setPTable] = useState('')
+   216→  const [peMethod, setPeMethod] = useState('fao_aglw_1986')
+   217→  const [peFraction, setPeFraction] = useState('')
+   218→  const [efficiencyClass, setEfficiencyClass] = useState('surface')
+   219→  const [efficiencyValue, setEfficiencyValue] = useState('')
+   220→  const [efficiencyEnabled, setEfficiencyEnabled] = useState(false)
+   221→
+   222→  const cropOptions = useMemo(
+   223→    () => (crops.data?.crops ?? []).map((c) => c.crop_code).sort(),
+   224→    [crops.data],
+   225→  )
+   226→
+   227→  const createMutation = useMutation({
+   228→    mutationFn: (fieldId: string) => {
+   229→      const farmerSoilValid =
+   230→        soilSource === 'farmer_measured' && thetaFc !== '' && thetaWp !== ''
+   231→      if (soilSource === 'farmer_measured' && !farmerSoilValid) {
+   232→        throw new Error('Farmer-measured soil needs field capacity and wilting point (m³/m³).')
+   233→      }
+   234→      return createWaterPlan(fieldId, {
+   235→        label: `Water plan ${new Date().toISOString().slice(0, 10)}`,
+   236→        seasons: seasons.map((s) => ({
+   237→          label: s.label || 'season',
+   238→          start_date: s.start,
+   239→          end_date: s.end,
+   240→        })),
+   241→        crop_assignments: seasons.map((s) => ({ crop_code: s.crop })),
+   242→        sowing_dates: Object.fromEntries(
+   243→          seasons.filter((s) => s.sowing).map((s) => [s.label || 'season', s.sowing]),
+   244→        ),
+   245→        soil_source: soilSource,
+   246→        farmer_soil:
+   247→          soilSource === 'farmer_measured' && farmerSoilValid
+   248→            ? {
+   249→                theta_fc: Number(thetaFc),
+   250→                theta_wp: Number(thetaWp),
+   251→                ...(zr !== '' ? { zr_m: Number(zr) } : {}),
+   252→                ...(pTable !== '' ? { p_table: Number(pTable) } : {}),
+   253→              }
+   254→            : undefined,
+   255→        effective_rainfall_method: peMethod,
+   256→        pe_fraction:
+   257→          peMethod === 'constant_fraction' && peFraction !== ''
+   258→            ? Number(peFraction)
+   259→            : undefined,
+   260→        irrigation_efficiency: efficiencyEnabled
+   261→          ? efficiencyValue !== ''
+   262→            ? { value: Number(efficiencyValue) }
+   263→            : { method_class: efficiencyClass }
+   264→          : undefined,
+   265→        water_allocation_m3: allocationEnabled && allocation !== '' ? Number(allocation) : null,
+   266→      })
+   267→    },
+   268→    onSuccess: (plan) => {
+   269→      queryClient.invalidateQueries({ queryKey: ['water-plans', selectedField?.id] })
+   270→      onPlanCreated(plan.id)
+   271→      toast({ title: 'Water plan created', description: `Checksum ${plan.checksum_sha256?.slice(0, 12)}…` })
+   272→    },
+   273→    onError: (err) => {
+   274→      const d = describeError(err)
+   275→      toast({ title: d.title, description: d.description, variant: 'destructive' })
+   276→    },
+   277→  })
+   278→
+   279→  if (!selectedField) return null
+   280→
+   281→  const updateSeason = (idx: number, patch: Partial<PlanSeasonForm>) =>
+   282→    setSeasons((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
+   283→
+   284→  return (
+   285→    <Card>
+   286→      <CardHeader className="pb-3">
+   287→        <div className="flex flex-wrap items-center justify-between gap-2">
+   288→          <div>
+   289→            <CardTitle className="flex items-center gap-2 text-base">
+   290→              <Droplets className="h-4 w-4 text-emerald-700" aria-hidden />
+   291→              Seasonal water plan
+   292→            </CardTitle>
+   293→            <CardDescription>
+   294→              ETc = Kc × ET0 (FAO-56 single curve), effective rainfall, the net
+   295→              and gross irrigation requirement, and the allocation check —
+   296→              every assumption disclosed with the result.
+   297→            </CardDescription>
+   298→          </div>
+   299→          <div className="flex items-center gap-2 text-xs text-stone-500">
+   300→            <span aria-hidden>Simple</span>
+   301→            <Switch
+   302→              checked={expert}
+   303→              onCheckedChange={setExpert}
+   304→              aria-label="Toggle expert mode"
+   305→            />
+   306→            <span aria-hidden>Expert</span>
+   307→          </div>
+   308→        </div>
+   309→      </CardHeader>
+   310→      <CardContent className="space-y-4">
+   311→        <div className="space-y-2">
+   312→          {seasons.map((s, i) => (
+   313→            <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+   314→              <Input
+   315→                value={s.label}
+   316→                onChange={(e) => updateSeason(i, { label: e.target.value })}
+   317→                placeholder="Label"
+   318→                className="h-9 text-sm"
+   319→                aria-label={`Season ${i + 1} label`}
+   320→              />
+   321→              <Input
+   322→                type="date"
+   323→                value={s.start}
+   324→                onChange={(e) => updateSeason(i, { start: e.target.value })}
+   325→                className="h-9 text-sm"
+   326→                aria-label={`Season ${i + 1} start`}
+   327→              />
+   328→              <Input
+   329→                type="date"
+   330→                value={s.end}
+   331→                onChange={(e) => updateSeason(i, { end: e.target.value })}
+   332→                className="h-9 text-sm"
+   333→                aria-label={`Season ${i + 1} end`}
+   334→              />
+   335→              <Select
+   336→                value={s.crop}
+   337→                onValueChange={(v) => updateSeason(i, { crop: v })}
+   338→              >
+   339→                <SelectTrigger className="h-9 text-sm" aria-label={`Season ${i + 1} crop`}>
+   340→                  <SelectValue placeholder="Crop" />
+   341→                </SelectTrigger>
+   342→                <SelectContent className="max-h-72">
+   343→                  {cropOptions.map((code) => (
+   344→                    <SelectItem key={code} value={code} className="text-sm">
+   345→                      {code}
+   346→                    </SelectItem>
+   347→                  ))}
+   348→                </SelectContent>
+   349→              </Select>
+   350→              {expert ? (
+   351→                <Input
+   352→                  type="date"
+   353→                  value={s.sowing}
+   354→                  onChange={(e) => updateSeason(i, { sowing: e.target.value })}
+   355→                  className="h-9 text-sm"
+   356→                  aria-label={`Season ${i + 1} sowing date (optional)`}
+   357→                  placeholder="Sowing"
+   358→                />
+   359→              ) : (
+   360→                <Button
+   361→                  variant="ghost"
+   362→                  size="sm"
+   363→                  className="h-9 text-xs text-stone-500"
+   364→                  onClick={() => setSeasons((prev) => prev.filter((_, j) => j !== i))}
+   365→                  disabled={seasons.length === 1}
+   366→                >
+   367→                  Remove
+   368→                </Button>
+   369→              )}
+   370→            </div>
+   371→          ))}
+   372→          <Button
+   373→            variant="outline"
+   374→            size="sm"
+   375→            className="text-xs"
+   376→            onClick={() =>
+   377→              setSeasons((prev) => [
+   378→                ...prev,
+   379→                {
+   380→                  label: `season_${prev.length + 1}`,
+   381→                  start: '2026-05-01',
+   382→                  end: '2026-09-15',
+   383→                  crop: cropOptions[0] ?? 'maize',
+   384→                  sowing: '',
+   385→                },
+   386→              ])
+   387→            }
+   388→            disabled={seasons.length >= 4}
+   389→          >
+   390→            Add season
+   391→          </Button>
+   392→        </div>
+   393→
+   394→        <div className="grid gap-3 sm:grid-cols-2">
+   395→          <div className="space-y-1.5">
+   396→            <div className="flex items-center justify-between">
+   397→              <Label htmlFor="water-allocation" className="text-xs text-stone-600">
+   398→                Seasonal water allocation (m³)
+   399→              </Label>
+   400→              <Switch
+   401→                checked={allocationEnabled}
+   402→                onCheckedChange={setAllocationEnabled}
+   403→                aria-label="Toggle allocation constraint"
+   404→                className="scale-90"
+   405→              />
+   406→            </div>
+   407→            <Input
+   408→              id="water-allocation"
+   409→              type="number"
+   410→              min="0"
+   411→              value={allocation}
+   412→              onChange={(e) => setAllocation(e.target.value)}
+   413→              disabled={!allocationEnabled}
+   414→              className="h-9 text-sm"
+   415→              placeholder="Leave off if unknown — never assumed unlimited"
+   416→            />
+   417→            {!allocationEnabled && (
+   418→              <p className="text-[11px] text-amber-700">
+   419→                Allocation unknown — the plan reports it as unknown, never as
+   420→                unlimited water.
+   421→              </p>
+   422→            )}
+   423→          </div>
+   424→
+   425→          <div className="space-y-1.5">
+   426→            <Label className="text-xs text-stone-600">Soil water-holding inputs</Label>
+   427→            <Select value={soilSource} onValueChange={(v) => setSoilSource(v as typeof soilSource)}>
+   428→              <SelectTrigger className="h-9 text-sm" aria-label="Soil source">
+   429→                <SelectValue />
+   430→              </SelectTrigger>
+   431→              <SelectContent>
+   432→                <SelectItem value="none" className="text-sm">None — FAO-33 no-storage method</SelectItem>
+   433→                <SelectItem value="farmer_measured" className="text-sm">Farmer-measured θFC/θWP</SelectItem>
+   434→                <SelectItem value="ptf_texture" className="text-sm">Estimate from texture (Saxton-Rawls PTF)</SelectItem>
+   435→              </SelectContent>
+   436→            </Select>
+   437→            {soilSource === 'farmer_measured' && (
+   438→              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+   439→                <Input type="number" step="0.01" min="0" max="0.6" value={thetaFc} onChange={(e) => setThetaFc(e.target.value)} className="h-9 text-sm" placeholder="θFC" aria-label="Field capacity m3/m3" />
+   440→                <Input type="number" step="0.01" min="0" max="0.6" value={thetaWp} onChange={(e) => setThetaWp(e.target.value)} className="h-9 text-sm" placeholder="θWP" aria-label="Wilting point m3/m3" />
+   441→                <Input type="number" step="0.1" min="0" value={zr} onChange={(e) => setZr(e.target.value)} className="h-9 text-sm" placeholder="Zr (m)" aria-label="Root zone depth metres (optional)" />
+   442→                <Input type="number" step="0.01" min="0" max="1" value={pTable} onChange={(e) => setPTable(e.target.value)} className="h-9 text-sm" placeholder="p" aria-label="Depletion fraction (optional)" />
+   443→              </div>
+   444→            )}
+   445→            {soilSource === 'ptf_texture' && (
+   446→              <p className="text-[11px] text-stone-500">
+   447→                Estimated from the field&apos;s texture observations
+   448→                (Saxton &amp; Rawls 2006; validity domain enforced). A
+   449→                texture-based estimate — never a measurement.
+   450→              </p>
+   451→            )}
+   452→          </div>
+   453→        </div>
+   454→
+   455→        {expert && (
+   456→          <div className="grid gap-3 sm:grid-cols-2">
+   457→            <div className="space-y-1.5">
+   458→              <Label className="text-xs text-stone-600">Effective-rainfall method</Label>
+   459→              <Select value={peMethod} onValueChange={setPeMethod}>
+   460→                <SelectTrigger className="h-9 text-sm" aria-label="Effective rainfall method">
+   461→                  <SelectValue />
+   462→                </SelectTrigger>
+   463→                <SelectContent>
+   464→                  {(methods.data?.effective_rainfall_methods ?? []).map((m) => (
+   465→                    <SelectItem key={m.code} value={m.code} className="text-sm">
+   466→                      {PE_METHOD_LABELS[m.code] ?? m.code}
+   467→                    </SelectItem>
+   468→                  ))}
+   469→                </SelectContent>
+   470→              </Select>
+   471→              {peMethod === 'constant_fraction' && (
+   472→                <Input
+   473→                  type="number" step="0.05" min="0" max="1"
+   474→                  value={peFraction}
+   475→                  onChange={(e) => setPeFraction(e.target.value)}
+   476→                  className="h-9 text-sm"
+   477→                  placeholder="Fraction (0–1)"
+   478→                  aria-label="Effective rainfall fraction"
+   479→                />
+   480→              )}
+   481→            </div>
+   482→            <div className="space-y-1.5">
+   483→              <div className="flex items-center justify-between">
+   484→                <Label className="text-xs text-stone-600">Application efficiency</Label>
+   485→                <Switch
+   486→                  checked={efficiencyEnabled}
+   487→                  onCheckedChange={setEfficiencyEnabled}
+   488→                  aria-label="Toggle application efficiency"
+   489→                  className="scale-90"
+   490→                />
+   491→              </div>
+   492→              {efficiencyEnabled && (
+   493→                <div className="grid grid-cols-2 gap-2">
+   494→                  <Select value={efficiencyClass} onValueChange={setEfficiencyClass}>
+   495→                    <SelectTrigger className="h-9 text-sm" aria-label="Efficiency method class">
+   496→                      <SelectValue />
+   497→                    </SelectTrigger>
+   498→                    <SelectContent>
+   499→                      {(methods.data?.irrigation_efficiency_classes ?? []).map((c) => (
+   500→                        <SelectItem key={c.method_class} value={c.method_class} className="text-sm">
+   501→                          {c.method_class} ({Math.round(c.efficiency * 100)}%)
+   502→                        </SelectItem>
+   503→                      ))}
+   504→                    </SelectContent>
+   505→                  </Select>
+   506→                  <Input
+   507→                    type="number" step="0.05" min="0.05" max="1"
+   508→                    value={efficiencyValue}
+   509→                    onChange={(e) => setEfficiencyValue(e.target.value)}
+   510→                    className="h-9 text-sm"
+   511→                    placeholder="Or farmer value"
+   512→                    aria-label="Farmer application efficiency"
+   513→                  />
+   514→                </div>
+   515→              )}
+   516→            </div>
+   517→          </div>
+   518→        )}
+   519→
+   520→        <Button
+   521→          size="sm"
+   522→          className="w-full sm:w-auto"
+   523→          onClick={() => selectedField.id && createMutation.mutate(selectedField.id)}
+   524→          disabled={createMutation.isPending || !selectedField.id}
+   525→        >
+   526→          {createMutation.isPending ? 'Computing plan…' : 'Compute water plan'}
+   527→        </Button>
+   528→      </CardContent>
+   529→    </Card>
+   530→  )
+   531→}
+   532→
+   533→// ------------------------------------------------------------- results
+   534→
+   535→function AllocationBadge({ allocation }: { allocation: WaterPlanSeason['allocation'] }) {
+   536→  if (allocation.status === 'unknown') {
+   537→    return (
+   538→      <Badge variant="outline" className="border-stone-300 bg-stone-100 text-stone-600">
+   539→        allocation unknown
+   540→      </Badge>
+   541→    )
+   542→  }
+   543→  if (allocation.status === 'not_evaluated') {
+   544→    return (
+   545→      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+   546→        allocation not evaluated
+   547→      </Badge>
+   548→    )
+   549→  }
+   550→  if (allocation.status === 'deficit') {
+   551→    return (
+   552→      <Badge variant="outline" className="border-red-200 bg-red-50 text-red-800">
+   553→        deficit {fmt(allocation.deficit_m3, 0)} m³
+   554→      </Badge>
+   555→    )
+   556→  }
+   557→  return (
+   558→    <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+   559→      within allocation ({Math.round((allocation.coverage_ratio ?? 0) * 100)}%)
+   560→    </Badge>
+   561→  )
+   562→}
+   563→
+   564→function StageTimeline({ season }: { season: WaterPlanSeason }) {
+   565→  const stages = season.stages
+   566→  const maxEtc = Math.max(...stages.map((s) => s.etc_mm ?? 0), 1)
+   567→  const stageColors: Record<string, string> = {
+   568→    initial: 'bg-amber-300',
+   569→    development: 'bg-lime-400',
+   570→    mid: 'bg-emerald-500',
+   571→    late: 'bg-teal-500',
+   572→  }
+   573→  return (
+   574→    <div className="space-y-2">
+   575→      <div className="flex h-8 w-full overflow-hidden rounded-md border border-stone-200" role="img" aria-label="Seasonal ETc by growth stage">
+   576→        {stages.map((s) => (
+   577→          <div
+   578→            key={s.stage}
+   579→            className={`flex items-center justify-center ${stageColors[s.stage] ?? 'bg-stone-300'}`}
+   580→            style={{ width: `${((s.etc_mm ?? 0) / maxEtc) * 100}%` }}
+   581→            title={`${s.stage}: ${fmt(s.etc_mm)} mm ETc over ${s.days_in_season} days`}
+   582→          >
+   583→            <span className="truncate px-1 text-[10px] font-medium text-stone-800">
+   584→              {fmt(s.etc_mm, 0)} mm
+   585→            </span>
+   586→          </div>
+   587→        ))}
+   588→      </div>
+   589→      <div className="overflow-x-auto scrollbar-thin">
+   590→        <table className="w-full min-w-[560px] text-left text-xs">
+   591→          <thead className="text-stone-500">
+   592→            <tr>
+   593→              <th className="py-1 pr-2 font-medium">Stage</th>
+   594→              <th className="py-1 pr-2 font-medium">Window</th>
+   595→              <th className="py-1 pr-2 font-medium">Days</th>
+   596→              <th className="py-1 pr-2 font-medium">Kc mean</th>
+   597→              <th className="py-1 pr-2 font-medium">ETc (mm)</th>
+   598→              <th className="py-1 pr-2 font-medium">Pe (mm)</th>
+   599→              <th className="py-1 pr-2 font-medium">Dr end (mm)</th>
+   600→              <th className="py-1 font-medium">Ks mean</th>
+   601→            </tr>
+   602→          </thead>
+   603→          <tbody>
+   604→            {stages.map((s) => (
+   605→              <tr key={s.stage} className="border-t border-stone-100">
+   606→                <td className="py-1 pr-2 font-medium capitalize text-stone-700">{s.stage}</td>
+   607→                <td className="py-1 pr-2 text-stone-500">
+   608→                  {s.dates[0]} → {s.dates[1]}
+   609→                </td>
+   610→                <td className="py-1 pr-2 text-stone-500">{s.days_in_season}</td>
+   611→                <td className="py-1 pr-2 text-stone-700">{fmt(s.kc_mean, 2)}</td>
+   612→                <td className="py-1 pr-2 text-stone-700">{fmt(s.etc_mm)}</td>
+   613→                <td className="py-1 pr-2 text-stone-700">{fmt(s.pe_mm)}</td>
+   614→                <td className="py-1 pr-2 text-stone-700">{fmt(s.dr_end_mm)}</td>
+   615→                <td className="py-1 text-stone-700">{fmt(s.ks_mean, 2)}</td>
+   616→              </tr>
+   617→            ))}
+   618→          </tbody>
+   619→        </table>
+   620→      </div>
+   621→    </div>
+   622→  )
+   623→}
+   624→
+   625→function MonthlyTable({ season }: { season: WaterPlanSeason }) {
+   626→  return (
+   627→    <div className="overflow-x-auto scrollbar-thin">
+   628→      <table className="w-full min-w-[620px] text-left text-xs">
+   629→        <thead className="text-stone-500">
+   630→          <tr>
+   631→            <th className="py-1 pr-2 font-medium">Month</th>
+   632→            <th className="py-1 pr-2 font-medium">ET0 (mm)</th>
+   633→            <th className="py-1 pr-2 font-medium">Kc mean</th>
+   634→            <th className="py-1 pr-2 font-medium">ETc (mm)</th>
+   635→            <th className="py-1 pr-2 font-medium">P (mm)</th>
+   636→            <th className="py-1 pr-2 font-medium">Pe (mm)</th>
+   637→            <th className="py-1 pr-2 font-medium">Net irr. (mm)</th>
+   638→            <th className="py-1 font-medium">Dr end (mm)</th>
+   639→          </tr>
+   640→        </thead>
+   641→        <tbody>
+   642→          {season.months.map((m) => (
+   643→            <tr key={`${m.year}-${m.month}`} className="border-t border-stone-100">
+   644→              <td className="py-1 pr-2 font-medium text-stone-700">
+   645→                {m.year}-{String(m.month).padStart(2, '0')}
+   646→              </td>
+   647→              <td className="py-1 pr-2 text-stone-700">{fmt(m.et0_mm)}</td>
+   648→              <td className="py-1 pr-2 text-stone-700">{fmt(m.kc_mean, 2)}</td>
+   649→              <td className="py-1 pr-2 text-stone-700">{fmt(m.etc_mm)}</td>
+   650→              <td className={`py-1 pr-2 ${m.precip_evidence_missing ? 'text-amber-700' : 'text-stone-700'}`}>
+   651→                {m.precip_evidence_missing ? 'no evidence' : fmt(m.precip_mm)}
+   652→              </td>
+   653→              <td className="py-1 pr-2 text-stone-700">{fmt(m.effective_rainfall_mm)}</td>
+   654→              <td className="py-1 pr-2 text-stone-700">{fmt(m.net_irrigation_mm)}</td>
+   655→              <td className="py-1 text-stone-700">{fmt(m.dr_end_mm)}</td>
+   656→            </tr>
+   657→          ))}
+   658→        </tbody>
+   659→      </table>
+   660→    </div>
+   661→  )
+   662→}
+   663→
+   664→function LadderCard({ season }: { season: WaterPlanSeason }) {
+   665→  const label: Record<string, string> = {
+   666→    crop_evapotranspiration: 'Crop evapotranspiration (ETc)',
+   667→    effective_rainfall: 'Effective rainfall (Pe)',
+   668→    soil_water_contribution: 'Soil-water contribution (ΔSW)',
+   669→    net_irrigation_requirement: 'Net irrigation requirement',
+   670→    gross_irrigation_requirement: 'Gross irrigation requirement',
+   671→    actual_irrigation_applied: 'Actual irrigation applied',
+   672→  }
+   673→  return (
+   674→    <div className="space-y-1.5">
+   675→      {season.ladder.map((step) => {
+   676→        const muted = step.status !== 'evaluated'
+   677→        return (
+   678→          <div key={step.quantity} className="flex items-start justify-between gap-3 text-xs">
+   679→            <span className="min-w-0">
+   680→              <span className={`font-medium ${muted ? 'text-stone-500' : 'text-stone-800'}`}>
+   681→                {label[step.quantity] ?? step.quantity}
+   682→              </span>
+   683→              <span className="block text-stone-500">{step.basis}</span>
+   684→              {step.detail && <span className="block text-stone-400">{step.detail}</span>}
+   685→            </span>
+   686→            <span className="shrink-0 text-right">
+   687→              <span className={`font-semibold ${muted ? 'text-stone-400' : 'text-stone-900'}`}>
+   688→                {step.value_mm === null ? '(not evaluated)' : `${fmt(step.value_mm, 1)} mm`}
+   689→              </span>
+   690→              {season.volumes_m3[`${step.quantity}_m3`] !== undefined && !muted && (
+   691→                <span className="block text-stone-500">
+   692→                  ≈ {fmt(season.volumes_m3[`${step.quantity}_m3`], 0)} m³
+   693→                </span>
+   694→              )}
+   695→            </span>
+   696→          </div>
+   697→        )
+   698→      })}
+   699→    </div>
+   700→  )
+   701→}
+   702→
+   703→function SeasonPlanCard({ season }: { season: WaterPlanSeason }) {
+   704→  const totals = season.totals
+   705→  return (
+   706→    <Card>
+   707→      <CardHeader className="pb-2">
+   708→        <div className="flex flex-wrap items-center justify-between gap-2">
+   709→          <CardTitle className="text-sm font-semibold text-stone-800">
+   710→            {season.season_label} · {season.crop_code}
+   711→          </CardTitle>
+   712→          <AllocationBadge allocation={season.allocation} />
+   713→        </div>
+   714→        <CardDescription>
+   715→          {season.season.start_date} → {season.season.end_date} · sowing{' '}
+   716→          {season.sowing_date} · {fmt(season.area_ha, 2)} ha
+   717→        </CardDescription>
+   718→      </CardHeader>
+   719→      <CardContent className="space-y-4">
+   720→        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+   721→          {[
+   722→            { label: 'Reference ET0', value: `${fmt(totals.et0_mm)} mm`, hint: 'FAO-56 reference surface' },
+   723→            { label: 'Crop ETc', value: `${fmt(totals.etc_mm)} mm`, hint: 'Kc × ET0' },
+   724→            { label: 'Effective rainfall', value: `${fmt(totals.effective_rainfall_mm)} mm`, hint: season.effective_rainfall.method },
+   725→            { label: 'Net irrigation', value: `${fmt(totals.net_irrigation_requirement_mm)} mm`, hint: '≈ ' + fmt(totals.volumes_m3.net_irrigation_requirement_m3, 0) + ' m³' },
+   726→          ].map((tile) => (
+   727→            <div key={tile.label} className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
+   728→              <p className="text-[11px] font-medium uppercase tracking-wide text-stone-500">{tile.label}</p>
+   729→              <p className="text-sm font-semibold text-stone-900">{tile.value}</p>
+   730→              <p className="text-[10px] text-stone-400">{tile.hint}</p>
+   731→            </div>
+   732→          ))}
+   733→        </div>
+   734→
+   735→        <div className="grid gap-4 lg:grid-cols-2">
+   736→          <div className="min-w-0 space-y-2">
+   737→            <p className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+   738→              <Gauge className="h-3.5 w-3.5 text-emerald-700" aria-hidden /> Growth-stage demand
+   739→            </p>
+   740→            <StageTimeline season={season} />
+   741→          </div>
+   742→          <div className="min-w-0 space-y-2">
+   743→            <p className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+   744→              <ScrollText className="h-3.5 w-3.5 text-emerald-700" aria-hidden /> Water ladder
+   745→            </p>
+   746→            <LadderCard season={season} />
+   747→          </div>
+   748→        </div>
+   749→
+   750→        <Accordion type="multiple" className="w-full">
+   751→          <AccordionItem value="months">
+   752→            <AccordionTrigger className="text-xs text-stone-600">
+   753→              Monthly timeline
+   754→            </AccordionTrigger>
+   755→            <AccordionContent>
+   756→              <MonthlyTable season={season} />
+   757→            </AccordionContent>
+   758→          </AccordionItem>
+   759→          <AccordionItem value="deficits">
+   760→            <AccordionTrigger className="text-xs text-stone-600">
+   761→              Deficit windows ({season.deficit_windows.length})
+   762→            </AccordionTrigger>
+   763→            <AccordionContent>
+   764→              {season.deficit_windows.length === 0 ? (
+   765→                <p className="text-xs text-stone-500">
+   766→                  No root-zone stress windows or allocation shortfall identified.
+   767→                </p>
+   768→              ) : (
+   769→                <ul className="space-y-1.5 text-xs text-stone-600">
+   770→                  {season.deficit_windows.map((w, i) => (
+   771→                    <li key={i} className="flex items-start gap-2">
+   772→                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
+   773→                      <span>
+   774→                        {String(w.kind).replace(/_/g, ' ')}
+   775→                        {w.start_date ? `: ${String(w.start_date)} → ${String(w.end_date)} (${String(w.days)} days, max Dr ${fmt(Number(w.max_dr_mm))} mm)` : ''}
+   776→                        {w.deficit_m3 ? `: shortfall ${fmt(Number(w.deficit_m3), 0)} m³` : ''}
+   777→                        {w.detail ? ` — ${String(w.detail)}` : ''}
+   778→                      </span>
+   779→                    </li>
+   780→                  ))}
+   781→                </ul>
+   782→              )}
+   783→            </AccordionContent>
+   784→          </AccordionItem>
+   785→          <AccordionItem value="method">
+   786→            <AccordionTrigger className="text-xs text-stone-600">
+   787→              Methodology &amp; assumptions ({season.assumptions.length})
+   788→            </AccordionTrigger>
+   789→            <AccordionContent>
+   790→              <ul className="list-disc space-y-1 pl-4 text-xs text-stone-600">
+   791→                {season.assumptions.map((a, i) => (
+   792→                  <li key={i}>{a}</li>
+   793→                ))}
+   794→              </ul>
+   795→            </AccordionContent>
+   796→          </AccordionItem>
+   797→          <AccordionItem value="missing">
+   798→            <AccordionTrigger className="text-xs text-stone-600">
+   799→              Not evaluated ({season.missing_evidence.length})
+   800→            </AccordionTrigger>
+   801→            <AccordionContent>
+   802→              {season.missing_evidence.length === 0 ? (
+   803→                <p className="text-xs text-stone-500">Every dimension was evaluable.</p>
+   804→              ) : (
+   805→                <ul className="list-disc space-y-1 pl-4 text-xs text-amber-800">
+   806→                  {season.missing_evidence.map((m, i) => (
+   807→                    <li key={i}>{m}</li>
+   808→                  ))}
+   809→                </ul>
+   810→              )}
+   811→            </AccordionContent>
+   812→          </AccordionItem>
+   813→          <AccordionItem value="sources">
+   814→            <AccordionTrigger className="text-xs text-stone-600">
+   815→              Data provenance ({season.sources.length})
+   816→            </AccordionTrigger>
+   817→            <AccordionContent>
+   818→              <ul className="space-y-1 text-xs text-stone-600">
+   819→                {season.sources.map((src, i) => (
+   820→                  <li key={i}>
+   821→                    <span className="font-medium capitalize">
+   822→                      {String(src.type ?? 'source').replace(/_/g, ' ')}
+   823→                    </span>
+   824→                    {src.citation_text ? ` — ${String(src.citation_text)}` : ''}
+   825→                    {src.basis ? ` — ${String(src.basis)}` : ''}
+   826→                    {src.validation_status ? ` (${String(src.validation_status)})` : ''}
+   827→                  </li>
+   828→                ))}
+   829→              </ul>
+   830→              <p className="mt-2 flex items-center gap-1 text-[10px] text-stone-400">
+   831→                <ShieldCheck className="h-3 w-3" aria-hidden />
+   832→                plan checksum {season.checksum_sha256}
+   833→              </p>
+   834→            </AccordionContent>
+   835→          </AccordionItem>
+   836→        </Accordion>
+   837→      </CardContent>
+   838→    </Card>
+   839→  )
+   840→}
+   841→
+   842→function PlanHistory({
+   843→  selectedFieldId,
+   844→  activePlanId,
+   845→  onSelect,
+   846→}: {
+   847→  selectedFieldId: string | null
+   848→  activePlanId: string | null
+   849→  onSelect: (id: string) => void
+   850→}) {
+   851→  const plans = useWaterPlans(selectedFieldId)
+   852→  const queryClient = useQueryClient()
+   853→  const { toast } = useToast()
+   854→  const deleteMutation = useMutation({
+   855→    mutationFn: (planId: string) => deleteWaterPlan(planId),
+   856→    onSuccess: () => {
+   857→      queryClient.invalidateQueries({ queryKey: ['water-plans', selectedFieldId] })
+   858→      toast({ title: 'Plan deleted' })
+   859→    },
+   860→  })
+   861→
+   862→  if (!selectedFieldId) return null
+   863→  const items = plans.data?.items ?? []
+   864→
+   865→  return (
+   866→    <Card>
+   867→      <CardHeader className="pb-3">
+   868→        <CardTitle className="text-base">Plan history</CardTitle>
+   869→        <CardDescription>
+   870→          Immutable snapshots — re-running a scenario creates a new plan, never
+   871→          overwrites.
+   872→        </CardDescription>
+   873→      </CardHeader>
+   874→      <CardContent>
+   875→        {items.length === 0 ? (
+   876→          <p className="text-sm text-stone-500">No plans yet.</p>
+   877→        ) : (
+   878→          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+   879→            {items.map((plan: WaterPlan) => (
+   880→              <div
+   881→                key={plan.id}
+   882→                className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${
+   883→                  plan.id === activePlanId
+   884→                    ? 'border-emerald-300 bg-emerald-50'
+   885→                    : 'border-stone-200 bg-white'
+   886→                }`}
+   887→              >
+   888→                <button
+   889→                  type="button"
+   890→                  className="min-w-0 flex-1 text-left"
+   891→                  onClick={() => onSelect(plan.id)}
+   892→                >
+   893→                  <span className="block truncate font-medium text-stone-800">{plan.label}</span>
+   894→                  <span className="block truncate text-stone-500">
+   895→                    {(plan.seasons ?? []).map((s) => s.label).join(', ') || '—'} ·{' '}
+   896→                    {plan.methods?.effective_rainfall_method ?? '—'} ·{' '}
+   897→                    {plan.checksum_sha256 ? plan.checksum_sha256.slice(0, 8) : '—'}
+   898→                  </span>
+   899→                </button>
+   900→                <Badge
+   901→                  variant="outline"
+   902→                  className={
+   903→                    plan.status === 'succeeded'
+   904→                      ? 'border-emerald-200 bg-white text-emerald-800'
+   905→                      : 'border-red-200 bg-white text-red-700'
+   906→                  }
+   907→                >
+   908→                  {plan.status}
+   909→                </Badge>
+   910→                <Button
+   911→                  variant="ghost"
+   912→                  size="sm"
+   913→                  className="h-7 px-2 text-stone-400 hover:text-red-700"
+   914→                  onClick={() => deleteMutation.mutate(plan.id)}
+   915→                  disabled={deleteMutation.isPending}
+   916→                  aria-label={`Delete plan ${plan.label}`}
+   917→                >
+   918→                  ×
+   919→                </Button>
+   920→              </div>
+   921→            ))}
+   922→          </div>
+   923→        )}
+   924→      </CardContent>
+   925→    </Card>
+   926→  )
+   927→}
+   928→
+   929→export function Water() {
+   930→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   931→  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+   932→  const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
+   933→  const [activePlanId, setActivePlanId] = useState<string | null>(null)
+   934→  const plan = useWaterPlan(activePlanId)
+   935→  const methods = useWaterMethods()
+   936→
+   937→  const hasField = !!selectedField
+   938→
+   939→  return (
+   940→    <div className="space-y-4">
+   941→      {!hasField ? (
+   942→        <Card>
+   943→          <CardContent className="py-10 text-center text-sm text-stone-500">
+   944→            <div className="flex flex-wrap items-center justify-center gap-2">
+   945→              <span>Pick a field to plan its water. Methodology is public:</span>
+   946→              <a
+   947→                className="text-emerald-800 underline decoration-dotted"
+   948→                href="#water-methods"
+   949→              >
+   950→                see below
+   951→              </a>
+   952→              <FieldPicker
+   953→                value={null}
+   954→                onValueChange={setSelectedField}
+   955→                emptyHint={
+   956→                  <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
+   957→                    Create a farm and field first
+   958→                  </Button>
+   959→                }
+   960→              />
+   961→            </div>
+   962→          </CardContent>
+   963→        </Card>
+   964→      ) : (
+   965→        <>
+   966→          <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
+   967→          <PlanBuilderCard onPlanCreated={setActivePlanId} />
+   968→          {plan.data?.warnings && plan.data.warnings.length > 0 && (
+   969→            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+   970→              <ul className="list-disc space-y-0.5 pl-4">
+   971→                {plan.data.warnings.map((w, i) => (
+   972→                  <li key={i}>{w}</li>
+   973→                ))}
+   974→              </ul>
+   975→            </div>
+   976→          )}
+   977→          {plan.data?.result?.seasons.map((season) => (
+   978→            <SeasonPlanCard key={season.season_label + season.crop_code} season={season} />
+   979→          ))}
+   980→          {plan.data?.result && (
+   981→            <Card>
+   982→              <CardContent className="flex flex-wrap items-center justify-between gap-2 py-3 text-xs text-stone-600">
+   983→                <span className="flex items-center gap-1.5">
+   984→                  <Info className="h-3.5 w-3.5 text-stone-400" aria-hidden />
+   985→                  {plan.data.result.rotation_totals.note}
+   986→                </span>
+   987→                <span className="flex items-center gap-3">
+   988→                  <span>
+   989→                    rotation NIR total ≈{' '}
+   990→                    <strong className="text-stone-900">
+   991→                      {fmt(plan.data.result.rotation_totals.net_irrigation_requirement_m3_sum, 0)} m³
+   992→                    </strong>
+   993→                  </span>
+   994→                  <span>
+   995→                    engine {plan.data.result.engine_version} · methods{' '}
+   996→                    {plan.data.result.methods_version}
+   997→                  </span>
+   998→                </span>
+   999→              </CardContent>
+  1000→            </Card>
+  1001→          )}
+  1002→          <PlanHistory
+  1003→            selectedFieldId={selectedField.id}
+  1004→            activePlanId={activePlanId}
+  1005→            onSelect={setActivePlanId}
+  1006→          />
+  1007→          <ReadinessCard />
+  1008→        </>
+  1009→      )}
+  1010→
+  1011→      <Card id="water-methods">
+  1012→        <CardHeader className="pb-3">
+  1013→          <CardTitle className="flex items-center gap-2 text-base">
+  1014→            <ScrollText className="h-4 w-4 text-emerald-700" aria-hidden />
+  1015→            Water methodology disclosures
+  1016→          </CardTitle>
+  1017→          <CardDescription>
+  1018→            Every calculation cites its published method. Methods that could not
+  1019→            be verified from primary sources are listed as not implemented —
+  1020→            never approximated.
+  1021→          </CardDescription>
+  1022→        </CardHeader>
+  1023→        <CardContent>
+  1024→          {methods.data ? (
+  1025→            <Accordion type="multiple" className="w-full">
+  1026→              <AccordionItem value="pe">
+  1027→                <AccordionTrigger className="text-xs text-stone-600">
+  1028→                  Effective-rainfall methods ({methods.data.effective_rainfall_methods.length})
+  1029→                </AccordionTrigger>
+  1030→                <AccordionContent>
+  1031→                  <ul className="space-y-2 text-xs text-stone-600">
+  1032→                    {methods.data.effective_rainfall_methods.map((m) => (
+  1033→                      <li key={m.code}>
+  1034→                        <p className="font-semibold text-stone-800">{m.code}</p>
+  1035→                        <p>{m.formula}</p>
+  1036→                        <p className="text-stone-500">{m.conditions}</p>
+  1037→                        <p className="text-stone-400">{m.citation_text}</p>
+  1038→                      </li>
+  1039→                    ))}
+  1040→                  </ul>
+  1041→                </AccordionContent>
+  1042→              </AccordionItem>
+  1043→              <AccordionItem value="soil">
+  1044→                <AccordionTrigger className="text-xs text-stone-600">
+  1045→                  Soil water-holding sources
+  1046→                </AccordionTrigger>
+  1047→                <AccordionContent>
+  1048→                  <ul className="space-y-1.5 text-xs text-stone-600">
+  1049→                    {methods.data.soil_sources.map((s) => (
+  1050→                      <li key={s.code}>
+  1051→                        <span className="font-semibold text-stone-800">{s.code}</span> — {s.detail}
+  1052→                      </li>
+  1053→                    ))}
+  1054→                  </ul>
+  1055→                </AccordionContent>
+  1056→              </AccordionItem>
+  1057→              <AccordionItem value="efficiency">
+  1058→                <AccordionTrigger className="text-xs text-stone-600">
+  1059→                  Application-efficiency classes (FAO TM1 Annex I, Table 8)
+  1060→                </AccordionTrigger>
+  1061→                <AccordionContent>
+  1062→                  <ul className="space-y-1.5 text-xs text-stone-600">
+  1063→                    {methods.data.irrigation_efficiency_classes.map((c) => (
+  1064→                      <li key={c.method_class}>
+  1065→                        <span className="font-semibold capitalize text-stone-800">{c.method_class}</span>{' '}
+  1066→                        — {Math.round(c.efficiency * 100)}% ({c.applies_to})
+  1067→                      </li>
+  1068→                    ))}
+  1069→                  </ul>
+  1070→                </AccordionContent>
+  1071→              </AccordionItem>
+  1072→              <AccordionItem value="not-implemented">
+  1073→                <AccordionTrigger className="text-xs text-stone-600">
+  1074→                  Deliberately not implemented ({methods.data.not_implemented.length})
+  1075→                </AccordionTrigger>
+  1076→                <AccordionContent>
+  1077→                  <ul className="space-y-1.5 text-xs text-stone-600">
+  1078→                    {methods.data.not_implemented.map((n) => (
+  1079→                      <li key={n.item}>
+  1080→                        <span className="font-semibold text-stone-800">{n.item}</span> — {n.reason}
+  1081→                      </li>
+  1082→                    ))}
+  1083→                  </ul>
+  1084→                  <p className="mt-2 text-[11px] text-stone-500">
+  1085→                    Unit identities: 1 mm over 1 ha = 10 m³; 1 mm over 1 m² = 1 L.
+  1086→                  </p>
+  1087→                </AccordionContent>
+  1088→              </AccordionItem>
+  1089→            </Accordion>
+  1090→          ) : (
+  1091→            <p className="text-sm text-stone-500">Loading methodology…</p>
+  1092→          )}
+  1093→        </CardContent>
+  1094→      </Card>
+  1095→    </div>
+  1096→  )
+  1097→}
+  1098→
+  1099→export default Water
+  1100→

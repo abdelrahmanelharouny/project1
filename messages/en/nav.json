@@ -1,0 +1,23 @@
+{
+  "overview": "Overview",
+  "farms": "Farms & Fields",
+  "observations": "Observations",
+  "features": "Features",
+  "rotation": "Rotation",
+  "water": "Water",
+  "fieldstate": "Field State",
+  "scenarios": "Scenarios",
+  "soil": "Soil",
+  "management": "Management",
+  "sensitivity": "Sensitivity",
+  "robustplan": "Robust Plan",
+  "decisions": "Decisions",
+  "digitaltwin": "Digital Twin",
+  "passport": "Data Passport",
+  "signOut": "Sign out",
+  "restoringSession": "Restoring your session…",
+  "footerNote": "FieldShift — decision support, not an autonomous agronomist.",
+  "footerSynthetic": "Synthetic data is always labelled.",
+  "apiStatus": "API status…",
+  "apiVersion": "API v{version}"
+}

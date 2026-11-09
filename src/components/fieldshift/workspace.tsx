@@ -1,6 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import {
   ClipboardCheck,
   Droplets,
@@ -9,6 +12,7 @@ import {
   Layers,
   LayoutDashboard,
   LineChart,
+  Link2,
   LogOut,
   Map,
   Mountain,
@@ -23,6 +27,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AuthGate } from '@/components/fieldshift/auth-gate'
+import { LocaleSwitcher } from '@/components/fieldshift/locale-switcher'
 import { Overview } from '@/components/fieldshift/overview'
 import { FarmsFields } from '@/components/fieldshift/farms-fields'
 import { Observations } from '@/components/fieldshift/observations'
@@ -39,38 +44,95 @@ import Decisions from '@/components/fieldshift/decisions'
 import DigitalTwin from '@/components/fieldshift/digital-twin'
 import RobustPlan from '@/components/fieldshift/robust-plan'
 import { useHealth } from '@/hooks/use-fieldshift'
-import { getMe, getToken, setToken } from '@/lib/api'
+import { getMe, logout } from '@/lib/api'
 import { useFieldShiftUi, type WorkspaceTab } from '@/lib/store'
 import type { MeResponse } from '@/lib/types'
 
 type Phase = 'checking' | 'guest' | 'authed'
 
-const TAB_ITEMS: { value: WorkspaceTab; label: string; icon: React.ReactNode }[] = [
-  { value: 'overview', label: 'Overview', icon: <LayoutDashboard className="h-4 w-4" aria-hidden /> },
-  { value: 'farms', label: 'Farms & Fields', icon: <Map className="h-4 w-4" aria-hidden /> },
-  { value: 'observations', label: 'Observations', icon: <FlaskConical className="h-4 w-4" aria-hidden /> },
-  { value: 'features', label: 'Features', icon: <Sigma className="h-4 w-4" aria-hidden /> },
-  { value: 'rotation', label: 'Rotation', icon: <RotateCcw className="h-4 w-4" aria-hidden /> },
-  { value: 'water', label: 'Water', icon: <Droplets className="h-4 w-4" aria-hidden /> },
-  { value: 'fieldstate', label: 'Field State', icon: <Layers className="h-4 w-4" aria-hidden /> },
-  { value: 'scenarios', label: 'Scenarios', icon: <GitBranch className="h-4 w-4" aria-hidden /> },
-  { value: 'soil', label: 'Soil', icon: <Mountain className="h-4 w-4" aria-hidden /> },
-  { value: 'management', label: 'Management', icon: <Sprout className="h-4 w-4" aria-hidden /> },
-  { value: 'sensitivity', label: 'Sensitivity', icon: <LineChart className="h-4 w-4" aria-hidden /> },
-  { value: 'robustplan', label: 'Robust Plan', icon: <Target className="h-4 w-4" aria-hidden /> },
-  { value: 'decisions', label: 'Decisions', icon: <Scale className="h-4 w-4" aria-hidden /> },
-  { value: 'digitaltwin', label: 'Digital Twin', icon: <Network className="h-4 w-4" aria-hidden /> },
-  { value: 'passport', label: 'Data Passport', icon: <ClipboardCheck className="h-4 w-4" aria-hidden /> },
+const TAB_ITEMS: { value: WorkspaceTab; icon: React.ReactNode }[] = [
+  { value: 'overview', icon: <LayoutDashboard className="h-4 w-4" aria-hidden /> },
+  { value: 'farms', icon: <Map className="h-4 w-4" aria-hidden /> },
+  { value: 'observations', icon: <FlaskConical className="h-4 w-4" aria-hidden /> },
+  { value: 'features', icon: <Sigma className="h-4 w-4" aria-hidden /> },
+  { value: 'rotation', icon: <RotateCcw className="h-4 w-4" aria-hidden /> },
+  { value: 'water', icon: <Droplets className="h-4 w-4" aria-hidden /> },
+  { value: 'fieldstate', icon: <Layers className="h-4 w-4" aria-hidden /> },
+  { value: 'scenarios', icon: <GitBranch className="h-4 w-4" aria-hidden /> },
+  { value: 'soil', icon: <Mountain className="h-4 w-4" aria-hidden /> },
+  { value: 'management', icon: <Sprout className="h-4 w-4" aria-hidden /> },
+  { value: 'sensitivity', icon: <LineChart className="h-4 w-4" aria-hidden /> },
+  { value: 'robustplan', icon: <Target className="h-4 w-4" aria-hidden /> },
+  { value: 'decisions', icon: <Scale className="h-4 w-4" aria-hidden /> },
+  { value: 'digitaltwin', icon: <Network className="h-4 w-4" aria-hidden /> },
+  { value: 'passport', icon: <ClipboardCheck className="h-4 w-4" aria-hidden /> },
 ]
+
+const TAB_IDS = TAB_ITEMS.map((item) => item.value)
+
+/**
+ * P1 deep links: the workspace state (active tab, selected farm/field) is
+ * mirrored into the URL — `/?tab=water&farm=<id>&field=<id>&fieldName=<name>`
+ * — so any view can be bookmarked or shared, and a shared link restores the
+ * exact view on load.
+ */
+function useWorkspaceUrlSync() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
+  const setSelectedFarmId = useFieldShiftUi((s) => s.setSelectedFarmId)
+  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const hydrated = useRef(false)
+
+  // Restore state from a shared link exactly once on mount.
+  useEffect(() => {
+    if (hydrated.current) return
+    hydrated.current = true
+    const tab = searchParams.get('tab') as WorkspaceTab | null
+    if (tab && TAB_IDS.includes(tab)) setActiveTab(tab)
+    const farm = searchParams.get('farm')
+    if (farm) setSelectedFarmId(farm)
+    const field = searchParams.get('field')
+    if (field) {
+      setSelectedField({
+        id: field,
+        name: searchParams.get('fieldName') ?? 'Field',
+        farmId: farm ?? '',
+      })
+    }
+  }, [searchParams, setActiveTab, setSelectedFarmId, setSelectedField])
+
+  // Mirror store changes into the URL (replace — no history spam), and write
+  // the initial state once on mount so the first view is shareable too.
+  useEffect(() => {
+    let lastQs: string | null = null
+    const writeUrl = (state: { activeTab: WorkspaceTab; selectedFarmId: string | null; selectedField: { id: string; name: string } | null }) => {
+      const params = new URLSearchParams()
+      params.set('tab', state.activeTab)
+      if (state.selectedFarmId) params.set('farm', state.selectedFarmId)
+      if (state.selectedField) {
+        params.set('field', state.selectedField.id)
+        params.set('fieldName', state.selectedField.name)
+      }
+      const qs = params.toString()
+      if (qs === lastQs) return
+      lastQs = qs
+      router.replace(qs ? `/?${qs}` : '/', { scroll: false })
+    }
+    writeUrl(useFieldShiftUi.getState())
+    return useFieldShiftUi.subscribe((state) => writeUrl(state))
+  }, [router])
+}
 
 function Footer() {
   const health = useHealth()
+  const t = useTranslations('nav')
   return (
     <footer className="mt-auto border-t border-stone-200 bg-stone-50 pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto flex w-full max-w-6xl flex-col items-start justify-between gap-2 px-4 py-4 text-xs text-stone-500 sm:flex-row sm:items-center sm:px-6">
         <p>
-          FieldShift — decision support, not an autonomous agronomist.{' '}
-          <span className="font-semibold text-stone-600">Synthetic data is always labelled.</span>
+          {t('footerNote')}{' '}
+          <span className="font-semibold text-stone-600">{t('footerSynthetic')}</span>
         </p>
         <div className="flex items-center gap-2">
           {health.data ? (
@@ -79,11 +141,11 @@ function Footer() {
                 className={`inline-block h-1.5 w-1.5 rounded-full ${health.isError ? 'bg-red-500' : 'bg-emerald-600'}`}
                 aria-hidden
               />
-              API v{health.data.version}
+              {t('apiVersion', { version: health.data.version })}
             </Badge>
           ) : (
             <Badge variant="outline" className="border-stone-300 bg-white font-normal text-stone-500">
-              API status…
+              {t('apiStatus')}
             </Badge>
           )}
         </div>
@@ -93,15 +155,26 @@ function Footer() {
 }
 
 function CheckingScreen() {
+  const t = useTranslations('nav')
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-stone-100 text-stone-500">
       <Sprout className="h-8 w-8 animate-pulse text-emerald-700" aria-hidden />
-      <p className="text-sm">Restoring your session…</p>
+      <p className="text-sm">{t('restoringSession')}</p>
     </div>
   )
 }
 
 function SessionHeader({ session, onSignOut }: { session: MeResponse; onSignOut: () => void }) {
+  const t = useTranslations('nav')
+  const tCommon = useTranslations('common')
+
+  const handleShare = useCallback(() => {
+    navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => toast.success(tCommon('linkCopied')))
+      .catch(() => undefined)
+  }, [tCommon])
+
   return (
     <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
@@ -116,33 +189,48 @@ function SessionHeader({ session, onSignOut }: { session: MeResponse; onSignOut:
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onSignOut}
-          className="shrink-0 text-stone-600 hover:text-stone-900"
-        >
-          <LogOut className="h-4 w-4" aria-hidden />
-          <span className="hidden sm:inline">Sign out</span>
-          <span className="sr-only">Sign out</span>
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleShare}
+            aria-label={tCommon('shareView')}
+            title={tCommon('shareView')}
+            className="h-8 w-8 text-stone-600 hover:text-stone-900"
+          >
+            <Link2 className="h-4 w-4" aria-hidden />
+          </Button>
+          <LocaleSwitcher />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onSignOut}
+            className="text-stone-600 hover:text-stone-900"
+          >
+            <LogOut className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">{t('signOut')}</span>
+            <span className="sr-only">{t('signOut')}</span>
+          </Button>
+        </div>
       </div>
     </header>
   )
 }
 
 export function Workspace() {
-  // Client-only component (loaded with ssr: false), so reading localStorage in
-  // the lazy initializer is safe — no SSR/hydration concerns.
-  const [phase, setPhase] = useState<Phase>(() => (getToken() ? 'checking' : 'guest'))
+  // P1 auth: the session lives in HttpOnly cookies, so the only way to know
+  // whether we are signed in is to ask /me (cookies are attached
+  // automatically; tokens are never readable from JS).
+  const [phase, setPhase] = useState<Phase>('checking')
   const [session, setSession] = useState<MeResponse | null>(null)
   const activeTab = useFieldShiftUi((s) => s.activeTab)
   const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
   const resetSelections = useFieldShiftUi((s) => s.setSelectedField)
 
+  useWorkspaceUrlSync()
+
   useEffect(() => {
     let cancelled = false
-    if (!getToken()) return
     getMe()
       .then((me) => {
         if (cancelled) return
@@ -151,7 +239,6 @@ export function Workspace() {
       })
       .catch(() => {
         if (cancelled) return
-        setToken(null) // stale/invalid token — start fresh
         setPhase('guest')
       })
     return () => {
@@ -166,13 +253,12 @@ export function Workspace() {
         setPhase('authed')
       })
       .catch(() => {
-        setToken(null)
         setPhase('guest')
       })
   }, [])
 
   const handleSignOut = useCallback(() => {
-    setToken(null)
+    void logout()
     setSession(null)
     resetSelections(null)
     setPhase('guest')
@@ -192,7 +278,7 @@ export function Workspace() {
               {TAB_ITEMS.map((item) => (
                 <TabsTrigger key={item.value} value={item.value} className="gap-2 px-3 sm:px-4">
                   {item.icon}
-                  {item.label}
+                  <TabLabel tab={item.value} />
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -249,6 +335,11 @@ export function Workspace() {
       <Footer />
     </div>
   )
+}
+
+function TabLabel({ tab }: { tab: WorkspaceTab }) {
+  const t = useTranslations('nav')
+  return <>{t(tab)}</>
 }
 
 export default Workspace

@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { useTranslations } from 'next-intl'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -36,6 +37,7 @@ function WarningLine({ warning }: { warning: PassportWarning }) {
 }
 
 export function DataPassport() {
+  const t = useTranslations('passport')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const passportQuery = useDataPassport(selectedField?.id ?? null)
@@ -61,17 +63,16 @@ export function DataPassport() {
 
   if (!selectedField) {
     return (
-      <div className="space-y-4" aria-label="Data passport">
+      <div className="space-y-4" aria-label={t('ariaLabel')}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-stone-900">Data Passport</h2>
+          <h2 className="text-lg font-semibold text-stone-900">{t('title')}</h2>
           <FieldPicker value={null} onValueChange={setSelectedField} />
         </div>
         <Card className="border-dashed border-stone-300 bg-white">
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
             <ClipboardCheck className="h-8 w-8 text-stone-400" aria-hidden />
             <p className="text-sm text-stone-500">
-              Pick a field above to read its data passport — what exists, how fresh it is, and which analyses are
-              actually available.
+              {t('pickFieldDesc')}
             </p>
           </CardContent>
         </Card>
@@ -80,13 +81,14 @@ export function DataPassport() {
   }
 
   return (
-    <div className="space-y-6" aria-label="Data passport">
+    <div className="space-y-6" aria-label={t('ariaLabel')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-stone-900">Data Passport</h2>
+          <h2 className="text-lg font-semibold text-stone-900">{t('title')}</h2>
           <p className="text-sm text-stone-500">
-            The honesty layer for <strong className="font-medium text-stone-700">{selectedField.name}</strong> — no
-            silent substitutions, ever.
+            {t('honestyPrefix')}{' '}
+            <strong className="font-medium text-stone-700">{selectedField.name}</strong>{' '}
+            {t('honestySuffix')}
           </p>
         </div>
         <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
@@ -104,11 +106,11 @@ export function DataPassport() {
       ) : passportQuery.isError || !passportQuery.data ? (
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>Could not load the data passport</AlertTitle>
+          <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
           <AlertDescription>
             {passportQuery.error instanceof Error
               ? passportQuery.error.message
-              : 'The backend did not return a passport for this field.'}
+              : t('loadErrorDesc')}
           </AlertDescription>
         </Alert>
       ) : (
@@ -118,9 +120,9 @@ export function DataPassport() {
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center gap-2">
                 <PassportStatusBadge status={passportQuery.data.overall_status} />
-                <CardTitle className="text-base">Overall status</CardTitle>
+                <CardTitle className="text-base">{t('overallStatusTitle')}</CardTitle>
               </div>
-              <CardDescription>Generated {formatDateTime(passportQuery.data.generated_at)}</CardDescription>
+              <CardDescription>{t('generatedAt', { date: formatDateTime(passportQuery.data.generated_at) })}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <PassportStatusExplanation status={passportQuery.data.overall_status} />
@@ -135,17 +137,16 @@ export function DataPassport() {
           </Card>
 
           {/* ---------- available variables ---------- */}
-          <section aria-label="Available variables" className="space-y-3">
+          <section aria-label={t('sourcesAria')} className="space-y-3">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-              Variable sources — available ({passportQuery.data.variables.length})
+              {t('sourcesAvailable', { count: passportQuery.data.variables.length })}
             </h3>
             <p className="text-xs text-stone-500">
-              The same variable can appear once per source; every source keeps its own evidence class, license and
-              attribution.
+              {t('sourcesNote')}
             </p>
             {passportQuery.data.variables.length === 0 ? (
               <p className="rounded-lg border border-dashed border-stone-300 bg-white p-4 text-sm text-stone-500">
-                No variables available yet — run an ingestion job in the Observations tab.
+                {t('noVariablesYet')}
               </p>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -168,41 +169,52 @@ export function DataPassport() {
                     <CardContent className="space-y-2 text-xs text-stone-600">
                       <div className="flex flex-wrap gap-1.5">
                         <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
-                          {pct(variable.valid_ratio)} valid
+                          {t('validPct', { pct: pct(variable.valid_ratio) })}
                         </Badge>
                         <Badge variant="outline" className="border-stone-300 text-stone-600">
-                          {variable.observation_count} obs
+                          {t('obsCount', { count: variable.observation_count })}
                         </Badge>
                         <Badge variant="outline" className="border-stone-300 text-stone-600">
-                          {variable.valid_count} valid · {variable.missing_count} missing
+                          {t('validMissing', { valid: variable.valid_count, missing: variable.missing_count })}
                         </Badge>
                       </div>
                       <p>
-                        Freshness:{' '}
-                        <strong className="font-medium text-stone-800">
-                          {variable.freshness_days == null ? 'unknown' : `${variable.freshness_days} days`}
-                        </strong>
+                        {t('freshness', {
+                          value:
+                            variable.freshness_days == null
+                              ? t('freshnessUnknown')
+                              : t('freshnessDays', { count: variable.freshness_days }),
+                        })}
                       </p>
                       <p>
-                        Period: {variable.period ? `${variable.period.start} → ${variable.period.end}` : '—'} ·
-                        time support {variable.time_support ?? '—'}
+                        {t('periodLine', {
+                          period: variable.period ? `${variable.period.start} → ${variable.period.end}` : '—',
+                          support: variable.time_support ?? '—',
+                        })}
                       </p>
                       <p>
-                        Spatial support:{' '}
-                        {variable.spatial_support
-                          ? `${variable.spatial_support.type}${
-                              variable.spatial_support.resolution_m ? ` @ ${variable.spatial_support.resolution_m} m` : ''
-                            }`
-                          : '—'}
+                        {t('spatialSupport', {
+                          value: variable.spatial_support
+                            ? `${variable.spatial_support.type}${
+                                variable.spatial_support.resolution_m ? ` @ ${variable.spatial_support.resolution_m} m` : ''
+                              }`
+                            : '—',
+                        })}
                       </p>
                       <p className="text-stone-500">
-                        Evidence class: {variable.evidence_class}
-                        {variable.processing_version ? ` · ${variable.processing_version}` : ''}
+                        {t('evidenceClass', {
+                          value: `${variable.evidence_class}${
+                            variable.processing_version ? ` · ${variable.processing_version}` : ''
+                          }`,
+                        })}
                       </p>
                       {variable.dataset_product ? (
                         <p className="text-stone-500">
-                          Dataset: {variable.dataset_product.product_code} v{variable.dataset_product.product_version} (
-                          {variable.dataset_product.license_name})
+                          {t('datasetLine', {
+                            code: variable.dataset_product.product_code,
+                            version: variable.dataset_product.product_version,
+                            license: variable.dataset_product.license_name,
+                          })}
                         </p>
                       ) : null}
                       {variable.warnings.length > 0 ? (
@@ -221,9 +233,9 @@ export function DataPassport() {
 
           {/* ---------- missing variables ---------- */}
           {passportQuery.data.missing_variables.length > 0 ? (
-            <section aria-label="Missing variables" className="space-y-3">
+            <section aria-label={t('missingAria')} className="space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-                Missing variables ({passportQuery.data.missing_variables.length})
+                {t('missingVariables', { count: passportQuery.data.missing_variables.length })}
               </h3>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {passportQuery.data.missing_variables.map((missing) => (
@@ -246,9 +258,9 @@ export function DataPassport() {
           ) : null}
 
           {/* ---------- analyses ---------- */}
-          <section aria-label="Analyses" className="space-y-3">
+          <section aria-label={t('analysesAria')} className="space-y-3">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-              Analyses ({passportQuery.data.analyses.length})
+              {t('analyses', { count: passportQuery.data.analyses.length })}
             </h3>
             <div className="space-y-3">
               {passportQuery.data.analyses.map((analysis) => {
@@ -280,7 +292,7 @@ export function DataPassport() {
                         </div>
                         <p className="text-xs text-stone-600">{analysis.description}</p>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[11px] text-stone-500">requires:</span>
+                          <span className="text-[11px] text-stone-500">{t('requires')}</span>
                           {analysis.required_inputs.map((input) => {
                             const isMissing = analysis.missing_inputs.includes(input)
                             return (
@@ -315,9 +327,9 @@ export function DataPassport() {
 
           {/* ---------- attribution ---------- */}
           {products.length > 0 ? (
-            <section aria-label="Attribution and licensing" className="space-y-3">
+            <section aria-label={t('attributionAria')} className="space-y-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                <BookOpenText className="h-4 w-4" aria-hidden /> Attribution & licensing
+                <BookOpenText className="h-4 w-4" aria-hidden /> {t('attributionTitle')}
               </h3>
               {products.map((product) => (
                 <Card key={product.product_code} className="border-stone-200 bg-white shadow-sm">
@@ -335,7 +347,7 @@ export function DataPassport() {
                     </blockquote>
                     {product.documentation_url ? (
                       <p>
-                        Documentation:{' '}
+                        {t('documentationLabel')}{' '}
                         <a
                           href={product.documentation_url}
                           className="text-emerald-700 underline underline-offset-2"
@@ -356,7 +368,7 @@ export function DataPassport() {
           {passportQuery.data.notes.length > 0 ? (
             <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
               <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                <Info className="h-3.5 w-3.5" aria-hidden /> Passport notes
+                <Info className="h-3.5 w-3.5" aria-hidden /> {t('notesTitle')}
               </p>
               <ul className="list-disc space-y-1 pl-4 text-xs text-stone-600">
                 {passportQuery.data.notes.map((note, index) => (

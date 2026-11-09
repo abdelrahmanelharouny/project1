@@ -13,7 +13,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -47,6 +47,11 @@ from app.db.models import (
 )
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# HttpOnly cookie carrying the access token for browser sessions (see
+# get_principal). The refresh token lives in a sibling cookie handled by the
+# Next.js /api/auth/* route handlers and is never read by this backend.
+SESSION_COOKIE_NAME = "fs_token"
 
 # RBAC hierarchy (Master §17): the numeric order defines "at least as
 # privileged as" comparisons for role gates.
@@ -115,12 +120,26 @@ class Principal:
 
 
 def get_principal(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> Principal:
-    if credentials is None or credentials.scheme.lower() != "bearer":
+    """Resolve the caller's principal from an access token.
+
+    Accepted credential transports (P1 server-side sessions):
+      1. ``Authorization: Bearer <token>`` header (API clients);
+      2. ``fs_token`` HttpOnly cookie (browser session set by the Next.js
+         auth route handlers — the token itself never touches JS-readable
+         storage).
+    """
+    token_value: str | None = None
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        token_value = credentials.credentials
+    if not token_value:
+        token_value = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token_value:
         raise Unauthorized("Missing bearer token.")
-    token_hash = hash_token(credentials.credentials)
+    token_hash = hash_token(token_value)
     row = db.execute(
         select(AuthToken, User)
         .join(User, AuthToken.user_id == User.id)

@@ -22,6 +22,7 @@
 
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -82,11 +83,12 @@ const SEASON_PRESETS = [
 ]
 
 function FeasibilityBadge({ state }: { state: string }) {
+  const t = useTranslations('robustplan')
   if (state === 'robust_feasible') {
     return (
       <Badge className="gap-1 border-emerald-200 bg-emerald-50 text-emerald-800">
         <CheckCircle2 className="h-3 w-3" aria-hidden />
-        robust feasible
+        {t('feasibleRobust')}
       </Badge>
     )
   }
@@ -94,31 +96,32 @@ function FeasibilityBadge({ state }: { state: string }) {
     return (
       <Badge className="gap-1 border-red-200 bg-red-50 text-red-800">
         <XCircle className="h-3 w-3" aria-hidden />
-        infeasible in a scenario
+        {t('infeasibleScenario')}
       </Badge>
     )
   }
   return (
     <Badge className="gap-1 border-stone-300 bg-stone-50 text-stone-600">
       <AlertTriangle className="h-3 w-3" aria-hidden />
-      not evaluable
+      {t('notEvaluable')}
     </Badge>
   )
 }
 
 function SolverBadge({ status }: { status: string | null }) {
-  if (!status) return <Badge variant="outline">not attempted</Badge>
+  const t = useTranslations('robustplan')
+  if (!status) return <Badge variant="outline">{t('solverNotAttempted')}</Badge>
   if (status === 'optimal') {
     return (
       <Badge variant="outline" className="border-emerald-200 bg-white text-emerald-800">
-        OPTIMAL (proven)
+        {t('solverOptimal')}
       </Badge>
     )
   }
   if (status === 'feasible') {
     return (
       <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-900">
-        FEASIBLE (not proven optimal)
+        {t('solverFeasible')}
       </Badge>
     )
   }
@@ -126,6 +129,7 @@ function SolverBadge({ status }: { status: string | null }) {
 }
 
 export default function RobustPlan() {
+  const t = useTranslations('robustplan')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const fieldId = selectedField?.id ?? null
 
@@ -141,7 +145,7 @@ export default function RobustPlan() {
         <Header />
         <Card>
           <CardContent className="py-10 text-center text-sm text-stone-500">
-            Select a field to build robust multi-scenario rotation plans.
+            {t('pickFieldDesc')}
           </CardContent>
         </Card>
       </div>
@@ -168,6 +172,7 @@ function RobustPlanInner({
   fieldId: string
   sets: { isLoading: boolean; data: ScenarioSetListData }
 }) {
+  const t = useTranslations('robustplan')
   const queryClient = useQueryClient()
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null)
   const [builderOpen, setBuilderOpen] = useState(false)
@@ -229,7 +234,7 @@ function RobustPlanInner({
       setMemberChoices({})
       queryClient.invalidateQueries({ queryKey: ['scenario-sets'] })
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create scenario set'),
+    onError: (e) => setError(e instanceof ApiError ? e.message : t('createSetFailed')),
   })
 
   const startRun = useMutation({
@@ -243,7 +248,7 @@ function RobustPlanInner({
       setError(null)
       queryClient.invalidateQueries({ queryKey: ['robust-runs'] })
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to start robust run'),
+    onError: (e) => setError(e instanceof ApiError ? e.message : t('startRunFailed')),
   })
 
   if (!fieldId) {
@@ -252,7 +257,7 @@ function RobustPlanInner({
         <Header />
         <Card>
           <CardContent className="py-10 text-center text-sm text-stone-500">
-            Select a field to build robust multi-scenario rotation plans.
+            {t('pickFieldDesc')}
           </CardContent>
         </Card>
       </div>
@@ -266,7 +271,7 @@ function RobustPlanInner({
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" aria-hidden />
-          <AlertTitle>Request failed</AlertTitle>
+          <AlertTitle>{t('requestFailed')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -274,15 +279,12 @@ function RobustPlanInner({
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div className="min-w-0">
-            <CardTitle className="text-base">Scenario sets</CardTitle>
-            <CardDescription className="mt-1">
-              Compatible M7.3 executions (same field, same parent Field State, distinct
-              scenarios) — the environments one shared plan must hold up across.
-            </CardDescription>
+            <CardTitle className="text-base">{t('setsTitle')}</CardTitle>
+            <CardDescription className="mt-1">{t('setsDesc')}</CardDescription>
           </div>
           <Button size="sm" variant="outline" onClick={() => setBuilderOpen((v) => !v)}>
             <Layers className="mr-1 h-4 w-4" aria-hidden />
-            {builderOpen ? 'Close builder' : 'New set'}
+            {builderOpen ? t('closeBuilder') : t('newSet')}
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -290,20 +292,18 @@ function RobustPlanInner({
             <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="set-label">Set label</Label>
+                  <Label htmlFor="set-label">{t('setLabel')}</Label>
                   <Input
                     id="set-label"
                     value={setLabel}
                     onChange={(e) => setSetLabel(e.target.value)}
-                    placeholder="e.g. Hot & dry vs Cool & wet"
+                    placeholder={t('setLabelPlaceholder')}
                   />
                 </div>
               </div>
               <div className="mt-3 max-h-64 space-y-1.5 overflow-y-auto pr-1">
                 {(scenarios.data?.items ?? []).length === 0 && (
-                  <p className="text-xs text-stone-500">
-                    No scenarios on this field yet — create and execute scenarios first.
-                  </p>
+                  <p className="text-xs text-stone-500">{t('noScenariosYet')}</p>
                 )}
                 {(scenarios.data?.items ?? []).map((s) => {
                   const execs = executionsByScenario.data?.[s.id] ?? []
@@ -317,7 +317,7 @@ function RobustPlanInner({
                         onCheckedChange={(v) =>
                           setMemberChoices((prev) => ({ ...prev, [run.run_id]: v === true }))
                         }
-                        aria-label={`Select execution of ${s.name}`}
+                        aria-label={t('selectExecutionAria', { name: s.name })}
                       />
                       <span className="min-w-0 flex-1 truncate font-medium text-stone-800">
                         {s.name}
@@ -337,7 +337,7 @@ function RobustPlanInner({
                   disabled={!setLabel.trim() || Object.values(memberChoices).every((v) => !v) || createSet.isPending}
                 >
                   {createSet.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />}
-                  Create set
+                  {t('createSet')}
                 </Button>
               </div>
             </div>
@@ -345,7 +345,7 @@ function RobustPlanInner({
 
           {sets.isLoading && <Skeleton className="h-16 w-full" />}
           {sets.data && sets.data.items.length === 0 && (
-            <p className="text-xs text-stone-500">No scenario sets yet.</p>
+            <p className="text-xs text-stone-500">{t('noSetsYet')}</p>
           )}
           <div className="grid gap-2">
             {(sets.data?.items ?? []).map((s) => (
@@ -360,11 +360,11 @@ function RobustPlanInner({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium text-stone-800">{s.label}</span>
                   <Badge variant="outline" className="font-normal">
-                    {s.member_count} execution{s.member_count === 1 ? '' : 's'}
+                    {t('executionCount', { count: s.member_count })}
                   </Badge>
                 </div>
                 <p className="mt-1 truncate text-xs text-stone-500">
-                  checksum {s.set_checksum.slice(0, 12)}… · parent state pinned by value
+                  {t('setChecksumLine', { checksum: s.set_checksum.slice(0, 12) })}
                 </p>
               </button>
             ))}
@@ -376,17 +376,14 @@ function RobustPlanInner({
         <Card>
           <CardHeader className="flex flex-row items-start justify-between space-y-0">
             <div className="min-w-0">
-              <CardTitle className="text-base">Robust runs — {selectedSet.label}</CardTitle>
-              <CardDescription className="mt-1">
-                One shared plan per strategy profile; worst-case objective = minimum
-                across the selected scenarios (deterministic — no confidence interval).
-              </CardDescription>
+              <CardTitle className="text-base">{t('runsTitle', { name: selectedSet.label })}</CardTitle>
+              <CardDescription className="mt-1">{t('runsDesc')}</CardDescription>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <select
                 value={seasonPreset}
                 onChange={(e) => setSeasonPreset(e.target.value)}
-                aria-label="Planning season"
+                aria-label={t('seasonAria')}
                 className="h-9 rounded-md border border-stone-300 bg-white px-2 text-xs"
               >
                 {SEASON_PRESETS.map((s) => (
@@ -401,14 +398,14 @@ function RobustPlanInner({
                 ) : (
                   <Play className="mr-1 h-4 w-4" aria-hidden />
                 )}
-                Run robust plan
+                {t('runPlan')}
               </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {runs.isLoading && <Skeleton className="h-16 w-full" />}
             {runs.data && runs.data.items.length === 0 && (
-              <p className="text-xs text-stone-500">No robust runs yet.</p>
+              <p className="text-xs text-stone-500">{t('noRunsYet')}</p>
             )}
             {(runs.data?.items ?? []).map((run) => (
               <RobustRunCard
@@ -426,17 +423,14 @@ function RobustPlanInner({
 }
 
 function Header() {
+  const t = useTranslations('robustplan')
   return (
     <div>
       <h2 className="flex items-center gap-2 text-lg font-semibold text-stone-900">
         <ShieldCheck className="h-5 w-5 text-emerald-700" aria-hidden />
-        Robust Rotation (multi-scenario)
+        {t('title')}
       </h2>
-      <p className="mt-1 text-sm text-stone-600">
-        One shared crop-rotation plan evaluated across selected scenario executions.
-        Scenario ET0 and water feasibility remain unavailable; unevaluated constraints
-        are never treated as satisfied.
-      </p>
+      <p className="mt-1 text-sm text-stone-600">{t('desc')}</p>
     </div>
   )
 }
@@ -450,6 +444,7 @@ function RobustRunCard({
   open: boolean
   onToggle: () => void
 }) {
+  const t = useTranslations('robustplan')
   return (
     <div className="rounded-lg border border-stone-200 bg-white">
       <button
@@ -479,11 +474,11 @@ function RobustRunCard({
           </Badge>
           <SolverBadge status={run.solver_status} />
           <span className="text-xs text-stone-500">
-            {run.member_count} scenarios · {run.seasons.map((s) => s.label).join(', ')}
+            {t('scenariosLine', { count: run.member_count, seasons: run.seasons.map((s) => s.label).join(', ') })}
           </span>
         </div>
         <span className="shrink-0 text-xs text-stone-500">
-          {run.output_checksum ? `out ${run.output_checksum.slice(0, 10)}…` : '—'}
+          {run.output_checksum ? t('outChecksum', { checksum: run.output_checksum.slice(0, 10) }) : '—'}
         </span>
       </button>
       {open && (
@@ -494,6 +489,7 @@ function RobustRunCard({
 }
 
 function RobustRunDetail({ run }: { run: RobustRotationRun }) {
+  const t = useTranslations('robustplan')
   const evaluations = useQuery({
     queryKey: ['robust-evals', run.id],
     queryFn: () => listRobustEvaluations(run.id),
@@ -511,7 +507,7 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
       {run.warnings.length > 0 && (
         <Alert>
           <AlertTriangle className="h-4 w-4" aria-hidden />
-          <AlertTitle>Limitations and disclosures</AlertTitle>
+          <AlertTitle>{t('limitationsTitle')}</AlertTitle>
           <AlertDescription>
             <ul className="list-disc space-y-1 pl-4">
               {run.warnings.map((w, i) => (
@@ -524,7 +520,7 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
 
       {Object.keys(run.not_evaluated ?? {}).length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900">
-          <p className="font-semibold">Not evaluated (never treated as satisfied)</p>
+          <p className="font-semibold">{t('notEvaluatedTitle')}</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             {Object.entries(run.not_evaluated).flatMap(([group, entries]) =>
               Object.entries(entries ?? {}).map(([k, v]) => (
@@ -541,12 +537,12 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Shared plan</TableHead>
-              <TableHead>Assignment</TableHead>
-              <TableHead>Worst case (min across scenarios)</TableHead>
-              <TableHead>Worst regret</TableHead>
-              <TableHead>Robust feasibility</TableHead>
-              <TableHead>Solver</TableHead>
+              <TableHead>{t('colSharedPlan')}</TableHead>
+              <TableHead>{t('colAssignment')}</TableHead>
+              <TableHead>{t('colWorstCase')}</TableHead>
+              <TableHead>{t('colWorstRegret')}</TableHead>
+              <TableHead>{t('colRobustFeasibility')}</TableHead>
+              <TableHead>{t('colSolver')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -556,7 +552,7 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
                   {s.strategy_key}
                   {s.is_baseline && (
                     <Badge variant="outline" className="ml-2 font-normal">
-                      current rotation
+                      {t('currentRotation')}
                     </Badge>
                   )}
                 </TableCell>
@@ -565,7 +561,7 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
                 </TableCell>
                 <TableCell>
                   {s.worst_case_objective ?? (
-                    <span className="text-stone-400">not evaluable in every scenario</span>
+                    <span className="text-stone-400">{t('notEvaluableEveryScenario')}</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -587,13 +583,13 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
         run.infeasibility_details.cross_scenario_exclusions.length > 0 && (
           <div className="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs">
             <p className="font-semibold text-stone-700">
-              Crops excluded from the shared pool by at least one scenario
+              {t('excludedCropsTitle')}
             </p>
             <ul className="mt-1 list-disc space-y-0.5 pl-4 text-stone-600">
               {run.infeasibility_details.cross_scenario_exclusions.map((e, i) => (
                 <li key={i}>
-                  <span className="font-medium">{e.crop_code}</span> in {e.season_label} —{' '}
-                  {e.excluded_by_scenarios[0]?.reason}
+                  <span className="font-medium">{e.crop_code}</span>{' '}
+                  {t('excludedCropTail', { season: e.season_label, reason: e.excluded_by_scenarios[0]?.reason })}
                 </li>
               ))}
             </ul>
@@ -603,39 +599,43 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
       {evaluations.data && evaluations.data.items.length > 0 && (
         <details className="rounded-lg border border-stone-200 p-3">
           <summary className="cursor-pointer text-xs font-semibold text-stone-700">
-            Per-scenario evaluations ({evaluations.data.items.length})
+            {t('perScenarioEvaluations', { count: evaluations.data.items.length })}
           </summary>
           <div className="mt-2 max-h-96 space-y-2 overflow-y-auto pr-1">
             {evaluations.data.items.map((e: RobustScenarioEvaluation) => (
               <div key={e.id} className="rounded-md border border-stone-100 bg-stone-50/60 p-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-stone-500">scenario {e.scenario_id.slice(0, 8)}</span>
-                  <span>objective: {e.weighted_objective ?? 'not evaluable'}</span>
+                  <span className="font-mono text-stone-500">{t('scenarioChip', { id: e.scenario_id.slice(0, 8) })}</span>
+                  <span>{t('objectiveLine', { value: e.weighted_objective ?? t('notEvaluable') })}</span>
                   {e.on_scenario_pareto_front && (
                     <Badge variant="outline" className="font-normal">
-                      scenario Pareto front
+                      {t('paretoFront')}
                     </Badge>
                   )}
                   {e.regret_vs_solo !== null && (
                     <Badge variant="outline" className="font-normal">
-                      regret vs solo optimum: {e.regret_vs_solo}
+                      {t('regretLine', { value: e.regret_vs_solo })}
                     </Badge>
                   )}
                 </div>
                 {Object.entries(e.climate_evidence).map(([label, ev]) => (
                   <p key={label} className="mt-1 text-stone-500">
-                    {label}: precip {ev.season_precipitation_mm ?? '—'} mm · tmean{' '}
-                    {ev.season_mean_temp_degC ?? '—'} °C · ET0{' '}
-                    {ev.season_et0_mm ?? 'not evaluable (scenario)'}
+                    {t('climateEvidenceLine', {
+                      label,
+                      precip: ev.season_precipitation_mm ?? '—',
+                      tmean: ev.season_mean_temp_degC ?? '—',
+                      et0: ev.season_et0_mm ?? t('notEvaluableScenario'),
+                    })}
                   </p>
                 ))}
                 {e.crop_admissibility.some((a) => !a.admissible) && (
                   <p className="mt-1 text-red-700">
-                    inadmissible here:{' '}
-                    {e.crop_admissibility
-                      .filter((a) => !a.admissible)
-                      .map((a) => `${a.crop_code} (${a.hard_reason ?? a.status})`)
-                      .join('; ')}
+                    {t('inadmissibleLine', {
+                      list: e.crop_admissibility
+                        .filter((a) => !a.admissible)
+                        .map((a) => `${a.crop_code} (${a.hard_reason ?? a.status})`)
+                        .join('; '),
+                    })}
                   </p>
                 )}
               </div>
@@ -647,7 +647,7 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
       <div className="flex items-center gap-2">
         <Button size="sm" variant="outline" onClick={() => verify.mutate()} disabled={verify.isPending}>
           {verify.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />}
-          Verify checksums & pins
+          {t('verifyButton')}
         </Button>
         {verify.data && (
           <Badge
@@ -658,7 +658,7 @@ function RobustRunDetail({ run }: { run: RobustRotationRun }) {
                 : 'border-red-200 bg-red-50 text-red-800'
             }
           >
-            {verify.data.verified ? 'verified' : `${verify.data.findings.length} finding(s)`}
+            {verify.data.verified ? t('verified') : t('findingsCount', { count: verify.data.findings.length })}
           </Badge>
         )}
       </div>

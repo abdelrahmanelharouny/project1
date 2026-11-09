@@ -13,6 +13,7 @@
 
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import {
   CalendarDays,
   Layers,
@@ -156,17 +157,18 @@ function Metric({ label, value, hint }: { label: string; value: React.ReactNode;
 // ------------------------------------------------------------ main view
 
 const SUB_VIEWS = [
-  { value: 'plan', label: 'Overview', icon: <Sprout className="h-3.5 w-3.5" aria-hidden /> },
-  { value: 'covers', label: 'Cover Crops', icon: <Leaf className="h-3.5 w-3.5" aria-hidden /> },
-  { value: 'timeline', label: 'Soil Cover', icon: <Layers className="h-3.5 w-3.5" aria-hidden /> },
-  { value: 'residue', label: 'Residue', icon: <Recycle className="h-3.5 w-3.5" aria-hidden /> },
-  { value: 'erosion', label: 'Erosion', icon: <ShieldAlert className="h-3.5 w-3.5" aria-hidden /> },
-  { value: 'operations', label: 'Operations', icon: <CalendarDays className="h-3.5 w-3.5" aria-hidden /> },
+  { value: 'plan', labelKey: 'viewPlan', icon: <Sprout className="h-3.5 w-3.5" aria-hidden /> },
+  { value: 'covers', labelKey: 'viewCovers', icon: <Leaf className="h-3.5 w-3.5" aria-hidden /> },
+  { value: 'timeline', labelKey: 'viewTimeline', icon: <Layers className="h-3.5 w-3.5" aria-hidden /> },
+  { value: 'residue', labelKey: 'viewResidue', icon: <Recycle className="h-3.5 w-3.5" aria-hidden /> },
+  { value: 'erosion', labelKey: 'viewErosion', icon: <ShieldAlert className="h-3.5 w-3.5" aria-hidden /> },
+  { value: 'operations', labelKey: 'viewOperations', icon: <CalendarDays className="h-3.5 w-3.5" aria-hidden /> },
 ] as const
 
 type SubView = (typeof SUB_VIEWS)[number]['value']
 
 export function Management() {
+  const t = useTranslations('management')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const selectedFarmId = useFieldShiftUi((s) => s.selectedFarmId)
@@ -181,18 +183,16 @@ export function Management() {
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Sprout className="h-4 w-4 text-emerald-700" aria-hidden />
-                Field management
+                {t('title')}
               </CardTitle>
               <CardDescription>
-                Cover crops, soil cover, residues, erosion screening and the
-                operations calendar — every recommendation discloses its
-                evidence, and missing knowledge stays missing.
+                {t('desc')}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 text-xs text-stone-500">
-              <span aria-hidden>Simple</span>
-              <Switch checked={expert} onCheckedChange={setExpert} aria-label="Toggle expert mode" />
-              <span aria-hidden>Expert</span>
+              <span aria-hidden>{t('simple')}</span>
+              <Switch checked={expert} onCheckedChange={setExpert} aria-label={t('toggleExpert')} />
+              <span aria-hidden>{t('expert')}</span>
             </div>
           </div>
         </CardHeader>
@@ -202,7 +202,7 @@ export function Management() {
             onValueChange={setSelectedField}
             emptyHint={
               <p className="text-sm text-stone-500">
-                Create a farm and field first — management planning is field-based.
+                {t('emptyHint')}
               </p>
             }
           />
@@ -213,7 +213,7 @@ export function Management() {
                   {SUB_VIEWS.map((s) => (
                     <TabsTrigger key={s.value} value={s.value} className="gap-1.5 px-2.5 text-xs">
                       {s.icon}
-                      {s.label}
+                      {t(s.labelKey)}
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -238,7 +238,7 @@ export function Management() {
               </TabsContent>
             </Tabs>
           ) : (
-            <HonestEmpty>Pick a field above to see its management plan.</HonestEmpty>
+            <HonestEmpty>{t('pickField')}</HonestEmpty>
           )}
         </CardContent>
       </Card>
@@ -249,6 +249,7 @@ export function Management() {
 // ------------------------------------------------------------ plan view
 
 function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+  const t = useTranslations('management')
   const qc = useQueryClient()
   const [created, setCreated] = useState<ManagementPlan | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -274,11 +275,10 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
     return (
       <div className="space-y-3">
         <p className="text-sm text-stone-600">
-          Build a seasonal management overview for this field: what grew, where
-          the soil is exposed, what is planned, and what needs your attention.
+          {t('planIntro')}
         </p>
         <Button onClick={() => createPlan.mutate()} disabled={createPlan.isPending} className="bg-emerald-700 hover:bg-emerald-800">
-          {createPlan.isPending ? 'Building…' : 'Build management plan'}
+          {createPlan.isPending ? t('building') : t('buildPlan')}
         </Button>
         <ErrorNote error={error} />
       </div>
@@ -296,20 +296,20 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
       ))}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Metric label="Protective cover" value={`${m.days_protective_cover} d`} hint={`of ${m.window_days} days`} />
-        <Metric label="Known bare" value={`${m.days_known_bare} d`} hint={m.longest_bare_interval ? `longest ${m.longest_bare_interval_days} d` : 'no bare evidence'} />
-        <Metric label="Unknown" value={`${m.days_unknown} d`} hint="never counted as bare" />
-        <Metric label="Open checks" value={r.checks.length} hint="items needing attention" />
+        <Metric label={t('metricCover')} value={`${m.days_protective_cover} d`} hint={t('hintOfDays', { total: m.window_days })} />
+        <Metric label={t('metricBare')} value={`${m.days_known_bare} d`} hint={m.longest_bare_interval ? t('hintLongest', { days: m.longest_bare_interval_days }) : t('noBareEvidence')} />
+        <Metric label={t('metricUnknown')} value={`${m.days_unknown} d`} hint={t('hintNeverBare')} />
+        <Metric label={t('metricChecks')} value={r.checks.length} hint={t('hintAttention')} />
       </div>
 
       <Accordion type="multiple" defaultValue={['checks', 'season']} className="w-full">
         <AccordionItem value="season">
           <AccordionTrigger className="text-sm">
-            Season context <StatusBadge status={r.season_context.status} />
+            {t('seasonContext')} <StatusBadge status={r.season_context.status} />
           </AccordionTrigger>
           <AccordionContent className="space-y-2 text-sm text-stone-600">
             {r.season_context.recent_crop_history.length === 0 ? (
-              <HonestEmpty>{r.season_context.message ?? 'No crop history recorded.'}</HonestEmpty>
+              <HonestEmpty>{r.season_context.message ?? t('noCropHistory')}</HonestEmpty>
             ) : (
               <ul className="space-y-1">
                 {r.season_context.recent_crop_history.map((h, i) => (
@@ -325,10 +325,10 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
         </AccordionItem>
 
         <AccordionItem value="checks">
-          <AccordionTrigger className="text-sm">Unresolved agronomic checks</AccordionTrigger>
+          <AccordionTrigger className="text-sm">{t('checksTrigger')}</AccordionTrigger>
           <AccordionContent className="space-y-2">
             {r.checks.length === 0 ? (
-              <p className="text-sm text-emerald-800">No open checks — data coverage is good.</p>
+              <p className="text-sm text-emerald-800">{t('noOpenChecks')}</p>
             ) : (
               r.checks.map((c, i) => (
                 <div key={i} className="flex items-start gap-2 text-xs">
@@ -343,15 +343,15 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
         </AccordionItem>
 
         <AccordionItem value="sections">
-          <AccordionTrigger className="text-sm">Module status</AccordionTrigger>
+          <AccordionTrigger className="text-sm">{t('moduleStatus')}</AccordionTrigger>
           <AccordionContent>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[
-                { label: 'Cover crops', ...r.cover_crop },
-                { label: 'Residue', ...r.residue },
-                { label: 'Erosion', ...r.erosion },
-                { label: 'Operations', ...r.operations },
-                { label: 'Water (M6A)', ...r.water },
+                { label: t('moduleCoverCrops'), ...r.cover_crop },
+                { label: t('moduleResidue'), ...r.residue },
+                { label: t('moduleErosion'), ...r.erosion },
+                { label: t('moduleOperations'), ...r.operations },
+                { label: t('moduleWater'), ...r.water },
               ].map((s) => (
                 <div key={s.label} className="rounded-lg border border-stone-200 p-3">
                   <p className="text-xs font-semibold text-stone-700">{s.label}</p>
@@ -363,17 +363,17 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
         </AccordionItem>
 
         <AccordionItem value="ops">
-          <AccordionTrigger className="text-sm">Next operations</AccordionTrigger>
+          <AccordionTrigger className="text-sm">{t('nextOps')}</AccordionTrigger>
           <AccordionContent className="space-y-1">
             {r.operations.next_operations.length === 0 ? (
-              <HonestEmpty>{r.operations.message ?? 'No operations recorded.'}</HonestEmpty>
+              <HonestEmpty>{r.operations.message ?? t('noOpsRecorded')}</HonestEmpty>
             ) : (
               r.operations.next_operations.map((o) => (
                 <div key={o.id} className="flex flex-wrap items-center gap-2 text-xs">
                   <StatusBadge status={o.status} />
                   <span className="font-medium text-stone-800">{o.title}</span>
                   <span className="text-stone-500">
-                    {o.scheduled_start ?? o.earliest_start ?? 'no window'} … {o.scheduled_end ?? o.latest_finish ?? ''}
+                    {o.scheduled_start ?? o.earliest_start ?? t('noWindow')} … {o.scheduled_end ?? o.latest_finish ?? ''}
                   </span>
                   {o.status_reason ? <span className="text-amber-800">{o.status_reason}</span> : null}
                 </div>
@@ -385,7 +385,7 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
         {expert ? (
           <>
             <AccordionItem value="practice">
-              <AccordionTrigger className="text-sm">Practice guidance (cited, reference knowledge)</AccordionTrigger>
+              <AccordionTrigger className="text-sm">{t('practiceGuidance')}</AccordionTrigger>
               <AccordionContent>
                 <div className="max-h-64 space-y-1 overflow-y-auto scrollbar-thin pr-1">
                   {r.practice_guidance.practices.map((p) => (
@@ -400,10 +400,10 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
               </AccordionContent>
             </AccordionItem>
             <AccordionItem value="prov">
-              <AccordionTrigger className="text-sm">Provenance & versions</AccordionTrigger>
+              <AccordionTrigger className="text-sm">{t('provenance')}</AccordionTrigger>
               <AccordionContent className="space-y-1 text-xs text-stone-600">
-                <p>Engine: {plan.engine_version}</p>
-                <p className="break-all">Checksum: <span className="font-mono">{plan.checksum_sha256}</span></p>
+                <p>{t('engineLine', { version: plan.engine_version })}</p>
+                <p className="break-all">{t('checksumLine')} <span className="font-mono">{plan.checksum_sha256}</span></p>
                 {Object.entries(plan.not_evaluated).map(([k, v]) => (
                   <p key={k}><span className="font-medium">{k.replace(/_/g, ' ')}:</span> {v}</p>
                 ))}
@@ -419,6 +419,7 @@ function PlanView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
 // ------------------------------------------------------------ cover studio
 
 function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+  const t = useTranslations('management')
   const qc = useQueryClient()
   const [windowStart, setWindowStart] = useState(today())
   const [windowEnd, setWindowEnd] = useState(daysAgo(-120))
@@ -463,27 +464,24 @@ function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) 
   return (
     <div className="space-y-4">
       <p className="text-sm text-stone-600">
-        Evaluate cover-crop candidates for a window. Missing knowledge (no
-        regional calendar, no water curve, no termination guidance) keeps a
-        candidate <span className="font-medium">conditional</span> — it is
-        never presented as a proven recommendation.
+        {t.rich('coverIntro', { cond: (chunks) => <span className="font-medium">{chunks}</span> })}
       </p>
       <div className="grid gap-2 sm:grid-cols-4">
         <div className="space-y-1">
-          <Label htmlFor="cover-start" className="text-xs">Window start</Label>
+          <Label htmlFor="cover-start" className="text-xs">{t('windowStart')}</Label>
           <Input id="cover-start" type="date" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="cover-end" className="text-xs">Window end</Label>
+          <Label htmlFor="cover-end" className="text-xs">{t('windowEnd')}</Label>
           <Input id="cover-end" type="date" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="cover-next" className="text-xs">Next crop (optional)</Label>
-          <Input id="cover-next" value={nextCrop} onChange={(e) => setNextCrop(e.target.value)} placeholder="e.g. maize" className="h-9 text-sm" />
+          <Label htmlFor="cover-next" className="text-xs">{t('nextCropLabel')}</Label>
+          <Input id="cover-next" value={nextCrop} onChange={(e) => setNextCrop(e.target.value)} placeholder={t('cropPlaceholder')} className="h-9 text-sm" />
         </div>
         <div className="flex items-end">
           <Button onClick={() => run.mutate()} disabled={run.isPending} className="w-full bg-emerald-700 hover:bg-emerald-800">
-            {run.isPending ? 'Evaluating…' : 'Evaluate candidates'}
+            {run.isPending ? t('evaluating') : t('evaluateCandidates')}
           </Button>
         </div>
       </div>
@@ -496,8 +494,7 @@ function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) 
           ))}
           {candidates.length === 0 ? (
             <HonestEmpty>
-              No cover-crop-capable species in the active knowledge base could be
-              evaluated — an honest empty result.
+              {t('noCandidates')}
             </HonestEmpty>
           ) : (
             candidates.map((c) => (
@@ -508,7 +505,7 @@ function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) 
                     <div className="flex items-center gap-2">
                       <StatusBadge status={c.status} />
                       {adopted === c.crop_code || items.data?.items.some((i) => i.crop_label === c.crop_code) ? (
-                        <Badge variant="outline" className="border-emerald-300 bg-emerald-50 px-1.5 py-0 text-[10px] text-emerald-800">in plan</Badge>
+                        <Badge variant="outline" className="border-emerald-300 bg-emerald-50 px-1.5 py-0 text-[10px] text-emerald-800">{t('inPlan')}</Badge>
                       ) : null}
                     </div>
                   </div>
@@ -531,12 +528,12 @@ function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) 
                     ))}
                   </ul>
                   {c.sowing_window ? (
-                    <p className="text-[11px]">Sowing window (reference): {c.sowing_window[0]} → {c.sowing_window[1]}</p>
+                    <p className="text-[11px]">{t('sowingWindow', { start: c.sowing_window[0], end: c.sowing_window[1] })}</p>
                   ) : null}
                   {expert ? (
                     <Accordion type="single" collapsible className="w-full">
                       <AccordionItem value="dims">
-                        <AccordionTrigger className="text-xs">Dimension detail</AccordionTrigger>
+                        <AccordionTrigger className="text-xs">{t('dimensionDetail')}</AccordionTrigger>
                         <AccordionContent>
                           <div className="space-y-1">
                             {Object.entries(c.dimensions).map(([k, d]) => (
@@ -559,7 +556,7 @@ function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) 
                       onClick={() => adopt.mutate(c)}
                       disabled={adopt.isPending}
                     >
-                      Adopt into plan
+                      {t('adoptIntoPlan')}
                     </Button>
                   ) : null}
                 </CardContent>
@@ -571,7 +568,7 @@ function CoverStudio({ fieldId, expert }: { fieldId: string; expert: boolean }) 
 
       {items.data && items.data.items.length > 0 ? (
         <div className="space-y-1">
-          <p className="text-xs font-semibold text-stone-700">Adopted cover decisions</p>
+          <p className="text-xs font-semibold text-stone-700">{t('adoptedDecisions')}</p>
           {items.data.items.map((i) => (
             <div key={i.id} className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
               <StatusBadge status={i.status} />
@@ -594,6 +591,7 @@ const CLASS_COLOR: Record<string, string> = {
 }
 
 function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+  const t = useTranslations('management')
   const [start, setStart] = useState(daysAgo(180))
   const [end, setEnd] = useState(today())
   const timeline = useQuery({
@@ -626,11 +624,11 @@ function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean })
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
-          <Label htmlFor="tl-start" className="text-xs">From</Label>
+          <Label htmlFor="tl-start" className="text-xs">{t('fromLabel')}</Label>
           <Input id="tl-start" type="date" value={start} onChange={(e) => setStart(e.target.value)} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="tl-end" className="text-xs">To</Label>
+          <Label htmlFor="tl-end" className="text-xs">{t('toLabel')}</Label>
           <Input id="tl-end" type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="h-9 text-sm" />
         </div>
       </div>
@@ -641,14 +639,14 @@ function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean })
       {data ? (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-3 text-[11px] text-stone-600">
-            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.protective}`} aria-hidden /> protective cover</span>
-            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.bare}`} aria-hidden /> known bare</span>
-            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.unknown}`} aria-hidden /> unknown (not bare)</span>
+            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.protective}`} aria-hidden /> {t('legendProtective')}</span>
+            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.bare}`} aria-hidden /> {t('legendBare')}</span>
+            <span className="flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded ${CLASS_COLOR.unknown}`} aria-hidden /> {t('legendUnknown')}</span>
           </div>
 
           {/* timeline strip: one cell per day (wrapped, labeled by month) */}
           <div className="overflow-hidden rounded-lg border border-stone-200 p-2">
-            <div className="flex flex-wrap gap-px" role="img" aria-label="Daily soil cover status strip">
+            <div className="flex flex-wrap gap-px" role="img" aria-label={t('stripAria')}>
               {data.timeline.map((d) => (
                 <span
                   key={d.date}
@@ -660,13 +658,13 @@ function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean })
           </div>
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Metric label="Protective" value={`${data.metrics.days_protective_cover} d`} />
-            <Metric label="Known bare" value={`${data.metrics.days_known_bare} d`} />
-            <Metric label="Unknown" value={`${data.metrics.days_unknown} d`} />
+            <Metric label={t('metricProtective')} value={`${data.metrics.days_protective_cover} d`} />
+            <Metric label={t('metricBare')} value={`${data.metrics.days_known_bare} d`} />
+            <Metric label={t('metricUnknown')} value={`${data.metrics.days_unknown} d`} />
             <Metric
-              label="Longest bare"
+              label={t('metricLongestBare')}
               value={data.metrics.longest_bare_interval_days ? `${data.metrics.longest_bare_interval_days} d` : '—'}
-              hint={data.metrics.longest_bare_interval ? data.metrics.longest_bare_interval.join(' → ') : 'no bare evidence'}
+              hint={data.metrics.longest_bare_interval ? data.metrics.longest_bare_interval.join(' → ') : t('noBareEvidence')}
             />
           </div>
 
@@ -675,28 +673,28 @@ function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean })
           <Separator />
 
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-stone-700">Record a cover observation</p>
+            <p className="text-xs font-semibold text-stone-700">{t('recordObs')}</p>
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1">
-                <Label htmlFor="obs-date" className="text-xs">Date</Label>
+                <Label htmlFor="obs-date" className="text-xs">{t('dateLabel')}</Label>
                 <Input id="obs-date" type="date" value={obsDate} onChange={(e) => setObsDate(e.target.value)} className="h-9 text-sm" />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="obs-state" className="text-xs">Observed state</Label>
+                <Label htmlFor="obs-state" className="text-xs">{t('stateLabel')}</Label>
                 <Select value={obsState} onValueChange={setObsState}>
                   <SelectTrigger id="obs-state" className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="bare">Bare soil</SelectItem>
-                    <SelectItem value="living_main_crop">Living main crop</SelectItem>
-                    <SelectItem value="living_cover_crop">Living cover crop</SelectItem>
-                    <SelectItem value="surface_residue">Surface residue</SelectItem>
-                    <SelectItem value="mulch">Mulch</SelectItem>
-                    <SelectItem value="unknown">Unknown</SelectItem>
+                    <SelectItem value="bare">{t('stateBare')}</SelectItem>
+                    <SelectItem value="living_main_crop">{t('stateLivingMain')}</SelectItem>
+                    <SelectItem value="living_cover_crop">{t('stateLivingCover')}</SelectItem>
+                    <SelectItem value="surface_residue">{t('stateResidue')}</SelectItem>
+                    <SelectItem value="mulch">{t('stateMulch')}</SelectItem>
+                    <SelectItem value="unknown">{t('stateUnknown')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <Button size="sm" variant="outline" className="h-9" onClick={() => addObs.mutate()} disabled={addObs.isPending}>
-                {addObs.isPending ? 'Saving…' : 'Add observation'}
+                {addObs.isPending ? t('saving') : t('addObservation')}
               </Button>
             </div>
             <ErrorNote error={error} />
@@ -705,12 +703,12 @@ function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean })
           {expert ? (
             <Accordion type="single" collapsible>
               <AccordionItem value="method">
-                <AccordionTrigger className="text-xs">Method & evidence notes</AccordionTrigger>
+                <AccordionTrigger className="text-xs">{t('methodNotes')}</AccordionTrigger>
                 <AccordionContent className="space-y-1 text-[11px] text-stone-600">
                   <p>{data.method.engine} · {data.method.version}</p>
                   {data.method.rules.map((r, i) => <p key={i}>· {r}</p>)}
                   {data.evidence_notes.map((n, i) => <p key={i} className="text-amber-800">· {n.detail}</p>)}
-                  <p>Inputs: {Object.entries(data.inputs_summary).map(([k, v]) => `${k}=${v}`).join(' · ')}</p>
+                  <p>{t('inputsLine', { inputs: Object.entries(data.inputs_summary).map(([k, v]) => `${k}=${v}`).join(' · ') })}</p>
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
@@ -724,6 +722,7 @@ function TimelineView({ fieldId, expert }: { fieldId: string; expert: boolean })
 // ------------------------------------------------------------ residue view
 
 function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+  const t = useTranslations('management')
   const qc = useQueryClient()
   const ledger = useQuery({
     queryKey: ['residue-ledger', fieldId],
@@ -774,22 +773,20 @@ function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
   return (
     <div className="space-y-4">
       <p className="text-sm text-stone-600">
-        Residue flows on a dry-matter basis. Mass balance is enforced: flows
-        above production are a hard error, and unknown production is never
-        assumed to be zero.
+        {t('residueIntro')}
       </p>
 
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
-          <Label htmlFor="res-crop" className="text-xs">Crop</Label>
-          <Input id="res-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder="e.g. maize" className="h-9 w-40 text-sm" />
+          <Label htmlFor="res-crop" className="text-xs">{t('cropLabel')}</Label>
+          <Input id="res-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder={t('cropPlaceholder')} className="h-9 w-40 text-sm" />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="res-prod" className="text-xs">Produced DM (kg, optional)</Label>
+          <Label htmlFor="res-prod" className="text-xs">{t('producedLabel')}</Label>
           <Input id="res-prod" type="number" min="0" value={produced} onChange={(e) => setProduced(e.target.value)} className="h-9 w-44 text-sm" />
         </div>
         <Button variant="outline" className="h-9" onClick={() => addRecord.mutate()} disabled={addRecord.isPending || !crop}>
-          {addRecord.isPending ? 'Saving…' : 'Add residue record'}
+          {addRecord.isPending ? t('saving') : t('addRecord')}
         </Button>
       </div>
       <ErrorNote error={error} />
@@ -803,7 +800,7 @@ function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
             <p key={i} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{w}</p>
           ))}
           {data.records.length === 0 ? (
-            <HonestEmpty>No residue records yet — add one above after harvest.</HonestEmpty>
+            <HonestEmpty>{t('noRecords')}</HonestEmpty>
           ) : (
             data.records.map((rec) => (
               <Card key={rec.record.id} className="border-stone-200">
@@ -813,56 +810,59 @@ function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
                     <StatusBadge status={rec.balance.status} />
                   </div>
                   <CardDescription>
-                    produced {rec.record.produced_dm_kg !== null ? `${rec.record.produced_dm_kg} kg DM` : 'unknown'} ·
-                    {' '}{rec.record.production_status.replace(/_/g, ' ')}
+                    {t('recordDesc', {
+                      amount: rec.record.produced_dm_kg !== null ? `${rec.record.produced_dm_kg} kg DM` : t('unknownAmount'),
+                      status: rec.record.production_status.replace(/_/g, ' '),
+                    })}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2 text-xs text-stone-600">
                   {rec.flows.map((f) => (
                     <div key={f.id} className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{f.flow_type.replace(/_/g, ' ')}</Badge>
-                      <span>{f.dm_kg !== null ? `${f.dm_kg} kg` : 'mass unknown'}</span>
+                      <span>{f.dm_kg !== null ? `${f.dm_kg} kg` : t('massUnknown')}</span>
                       <span className="text-stone-400">{f.dm_kg_status}</span>
                     </div>
                   ))}
                   <p>
-                    Σ flows {rec.balance.total_flow_dm_kg} kg · unaccounted{' '}
-                    {rec.balance.unaccounted_dm_kg !== null ? `${rec.balance.unaccounted_dm_kg} kg` : 'not computable'}
+                    {t('balanceLine', {
+                      flows: rec.balance.total_flow_dm_kg,
+                      unaccounted: rec.balance.unaccounted_dm_kg !== null ? `${rec.balance.unaccounted_dm_kg} kg` : t('notComputable'),
+                    })}
                   </p>
                   {expert && rec.derived.total_nitrogen_kg !== undefined ? (
                     <p className="text-[11px]">
-                      Nitrogen in flows ≈ {String(rec.derived.total_nitrogen_kg)} kg (bookkeeping — not counted in the
-                      M6B nutrient budget; no SOC claim)
+                      {t('nitrogenNote', { value: String(rec.derived.total_nitrogen_kg) })}
                     </p>
                   ) : null}
                   {targetRecord === rec.record.id ? (
                     <div className="flex flex-wrap items-end gap-2 border-t border-stone-100 pt-2">
                       <div className="space-y-1">
-                        <Label htmlFor={`flow-type-${rec.record.id}`} className="text-xs">Flow</Label>
+                        <Label htmlFor={`flow-type-${rec.record.id}`} className="text-xs">{t('flowLabel')}</Label>
                         <Select value={flowType} onValueChange={setFlowType}>
                           <SelectTrigger id={`flow-type-${rec.record.id}`} className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="retained_surface">Retained on surface</SelectItem>
-                            <SelectItem value="incorporated">Incorporated</SelectItem>
-                            <SelectItem value="removed_baled">Removed / baled</SelectItem>
-                            <SelectItem value="grazed">Grazed</SelectItem>
-                            <SelectItem value="burned">Burned</SelectItem>
-                            <SelectItem value="other_loss">Other loss</SelectItem>
-                            <SelectItem value="unknown">Unknown fate</SelectItem>
+                            <SelectItem value="retained_surface">{t('flowRetained')}</SelectItem>
+                            <SelectItem value="incorporated">{t('flowIncorporated')}</SelectItem>
+                            <SelectItem value="removed_baled">{t('flowRemoved')}</SelectItem>
+                            <SelectItem value="grazed">{t('flowGrazed')}</SelectItem>
+                            <SelectItem value="burned">{t('flowBurned')}</SelectItem>
+                            <SelectItem value="other_loss">{t('flowOther')}</SelectItem>
+                            <SelectItem value="unknown">{t('flowUnknownFate')}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-1">
-                        <Label htmlFor={`flow-kg-${rec.record.id}`} className="text-xs">DM kg (optional)</Label>
+                        <Label htmlFor={`flow-kg-${rec.record.id}`} className="text-xs">{t('dmKgLabel')}</Label>
                         <Input id={`flow-kg-${rec.record.id}`} type="number" min="0" value={flowKg} onChange={(e) => setFlowKg(e.target.value)} className="h-9 w-36 text-sm" />
                       </div>
                       <Button size="sm" variant="outline" className="h-9" onClick={() => addFlow.mutate()} disabled={addFlow.isPending}>
-                        Add flow
+                        {t('addFlow')}
                       </Button>
                     </div>
                   ) : (
                     <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setTargetRecord(rec.record.id)}>
-                      Add flow to this record
+                      {t('addFlowToRecord')}
                     </Button>
                   )}
                 </CardContent>
@@ -878,6 +878,7 @@ function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
 // ------------------------------------------------------------ erosion view
 
 function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+  const t = useTranslations('management')
   const qc = useQueryClient()
   const [slopeClass, setSlopeClass] = useState('unknown')
   const [useRusle, setUseRusle] = useState(false)
@@ -919,39 +920,35 @@ function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
   return (
     <div className="space-y-4">
       <p className="text-sm text-stone-600">
-        Two separate outputs: a <span className="font-medium">screening</span>{' '}
-        from your field records (never a soil-loss number), and an optional
-        sheet-&amp;-rill calculation that runs <span className="font-medium">only</span> when
-        you supply all five sourced factors. Gully, wind and channel processes
-        are out of scope for this platform.
+        {t.rich('erosionIntro', { b: (chunks) => <span className="font-medium">{chunks}</span> })}
       </p>
 
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
-          <Label htmlFor="slope" className="text-xs">Slope class (from your knowledge)</Label>
+          <Label htmlFor="slope" className="text-xs">{t('slopeLabel')}</Label>
           <Select value={slopeClass} onValueChange={setSlopeClass}>
             <SelectTrigger id="slope" className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="unknown">Not declared</SelectItem>
-              <SelectItem value="flat">Flat</SelectItem>
-              <SelectItem value="gentle">Gentle</SelectItem>
-              <SelectItem value="moderate">Moderate</SelectItem>
-              <SelectItem value="steep">Steep</SelectItem>
+              <SelectItem value="unknown">{t('slopeUndeclared')}</SelectItem>
+              <SelectItem value="flat">{t('slopeFlat')}</SelectItem>
+              <SelectItem value="gentle">{t('slopeGentle')}</SelectItem>
+              <SelectItem value="moderate">{t('slopeModerate')}</SelectItem>
+              <SelectItem value="steep">{t('slopeSteep')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="flex items-center gap-2 pb-2 text-xs text-stone-500">
-          <Switch checked={useRusle} onCheckedChange={setUseRusle} aria-label="Include RUSLE factors" id="rusle-toggle" />
-          <Label htmlFor="rusle-toggle" className="text-xs">I have sourced R·K·LS·C·P factors</Label>
+          <Switch checked={useRusle} onCheckedChange={setUseRusle} aria-label={t('rusleAria')} id="rusle-toggle" />
+          <Label htmlFor="rusle-toggle" className="text-xs">{t('rusleLabel')}</Label>
         </div>
         {useRusle ? (
           <div className="space-y-1">
-            <Label htmlFor="factor-src" className="text-xs">Factor source</Label>
-            <Input id="factor-src" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} placeholder="e.g. county soil survey 2024" className="h-9 w-52 text-sm" />
+            <Label htmlFor="factor-src" className="text-xs">{t('factorSourceLabel')}</Label>
+            <Input id="factor-src" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} placeholder={t('factorSourcePlaceholder')} className="h-9 w-52 text-sm" />
           </div>
         ) : null}
         <Button onClick={() => assess.mutate()} disabled={assess.isPending} className="bg-emerald-700 hover:bg-emerald-800">
-          {assess.isPending ? 'Assessing…' : 'Run assessment'}
+          {assess.isPending ? t('assessing') : t('runAssessment')}
         </Button>
       </div>
 
@@ -972,12 +969,12 @@ function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
           <Card className="border-stone-200">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-sm">
-                Screening <Badge variant="outline" className="px-1.5 py-0 text-[10px]">screening only — not a soil-loss prediction</Badge>
+                {t('screeningTitle')} <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{t('screeningBadge')}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-xs text-stone-600">
               {run.result.screening.concerns.length === 0 ? (
-                <HonestEmpty>No evidence of concern found in the field records. Unknowns: {run.result.screening.unknowns.length}</HonestEmpty>
+                <HonestEmpty>{t('noConcerns', { count: run.result.screening.unknowns.length })}</HonestEmpty>
               ) : (
                 run.result.screening.concerns.map((c, i) => (
                   <div key={i} className="flex items-start gap-2">
@@ -988,7 +985,7 @@ function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
               )}
               {run.result.screening.field_observed_signs.length > 0 ? (
                 <div className="rounded-md border border-stone-200 bg-stone-50 p-2">
-                  <p className="font-medium text-stone-700">Your observed erosion signs</p>
+                  <p className="font-medium text-stone-700">{t('observedSigns')}</p>
                   {run.result.screening.field_observed_signs.map((s, i) => <p key={i}>{s.description}</p>)}
                 </div>
               ) : null}
@@ -1003,10 +1000,13 @@ function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
           {run.result.rusle.status !== 'not_evaluated' ? (
             <Card className="border-stone-200">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Sheet &amp; rill estimate (RUSLE-family)</CardTitle>
+                <CardTitle className="text-sm">{t('rusleTitle')}</CardTitle>
                 <CardDescription>
                   {run.result.rusle.annual_soil_loss_a !== undefined
-                    ? `A ≈ ${run.result.rusle.annual_soil_loss_a} (${run.result.rusle.unit_convention} native unit) — screening grade, sheet & rill only`
+                    ? t('rusleEstimate', {
+                        value: run.result.rusle.annual_soil_loss_a,
+                        unit: run.result.rusle.unit_convention ?? '',
+                      })
                     : run.result.rusle.message}
                 </CardDescription>
               </CardHeader>
@@ -1023,7 +1023,7 @@ function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
           {run.result.alternatives.length > 0 ? (
             <Card className="border-stone-200">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Conservation alternatives (cited mechanisms — not a ranking)</CardTitle>
+                <CardTitle className="text-sm">{t('alternativesTitle')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <Accordion type="single" collapsible className="w-full">
@@ -1051,6 +1051,7 @@ function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) 
 // ------------------------------------------------------------ operations view
 
 function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: string | null; expert: boolean }) {
+  const t = useTranslations('management')
   const qc = useQueryClient()
   const [crop, setCrop] = useState('')
   const [hoursPerDay, setHoursPerDay] = useState('8')
@@ -1114,18 +1115,18 @@ function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: 
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
-          <Label htmlFor="gen-crop" className="text-xs">Generate operations for crop</Label>
-          <Input id="gen-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder="e.g. maize" className="h-9 w-40 text-sm" />
+          <Label htmlFor="gen-crop" className="text-xs">{t('generateCropLabel')}</Label>
+          <Input id="gen-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder={t('cropPlaceholder')} className="h-9 w-40 text-sm" />
         </div>
         <Button variant="outline" className="h-9" onClick={() => generate.mutate()} disabled={generate.isPending || !crop}>
-          {generate.isPending ? 'Generating…' : 'Generate from templates'}
+          {generate.isPending ? t('generating') : t('generateFromTemplates')}
         </Button>
         <div className="space-y-1">
-          <Label htmlFor="hpd" className="text-xs">Hours per workday</Label>
+          <Label htmlFor="hpd" className="text-xs">{t('hoursLabel')}</Label>
           <Input id="hpd" type="number" min="1" value={hoursPerDay} onChange={(e) => setHoursPerDay(e.target.value)} className="h-9 w-24 text-sm" />
         </div>
         <Button onClick={() => scheduleRun.mutate()} disabled={scheduleRun.isPending} className="bg-emerald-700 hover:bg-emerald-800">
-          {scheduleRun.isPending ? 'Scheduling…' : 'Schedule operations'}
+          {scheduleRun.isPending ? t('scheduling') : t('scheduleOps')}
         </Button>
       </div>
       <ErrorNote error={error ?? ops.error} />
@@ -1133,17 +1134,15 @@ function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: 
       <div className="grid gap-3 lg:grid-cols-2">
         <Card className="border-stone-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Operations</CardTitle>
+            <CardTitle className="text-sm">{t('opsTitle')}</CardTitle>
             <CardDescription>
-              Planned work derived from cited templates. Durations are yours to
-              supply — the engine invents none, and nothing unscheduled is
-              hidden.
+              {t('opsDesc')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {ops.isLoading ? <Skeleton className="h-24 w-full" /> : null}
             {ops.data && ops.data.items.length === 0 ? (
-              <HonestEmpty>No operations yet — generate them for a crop above.</HonestEmpty>
+              <HonestEmpty>{t('noOpsYet')}</HonestEmpty>
             ) : null}
             {ops.data?.items.map((op) => {
               const entry = schedule?.result.entries.find((e) => e.operation_id === op.id)
@@ -1153,12 +1152,12 @@ function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: 
                     <StatusBadge status={op.status} />
                     <span className="font-medium text-stone-800">{op.title}</span>
                     <span className="text-stone-500">
-                      {op.scheduled_start ?? op.earliest_start ?? 'no window'}
+                      {op.scheduled_start ?? op.earliest_start ?? t('noWindow')}
                       {op.scheduled_end ?? op.latest_finish ? ` → ${op.scheduled_end ?? op.latest_finish}` : ''}
                     </span>
                     {op.status !== 'completed' ? (
                       <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-[11px]" onClick={() => complete.mutate(op.id)} disabled={complete.isPending}>
-                        Mark done
+                        {t('markDone')}
                       </Button>
                     ) : null}
                   </div>
@@ -1174,33 +1173,33 @@ function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: 
 
         <Card className="border-stone-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Machinery & labour</CardTitle>
-            <CardDescription>Your resources — capacity is never assumed.</CardDescription>
+            <CardTitle className="text-sm">{t('resourcesTitle')}</CardTitle>
+            <CardDescription>{t('resourcesDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1">
-                <Label htmlFor="res-type" className="text-xs">Type</Label>
+                <Label htmlFor="res-type" className="text-xs">{t('typeLabel')}</Label>
                 <Select value={resourceType} onValueChange={setResourceType}>
                   <SelectTrigger id="res-type" className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="tractor">Tractor</SelectItem>
-                    <SelectItem value="implement">Implement</SelectItem>
-                    <SelectItem value="seeder">Seeder</SelectItem>
-                    <SelectItem value="sprayer">Sprayer</SelectItem>
-                    <SelectItem value="harvester">Harvester</SelectItem>
-                    <SelectItem value="baler">Baler</SelectItem>
-                    <SelectItem value="contractor">Contractor</SelectItem>
-                    <SelectItem value="labor_crew">Labour crew</SelectItem>
+                    <SelectItem value="tractor">{t('resTractor')}</SelectItem>
+                    <SelectItem value="implement">{t('resImplement')}</SelectItem>
+                    <SelectItem value="seeder">{t('resSeeder')}</SelectItem>
+                    <SelectItem value="sprayer">{t('resSprayer')}</SelectItem>
+                    <SelectItem value="harvester">{t('resHarvester')}</SelectItem>
+                    <SelectItem value="baler">{t('resBaler')}</SelectItem>
+                    <SelectItem value="contractor">{t('resContractor')}</SelectItem>
+                    <SelectItem value="labor_crew">{t('resLabourCrew')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="res-name" className="text-xs">Name</Label>
-                <Input id="res-name" value={resourceName} onChange={(e) => setResourceName(e.target.value)} placeholder="e.g. Ford 5000" className="h-9 w-36 text-sm" />
+                <Label htmlFor="res-name" className="text-xs">{t('nameLabel')}</Label>
+                <Input id="res-name" value={resourceName} onChange={(e) => setResourceName(e.target.value)} placeholder={t('namePlaceholder')} className="h-9 w-36 text-sm" />
               </div>
               <Button size="sm" variant="outline" className="h-9" onClick={() => addResource.mutate()} disabled={addResource.isPending || !farmId}>
-                Add
+                {t('addResource')}
               </Button>
             </div>
             {resources.data?.items.length ? (
@@ -1210,18 +1209,20 @@ function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: 
                 ))}
               </div>
             ) : (
-              <HonestEmpty>No resources registered — scheduling will report every operation as unscheduled.</HonestEmpty>
+              <HonestEmpty>{t('noResources')}</HonestEmpty>
             )}
             {schedule ? (
               <div className="border-t border-stone-100 pt-2 text-[11px] text-stone-600">
-                <p className="font-medium text-stone-700">Last schedule run</p>
+                <p className="font-medium text-stone-700">{t('lastSchedule')}</p>
                 <p>
-                  {schedule.result.solver.status} ·{' '}
-                  {schedule.result.entries.filter((e) => e.status === 'scheduled').length} scheduled ·{' '}
-                  {schedule.result.entries.filter((e) => e.status === 'unscheduled').length} unscheduled
+                  {t('scheduleSummary', {
+                    status: schedule.result.solver.status,
+                    scheduled: schedule.result.entries.filter((e) => e.status === 'scheduled').length,
+                    unscheduled: schedule.result.entries.filter((e) => e.status === 'unscheduled').length,
+                  })}
                 </p>
                 <p className="text-stone-500">
-                  Weather checks pending (no forecast provider) · soil readiness is a manual check.
+                  {t('weatherPending')}
                 </p>
                 {schedule.result.conflicts.map((c, i) => (
                   <p key={i} className="text-red-700">{c.message}</p>
@@ -1230,7 +1231,10 @@ function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: 
             ) : null}
             {expert && templates.data ? (
               <p className="text-[11px] text-stone-400">
-                Template pack: {templates.data.total} templates · validation status {templates.data.operation_templates[0]?.validation_status ?? '—'}
+                {t('templatePack', {
+                  total: templates.data.total,
+                  status: templates.data.operation_templates[0]?.validation_status ?? '—',
+                })}
               </p>
             ) : null}
           </CardContent>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
@@ -49,6 +50,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { ExportButton } from '@/components/fieldshift/export-button'
 import { FieldPicker } from '@/components/fieldshift/field-picker'
 import { SyntheticBadge } from '@/components/fieldshift/badges'
 import {
@@ -76,10 +78,10 @@ import type {
 import { cn } from '@/lib/utils'
 
 const PROFILE_OPTIONS = [
-  { value: 'water_priority', label: 'Water priority' },
-  { value: 'soil_health_priority', label: 'Soil health priority' },
-  { value: 'balanced', label: 'Balanced' },
-  { value: 'economic_priority', label: 'Economic priority' },
+  { value: 'water_priority', labelKey: 'profileWaterPriority' },
+  { value: 'soil_health_priority', labelKey: 'profileSoilHealth' },
+  { value: 'balanced', labelKey: 'profileBalanced' },
+  { value: 'economic_priority', labelKey: 'profileEconomic' },
 ] as const
 
 interface SeasonWindow {
@@ -94,16 +96,17 @@ function fmt(value: number | null | undefined, digits = 2): string {
 }
 
 function CandidateStatusBadge({ status }: { status: CandidateAssessment['status'] }) {
-  const map: Record<CandidateAssessment['status'], { cls: string; label: string }> = {
-    eligible: { cls: 'border-emerald-200 bg-emerald-50 text-emerald-800', label: 'Eligible' },
-    conditionally_eligible: { cls: 'border-amber-200 bg-amber-50 text-amber-900', label: 'Conditional' },
-    excluded: { cls: 'border-red-200 bg-red-50 text-red-800', label: 'Excluded' },
-    unevaluated: { cls: 'border-stone-300 bg-stone-100 text-stone-600', label: 'Unevaluated' },
+  const t = useTranslations('rotation')
+  const map: Record<CandidateAssessment['status'], { cls: string; labelKey: string }> = {
+    eligible: { cls: 'border-emerald-200 bg-emerald-50 text-emerald-800', labelKey: 'statusEligible' },
+    conditionally_eligible: { cls: 'border-amber-200 bg-amber-50 text-amber-900', labelKey: 'statusConditional' },
+    excluded: { cls: 'border-red-200 bg-red-50 text-red-800', labelKey: 'statusExcluded' },
+    unevaluated: { cls: 'border-stone-300 bg-stone-100 text-stone-600', labelKey: 'statusUnevaluated' },
   }
   const it = map[status]
   return (
     <Badge variant="outline" className={cn('font-normal', it.cls)}>
-      {it.label}
+      {t(it.labelKey)}
     </Badge>
   )
 }
@@ -111,6 +114,8 @@ function CandidateStatusBadge({ status }: { status: CandidateAssessment['status'
 // --------------------------------------------------------- crop history
 
 function CropHistoryCard({ selectedField }: { selectedField: SelectedField }) {
+  const t = useTranslations('rotation')
+  const tc = useTranslations('common')
   const history = useCropHistory(selectedField.id)
   const queryClient = useQueryClient()
   const [cropCode, setCropCode] = useState('')
@@ -125,13 +130,13 @@ function CropHistoryCard({ selectedField }: { selectedField: SelectedField }) {
     mutationFn: () =>
       addCropHistory(selectedField.id, {
         crop_code: cropCode || null,
-        crop_label: label || cropCode || 'Unnamed crop',
+        crop_label: label || cropCode || t('unnamedCrop'),
         sowing_date: sowing || null,
         harvest_date: harvest || null,
         season_label: seasonLabel || null,
       }),
     onSuccess: () => {
-      toast.success('Crop history entry added.')
+      toast.success(t('cropAddedToast'))
       setCropCode('')
       setLabel('')
       setSowing('')
@@ -150,23 +155,45 @@ function CropHistoryCard({ selectedField }: { selectedField: SelectedField }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Sprout className="h-4 w-4 text-emerald-700" aria-hidden />
-          Crop history (rotation baseline)
-        </CardTitle>
-        <CardDescription>
-          What actually grew here. The current rotation is preserved as the labelled
-          baseline in every optimization run.
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sprout className="h-4 w-4 text-emerald-700" aria-hidden />
+              {t('cropHistoryTitle')}
+            </CardTitle>
+            <CardDescription>{t('cropHistoryDesc')}</CardDescription>
+          </div>
+          <ExportButton
+            baseFilename="crop-history"
+            getRows={() =>
+              items.map((item) => ({
+                crop_label: item.crop_label,
+                sowing_date: item.sowing_date,
+                harvest_date: item.harvest_date,
+                season_label: item.season_label,
+                area_ha: item.area_ha,
+                source: item.source,
+              }))
+            }
+            columns={[
+              { key: 'crop_label', label: t('labelCrop') },
+              { key: 'sowing_date', label: t('labelSowing') },
+              { key: 'harvest_date', label: t('labelHarvest') },
+              { key: 'season_label', label: t('labelSeason') },
+              { key: 'area_ha', label: t('colArea') },
+              { key: 'source', label: t('colSource') },
+            ]}
+          />
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {history.isLoading ? (
           <div className="flex items-center gap-2 text-sm text-stone-500">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {tc('loading')}
           </div>
         ) : items.length === 0 ? (
           <p className="text-sm text-stone-500">
-            No crop history recorded — the baseline will be empty until you add entries.
+            {t('noCropHistory')}
           </p>
         ) : (
           <ul className="max-h-40 space-y-1.5 overflow-y-auto pr-1 text-sm scrollbar-thin">
@@ -187,10 +214,10 @@ function CropHistoryCard({ selectedField }: { selectedField: SelectedField }) {
         )}
         <div className="grid grid-cols-2 gap-2 border-t border-stone-100 pt-3 sm:grid-cols-5">
           <div className="col-span-2 sm:col-span-1">
-            <Label className="text-xs text-stone-500">Crop</Label>
+            <Label className="text-xs text-stone-500">{t('labelCrop')}</Label>
             <Select value={cropCode} onValueChange={setCropCode}>
               <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Knowledge crop…" />
+                <SelectValue placeholder={t('placeholderKnowledgeCrop')} />
               </SelectTrigger>
               <SelectContent className="max-h-72">
                 {(crops.data?.crops ?? []).map((c) => (
@@ -202,24 +229,24 @@ function CropHistoryCard({ selectedField }: { selectedField: SelectedField }) {
             </Select>
           </div>
           <div className="col-span-2 sm:col-span-1">
-            <Label className="text-xs text-stone-500">Label (free text)</Label>
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Maize" className="h-9 text-sm" />
+            <Label className="text-xs text-stone-500">{t('labelFreeText')}</Label>
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t('placeholderLabelExample')} className="h-9 text-sm" />
           </div>
           <div>
-            <Label className="text-xs text-stone-500">Sowing</Label>
+            <Label className="text-xs text-stone-500">{t('labelSowing')}</Label>
             <Input type="date" value={sowing} onChange={(e) => setSowing(e.target.value)} className="h-9 text-sm" />
           </div>
           <div>
-            <Label className="text-xs text-stone-500">Harvest</Label>
+            <Label className="text-xs text-stone-500">{t('labelHarvest')}</Label>
             <Input type="date" value={harvest} onChange={(e) => setHarvest(e.target.value)} className="h-9 text-sm" />
           </div>
           <div className="flex items-end gap-2">
             <div className="flex-1">
-              <Label className="text-xs text-stone-500">Season</Label>
-              <Input value={seasonLabel} onChange={(e) => setSeasonLabel(e.target.value)} placeholder="summer_2023" className="h-9 text-sm" />
+              <Label className="text-xs text-stone-500">{t('labelSeason')}</Label>
+              <Input value={seasonLabel} onChange={(e) => setSeasonLabel(e.target.value)} placeholder={t('placeholderSeasonExample')} className="h-9 text-sm" />
             </div>
             <Button size="sm" className="h-9" onClick={() => addMutation.mutate()} disabled={addMutation.isPending || (!cropCode && !label)}>
-              {addMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : 'Add'}
+              {addMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : t('add')}
             </Button>
           </div>
         </div>
@@ -231,6 +258,7 @@ function CropHistoryCard({ selectedField }: { selectedField: SelectedField }) {
 // ------------------------------------------------------------ candidates
 
 function CandidateRow({ assessment }: { assessment: CandidateAssessment }) {
+  const t = useTranslations('rotation')
   const [open, setOpen] = useState(false)
   return (
     <li className="rounded-lg border border-stone-200 bg-white">
@@ -245,7 +273,7 @@ function CandidateRow({ assessment }: { assessment: CandidateAssessment }) {
           <CandidateStatusBadge status={assessment.status} />
           {assessment.water_requirement_mm != null && (
             <Badge variant="outline" className="border-sky-200 bg-sky-50 font-normal text-sky-800">
-              ≈{fmt(assessment.water_requirement_mm, 0)} mm water
+              ≈{t('waterBadge', { mm: fmt(assessment.water_requirement_mm, 0) })}
             </Badge>
           )}
         </span>
@@ -274,11 +302,11 @@ function CandidateRow({ assessment }: { assessment: CandidateAssessment }) {
           {assessment.unevaluated_dimensions.map((d, i) => (
             <p key={i} className="leading-relaxed text-stone-500">
               <Info className="mr-1 inline h-3 w-3 align-[-2px]" aria-hidden />
-              Not evaluated — {d.message}
+              {t('notEvaluatedLine', { message: d.message })}
             </p>
           ))}
           {assessment.water_estimate_assumptions.length > 0 && (
-            <p className="text-stone-400">Water estimate assumptions: {assessment.water_estimate_assumptions.join(' ')}</p>
+            <p className="text-stone-400">{t('waterAssumptions', { list: assessment.water_estimate_assumptions.join(' ') })}</p>
           )}
         </div>
       )}
@@ -293,6 +321,7 @@ function CandidatesCard({
   selectedField: SelectedField
   seasons: SeasonWindow[]
 }) {
+  const t = useTranslations('rotation')
   const [result, setResult] = useState<{
     seasons: CandidateSeason[]
     warnings: string[]
@@ -321,11 +350,9 @@ function CandidatesCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Candidate crops per season</CardTitle>
+        <CardTitle className="text-base">{t('candidatesTitle')}</CardTitle>
         <CardDescription>
-          Every knowledge-base crop evaluated against the planning seasons: calendar
-          windows, duration, climate ranges, soil, water estimability and rotation
-          knowledge. Missing evidence is reported, never filled.
+          {t('candidatesDesc')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -335,7 +362,7 @@ function CandidatesCard({
           disabled={mutation.isPending || seasons.length === 0}
         >
           {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Sprout className="h-4 w-4" aria-hidden />}
-          Generate candidates
+          {t('generateCandidates')}
         </Button>
         {result?.warnings.map((w, i) => (
           <Alert key={i} className={w.includes('SYNTHETIC') ? 'border-amber-200 bg-amber-50' : undefined}>
@@ -349,10 +376,10 @@ function CandidatesCard({
             <div key={season.season_label} className="space-y-2">
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
                 <span className="font-semibold text-stone-700">{season.season_label}</span>
-                <Badge variant="outline" className="border-emerald-200 font-normal text-emerald-800">{counts.eligible ?? 0} eligible</Badge>
-                <Badge variant="outline" className="border-amber-200 font-normal text-amber-900">{counts.conditionally_eligible ?? 0} conditional</Badge>
-                <Badge variant="outline" className="border-red-200 font-normal text-red-800">{counts.excluded ?? 0} excluded</Badge>
-                <Badge variant="outline" className="border-stone-300 font-normal text-stone-600">{counts.unevaluated ?? 0} unevaluated</Badge>
+                <Badge variant="outline" className="border-emerald-200 font-normal text-emerald-800">{t('countEligible', { count: counts.eligible ?? 0 })}</Badge>
+                <Badge variant="outline" className="border-amber-200 font-normal text-amber-900">{t('countConditional', { count: counts.conditionally_eligible ?? 0 })}</Badge>
+                <Badge variant="outline" className="border-red-200 font-normal text-red-800">{t('countExcluded', { count: counts.excluded ?? 0 })}</Badge>
+                <Badge variant="outline" className="border-stone-300 font-normal text-stone-600">{t('countUnevaluated', { count: counts.unevaluated ?? 0 })}</Badge>
               </div>
               <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1 scrollbar-thin">
                 {season.candidates.map((c) => (
@@ -370,6 +397,7 @@ function CandidatesCard({
 // ----------------------------------------------------------- strategies
 
 function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
+  const t = useTranslations('rotation')
   const exp = strategy.explanations
   const rec = exp.recommendation
   return (
@@ -378,21 +406,21 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             {strategy.strategy_key}
-            {strategy.is_baseline && <Badge variant="outline" className="font-normal text-stone-600">Baseline</Badge>}
+            {strategy.is_baseline && <Badge variant="outline" className="font-normal text-stone-600">{t('baseline')}</Badge>}
             {strategy.pareto.on_front && !strategy.is_baseline && (
-              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 font-normal text-emerald-800">Pareto front</Badge>
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 font-normal text-emerald-800">{t('paretoFront')}</Badge>
             )}
             {!strategy.pareto.on_front && !strategy.is_baseline && (
               <Badge variant="outline" className="border-stone-300 font-normal text-stone-500">
-                Dominated by {strategy.pareto.dominated_by.join(', ')}
+                {t('dominatedBy', { names: strategy.pareto.dominated_by.join(', ') })}
               </Badge>
             )}
           </CardTitle>
           <div className="flex items-center gap-2 text-xs text-stone-500">
-            {strategy.objective_value !== null && <span>objective {fmt(strategy.objective_value, 3)}</span>}
+            {strategy.objective_value !== null && <span>{t('objective', { value: fmt(strategy.objective_value, 3) })}</span>}
             {strategy.evidence_coverage != null && (
               <Badge variant="outline" className="border-stone-300 font-normal">
-                evidence-backed criteria {Math.round(strategy.evidence_coverage * 100)}%
+                {t('evidenceCoverage', { percent: Math.round(strategy.evidence_coverage * 100) })}
               </Badge>
             )}
           </div>
@@ -419,10 +447,10 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="text-xs">Criterion</TableHead>
-                <TableHead className="text-xs">Raw</TableHead>
-                <TableHead className="text-xs">Norm.</TableHead>
-                <TableHead className="text-xs">Dir.</TableHead>
+                <TableHead className="text-xs">{t('thCriterion')}</TableHead>
+                <TableHead className="text-xs">{t('thRaw')}</TableHead>
+                <TableHead className="text-xs">{t('thNorm')}</TableHead>
+                <TableHead className="text-xs">{t('thDir')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -432,7 +460,7 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
                     {c.criterion_code}
                     {!c.evaluable && (
                       <span className="ml-1 text-stone-400" title={c.missing_evidence.join('; ')}>
-                        (not evaluated)
+                        {t('notEvaluated')}
                       </span>
                     )}
                   </TableCell>
@@ -449,12 +477,12 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
 
         <Accordion type="single" collapsible>
           <AccordionItem value={`why-${strategy.id}`} className="border-stone-100">
-            <AccordionTrigger className="py-2 text-xs text-stone-600">Why this strategy</AccordionTrigger>
+            <AccordionTrigger className="py-2 text-xs text-stone-600">{t('whyThisStrategy')}</AccordionTrigger>
             <AccordionContent className="space-y-2 text-xs text-stone-600">
               <p>{exp.why_generated}</p>
               {exp.expected_benefits.length > 0 && (
                 <div>
-                  <p className="font-semibold text-emerald-800">Expected benefits</p>
+                  <p className="font-semibold text-emerald-800">{t('expectedBenefits')}</p>
                   <ul className="list-disc pl-4">
                     {exp.expected_benefits.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
@@ -462,7 +490,7 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
               )}
               {exp.risks_trade_offs.length > 0 && (
                 <div>
-                  <p className="font-semibold text-amber-800">Risks & trade-offs</p>
+                  <p className="font-semibold text-amber-800">{t('risksTradeOffs')}</p>
                   <ul className="list-disc pl-4">
                     {exp.risks_trade_offs.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
@@ -471,7 +499,7 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value={`constraints-${strategy.id}`} className="border-stone-100">
-            <AccordionTrigger className="py-2 text-xs text-stone-600">Constraints checked</AccordionTrigger>
+            <AccordionTrigger className="py-2 text-xs text-stone-600">{t('constraintsChecked')}</AccordionTrigger>
             <AccordionContent className="space-y-2 text-xs text-stone-600">
               {exp.constraints_checked.map((c, i) => (
                 <p key={i} className="leading-relaxed">
@@ -488,13 +516,13 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value={`evidence-${strategy.id}`} className="border-stone-100">
-            <AccordionTrigger className="py-2 text-xs text-stone-600">Evidence & data limitations</AccordionTrigger>
+            <AccordionTrigger className="py-2 text-xs text-stone-600">{t('evidenceLimitations')}</AccordionTrigger>
             <AccordionContent className="space-y-2 text-xs text-stone-600">
               {exp.data_limitations.map((l, i) => (
                 <p key={i} className="leading-relaxed text-amber-800">{l}</p>
               ))}
               <details className="text-stone-500">
-                <summary className="cursor-pointer">References ({exp.evidence_references.length})</summary>
+                <summary className="cursor-pointer">{t('referencesCount', { count: exp.evidence_references.length })}</summary>
                 <ul className="mt-1 list-disc pl-4">
                   {exp.evidence_references.map((r, i) => {
                     const typed = r as { type?: string; citation_text?: string; pack_version?: string; source_key?: string }
@@ -509,10 +537,10 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value={`validation-${strategy.id}`} className="border-stone-100">
-            <AccordionTrigger className="py-2 text-xs text-stone-600">Local expert validation required</AccordionTrigger>
+            <AccordionTrigger className="py-2 text-xs text-stone-600">{t('localValidation')}</AccordionTrigger>
             <AccordionContent className="space-y-1.5 text-xs text-stone-600">
               {exp.local_expert_validation_required.length === 0 ? (
-                <p className="text-stone-400">None — all applied knowledge is regionally confirmed.</p>
+                <p className="text-stone-400">{t('noLocalValidation')}</p>
               ) : (
                 <ul className="list-disc pl-4">
                   {exp.local_expert_validation_required.map((v, i) => <li key={i}>{v}</li>)}
@@ -523,9 +551,9 @@ function StrategyCard({ strategy }: { strategy: RotationStrategy }) {
         </Accordion>
 
         <p className="text-[10px] text-stone-400">
-          checksum {strategy.checksum_sha256?.slice(0, 16)}…
+          {t('checksumLine', { checksum: strategy.checksum_sha256?.slice(0, 16) ?? '' })}
           {Object.keys(strategy.skipped_weights).length > 0 && (
-            <> · skipped weights: {Object.keys(strategy.skipped_weights).join(', ')}</>
+            <> · {t('skippedWeights', { weights: Object.keys(strategy.skipped_weights).join(', ') })}</>
           )}
         </p>
       </CardContent>
@@ -540,6 +568,7 @@ function RunOptimizerCard({
   selectedField: SelectedField
   seasons: SeasonWindow[]
 }) {
+  const t = useTranslations('rotation')
   const queryClient = useQueryClient()
   const [profiles, setProfiles] = useState<string[]>(['balanced'])
   const [allocation, setAllocation] = useState('')
@@ -563,8 +592,8 @@ function RunOptimizerCard({
     onSuccess: (run) => {
       toast.success(
         run.solver_status === 'infeasible'
-          ? 'Run finished: no feasible assignment (see conflicts).'
-          : 'Rotation run finished.',
+          ? t('runInfeasibleToast')
+          : t('runFinishedToast'),
       )
       setSelectedRunId(run.id)
       void queryClient.invalidateQueries({ queryKey: ['rotation-runs', selectedField.id] })
@@ -583,11 +612,10 @@ function RunOptimizerCard({
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Scale className="h-4 w-4 text-emerald-700" aria-hidden />
-          Constraint-based optimization
+          {t('optimizerTitle')}
         </CardTitle>
         <CardDescription>
-          CP-SAT over admissible candidates. Hard constraints are never relaxed;
-          infeasible requests are reported with their conflicting constraints.
+          {t('optimizerDesc')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -595,39 +623,39 @@ function RunOptimizerCard({
           {PROFILE_OPTIONS.map((p) => (
             <label key={p.value} className="flex items-center gap-2 rounded-lg border border-stone-200 px-2 py-2 text-xs text-stone-700">
               <Checkbox checked={profiles.includes(p.value)} onCheckedChange={() => toggleProfile(p.value)} />
-              {p.label}
+              {t(p.labelKey)}
             </label>
           ))}
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div>
-            <Label className="text-xs text-stone-500">Water allocation per season (m³, optional)</Label>
+            <Label className="text-xs text-stone-500">{t('waterAllocationLabel')}</Label>
             <Input
               type="number"
               min="1"
               value={allocation}
               onChange={(e) => setAllocation(e.target.value)}
-              placeholder="e.g. 1450000"
+              placeholder={t('placeholderAllocation')}
               className="h-9 w-48 text-sm"
             />
           </div>
           <Button size="sm" className="h-9" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || seasons.length === 0}>
             {runMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <GitCompareArrows className="h-4 w-4" aria-hidden />}
-            Optimize rotation
+            {t('optimizeRotation')}
           </Button>
         </div>
 
         {runs.data && runs.data.runs.length > 0 && (
           <div>
-            <Label className="text-xs text-stone-500">Past runs</Label>
+            <Label className="text-xs text-stone-500">{t('pastRuns')}</Label>
             <Select value={selectedRunId ?? undefined} onValueChange={setSelectedRunId}>
               <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Select a run…" />
+                <SelectValue placeholder={t('placeholderSelectRun')} />
               </SelectTrigger>
               <SelectContent className="max-h-72">
                 {runs.data.runs.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
-                    {r.id.slice(0, 8)} · {r.solver_status ?? r.status} · {r.n_strategies} strategies
+                    {t('runOption', { id: r.id.slice(0, 8), status: r.solver_status ?? r.status, count: r.n_strategies })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -638,7 +666,7 @@ function RunOptimizerCard({
         {infeasibleProfiles.length > 0 && (
           <Alert className="border-red-200 bg-red-50">
             <XCircle className="h-4 w-4 text-red-700" aria-hidden />
-            <AlertTitle className="text-sm text-red-900">Infeasible profile(s)</AlertTitle>
+            <AlertTitle className="text-sm text-red-900">{t('infeasibleProfilesTitle')}</AlertTitle>
             <AlertDescription className="text-xs text-red-800">
               {infeasibleProfiles.map((p, i) => (
                 <div key={i}>
@@ -673,6 +701,7 @@ function RunOptimizerCard({
 // ---------------------------------------------------- knowledge browser
 
 function KnowledgeBrowser() {
+  const t = useTranslations('rotation')
   const packs = useKnowledgePacks()
   const crops = useKnowledgeCrops()
   const rules = useRotationRules()
@@ -685,11 +714,10 @@ function KnowledgeBrowser() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <BookOpen className="h-4 w-4 text-emerald-700" aria-hidden />
-            Knowledge packs
+            {t('knowledgeTitle')}
           </CardTitle>
           <CardDescription>
-            Versioned, source-cited crop knowledge. Reference values are pending
-            regional validation — nothing is confirmed just because it is published.
+            {t('knowledgeDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -705,10 +733,10 @@ function KnowledgeBrowser() {
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline" className="font-normal text-stone-600">{p.status}</Badge>
                   <Badge variant="outline" className="font-normal text-stone-600">
-                    {p.counts.crops} crops · {p.counts.traits} traits · {p.counts.rotation_rules} rules
+                    {t('packCounts', { crops: p.counts.crops, traits: p.counts.traits, rules: p.counts.rotation_rules })}
                   </Badge>
                   <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedPack(selectedPack === p.id ? null : p.id)}>
-                    {selectedPack === p.id ? 'Hide sources' : 'Sources'}
+                    {selectedPack === p.id ? t('hideSources') : t('sources')}
                   </Button>
                 </div>
               </div>
@@ -723,7 +751,7 @@ function KnowledgeBrowser() {
                       <span className="font-medium">{s.source_key}</span> — {s.citation_text}
                       {s.url && (
                         <a href={s.url} target="_blank" rel="noreferrer" className="ml-1 text-emerald-700 underline">
-                          link
+                          {t('link')}
                         </a>
                       )}
                     </li>
@@ -737,19 +765,19 @@ function KnowledgeBrowser() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Crops ({crops.data?.total ?? 0})</CardTitle>
-          <CardDescription>Deliberate gaps stay gaps: no sourced trait → no row.</CardDescription>
+          <CardTitle className="text-base">{t('cropsCount', { count: crops.data?.total ?? 0 })}</CardTitle>
+          <CardDescription>{t('cropsDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto scrollbar-thin">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-xs">Crop</TableHead>
-                  <TableHead className="text-xs">Family</TableHead>
-                  <TableHead className="text-xs">Legume</TableHead>
-                  <TableHead className="text-xs">Kc</TableHead>
-                  <TableHead className="text-xs">Traits</TableHead>
+                  <TableHead className="text-xs">{t('thCrop')}</TableHead>
+                  <TableHead className="text-xs">{t('thFamily')}</TableHead>
+                  <TableHead className="text-xs">{t('thLegume')}</TableHead>
+                  <TableHead className="text-xs">{t('thKc')}</TableHead>
+                  <TableHead className="text-xs">{t('thTraits')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -757,12 +785,12 @@ function KnowledgeBrowser() {
                   <TableRow key={c.id}>
                     <TableCell className="text-xs font-medium text-stone-800">{c.crop_code}</TableCell>
                     <TableCell className="text-xs text-stone-600">{c.family_key ?? '—'}</TableCell>
-                    <TableCell className="text-xs">{c.is_legume ? 'yes' : '—'}</TableCell>
+                    <TableCell className="text-xs">{c.is_legume ? t('yes') : '—'}</TableCell>
                     <TableCell className="text-xs">
                       {c.has_kc_parameters ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="has Kc" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label={t('ariaHasKc')} />
                       ) : (
-                        <span className="text-stone-400">none</span>
+                        <span className="text-stone-400">{t('none')}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-stone-500">{c.trait_codes.length}</TableCell>
@@ -776,7 +804,7 @@ function KnowledgeBrowser() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Rotation rules ({rules.data?.total ?? 0})</CardTitle>
+          <CardTitle className="text-base">{t('rulesCount', { count: rules.data?.total ?? 0 })}</CardTitle>
           <CardDescription>{rules.data?.note}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -795,7 +823,7 @@ function KnowledgeBrowser() {
                   {r.validation_status}
                 </Badge>
                 {r.min_break_seasons > 0 && (
-                  <Badge variant="outline" className="font-normal text-stone-600">break ≥ {r.min_break_seasons}</Badge>
+                  <Badge variant="outline" className="font-normal text-stone-600">{t('breakSeasons', { count: r.min_break_seasons })}</Badge>
                 )}
               </div>
               <p className="mt-1.5 leading-relaxed text-stone-600">{r.mechanism}</p>
@@ -811,6 +839,8 @@ function KnowledgeBrowser() {
 // ------------------------------------------------------------------ main
 
 export function Rotation() {
+  const t = useTranslations('rotation')
+  const tCommon = useTranslations('common')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
@@ -829,13 +859,13 @@ export function Rotation() {
         <Card>
           <CardContent className="py-10 text-center text-sm text-stone-500">
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <span>Pick a field to plan its rotation. Knowledge browsing is available below.</span>
+              <span>{t('pickFieldHint')}</span>
               <FieldPicker
                 value={null}
                 onValueChange={setSelectedField}
                 emptyHint={
                   <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
-                    Create a farm and field first
+                    {tCommon('createFarmField')}
                   </Button>
                 }
               />
@@ -847,11 +877,9 @@ export function Rotation() {
           <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Planning seasons</CardTitle>
+              <CardTitle className="text-base">{t('seasonsTitle')}</CardTitle>
               <CardDescription>
-                Up to four seasons per run. Climate evidence comes from the field&apos;s
-                latest feature run as a month-of-year baseline — a short-record
-                historical proxy (not a WMO climatological normal, never a forecast).
+                {t('seasonsDesc')}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -860,23 +888,23 @@ export function Rotation() {
                   <Input
                     value={s.label}
                     onChange={(e) => updateSeason(i, { label: e.target.value })}
-                    placeholder="Label"
+                    placeholder={t('placeholderLabel')}
                     className="h-9 text-sm"
-                    aria-label={`Season ${i + 1} label`}
+                    aria-label={t('seasonLabelAria', { number: i + 1 })}
                   />
                   <Input
                     type="date"
                     value={s.start}
                     onChange={(e) => updateSeason(i, { start: e.target.value })}
                     className="h-9 text-sm"
-                    aria-label={`Season ${i + 1} start`}
+                    aria-label={t('seasonStartAria', { number: i + 1 })}
                   />
                   <Input
                     type="date"
                     value={s.end}
                     onChange={(e) => updateSeason(i, { end: e.target.value })}
                     className="h-9 text-sm"
-                    aria-label={`Season ${i + 1} end`}
+                    aria-label={t('seasonEndAria', { number: i + 1 })}
                   />
                   <Button
                     variant="ghost"
@@ -885,7 +913,7 @@ export function Rotation() {
                     onClick={() => setSeasons((prev) => prev.filter((_, j) => j !== i))}
                     disabled={seasons.length === 1}
                   >
-                    Remove
+                    {t('remove')}
                   </Button>
                 </div>
               ))}
@@ -896,7 +924,7 @@ export function Rotation() {
                 onClick={() => setSeasons((prev) => [...prev, { label: `season_${prev.length + 1}`, start: '2026-05-01', end: '2026-09-15' }])}
                 disabled={seasons.length >= 4}
               >
-                Add season
+                {t('addSeason')}
               </Button>
             </CardContent>
           </Card>

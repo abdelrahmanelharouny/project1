@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { FlaskConical } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -7,6 +8,7 @@ import type { JobStatus, PassportOverallStatus } from '@/lib/types'
 
 /** Mandatory provenance label — synthetic rows must never blend in. */
 export function SyntheticBadge({ className }: { className?: string }) {
+  const t = useTranslations('common')
   return (
     <Badge
       variant="outline"
@@ -16,7 +18,7 @@ export function SyntheticBadge({ className }: { className?: string }) {
       )}
     >
       <FlaskConical className="h-3 w-3" aria-hidden />
-      Synthetic
+      {t('synthetic')}
     </Badge>
   )
 }
@@ -51,12 +53,6 @@ export function JobStatusBadge({ status }: { status: JobStatus }) {
   )
 }
 
-const PASSPORT_STATUS_COPY: Record<PassportOverallStatus, string> = {
-  ready: 'Every required variable has enough valid observations — analyses below are unblocked.',
-  partial: 'Some variables are missing or sparse — analyses that need them are blocked.',
-  blocked: 'There is not enough data yet. Ingest variables in the Observations tab first.',
-}
-
 export function PassportStatusBadge({ status }: { status: PassportOverallStatus }) {
   const tone =
     status === 'ready'
@@ -71,6 +67,12 @@ export function PassportStatusBadge({ status }: { status: PassportOverallStatus 
   )
 }
 
+/**
+ * P1 i18n: passport status explanations are translated via the per-tab
+ * namespace key `passportStatus.<status>`; callers that have not migrated
+ * yet can still render the raw status through PassportStatusBadge.
+ */
 export function PassportStatusExplanation({ status }: { status: PassportOverallStatus }) {
-  return <p className="text-sm text-stone-600">{PASSPORT_STATUS_COPY[status] ?? status}</p>
+  const t = useTranslations('passport')
+  return <p className="text-sm text-stone-600">{t(`passportStatus.${status}`)}</p>
 }

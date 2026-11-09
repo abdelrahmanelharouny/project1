@@ -60,6 +60,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useTranslations } from 'next-intl'
+import { ExportButton } from '@/components/fieldshift/export-button'
 import { FieldPicker, GoToFarmsButton } from '@/components/fieldshift/field-picker'
 import { JobStatusBadge, QualityBadge, SyntheticBadge } from '@/components/fieldshift/badges'
 import { useCatalog, useDataCoverage, useObservations, useProvidersHealth } from '@/hooks/use-fieldshift'
@@ -79,12 +81,12 @@ import { humanizeCode } from '@/lib/format'
 import { useFieldShiftUi } from '@/lib/store'
 import type { DataJob, Observation, ProviderHealth, SyntheticProfile } from '@/lib/types'
 
-const PROFILES: { value: SyntheticProfile; label: string }[] = [
-  { value: 'temperate_seasonal', label: 'Temperate seasonal' },
-  { value: 'mediterranean_dry_summer', label: 'Mediterranean — dry summer' },
-  { value: 'semi_arid', label: 'Semi-arid' },
-  { value: 'tropical_seasonal', label: 'Tropical seasonal' },
-  { value: 'arid_irrigated', label: 'Arid — irrigated' },
+const PROFILES: SyntheticProfile[] = [
+  'temperate_seasonal',
+  'mediterranean_dry_summer',
+  'semi_arid',
+  'tropical_seasonal',
+  'arid_irrigated',
 ]
 
 const DEFAULT_START = '2023-01-01'
@@ -93,11 +95,6 @@ const DEFAULT_END = '2023-12-31'
 /** Providers that run fetch-style ingestion jobs (the others are upload flows). */
 const JOB_PROVIDERS = ['synthetic', 'open_meteo'] as const
 type JobProviderCode = (typeof JOB_PROVIDERS)[number]
-
-const PROVIDER_LABELS: Record<JobProviderCode, string> = {
-  synthetic: 'Synthetic fixtures',
-  open_meteo: 'Open-Meteo (ERA5 / ERA5-Land)',
-}
 
 function ChartCard({
   title,
@@ -124,22 +121,23 @@ function ChartCard({
 }
 
 function ProviderStatusDot({ provider }: { provider: ProviderHealth }) {
+  const t = useTranslations('observations')
   const probe = provider.probe?.status
   let dotClass = 'bg-emerald-600'
-  let label = 'available'
+  let label = t('statusAvailable')
   if (provider.status === 'optional' || provider.status === 'degraded') {
     dotClass = 'bg-amber-500'
     label = provider.status
   }
   if (probe === 'unreachable') {
     dotClass = 'bg-red-500'
-    label = 'unreachable right now'
+    label = t('probeUnreachable')
   } else if (probe === 'degraded') {
     dotClass = 'bg-amber-500'
-    label = 'slow / degraded'
+    label = t('probeDegraded')
   } else if (probe === 'ok') {
     dotClass = 'bg-emerald-600'
-    label = `live (${provider.probe?.latency_ms ?? '?'} ms)`
+    label = t('probeLive', { ms: provider.probe?.latency_ms ?? '?' })
   }
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-stone-500">
@@ -151,12 +149,13 @@ function ProviderStatusDot({ provider }: { provider: ProviderHealth }) {
 
 /** Provenance label for non-synthetic rows, derived from observation metadata. */
 function ExternalProvenanceBadge({ observation }: { observation: Observation }) {
+  const t = useTranslations('observations')
   const meta = observation.metadata as Record<string, unknown> | null
-  let label = 'external'
+  let label = t('provExternal')
   if (meta && typeof meta === 'object') {
-    if (meta.import_kind === 'observations_csv') label = 'CSV import'
-    else if (meta.import_kind === 'chirps_geotiff_extract') label = 'CHIRPS raster'
-    else if (typeof meta.model === 'string') label = `reanalysis · ${meta.model}`
+    if (meta.import_kind === 'observations_csv') label = t('provCsvImport')
+    else if (meta.import_kind === 'chirps_geotiff_extract') label = t('provChirpsRaster')
+    else if (typeof meta.model === 'string') label = t('provReanalysis', { model: meta.model })
   }
   return (
     <Badge variant="outline" className="border-stone-300 text-[10px] text-stone-500">
@@ -166,33 +165,34 @@ function ExternalProvenanceBadge({ observation }: { observation: Observation }) 
 }
 
 function JobFooter({ job }: { job: DataJob }) {
+  const t = useTranslations('observations')
   return (
     <div className="space-y-2" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
         <JobStatusBadge status={job.status} />
         <span className="text-xs text-stone-500">
-          job {job.job_id.slice(0, 8)} · {job.provider_code}
+          {t('jobLine', { id: job.job_id.slice(0, 8), provider: job.provider_code })}
         </span>
       </div>
       <div className="flex gap-4 text-sm text-stone-700">
         <span>
-          Records received: <strong className="tabular-nums">{job.records_received}</strong>
+          {t('recordsReceived')} <strong className="tabular-nums">{job.records_received}</strong>
         </span>
         <span>
-          Rejected: <strong className="tabular-nums">{job.records_rejected}</strong>
+          {t('recordsRejected')} <strong className="tabular-nums">{job.records_rejected}</strong>
         </span>
       </div>
       {job.error_summary ? (
         <Alert variant="destructive">
           <XCircle className="h-4 w-4" />
-          <AlertTitle>Job error</AlertTitle>
+          <AlertTitle>{t('jobError')}</AlertTitle>
           <AlertDescription>{job.error_summary}</AlertDescription>
         </Alert>
       ) : null}
       {job.warnings.length > 0 ? (
         <Alert className="border-amber-300 bg-amber-50 [&>svg]:text-amber-600">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle className="text-amber-900">Job warnings</AlertTitle>
+          <AlertTitle className="text-amber-900">{t('jobWarnings')}</AlertTitle>
           <AlertDescription>
             <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
               {job.warnings.map((warning, index) => (
@@ -202,12 +202,15 @@ function JobFooter({ job }: { job: DataJob }) {
           </AlertDescription>
         </Alert>
       ) : null}
-      <p className="text-[11px] text-stone-500">Request: {JSON.stringify(job.request_parameters)}</p>
+      <p className="text-[11px] text-stone-500">{t('requestLabel', { params: JSON.stringify(job.request_parameters) })}</p>
     </div>
   )
 }
 
 export function Observations() {
+  const t = useTranslations('observations')
+  const tCommon = useTranslations('common')
+  const tNav = useTranslations('nav')
   const queryClient = useQueryClient()
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
@@ -324,8 +327,11 @@ export function Observations() {
             })
       setJob({ fieldId: selectedField.id, data: finalJob })
       if (finalJob.status === 'succeeded') {
-        toast.success('Ingestion job succeeded', {
-          description: `${finalJob.records_received} records stored · ${finalJob.records_rejected} rejected.`,
+        toast.success(t('jobSucceeded'), {
+          description: t('jobSucceededDesc', {
+            received: finalJob.records_received,
+            rejected: finalJob.records_rejected,
+          }),
         })
         const params = finalJob.request_parameters as { start_date?: string; end_date?: string }
         const start = params.start_date ?? jobStart
@@ -337,7 +343,7 @@ export function Observations() {
           invalidateFieldData(selectedField.id)
         }
       } else {
-        toast.error('Ingestion job failed', { description: finalJob.error_summary ?? 'No error summary returned.' })
+        toast.error(t('jobFailed'), { description: finalJob.error_summary ?? t('noErrorSummary') })
       }
     },
     onError: (err) => {
@@ -410,7 +416,7 @@ export function Observations() {
     setFormError(null)
     if (!selectedField) return
     if (effectiveSelectedVariables.length === 0) {
-      setFormError({ fieldId: selectedField.id, message: 'Pick at least one variable to ingest.' })
+      setFormError({ fieldId: selectedField.id, message: t('pickVariable') })
       return
     }
     const windowProblem =
@@ -455,6 +461,17 @@ export function Observations() {
         .sort((a, b) => (a.observed_at < b.observed_at ? 1 : a.observed_at > b.observed_at ? -1 : 0)),
     [items, effectiveTableVariable],
   )
+  // Flat rows for the CSV/JSON export of the observations table.
+  const exportObservationRows = () =>
+    filteredItems.map((o) => ({
+      variable_code: o.variable_code,
+      value: o.value,
+      unit: o.unit,
+      observed_at: o.observed_at,
+      quality_status: o.quality_status,
+      is_synthetic: o.is_synthetic,
+      uncertainty_value: o.uncertainty_value,
+    }))
 
   // Deepening F-17: charts must never silently blend synthetic fixtures with
   // real observations — each series carries a synthetic flag and the chart
@@ -482,30 +499,27 @@ export function Observations() {
     const nSynthetic = series.filter((p) => p.synthetic).length
     if (nSynthetic === 0) return undefined
     return nSynthetic === series.length
-      ? 'All plotted values are SYNTHETIC fixture data — demonstration only, never real measurements.'
-      : `Mixed provenance: ${nSynthetic} of ${series.length} plotted values are SYNTHETIC fixture rows (see the table for per-row labels).`
+      ? t('provAllSynthetic')
+      : t('provMixed', { synthetic: nSynthetic, total: series.length })
   }
 
   // ------------------------------------------------------------------ render
 
   if (!selectedField) {
     return (
-      <div className="space-y-4" aria-label="Observations">
+      <div className="space-y-4" aria-label={t('sectionAria')}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-stone-900">Observations</h2>
-            <p className="text-sm text-stone-500">
-              Run ingestion jobs (synthetic fixtures or the real Open-Meteo archive), import files, and inspect what
-              landed.
-            </p>
+            <h2 className="text-lg font-semibold text-stone-900">{tNav('observations')}</h2>
+            <p className="text-sm text-stone-500">{t('desc')}</p>
           </div>
           <FieldPicker
             value={null}
             onValueChange={setSelectedField}
             emptyHint={
               <div className="flex items-center gap-2 text-sm text-stone-500">
-                <span>Create a farm and field first.</span>
-                <GoToFarmsButton label="Go to Farms & Fields" />
+                <span>{t('createFirst')}</span>
+                <GoToFarmsButton label={tCommon('goToFarms')} />
               </div>
             }
           />
@@ -513,7 +527,7 @@ export function Observations() {
         <Card className="border-dashed border-stone-300 bg-white">
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
             <Database className="h-8 w-8 text-stone-400" aria-hidden />
-            <p className="text-sm text-stone-500">Pick a field above to ingest and inspect its observation history.</p>
+            <p className="text-sm text-stone-500">{t('pickFieldHint')}</p>
           </CardContent>
         </Card>
       </div>
@@ -521,14 +535,11 @@ export function Observations() {
   }
 
   return (
-    <div className="space-y-6" aria-label="Observations">
+    <div className="space-y-6" aria-label={t('sectionAria')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-stone-900">Observations</h2>
-          <p className="text-sm text-stone-500">
-            Run ingestion jobs (synthetic fixtures or the real Open-Meteo archive), import files, and inspect what
-            landed.
-          </p>
+          <h2 className="text-lg font-semibold text-stone-900">{tNav('observations')}</h2>
+          <p className="text-sm text-stone-500">{t('desc')}</p>
         </div>
         <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
       </div>
@@ -545,17 +556,17 @@ export function Observations() {
               ) : (
                 <Globe2 className="h-4 w-4 text-emerald-700" aria-hidden />
               )}
-              Ingest data
+              {t('ingestTitle')}
             </CardTitle>
             <CardDescription>
               {provider === 'synthetic'
-                ? 'Software fixtures for testing — always labelled SYNTHETIC downstream.'
-                : 'Real historical reanalysis (gridded model estimates, never field sensors). Open-Meteo data is CC BY 4.0.'}
+                ? t('ingestDescSynthetic')
+                : t('ingestDescOpenMeteo')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="obs-provider">Provider</Label>
+              <Label htmlFor="obs-provider">{t('providerLabel')}</Label>
               <Select
                 value={provider}
                 onValueChange={(value) => {
@@ -579,7 +590,7 @@ export function Observations() {
                     return (
                       <SelectItem key={code} value={code}>
                         <span className="flex flex-col">
-                          <span>{PROVIDER_LABELS[code]}</span>
+                          <span>{t(`provider.${code}`)}</span>
                           {health ? (
                             <span className="text-[11px] font-normal text-stone-500">
                               {health.kind} · {health.status}
@@ -596,7 +607,7 @@ export function Observations() {
 
             {provider === 'open_meteo' ? (
               <div className="space-y-1.5">
-                <Label htmlFor="obs-model">Model / product (explicit selection)</Label>
+                <Label htmlFor="obs-model">{t('modelLabel')}</Label>
                 <Select value={model} onValueChange={setModel}>
                   <SelectTrigger id="obs-model" className="w-full">
                     <SelectValue />
@@ -605,9 +616,7 @@ export function Observations() {
                     {models.map((m) => (
                       <SelectItem key={m.code} value={m.code}>
                         <span className="flex flex-col">
-                          <span>
-                            {m.code} · ~{Math.round(m.spatial_resolution_m / 1000)} km grid
-                          </span>
+                          <span>{t('modelGrid', { code: m.code, km: Math.round(m.spatial_resolution_m / 1000) })}</span>
                           <span className="max-w-72 truncate text-[11px] font-normal text-stone-500">
                             {m.description}
                           </span>
@@ -618,21 +627,21 @@ export function Observations() {
                 </Select>
                 <p className="text-xs text-stone-500">
                   {activeModel
-                    ? `Publishes: ${activeModel.variables.map((v) => humanizeCode(v)).join(', ')}.`
-                    : 'Pick a consistent reanalysis product — never a silently changing best-match.'}
+                    ? t('publishes', { variables: activeModel.variables.map((v) => humanizeCode(v)).join(', ') })
+                    : t('pickModelHint')}
                 </p>
               </div>
             ) : null}
 
             <div className="space-y-1.5">
-              <Label>Variables</Label>
+              <Label>{t('variablesLabel')}</Label>
               {catalog.isLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-5 w-full" />
                   <Skeleton className="h-5 w-3/4" />
                 </div>
               ) : catalog.isError ? (
-                <p className="text-sm text-red-700">Could not load the data catalog.</p>
+                <p className="text-sm text-red-700">{t('catalogError')}</p>
               ) : (
                 <div className="grid gap-2 rounded-lg border border-stone-200 p-3 sm:grid-cols-2">
                   {selectableVariables.map((variable) => {
@@ -665,30 +674,30 @@ export function Observations() {
                 </div>
               )}
               {selectableVariables.length === 0 && !catalog.isLoading ? (
-                <p className="text-xs text-stone-500">This provider publishes none of the catalog variables.</p>
+                <p className="text-xs text-stone-500">{t('noCatalogVars')}</p>
               ) : null}
             </div>
 
             {provider === 'synthetic' ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="obs-profile">Climate profile</Label>
+                  <Label htmlFor="obs-profile">{t('profileLabel')}</Label>
                   <Select value={profile} onValueChange={(value) => setProfile(value as SyntheticProfile)}>
                     <SelectTrigger id="obs-profile" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {PROFILES.map((entry) => (
-                        <SelectItem key={entry.value} value={entry.value}>
-                          {entry.label}
+                        <SelectItem key={entry} value={entry}>
+                          {t(`profile.${entry}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-stone-500">Shapes the synthetic seasonality.</p>
+                  <p className="text-xs text-stone-500">{t('profileHint')}</p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="obs-seed">Seed</Label>
+                  <Label htmlFor="obs-seed">{t('seedLabel')}</Label>
                   <Input
                     id="obs-seed"
                     type="number"
@@ -696,14 +705,14 @@ export function Observations() {
                     value={seed}
                     onChange={(event) => setSeed(Number(event.target.value) || 0)}
                   />
-                  <p className="text-xs text-stone-500">Same seed + same inputs → identical series.</p>
+                  <p className="text-xs text-stone-500">{t('seedHint')}</p>
                 </div>
               </div>
             ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="obs-start">Start date</Label>
+                <Label htmlFor="obs-start">{t('startDate')}</Label>
                 <Input
                   id="obs-start"
                   type="date"
@@ -712,7 +721,7 @@ export function Observations() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="obs-end">End date</Label>
+                <Label htmlFor="obs-end">{t('endDate')}</Label>
                 <Input
                   id="obs-end"
                   type="date"
@@ -723,8 +732,8 @@ export function Observations() {
             </div>
             <p className="-mt-2 text-xs text-stone-500">
               {provider === 'synthetic'
-                ? `Fixture coverage ${COVERAGE_START} → ${COVERAGE_END}; one job spans at most ${MAX_JOB_YEARS} years.`
-                : 'Archive coverage 1940 → present (a few days behind); one job spans at most 10 years per request.'}
+                ? t('fixtureCoverage', { start: COVERAGE_START, end: COVERAGE_END, years: MAX_JOB_YEARS })
+                : t('archiveCoverage')}
             </p>
 
             {formError ? (
@@ -743,7 +752,7 @@ export function Observations() {
               ) : (
                 <Database className="h-4 w-4" aria-hidden />
               )}
-              Run ingestion job
+              {t('runJob')}
             </Button>
           </CardContent>
 
@@ -760,16 +769,25 @@ export function Observations() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <CalendarRange className="h-4 w-4 text-emerald-700" aria-hidden />
-                Loaded window
+                {t('loadedWindowTitle')}
               </CardTitle>
               <CardDescription>
-                Showing {observationsQuery.data ? `${observationsQuery.data.items.length} of ${observationsQuery.data.total}` : '…'}{' '}
-                observations for <strong className="font-medium text-stone-700">{selectedField.name}</strong>.
+                {observationsQuery.data
+                  ? t.rich('showingFor', {
+                      shown: observationsQuery.data.items.length,
+                      total: observationsQuery.data.total,
+                      field: selectedField.name,
+                      strong: (chunks) => <strong className="font-medium text-stone-700">{chunks}</strong>,
+                    })
+                  : t.rich('showingForLoading', {
+                      field: selectedField.name,
+                      strong: (chunks) => <strong className="font-medium text-stone-700">{chunks}</strong>,
+                    })}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="window-start">From</Label>
+                <Label htmlFor="window-start">{t('fromLabel')}</Label>
                 <Input
                   id="window-start"
                   type="date"
@@ -778,7 +796,7 @@ export function Observations() {
                 />
               </div>
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="window-end">To</Label>
+                <Label htmlFor="window-end">{t('toLabel')}</Label>
                 <Input
                   id="window-end"
                   type="date"
@@ -792,7 +810,7 @@ export function Observations() {
                 ) : (
                   <RefreshCw className="h-4 w-4" aria-hidden />
                 )}
-                Load
+                {t('load')}
               </Button>
             </CardContent>
           </Card>
@@ -805,11 +823,11 @@ export function Observations() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               <ChartCard
-                title="Air temperature (mean)"
+                title={t('chartTempTitle')}
                 unit="°C"
                 note={
                   tempSeries.length === 0
-                    ? 'No temperature_mean data in this window.'
+                    ? t('noTempData')
                     : chartProvenanceNote(tempSeries)
                 }
               >
@@ -819,22 +837,22 @@ export function Observations() {
                       <CartesianGrid stroke="#e7e5e4" strokeDasharray="3 3" />
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} minTickGap={36} />
                       <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} />
-                      <ReTooltip labelFormatter={(label) => `Date: ${label}`} />
+                      <ReTooltip labelFormatter={(label) => t('tooltipDate', { label })} />
                       <Line type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="flex h-[190px] items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-500">
-                    Ingest air_temperature_mean to see the line chart.
+                    {t('ingestToSeeTemp')}
                   </div>
                 )}
               </ChartCard>
               <ChartCard
-                title="Precipitation"
+                title={t('chartPrecipTitle')}
                 unit="mm"
                 note={
                   precipSeries.length === 0
-                    ? 'No precipitation data in this window.'
+                    ? t('noPrecipData')
                     : chartProvenanceNote(precipSeries)
                 }
               >
@@ -844,13 +862,13 @@ export function Observations() {
                       <CartesianGrid stroke="#e7e5e4" strokeDasharray="3 3" />
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} minTickGap={36} />
                       <YAxis tick={{ fontSize: 10 }} />
-                      <ReTooltip labelFormatter={(label) => `Date: ${label}`} />
+                      <ReTooltip labelFormatter={(label) => t('tooltipDate', { label })} />
                       <Bar dataKey="value" fill="#78716c" radius={[2, 2, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="flex h-[190px] items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-500">
-                    Ingest or import precipitation to see the bar chart.
+                    {t('ingestToSeePrecip')}
                   </div>
                 )}
               </ChartCard>
@@ -865,29 +883,29 @@ export function Observations() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Upload className="h-4 w-4 text-emerald-700" aria-hidden />
-              File imports
+              {t('fileImportsTitle')}
             </CardTitle>
             <CardDescription>
-              Controlled import pipelines — files are validated row by row and never trusted blindly.
+              {t('fileImportsDesc')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="csv">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="csv">
-                  <FileSpreadsheet className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> CSV observations
+                  <FileSpreadsheet className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> {t('tabCsv')}
                 </TabsTrigger>
                 <TabsTrigger value="chirps">
-                  <Layers className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> CHIRPS raster
+                  <Layers className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> {t('tabChirps')}
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="csv" className="mt-3 space-y-3">
                 <p className="text-xs text-stone-500">
-                  Upload rain-gauge / farm records as CSV (columns: <code className="rounded bg-stone-100 px-1">date,
-                  variable_code, value, unit, notes</code>). Rows land with the{' '}
-                  <strong>farmer_reported_record</strong> evidence class; blank values are stored as missing, never
-                  zero.
+                  {t.rich('csvHelp', {
+                    code: (chunks) => <code className="rounded bg-stone-100 px-1">{chunks}</code>,
+                    strong: (chunks) => <strong>{chunks}</strong>,
+                  })}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
@@ -896,14 +914,14 @@ export function Observations() {
                     accept=".csv,text/csv"
                     className="max-w-xs"
                     onChange={(event) => setCsvFile(event.target.files?.[0] ?? null)}
-                    aria-label="CSV file to import"
+                    aria-label={t('csvFileAria')}
                   />
                   <a
                     href={CSV_TEMPLATE_URL}
                     className="text-xs font-medium text-emerald-700 underline-offset-2 hover:underline"
                     download
                   >
-                    Download template
+                    {t('downloadTemplate')}
                   </a>
                 </div>
                 <Button
@@ -916,7 +934,7 @@ export function Observations() {
                   ) : (
                     <Upload className="h-4 w-4" aria-hidden />
                   )}
-                  Import CSV
+                  {t('importCsv')}
                 </Button>
                 {visibleCsvJob ? (
                   <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
@@ -927,11 +945,12 @@ export function Observations() {
 
               <TabsContent value="chirps" className="mt-3 space-y-3">
                 <p className="text-xs text-stone-500">
-                  Upload a CHIRPS v3 GeoTIFF (EPSG:4326) — the service extracts the field-mean rainfall and records
-                  full raster provenance (product variant, nodata cells, sha256).
+                  {t('chirpsHelp')}
                   {chirpsProvider && chirpsProvider.status !== 'active' ? (
                     <span className="mt-1 block font-medium text-amber-700">
-                      Provider degraded: {String(chirpsProvider.details.degradation_reason ?? 'unavailable')}.
+                      {t('providerDegraded', {
+                        reason: String(chirpsProvider.details.degradation_reason ?? 'unavailable'),
+                      })}
                     </span>
                   ) : null}
                 </p>
@@ -942,12 +961,12 @@ export function Observations() {
                     accept=".tif,.tiff,application/x-geotiff,image/tiff"
                     className="max-w-xs"
                     onChange={(event) => setChirpsFile(event.target.files?.[0] ?? null)}
-                    aria-label="CHIRPS GeoTIFF to import"
+                    aria-label={t('chirpsFileAria')}
                   />
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="chirps-date">Raster date</Label>
+                    <Label htmlFor="chirps-date">{t('rasterDate')}</Label>
                     <Input
                       id="chirps-date"
                       type="date"
@@ -956,20 +975,20 @@ export function Observations() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="chirps-kind">Product kind</Label>
+                    <Label htmlFor="chirps-kind">{t('productKind')}</Label>
                     <Select value={chirpsKind} onValueChange={(value) => setChirpsKind(value as typeof chirpsKind)}>
                       <SelectTrigger id="chirps-kind" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="daily">daily</SelectItem>
-                        <SelectItem value="pentad">pentad</SelectItem>
-                        <SelectItem value="monthly">monthly</SelectItem>
+                        <SelectItem value="daily">{t('kindDaily')}</SelectItem>
+                        <SelectItem value="pentad">{t('kindPentad')}</SelectItem>
+                        <SelectItem value="monthly">{t('kindMonthly')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="chirps-status">Product status</Label>
+                    <Label htmlFor="chirps-status">{t('productStatus')}</Label>
                     <Select
                       value={chirpsStatus}
                       onValueChange={(value) => setChirpsStatus(value as typeof chirpsStatus)}
@@ -978,8 +997,8 @@ export function Observations() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="final">final</SelectItem>
-                        <SelectItem value="preliminary">preliminary</SelectItem>
+                        <SelectItem value="final">{t('statusFinal')}</SelectItem>
+                        <SelectItem value="preliminary">{t('statusPreliminary')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -994,7 +1013,7 @@ export function Observations() {
                   ) : (
                     <Upload className="h-4 w-4" aria-hidden />
                   )}
-                  Extract field rainfall
+                  {t('extractRainfall')}
                 </Button>
                 {visibleChirpsJob ? (
                   <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
@@ -1010,11 +1029,13 @@ export function Observations() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
-              Data coverage
+              {t('coverageTitle')}
             </CardTitle>
             <CardDescription>
-              What exists for <strong className="font-medium text-stone-700">{selectedField.name}</strong>, per variable
-              and per provider.
+              {t.rich('coverageDesc', {
+                field: selectedField.name,
+                strong: (chunks) => <strong className="font-medium text-stone-700">{chunks}</strong>,
+              })}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1026,24 +1047,24 @@ export function Observations() {
             ) : coverageQuery.isError ? (
               <Alert variant="destructive">
                 <XCircle className="h-4 w-4" />
-                <AlertTitle>Could not load coverage</AlertTitle>
-                <AlertDescription>Try again shortly.</AlertDescription>
+                <AlertTitle>{t('coverageError')}</AlertTitle>
+                <AlertDescription>{t('tryAgainShortly')}</AlertDescription>
               </Alert>
             ) : (coverageQuery.data?.variables.length ?? 0) === 0 ? (
               <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
                 <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />
-                <p className="mt-2 text-sm text-stone-600">No observations stored for this field yet.</p>
+                <p className="mt-2 text-sm text-stone-600">{t('noObservationsYet')}</p>
               </div>
             ) : (
               <div className="max-h-80 overflow-y-auto rounded-md border scrollbar-thin">
                 <Table>
                   <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
                     <TableRow className="hover:bg-transparent">
-                      <TableHead>Variable</TableHead>
-                      <TableHead className="text-right">Rows</TableHead>
-                      <TableHead className="text-right">Valid</TableHead>
-                      <TableHead>Period</TableHead>
-                      <TableHead>Providers</TableHead>
+                      <TableHead>{t('colVariable')}</TableHead>
+                      <TableHead className="text-right">{t('colRows')}</TableHead>
+                      <TableHead className="text-right">{t('colValid')}</TableHead>
+                      <TableHead>{t('colPeriod')}</TableHead>
+                      <TableHead>{t('colProviders')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1090,29 +1111,48 @@ export function Observations() {
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
                 <BarChart3 className="h-4 w-4 text-emerald-700" aria-hidden />
-                Observations table
+                {t('tableTitle')}
               </CardTitle>
               <CardDescription>
-                Window {appliedWindow.start} → {appliedWindow.end}
+                {t('windowRange', { start: appliedWindow.start, end: appliedWindow.end })}
                 {observationsQuery.data && observationsQuery.data.total > observationsQuery.data.items.length
-                  ? ` · showing the first ${observationsQuery.data.items.length} of ${observationsQuery.data.total} rows — narrow the window to see everything`
+                  ? t('windowTruncated', {
+                      shown: observationsQuery.data.items.length,
+                      total: observationsQuery.data.total,
+                    })
                   : ''}
               </CardDescription>
             </div>
-            <div className="w-full sm:w-56">
-              <Select value={tableVariable} onValueChange={setTableVariable}>
-                <SelectTrigger aria-label="Filter by variable" className="w-full bg-white">
-                  <SelectValue placeholder="All variables" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All variables</SelectItem>
-                  {presentVariables.map((code) => (
-                    <SelectItem key={code} value={code}>
-                      {variableName(code)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <div className="w-full sm:w-56">
+                <Select value={tableVariable} onValueChange={setTableVariable}>
+                  <SelectTrigger aria-label={t('filterByVariable')} className="w-full bg-white">
+                    <SelectValue placeholder={t('allVariables')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('allVariables')}</SelectItem>
+                    {presentVariables.map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {variableName(code)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <ExportButton
+                baseFilename="observations"
+                getRows={exportObservationRows}
+                columns={[
+                  { key: 'observed_at', label: t('colDate') },
+                  { key: 'variable_code', label: t('colVariable') },
+                  { key: 'value', label: t('colValue') },
+                  { key: 'unit', label: t('colUnit') },
+                  { key: 'quality_status', label: t('colQuality') },
+                  { key: 'uncertainty_value', label: t('colUncertainty') },
+                  { key: 'is_synthetic', label: t('colProvenance') },
+                ]}
+                getJsonPayload={() => observationsQuery.data}
+              />
             </div>
           </div>
         </CardHeader>
@@ -1126,22 +1166,20 @@ export function Observations() {
           ) : observationsQuery.isError ? (
             <Alert variant="destructive">
               <XCircle className="h-4 w-4" />
-              <AlertTitle>Could not load observations</AlertTitle>
+              <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
               <AlertDescription>
-                {observationsQuery.error instanceof Error ? observationsQuery.error.message : 'Try loading again.'}
+                {observationsQuery.error instanceof Error ? observationsQuery.error.message : t('tryLoadingAgain')}
               </AlertDescription>
             </Alert>
           ) : filteredItems.length === 0 ? (
             <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
               <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />
               <p className="mt-2 text-sm text-stone-600">
-                No observations in this window{tableVariable !== 'all' ? ' for this variable' : ''} yet.
+                {t('emptyWindow', { scope: tableVariable !== 'all' ? 'variable' : 'any' })}
               </p>
-              <p className="mt-1 text-xs text-stone-500">
-                Run an ingestion job or import a file above, or widen the loaded window.
-              </p>
+              <p className="mt-1 text-xs text-stone-500">{t('emptyWindowHint')}</p>
               <div className="mt-3 flex justify-center">
-                <GoToFarmsButton label="Manage fields" />
+                <GoToFarmsButton label={t('manageFields')} />
               </div>
             </div>
           ) : (
@@ -1149,11 +1187,11 @@ export function Observations() {
               <Table>
                 <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-28">Date</TableHead>
-                    <TableHead>Variable</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                    <TableHead>Quality</TableHead>
-                    <TableHead>Provenance</TableHead>
+                    <TableHead className="w-28">{t('colDate')}</TableHead>
+                    <TableHead>{t('colVariable')}</TableHead>
+                    <TableHead className="text-right">{t('colValue')}</TableHead>
+                    <TableHead>{t('colQuality')}</TableHead>
+                    <TableHead>{t('colProvenance')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

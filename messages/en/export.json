@@ -1,0 +1,8 @@
+{
+  "label": "Export",
+  "csv": "Export CSV",
+  "json": "Export JSON",
+  "success": "Export ready — {name}",
+  "failed": "Export failed",
+  "noRows": "Nothing to export yet."
+}

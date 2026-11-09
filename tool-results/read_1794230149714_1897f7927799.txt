@@ -1,0 +1,1040 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * Sensitivity & Uncertainty Workspace (M7.4).
+     5→ *
+     6→ * Analyses ONE immutable M7.3 execution run: varies the run's configured
+     7→ * transformation parameters over user-supplied bounds, shows OAT responses,
+     8→ * the explored parameter-range envelope, the optional joint grid, and the
+     9→ * uncertainty registry — with complete provenance and honesty disclosures.
+    10→ *
+    11→ * Honesty rules rendered here (M7.4 spec §2/§4):
+    12→ * - The envelope is always labelled "explored parameter-range envelope" — a
+    13→ *   deterministic sensitivity result, NOT a confidence or probability interval.
+    14→ * - Parameters not configured in the source execution appear as not
+    15→ *   applicable with the API's reason — never hidden, never editable.
+    16→ * - Elasticity is only shown when the API reports it available; otherwise the
+    17→ *   structured unavailability reason is printed.
+    18→ * - The interaction contrast is always labelled "finite-grid interaction
+    19→ *   contrast" — never a Sobol index.
+    20→ * - No probabilities, forecasts, yield impact or climate projections anywhere.
+    21→ */
+    22→
+    23→import { useMemo, useState } from 'react'
+    24→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+    25→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+    26→import { Badge } from '@/components/ui/badge'
+    27→import { Button } from '@/components/ui/button'
+    28→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+    29→import { Input } from '@/components/ui/input'
+    30→import { Label } from '@/components/ui/label'
+    31→import { Skeleton } from '@/components/ui/skeleton'
+    32→import {
+    33→  Table,
+    34→  TableBody,
+    35→  TableCell,
+    36→  TableHead,
+    37→  TableHeader,
+    38→  TableRow,
+    39→} from '@/components/ui/table'
+    40→import { FieldPicker } from '@/components/fieldshift/field-picker'
+    41→import {
+    42→  SensitivityCurvesChart,
+    43→  SensitivityTornadoChart,
+    44→} from '@/components/fieldshift/charts/sensitivity-charts'
+    45→import {
+    46→  createSensitivityAnalysis,
+    47→  getSensitivityAnalysis,
+    48→  getSensitivityGrid,
+    49→  getSensitivityUncertainty,
+    50→  listScenarioExecutions,
+    51→  listScenarios,
+    52→  listSensitivityAnalyses,
+    53→  listSensitivityResponses,
+    54→  ApiError,
+    55→  verifySensitivityAnalysis,
+    56→} from '@/lib/api'
+    57→import type {
+    58→  ScenarioExecutionRun,
+    59→  SensitivityAnalysis,
+    60→  SensitivityOatResponse,
+    61→  SensitivityVerifyResponse,
+    62→} from '@/lib/types'
+    63→import { useFieldShiftUi } from '@/lib/store'
+    64→import { Info, LineChart, Loader2, Play, ShieldAlert, ShieldCheck } from 'lucide-react'
+    65→
+    66→function apiErrorText(err: unknown): string {
+    67→  if (err instanceof ApiError) {
+    68→    const detail = err.details[0]
+    69→    const detailText = detail?.reason ? `${detail.field}: ${detail.reason}` : detail?.field
+    70→    return detailText ? `${err.message} (${detailText})` : err.message
+    71→  }
+    72→  return err instanceof Error ? err.message : 'Unexpected error'
+    73→}
+    74→
+    75→function fmt(value: number | null | undefined, digits = 4): string {
+    76→  if (value === null || value === undefined) return '—'
+    77→  if (Number.isInteger(value)) return String(value)
+    78→  return value.toFixed(digits)
+    79→}
+    80→
+    81→function shortHash(hash: string | null | undefined): string {
+    82→  return hash ? `${hash.slice(0, 12)}…` : '—'
+    83→}
+    84→
+    85→// ---------------------------------------------------------------------------
+    86→// Badges
+    87→// ---------------------------------------------------------------------------
+    88→
+    89→function AnalysisStatusBadge({ status }: { status: string }) {
+    90→  const map: Record<string, string> = {
+    91→    queued: 'border-stone-300 bg-white text-stone-600',
+    92→    running: 'border-amber-200 bg-amber-50 text-amber-700',
+    93→    succeeded: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+    94→    completed_with_limitations: 'border-amber-300 bg-amber-50 text-amber-800',
+    95→    failed: 'border-red-300 bg-red-50 text-red-700',
+    96→  }
+    97→  return (
+    98→    <Badge variant="outline" className={`font-normal ${map[status] ?? ''}`}>
+    99→      {status.replace(/_/g, ' ')}
+   100→    </Badge>
+   101→  )
+   102→}
+   103→
+   104→function ClassificationBadge({ classification }: { classification: string }) {
+   105→  const map: Record<string, string> = {
+   106→    constant: 'border-stone-300 bg-stone-100 text-stone-600',
+   107→    monotonic_increasing: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+   108→    monotonic_decreasing: 'border-amber-300 bg-amber-50 text-amber-800',
+   109→    threshold_suspected: 'border-orange-300 bg-orange-50 text-orange-800',
+   110→    non_monotonic: 'border-purple-300 bg-purple-50 text-purple-800',
+   111→    insufficient_evaluated_points: 'border-stone-300 bg-stone-100 text-stone-500',
+   112→    not_evaluated: 'border-stone-300 bg-stone-100 text-stone-500',
+   113→  }
+   114→  return (
+   115→    <Badge variant="outline" className={`font-normal ${map[classification] ?? ''}`}>
+   116→      {classification.replace(/_/g, ' ')}
+   117→    </Badge>
+   118→  )
+   119→}
+   120→
+   121→function UncertaintyStatusBadge({ status }: { status: string }) {
+   122→  const map: Record<string, string> = {
+   123→    quantified: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+   124→    bounded_exploratory: 'border-sky-300 bg-sky-50 text-sky-800',
+   125→    qualitative_only: 'border-stone-300 bg-stone-100 text-stone-600',
+   126→    not_quantified: 'border-orange-300 bg-orange-50 text-orange-800',
+   127→    not_applicable: 'border-stone-300 bg-stone-100 text-stone-500',
+   128→    not_evaluated: 'border-stone-300 bg-stone-100 text-stone-500',
+   129→  }
+   130→  return (
+   131→    <Badge variant="outline" className={`font-normal ${map[status] ?? ''}`}>
+   132→      {status.replace(/_/g, ' ')}
+   133→    </Badge>
+   134→  )
+   135→}
+   136→
+   137→// ---------------------------------------------------------------------------
+   138→// Envelope & response table
+   139→// ---------------------------------------------------------------------------
+   140→
+   141→function ResponseRow({ row }: { row: SensitivityOatResponse }) {
+   142→  const envelope = row.explored_parameter_range_envelope
+   143→  return (
+   144→    <TableRow>
+   145→      <TableCell className="max-w-[220px] truncate font-mono text-xs" title={row.feature_code}>
+   146→        {row.feature_code}
+   147→      </TableCell>
+   148→      <TableCell className="text-xs text-stone-500">{row.period_label}</TableCell>
+   149→      <TableCell className="text-right font-mono text-xs">{fmt(row.reference_value)}</TableCell>
+   150→      <TableCell className="text-right font-mono text-xs">
+   151→        {envelope.lower === null ? '—' : `[${fmt(envelope.lower)}, ${fmt(envelope.upper)}]`}
+   152→      </TableCell>
+   153→      <TableCell className="text-right font-mono text-xs">{fmt(row.output_range)}</TableCell>
+   154→      <TableCell className="text-right font-mono text-xs" title={`${row.slope_units} (${row.slope_method})`}>
+   155→        {row.slope === null ? '—' : fmt(row.slope, 6)}
+   156→        <span className="ml-1 text-[10px] text-stone-400">{row.slope_units}</span>
+   157→        {row.slope_validity === 'invalid_across_suspected_discontinuity' && (
+   158→          <span className="ml-1 text-[10px] text-orange-700">slope invalid across jump</span>
+   159→        )}
+   160→      </TableCell>
+   161→      <TableCell className="text-xs">
+   162→        {row.elasticity.status === 'available' ? (
+   163→          <span className="font-mono text-xs">{fmt(row.elasticity.value)}</span>
+   164→        ) : (
+   165→          <span className="text-[11px] text-stone-500" title={row.elasticity.reason ?? ''}>
+   166→            unavailable: {row.elasticity.reason?.replace(/_/g, ' ')}
+   167→          </span>
+   168→        )}
+   169→      </TableCell>
+   170→      <TableCell className="text-xs">{row.direction.replace(/_/g, ' ')}</TableCell>
+   171→      <TableCell>
+   172→        <ClassificationBadge classification={row.response_classification} />
+   173→      </TableCell>
+   174→    </TableRow>
+   175→  )
+   176→}
+   177→
+   178→function ResponsesCard({ analysisId, parameterCode }: { analysisId: string; parameterCode: string | null }) {
+   179→  const [classificationFilter, setClassificationFilter] = useState<string>('')
+   180→  const { data, isLoading, isError, error } = useQuery({
+   181→    queryKey: ['sensitivity-responses', analysisId, parameterCode, classificationFilter],
+   182→    queryFn: () =>
+   183→      listSensitivityResponses(analysisId, {
+   184→        parameter_code: parameterCode ?? undefined,
+   185→        response_classification: classificationFilter || undefined,
+   186→      }),
+   187→    enabled: Boolean(analysisId),
+   188→  })
+   189→  // Unbounded feature sets would explode the DOM; render a capped window
+   190→  // behind the classification/parameter filters. Evaluated responses surface
+   191→  // first — the alphabetically-first rows are often honest not_evaluated ones.
+   192→  const MAX_ROWS = 100
+   193→  const rows = useMemo(() => {
+   194→    const items = data?.items ?? []
+   195→    const rank: Record<string, number> = {
+   196→      evaluated: 0,
+   197→      partially_evaluated: 1,
+   198→      not_evaluated: 2,
+   199→    }
+   200→    return [...items].sort((a, b) => {
+   201→      const r = (rank[a.response_status] ?? 3) - (rank[b.response_status] ?? 3)
+   202→      if (r !== 0) return r
+   203→      return `${a.feature_code}|${a.aggregation_level}|${a.period_label}`.localeCompare(
+   204→        `${b.feature_code}|${b.aggregation_level}|${b.period_label}`,
+   205→      )
+   206→    })
+   207→  }, [data])
+   208→  const visible = rows.slice(0, MAX_ROWS)
+   209→
+   210→  if (isLoading)
+   211→    return (
+   212→      <div className="space-y-2">
+   213→        <Skeleton className="h-6 w-64" />
+   214→        <Skeleton className="h-40 w-full" />
+   215→      </div>
+   216→    )
+   217→  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error)}</p>
+   218→  if (!data) return null
+   219→
+   220→  return (
+   221→    <Card>
+   222→      <CardHeader className="pb-3">
+   223→        <CardTitle className="text-base">One-factor-at-a-time responses</CardTitle>
+   224→        <CardDescription>
+   225→          Each parameter varies over the explored bounds while every other configured
+   226→          parameter is held at its reference value. Slopes keep their units and are never
+   227→          compared across different units.
+   228→        </CardDescription>
+   229→        <div className="flex flex-wrap gap-1.5 pt-1">
+   230→          {['', 'monotonic_increasing', 'monotonic_decreasing', 'threshold_suspected', 'non_monotonic', 'constant'].map(
+   231→            (c) => (
+   232→              <button
+   233→                key={c || 'all'}
+   234→                onClick={() => setClassificationFilter(c)}
+   235→                className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+   236→                  classificationFilter === c
+   237→                    ? 'border-stone-800 bg-stone-800 text-white'
+   238→                    : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50'
+   239→                }`}
+   240→              >
+   241→                {c === '' ? 'all' : c.replace(/_/g, ' ')}
+   242→              </button>
+   243→            ),
+   244→          )}
+   245→        </div>
+   246→      </CardHeader>
+   247→      <CardContent>
+   248→        {rows.length === 0 ? (
+   249→          <p className="py-6 text-center text-sm text-stone-500">No responses for this filter.</p>
+   250→        ) : (
+   251→          <>
+   252→          <SensitivityTornadoChart rows={rows} />
+   253→          <div className="max-h-96 overflow-y-auto rounded-md border">
+   254→            <Table>
+   255→              <TableHeader className="sticky top-0 bg-white">
+   256→                <TableRow>
+   257→                  <TableHead>Feature</TableHead>
+   258→                  <TableHead>Period</TableHead>
+   259→                  <TableHead className="text-right">Reference</TableHead>
+   260→                  <TableHead className="text-right">Explored envelope</TableHead>
+   261→                  <TableHead className="text-right">Output range</TableHead>
+   262→                  <TableHead className="text-right">Slope (units)</TableHead>
+   263→                  <TableHead>Elasticity</TableHead>
+   264→                  <TableHead>Direction</TableHead>
+   265→                  <TableHead>Classification</TableHead>
+   266→                </TableRow>
+   267→              </TableHeader>
+   268→              <TableBody>
+   269→                {visible.map((row, i) => (
+   270→                  <ResponseRow key={`${row.parameter_code}-${row.feature_code}-${row.period_label}-${i}`} row={row} />
+   271→                ))}
+   272→              </TableBody>
+   273→            </Table>
+   274→          </div>
+   275→          {rows.length > visible.length && (
+   276→            <p className="mt-2 text-xs text-stone-500">
+   277→              Showing the first {visible.length} of {rows.length} responses — narrow with the
+   278→              classification filter or a specific feature to see more.
+   279→            </p>
+   280→          )}
+   281→          </>
+   282→        )}
+   283→      </CardContent>
+   284→    </Card>
+   285→  )
+   286→}
+   287→
+   288→// ---------------------------------------------------------------------------
+   289→// Grid card
+   290→// ---------------------------------------------------------------------------
+   291→
+   292→function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolean }) {
+   293→  const { data, isLoading, isError, error } = useQuery({
+   294→    queryKey: ['sensitivity-grid', analysisId],
+   295→    queryFn: () => getSensitivityGrid(analysisId),
+   296→    enabled: Boolean(analysisId) && hasGrid,
+   297→  })
+   298→  if (!hasGrid)
+   299→    return (
+   300→      <p className="text-sm text-stone-500">
+   301→        No joint parameter grid was requested for this analysis.
+   302→      </p>
+   303→    )
+   304→  if (isLoading) return <Skeleton className="h-40 w-full" />
+   305→  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error)}</p>
+   306→  if (!data) return null
+   307→
+   308→  // A full joint grid stores one summary per feature key (thousands); render a
+   309→  // capped window — the API's feature_code filter narrows on demand.
+   310→  const MAX_SUMMARIES = 50
+   311→  const summaries = data.summaries
+   312→  const visible = summaries.slice(0, MAX_SUMMARIES)
+   313→
+   314→  return (
+   315→    <Card>
+   316→      <CardHeader className="pb-3">
+   317→        <CardTitle className="text-base">Joint parameter grid</CardTitle>
+   318→        <CardDescription>{data.note}</CardDescription>
+   319→      </CardHeader>
+   320→      <CardContent className="space-y-3">
+   321→        <div className="max-h-96 overflow-y-auto rounded-md border">
+   322→          <Table>
+   323→            <TableHeader className="sticky top-0 bg-white">
+   324→              <TableRow>
+   325→                <TableHead>Feature</TableHead>
+   326→                <TableHead>Period</TableHead>
+   327→                <TableHead className="text-right">Grid range</TableHead>
+   328→                <TableHead>Direction</TableHead>
+   329→                <TableHead>Non-monotonic</TableHead>
+   330→                <TableHead className="text-right">Threshold transitions</TableHead>
+   331→                <TableHead className="text-right">Finite-grid interaction contrast</TableHead>
+   332→                <TableHead>Interpretation</TableHead>
+   333→              </TableRow>
+   334→            </TableHeader>
+   335→            <TableBody>
+   336→              {visible.map((s, i) => (
+   337→                <TableRow key={`${s.feature_code}-${s.period_label}-${i}`}>
+   338→                  <TableCell className="max-w-[200px] truncate font-mono text-xs" title={s.feature_code}>
+   339→                    {s.feature_code}
+   340→                  </TableCell>
+   341→                  <TableCell className="text-xs text-stone-500">{s.period_label}</TableCell>
+   342→                  <TableCell className="text-right font-mono text-xs">
+   343→                    {s.grid_min === null ? '—' : `[${fmt(s.grid_min)}, ${fmt(s.grid_max)}]`}
+   344→                  </TableCell>
+   345→                  <TableCell className="text-xs">{s.direction.replace(/_/g, ' ')}</TableCell>
+   346→                  <TableCell className="text-xs">{s.non_monotonic ? 'yes' : 'no'}</TableCell>
+   347→                  <TableCell className="text-right font-mono text-xs">{s.threshold_transition_count}</TableCell>
+   348→                  <TableCell className="text-right font-mono text-xs" title="finite-grid interaction contrast — not a Sobol index">
+   349→                    {s.interaction_contrast === null ? '—' : fmt(s.interaction_contrast, 6)}
+   350→                  </TableCell>
+   351→                  <TableCell className="text-xs">{s.interaction_interpretation.replace(/_/g, ' ')}</TableCell>
+   352→                </TableRow>
+   353→              ))}
+   354→            </TableBody>
+   355→          </Table>
+   356→        </div>
+   357→        {summaries.length > visible.length && (
+   358→          <p className="text-xs text-stone-500">
+   359→            Showing the first {visible.length} of {summaries.length} grid summaries —
+   360→            per-feature detail is available through the API&apos;s feature_code filter.
+   361→          </p>
+   362→        )}
+   363→        <SensitivityCurvesChart grid={data} />
+   364→      </CardContent>
+   365→    </Card>
+   366→  )
+   367→}
+   368→
+   369→// ---------------------------------------------------------------------------
+   370→// Uncertainty registry card
+   371→// ---------------------------------------------------------------------------
+   372→
+   373→function UncertaintyCard({ analysisId }: { analysisId: string }) {
+   374→  const { data, isLoading, isError, error } = useQuery({
+   375→    queryKey: ['sensitivity-uncertainty', analysisId],
+   376→    queryFn: () => getSensitivityUncertainty(analysisId),
+   377→    enabled: Boolean(analysisId),
+   378→  })
+   379→  if (isLoading) return <Skeleton className="h-40 w-full" />
+   380→  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error)}</p>
+   381→  if (!data) return null
+   382→
+   383→  const grouped = data.items.reduce<Record<string, typeof data.items>>((acc, item) => {
+   384→    ;(acc[item.category] ??= []).push(item)
+   385→    return acc
+   386→  }, {})
+   387→
+   388→  return (
+   389→    <Card>
+   390→      <CardHeader className="pb-3">
+   391→        <CardTitle className="text-base">Uncertainty &amp; limitation registry</CardTitle>
+   392→        <CardDescription>{data.note}</CardDescription>
+   393→      </CardHeader>
+   394→      <CardContent className="space-y-4">
+   395→        {Object.entries(grouped).map(([category, items]) => (
+   396→          <div key={category}>
+   397→            <p className="mb-1.5 text-xs font-semibold text-stone-700">
+   398→              {category.replace(/_/g, ' ')}
+   399→            </p>
+   400→            <div className="space-y-2">
+   401→              {items.map((item) => (
+   402→                <div key={item.code} className="rounded-md border border-stone-200 bg-white p-3">
+   403→                  <div className="flex flex-wrap items-center gap-2">
+   404→                    <UncertaintyStatusBadge status={item.quantification_status} />
+   405→                    <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
+   406→                      {item.applicability}
+   407→                    </Badge>
+   408→                    <span className="font-mono text-[11px] text-stone-400">{item.code}</span>
+   409→                    {item.affects_current_analysis && (
+   410→                      <Badge variant="outline" className="border-amber-200 bg-amber-50 font-normal text-amber-700">
+   411→                        affects this analysis
+   412→                      </Badge>
+   413→                    )}
+   414→                  </div>
+   415→                  <p className="mt-1.5 text-xs text-stone-600">{item.user_facing_explanation}</p>
+   416→                </div>
+   417→              ))}
+   418→            </div>
+   419→          </div>
+   420→        ))}
+   421→      </CardContent>
+   422→    </Card>
+   423→  )
+   424→}
+   425→
+   426→// ---------------------------------------------------------------------------
+   427→// Analysis results (detail view)
+   428→// ---------------------------------------------------------------------------
+   429→
+   430→function VerifyCard({ analysisId }: { analysisId: string }) {
+   431→  const queryClient = useQueryClient()
+   432→  const verify = useMutation({
+   433→    mutationFn: () => verifySensitivityAnalysis(analysisId),
+   434→    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sensitivity-analysis', analysisId] }),
+   435→  })
+   436→  const result = verify.data
+   437→  const flags: Array<readonly [keyof SensitivityVerifyResponse, string]> = result
+   438→    ? [
+   439→        ['output_checksum_valid', 'output checksum'],
+   440→        ['source_run_intact', 'source run intact'],
+   441→        ['parent_snapshot_intact', 'parent snapshot intact'],
+   442→        ['manifest_checksum_matches', 'manifest checksum matches'],
+   443→        ['reference_reproduction_consistent', 'reference reproduction consistent'],
+   444→      ]
+   445→    : []
+   446→  return (
+   447→    <Card>
+   448→      <CardHeader className="pb-3">
+   449→        <CardTitle className="text-base">Integrity verification</CardTitle>
+   450→        <CardDescription>
+   451→          Recomputes the analysis checksum from persisted artifacts and re-checks the
+   452→          source-run pins. Confirms the integrity of a hypothetical analysis — never that
+   453→          transformed values are observations.
+   454→        </CardDescription>
+   455→      </CardHeader>
+   456→      <CardContent>
+   457→        <Button size="sm" variant="outline" onClick={() => verify.mutate()} disabled={verify.isPending}>
+   458→          {verify.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ShieldCheck className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+   459→          Verify analysis
+   460→        </Button>
+   461→        {verify.isError && (
+   462→          <p className="mt-2 text-sm text-red-700">{apiErrorText(verify.error)}</p>
+   463→        )}
+   464→        {result && (
+   465→          <div className="mt-3 space-y-1.5">
+   466→            {flags.map(([flag, label]) => (
+   467→              <div key={flag} className="flex items-center gap-2 text-xs">
+   468→                {result[flag] ? (
+   469→                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+   470→                ) : (
+   471→                  <ShieldAlert className="h-3.5 w-3.5 text-red-600" aria-hidden />
+   472→                )}
+   473→                <span className="text-stone-600">{label}</span>
+   474→                <span className="ml-auto font-mono text-[10px] text-stone-400">{String(result[flag])}</span>
+   475→              </div>
+   476→            ))}
+   477→          </div>
+   478→        )}
+   479→      </CardContent>
+   480→    </Card>
+   481→  )
+   482→}
+   483→
+   484→function AnalysisResults({ analysis }: { analysis: SensitivityAnalysis }) {
+   485→  const parameters = useMemo(
+   486→    () => Object.keys(analysis.parameter_design ?? {}),
+   487→    [analysis.parameter_design],
+   488→  )
+   489→  const [selectedParameter, setSelectedParameter] = useState<string | null>(null)
+   490→  // Derived (no sync-effect): fall back to the first explored parameter when
+   491→  // the selection is absent or no longer part of the design.
+   492→  const activeParameter =
+   493→    selectedParameter && parameters.includes(selectedParameter) ? selectedParameter : (parameters[0] ?? null)
+   494→
+   495→  const reproduction = analysis.reference_reproduction
+   496→
+   497→  return (
+   498→    <div className="space-y-5">
+   499→      <div className="flex flex-wrap items-center gap-2">
+   500→        <AnalysisStatusBadge status={analysis.analysis_status} />
+   501→        <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
+   502→          {analysis.evaluation_count} evaluations · {analysis.evaluated_feature_count} features
+   503→        </Badge>
+   504→        <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
+   505→          checksum {shortHash(analysis.output_checksum)}
+   506→        </Badge>
+   507→        <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
+   508→          method {analysis.analysis_method_version}
+   509→        </Badge>
+   510→      </div>
+   511→
+   512→      <Alert className="border-amber-200 bg-amber-50">
+   513→        <Info className="h-4 w-4 text-amber-700" aria-hidden />
+   514→        <AlertTitle className="text-amber-900">Deterministic sensitivity — not probability</AlertTitle>
+   515→        <AlertDescription className="text-amber-900">
+   516→          {analysis.evidence_note} All disclosures: {analysis.warnings.length > 0 ? 'see below.' : '—'}
+   517→        </AlertDescription>
+   518→      </Alert>
+   519→
+   520→      <Card>
+   521→        <CardHeader className="pb-3">
+   522→          <CardTitle className="text-base">Reference reproduction</CardTitle>
+   523→          <CardDescription>
+   524→            The analysis first reproduced the source execution exactly before comparing
+   525→            anything. A failed reproduction aborts the analysis — no substitute baseline.
+   526→          </CardDescription>
+   527→        </CardHeader>
+   528→        <CardContent>
+   529→          <div className="flex flex-wrap gap-4 text-xs">
+   530→            <span>
+   531→              reproduced:{' '}
+   532→              <strong className={reproduction.reproduced ? 'text-emerald-700' : 'text-red-700'}>
+   533→                {String(reproduction.reproduced)}
+   534→              </strong>
+   535→            </span>
+   536→            <span>
+   537→              rows: {reproduction.matched_rows}/{reproduction.compared_rows} matched
+   538→            </span>
+   539→            <span>
+   540→              observation count match: <strong>{String(reproduction.observation_count_match)}</strong>
+   541→            </span>
+   542→          </div>
+   543→        </CardContent>
+   544→      </Card>
+   545→
+   546→      {analysis.analysis_status === 'failed' && (
+   547→        <Alert variant="destructive">
+   548→          <ShieldAlert className="h-4 w-4" aria-hidden />
+   549→          <AlertTitle>Analysis failed</AlertTitle>
+   550→          <AlertDescription>{analysis.error_summary}</AlertDescription>
+   551→        </Alert>
+   552→      )}
+   553→
+   554→      {parameters.length > 0 && (
+   555→        <div className="flex flex-wrap items-center gap-2">
+   556→          {parameters.map((code) => (
+   557→            <button
+   558→              key={code}
+   559→              onClick={() => setSelectedParameter(code)}
+   560→              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+   561→                activeParameter === code
+   562→                  ? 'border-stone-800 bg-stone-800 text-white'
+   563→                  : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50'
+   564→              }`}
+   565→            >
+   566→              {code.replace(/_/g, ' ')}
+   567→            </button>
+   568→          ))}
+   569→        </div>
+   570→      )}
+   571→
+   572→      {activeParameter && (
+   573→        <ResponsesCard analysisId={analysis.analysis_id} parameterCode={activeParameter} />
+   574→      )}
+   575→
+   576→      <GridCard analysisId={analysis.analysis_id} hasGrid={Boolean(analysis.grid_design)} />
+   577→
+   578→      <UncertaintyCard analysisId={analysis.analysis_id} />
+   579→
+   580→      {analysis.not_analysed_features &&
+   581→        Object.keys(analysis.not_analysed_features).length > 0 && (
+   582→          <Card>
+   583→            <CardHeader className="pb-3">
+   584→              <CardTitle className="text-base">Features outside the analysis scope</CardTitle>
+   585→              <CardDescription>
+   586→                Inherited verbatim from the source execution — reported, never fabricated.
+   587→              </CardDescription>
+   588→            </CardHeader>
+   589→            <CardContent>
+   590→              <div className="max-h-64 space-y-1.5 overflow-y-auto">
+   591→                {Object.entries(analysis.not_analysed_features).slice(0, 100).map(([code, reason]) => (
+   592→                  <div key={code} className="rounded-md border border-stone-200 p-2 text-xs">
+   593→                    <span className="font-mono text-stone-700">{code}</span>
+   594→                    <p className="mt-0.5 text-stone-500">{reason}</p>
+   595→                  </div>
+   596→                ))}
+   597→              </div>
+   598→            </CardContent>
+   599→          </Card>
+   600→        )}
+   601→
+   602→      <Card>
+   603→        <CardHeader className="pb-3">
+   604→          <CardTitle className="text-base">Disclosures</CardTitle>
+   605→        </CardHeader>
+   606→        <CardContent>
+   607→          <ul className="list-disc space-y-1 pl-4 text-xs text-stone-600">
+   608→            {analysis.warnings.map((w, i) => (
+   609→              <li key={i}>{w}</li>
+   610→            ))}
+   611→          </ul>
+   612→        </CardContent>
+   613→      </Card>
+   614→
+   615→      <VerifyCard analysisId={analysis.analysis_id} />
+   616→    </div>
+   617→  )
+   618→}
+   619→
+   620→// ---------------------------------------------------------------------------
+   621→// Definition form
+   622→// ---------------------------------------------------------------------------
+   623→
+   624→interface BoundState {
+   625→  lower: string
+   626→  upper: string
+   627→  points: string
+   628→}
+   629→
+   630→function DefinitionForm({
+   631→  run,
+   632→  referenceValues,
+   633→  explorableDetail,
+   634→  onCreated,
+   635→}: {
+   636→  run: ScenarioExecutionRun
+   637→  referenceValues: Record<string, number>
+   638→  explorableDetail: Record<string, { explorable: boolean; reference_value: number | null; reason: string | null }>
+   639→  onCreated: (analysis: SensitivityAnalysis) => void
+   640→}) {
+   641→  const queryClient = useQueryClient()
+   642→  const bothExplorable =
+   643→    explorableDetail.temperature_delta_c?.explorable && explorableDetail.precipitation_multiplier?.explorable
+   644→
+   645→  const defaults: Record<string, BoundState> = {
+   646→    temperature_delta_c: { lower: '-2', upper: '6', points: '9' },
+   647→    precipitation_multiplier: { lower: '0.5', upper: '1.5', points: '9' },
+   648→  }
+   649→  const [bounds, setBounds] = useState<Record<string, BoundState>>({
+   650→    temperature_delta_c: defaults.temperature_delta_c,
+   651→    precipitation_multiplier: defaults.precipitation_multiplier,
+   652→  })
+   653→  const [includeGrid, setIncludeGrid] = useState(false)
+   654→  const [formError, setFormError] = useState<string | null>(null)
+   655→
+   656→  const explorableCodes = Object.entries(explorableDetail)
+   657→    .filter(([, v]) => v.explorable)
+   658→    .map(([code]) => code)
+   659→
+   660→  const create = useMutation({
+   661→    mutationFn: () => {
+   662→      const parameter_design: Record<string, { lower: number; upper: number; n_points: number }> = {}
+   663→      for (const code of explorableCodes) {
+   664→        const b = bounds[code]
+   665→        parameter_design[code] = {
+   666→          lower: Number(b.lower),
+   667→          upper: Number(b.upper),
+   668→          n_points: Number(b.points),
+   669→        }
+   670→      }
+   671→      return createSensitivityAnalysis(run.run_id, {
+   672→        parameter_design,
+   673→        grid: includeGrid && bothExplorable ? true : undefined,
+   674→      })
+   675→    },
+   676→    onSuccess: (analysis) => {
+   677→      queryClient.invalidateQueries({ queryKey: ['sensitivity-analyses', run.run_id] })
+   678→      onCreated(analysis)
+   679→    },
+   680→  })
+   681→
+   682→  const refDelta = referenceValues.temperature_delta_c
+   683→  const refMult = referenceValues.precipitation_multiplier
+   684→
+   685→  return (
+   686→    <Card>
+   687→      <CardHeader className="pb-3">
+   688→        <CardTitle className="text-base">Define the exploration</CardTitle>
+   689→        <CardDescription>
+   690→          Bounds are user-supplied assumptions for a deterministic experiment — they
+   691→          contain the source execution&apos;s reference values and imply no probability
+   692→          distribution.
+   693→        </CardDescription>
+   694→      </CardHeader>
+   695→      <CardContent className="space-y-4">
+   696→        <div className="grid gap-4 md:grid-cols-2">
+   697→          {Object.entries(explorableDetail).map(([code, detail]) => {
+   698→            const ref = code === 'temperature_delta_c' ? refDelta : refMult
+   699→            if (!detail.explorable) {
+   700→              return (
+   701→                <div key={code} className="rounded-md border border-stone-200 bg-stone-50 p-3">
+   702→                  <p className="text-xs font-medium text-stone-700">{code.replace(/_/g, ' ')}</p>
+   703→                  <p className="mt-1 text-xs text-stone-500">
+   704→                    Not applicable — {detail.reason}
+   705→                  </p>
+   706→                </div>
+   707→              )
+   708→            }
+   709→            const b = bounds[code]
+   710→            const set = (patch: Partial<BoundState>) =>
+   711→              setBounds((prev) => ({ ...prev, [code]: { ...prev[code], ...patch } }))
+   712→            return (
+   713→              <div key={code} className="rounded-md border border-stone-200 p-3">
+   714→                <div className="flex items-center justify-between">
+   715→                  <p className="text-xs font-medium text-stone-700">{code.replace(/_/g, ' ')}</p>
+   716→                  <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
+   717→                    reference {fmt(ref)}
+   718→                  </Badge>
+   719→                </div>
+   720→                <div className="mt-2 grid grid-cols-3 gap-2">
+   721→                  <div>
+   722→                    <Label className="text-[11px] text-stone-500" htmlFor={`${code}-lower`}>
+   723→                      Lower
+   724→                    </Label>
+   725→                    <Input
+   726→                      id={`${code}-lower`}
+   727→                      className="h-8 text-xs"
+   728→                      inputMode="decimal"
+   729→                      value={b.lower}
+   730→                      onChange={(e) => set({ lower: e.target.value })}
+   731→                    />
+   732→                  </div>
+   733→                  <div>
+   734→                    <Label className="text-[11px] text-stone-500" htmlFor={`${code}-upper`}>
+   735→                      Upper
+   736→                    </Label>
+   737→                    <Input
+   738→                      id={`${code}-upper`}
+   739→                      className="h-8 text-xs"
+   740→                      inputMode="decimal"
+   741→                      value={b.upper}
+   742→                      onChange={(e) => set({ upper: e.target.value })}
+   743→                    />
+   744→                  </div>
+   745→                  <div>
+   746→                    <Label className="text-[11px] text-stone-500" htmlFor={`${code}-points`}>
+   747→                      Points (3–21)
+   748→                    </Label>
+   749→                    <Input
+   750→                      id={`${code}-points`}
+   751→                      className="h-8 text-xs"
+   752→                      inputMode="numeric"
+   753→                      value={b.points}
+   754→                      onChange={(e) => set({ points: e.target.value })}
+   755→                    />
+   756→                  </div>
+   757→                </div>
+   758→              </div>
+   759→            )
+   760→          })}
+   761→        </div>
+   762→
+   763→        {bothExplorable && (
+   764→          <label className="flex items-center gap-2 text-xs text-stone-700">
+   765→            <input
+   766→              type="checkbox"
+   767→              checked={includeGrid}
+   768→              onChange={(e) => setIncludeGrid(e.target.checked)}
+   769→              className="h-3.5 w-3.5"
+   770→            />
+   771→            Also evaluate the joint deterministic parameter grid (both axes reuse these bounds)
+   772→          </label>
+   773→        )}
+   774→
+   775→        {formError && <p className="text-sm text-red-700">{formError}</p>}
+   776→        {create.isError && <p className="text-sm text-red-700">{apiErrorText(create.error)}</p>}
+   777→
+   778→        <Button
+   779→          size="sm"
+   780→          onClick={() => {
+   781→            setFormError(null)
+   782→            create.mutate()
+   783→          }}
+   784→          disabled={create.isPending}
+   785→        >
+   786→          {create.isPending ? (
+   787→            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+   788→          ) : (
+   789→            <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+   790→          )}
+   791→          Run analysis
+   792→        </Button>
+   793→      </CardContent>
+   794→    </Card>
+   795→  )
+   796→}
+   797→
+   798→// ---------------------------------------------------------------------------
+   799→// Main section
+   800→// ---------------------------------------------------------------------------
+   801→
+   802→export function SensitivitySection() {
+   803→  const selectedField = useFieldShiftUi((s) => s.selectedField)
+   804→  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+   805→  const selectedFieldId = selectedField?.id ?? null
+   806→  const [scenarioId, setScenarioId] = useState<string | null>(null)
+   807→  const [runId, setRunId] = useState<string | null>(null)
+   808→  const [analysis, setAnalysis] = useState<SensitivityAnalysis | null>(null)
+   809→
+   810→  // Scenarios of the selected field (finalized ones are analysis-eligible via
+   811→  // their result-bearing runs).
+   812→  const { data: scenarioList } = useQuery({
+   813→    queryKey: ['sensitivity-scenarios', selectedFieldId],
+   814→    queryFn: () => listScenarios(selectedFieldId as string),
+   815→    enabled: Boolean(selectedFieldId),
+   816→  })
+   817→
+   818→  const finalizedScenarios = (scenarioList?.items ?? []).filter(
+   819→    (s) => s.scenario_status === 'finalized',
+   820→  )
+   821→  // Derived validity (no sync effects): a stale selection simply stops being
+   822→  // offered to the engine below.
+   823→  const effectiveScenarioId = finalizedScenarios.some((s) => s.id === scenarioId)
+   824→    ? scenarioId
+   825→    : null
+   826→
+   827→  // Result-bearing runs of the chosen scenario.
+   828→  const { data: runList } = useQuery({
+   829→    queryKey: ['sensitivity-runs', effectiveScenarioId],
+   830→    queryFn: () => listScenarioExecutions(effectiveScenarioId as string),
+   831→    enabled: Boolean(effectiveScenarioId),
+   832→  })
+   833→  const resultRuns = (runList?.items ?? []).filter(
+   834→    (r) => r.run_status === 'succeeded' || r.run_status === 'completed_with_limitations',
+   835→  )
+   836→  const effectiveRunId = resultRuns.some((r) => r.run_id === runId) ? runId : null
+   837→
+   838→  const { data: analysisList } = useQuery({
+   839→    queryKey: ['sensitivity-analyses', effectiveRunId],
+   840→    queryFn: () => listSensitivityAnalyses(effectiveRunId as string),
+   841→    enabled: Boolean(effectiveRunId) && !analysis,
+   842→  })
+   843→
+   844→  const selectedRun = resultRuns.find((r) => r.run_id === effectiveRunId) ?? null
+   845→  // A created analysis belongs to the currently selected run; switching runs
+   846→  // (or a stale analysis) drops back to the definition view.
+   847→  const effectiveAnalysis =
+   848→    analysis && analysis.source_execution_run_id === effectiveRunId ? analysis : null
+   849→
+   850→  const referenceValues = selectedRun?.execution_configuration.transformations.reduce<
+   851→    Record<string, number>
+   852→  >((acc, t) => {
+   853→    if (t.code === 'temperature_delta_c' && typeof t.delta_c === 'number') acc.temperature_delta_c = t.delta_c
+   854→    if (t.code === 'precipitation_multiplier' && typeof t.multiplier === 'number')
+   855→      acc.precipitation_multiplier = t.multiplier
+   856→    return acc
+   857→  }, {}) ?? {}
+   858→
+   859→  const explorableDetail: Record<
+   860→    string,
+   861→    { explorable: boolean; reference_value: number | null; reason: string | null }
+   862→  > = {
+   863→    temperature_delta_c:
+   864→      'temperature_delta_c' in referenceValues
+   865→        ? { explorable: true, reference_value: referenceValues.temperature_delta_c, reason: null }
+   866→        : {
+   867→            explorable: false,
+   868→            reference_value: null,
+   869→            reason: 'parameter not configured in the source execution; no reference value exists',
+   870→          },
+   871→    precipitation_multiplier:
+   872→      'precipitation_multiplier' in referenceValues
+   873→        ? { explorable: true, reference_value: referenceValues.precipitation_multiplier, reason: null }
+   874→        : {
+   875→            explorable: false,
+   876→            reference_value: null,
+   877→            reason: 'parameter not configured in the source execution; no reference value exists',
+   878→          },
+   879→  }
+   880→
+   881→  if (!selectedField) {
+   882→    return (
+   883→      <Card>
+   884→        <CardHeader>
+   885→          <CardTitle className="flex items-center gap-2 text-base">
+   886→            <LineChart className="h-4 w-4" aria-hidden />
+   887→            Sensitivity &amp; Uncertainty
+   888→          </CardTitle>
+   889→          <CardDescription>
+   890→            Pick a field to analyse how its scenario-derived environmental features
+   891→            respond to the executed transformation parameters.
+   892→          </CardDescription>
+   893→        </CardHeader>
+   894→        <CardContent>
+   895→          <FieldPicker
+   896→            value={null}
+   897→            onValueChange={(field) => {
+   898→              setSelectedField(field)
+   899→              setScenarioId(null)
+   900→              setRunId(null)
+   901→              setAnalysis(null)
+   902→            }}
+   903→          />
+   904→        </CardContent>
+   905→      </Card>
+   906→    )
+   907→  }
+   908→
+   909→  return (
+   910→    <div className="space-y-5">
+   911→      <Card>
+   912→        <CardHeader className="pb-3">
+   913→          <CardTitle className="flex items-center gap-2 text-base">
+   914→            <LineChart className="h-4 w-4" aria-hidden />
+   915→            Sensitivity &amp; Uncertainty — {selectedField.name}
+   916→          </CardTitle>
+   917→          <CardDescription>
+   918→            Deterministic one-factor-at-a-time analysis and optional joint parameter
+   919→            grids over an immutable scenario execution. The explored parameter-range
+   920→            envelope is a deterministic sensitivity result — not a confidence or
+   921→            probability interval. No yield, climate or rainfall predictions exist here.
+   922→          </CardDescription>
+   923→        </CardHeader>
+   924→        <CardContent className="space-y-3">
+   925→          <div>
+   926→            <p className="mb-1.5 text-xs font-medium text-stone-600">Scenario (finalized)</p>
+   927→            <div className="flex flex-wrap gap-1.5">
+   928→              {finalizedScenarios.length === 0 && (
+   929→                <p className="text-xs text-stone-500">
+   930→                  No finalized scenarios for this field yet — create one in the Scenarios
+   931→                  tab.
+   932→                </p>
+   933→              )}
+   934→              {finalizedScenarios.map((s) => (
+   935→                <button
+   936→                  key={s.id}
+   937→                  onClick={() => {
+   938→                    setScenarioId(s.id)
+   939→                    setRunId(null)
+   940→                    setAnalysis(null)
+   941→                  }}
+   942→                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+   943→                    scenarioId === s.id
+   944→                      ? 'border-stone-800 bg-stone-800 text-white'
+   945→                      : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50'
+   946→                  }`}
+   947→                >
+   948→                  {s.name}
+   949→                </button>
+   950→              ))}
+   951→            </div>
+   952→          </div>
+   953→
+   954→          {scenarioId && (
+   955→            <div>
+   956→              <p className="mb-1.5 text-xs font-medium text-stone-600">
+   957→                Execution run (result-bearing)
+   958→              </p>
+   959→              <div className="flex flex-wrap gap-1.5">
+   960→                {resultRuns.length === 0 && (
+   961→                  <p className="text-xs text-stone-500">
+   962→                    No completed executions for this scenario — execute it in the
+   963→                    Scenarios tab first.
+   964→                  </p>
+   965→                )}
+   966→                {resultRuns.map((r) => (
+   967→                  <button
+   968→                    key={r.run_id}
+   969→                    onClick={() => {
+   970→                      setRunId(r.run_id)
+   971→                      setAnalysis(null)
+   972→                    }}
+   973→                    className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+   974→                      runId === r.run_id
+   975→                        ? 'border-stone-800 bg-stone-800 text-white'
+   976→                        : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50'
+   977→                    }`}
+   978→                    title={`status: ${r.run_status}`}
+   979→                  >
+   980→                    run {r.run_id.slice(0, 8)}… · {r.run_status.replace(/_/g, ' ')}
+   981→                  </button>
+   982→                ))}
+   983→              </div>
+   984→            </div>
+   985→          )}
+   986→        </CardContent>
+   987→      </Card>
+   988→
+   989→      {selectedRun && !effectiveAnalysis && (
+   990→        <>
+   991→          <DefinitionForm
+   992→            run={selectedRun}
+   993→            referenceValues={referenceValues}
+   994→            explorableDetail={explorableDetail}
+   995→            onCreated={(a) => setAnalysis(a)}
+   996→          />
+   997→
+   998→          {(analysisList?.items ?? []).length > 0 && (
+   999→            <Card>
+  1000→              <CardHeader className="pb-3">
+  1001→                <CardTitle className="text-base">Previous analyses of this run</CardTitle>
+  1002→              </CardHeader>
+  1003→              <CardContent className="space-y-1.5">
+  1004→                {analysisList?.items.map((a) => (
+  1005→                  <button
+  1006→                    key={a.analysis_id}
+  1007→                    onClick={() => setAnalysis(a)}
+  1008→                    className="flex w-full flex-wrap items-center gap-2 rounded-md border border-stone-200 p-2 text-left text-xs hover:bg-stone-50"
+  1009→                  >
+  1010→                    <AnalysisStatusBadge status={a.analysis_status} />
+  1011→                    <span className="font-mono text-stone-500">{shortHash(a.analysis_id)}</span>
+  1012→                    <span className="text-stone-500">
+  1013→                      {Object.keys(a.parameter_design).length} parameter(s)
+  1014→                      {a.grid_design ? ' · joint grid' : ''}
+  1015→                    </span>
+  1016→                    <span className="ml-auto text-stone-400">
+  1017→                      {a.completed_at ? a.completed_at.replace('T', ' ').slice(0, 16) : '—'}
+  1018→                    </span>
+  1019→                  </button>
+  1020→                ))}
+  1021→              </CardContent>
+  1022→            </Card>
+  1023→          )}
+  1024→        </>
+  1025→      )}
+  1026→
+  1027→      {effectiveAnalysis && (
+  1028→        <div className="space-y-3">
+  1029→          <Button size="sm" variant="ghost" onClick={() => setAnalysis(null)}>
+  1030→            ← Back to run {runId ? `· ${runId.slice(0, 8)}…` : ''}
+  1031→          </Button>
+  1032→          <AnalysisResults analysis={effectiveAnalysis} />
+  1033→        </div>
+  1034→      )}
+  1035→    </div>
+  1036→  )
+  1037→}
+  1038→
+  1039→export default SensitivitySection
+  1040→

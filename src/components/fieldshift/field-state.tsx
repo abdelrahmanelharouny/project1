@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -29,13 +30,13 @@ import type { FieldState, FieldStateDimension, FieldStateVerifyResponse, FieldSt
 
 const DIMENSION_ORDER = ['environmental', 'water', 'rotation', 'crop_history', 'soil', 'management'] as const
 
-const DIMENSION_LABELS: Record<string, string> = {
-  environmental: 'Environmental (feature run)',
-  water: 'Water (plan)',
-  rotation: 'Rotation (run)',
-  crop_history: 'Crop history',
-  soil: 'Soil assessment',
-  management: 'Management',
+const DIMENSION_LABEL_KEYS: Record<string, string> = {
+  environmental: 'dimEnvironmental',
+  water: 'dimWater',
+  rotation: 'dimRotation',
+  crop_history: 'dimCropHistory',
+  soil: 'dimSoil',
+  management: 'dimManagement',
 }
 
 function apiErrorText(err: unknown): string {
@@ -48,32 +49,34 @@ function apiErrorText(err: unknown): string {
 }
 
 function DimensionBadge({ status }: { status: string }) {
-  const map: Record<string, { className: string; label: string }> = {
-    available: { className: 'border-emerald-300 bg-emerald-50 text-emerald-800', label: 'available' },
-    missing: { className: 'border-stone-300 bg-stone-50 text-stone-600', label: 'missing' },
-    period_mismatch: { className: 'border-amber-300 bg-amber-50 text-amber-800', label: 'period mismatch' },
-    not_evaluated: { className: 'border-stone-300 bg-white text-stone-600', label: 'not evaluated' },
-    not_implemented: { className: 'border-stone-400 bg-stone-100 text-stone-700', label: 'not implemented' },
+  const t = useTranslations('fieldstate')
+  const map: Record<string, { className: string; labelKey: string }> = {
+    available: { className: 'border-emerald-300 bg-emerald-50 text-emerald-800', labelKey: 'dimAvailable' },
+    missing: { className: 'border-stone-300 bg-stone-50 text-stone-600', labelKey: 'dimMissing' },
+    period_mismatch: { className: 'border-amber-300 bg-amber-50 text-amber-800', labelKey: 'dimPeriodMismatch' },
+    not_evaluated: { className: 'border-stone-300 bg-white text-stone-600', labelKey: 'dimNotEvaluated' },
+    not_implemented: { className: 'border-stone-400 bg-stone-100 text-stone-700', labelKey: 'dimNotImplemented' },
   }
-  const cfg = map[status] ?? { className: 'border-stone-300 bg-white text-stone-600', label: status }
+  const cfg = map[status]
   return (
-    <Badge variant="outline" className={`font-normal ${cfg.className}`}>
-      {cfg.label}
+    <Badge variant="outline" className={`font-normal ${cfg ? cfg.className : 'border-stone-300 bg-white text-stone-600'}`}>
+      {cfg ? t(cfg.labelKey) : status}
     </Badge>
   )
 }
 
 function StateStatusBadge({ status }: { status: string }) {
+  const t = useTranslations('fieldstate')
   if (status === 'succeeded')
     return (
       <Badge variant="outline" className="gap-1 border-emerald-300 bg-emerald-50 font-normal text-emerald-800">
-        <BadgeCheck className="h-3 w-3" aria-hidden /> succeeded
+        <BadgeCheck className="h-3 w-3" aria-hidden /> {t('statusSucceeded')}
       </Badge>
     )
   if (status === 'failed')
     return (
       <Badge variant="outline" className="gap-1 border-red-300 bg-red-50 font-normal text-red-700">
-        <CircleAlert className="h-3 w-3" aria-hidden /> failed
+        <CircleAlert className="h-3 w-3" aria-hidden /> {t('statusFailed')}
       </Badge>
     )
   return (
@@ -93,14 +96,15 @@ function shortHash(hash: string | null | undefined): string {
 }
 
 function VerifyReport({ report }: { report: FieldStateVerifyResponse }) {
+  const t = useTranslations('fieldstate')
   const rows: Array<{ label: string; ok: boolean }> = [
-    { label: 'State checksum valid', ok: report.checksum_valid },
-    { label: 'Observation manifest checksum valid', ok: report.manifest_checksum_valid },
-    { label: 'Boundary version record exists', ok: report.boundary_version_record_exists },
+    { label: t('verifyChecksumValid'), ok: report.checksum_valid },
+    { label: t('verifyManifestValid'), ok: report.manifest_checksum_valid },
+    { label: t('verifyBoundaryExists'), ok: report.boundary_version_record_exists },
   ]
   for (const [name, ref] of Object.entries(report.referenced_artifacts)) {
-    rows.push({ label: `${name.replace('_', ' ')} exists`, ok: ref.exists })
-    rows.push({ label: `${name.replace('_', ' ')} intact`, ok: ref.intact })
+    rows.push({ label: t('artifactExists', { name: name.replace('_', ' ') }), ok: ref.exists })
+    rows.push({ label: t('artifactIntact', { name: name.replace('_', ' ') }), ok: ref.intact })
   }
   return (
     <ul className="space-y-1.5">
@@ -114,12 +118,13 @@ function VerifyReport({ report }: { report: FieldStateVerifyResponse }) {
           <span className={row.ok ? 'text-stone-700' : 'font-medium text-red-700'}>{row.label}</span>
         </li>
       ))}
-      <li className="pt-1 text-[11px] text-stone-500">verified at {short(report.verified_at)}</li>
+      <li className="pt-1 text-[11px] text-stone-500">{t('verifiedAt', { time: short(report.verified_at) })}</li>
     </ul>
   )
 }
 
 function StateDetail({ state }: { state: FieldState }) {
+  const t = useTranslations('fieldstate')
   const [verifyReport, setVerifyReport] = useState<FieldStateVerifyResponse | null>(null)
   const [verifyError, setVerifyError] = useState<string | null>(null)
   const verifyMutation = useMutation({
@@ -142,7 +147,7 @@ function StateDetail({ state }: { state: FieldState }) {
               <CardTitle className="text-base">{state.label}</CardTitle>
               <StateStatusBadge status={state.status} />
               <Badge variant="outline" className="font-normal text-stone-600">
-                boundary v{state.boundary_version}
+                {t('boundaryVersion', { version: state.boundary_version })}
               </Badge>
             </div>
             <Button
@@ -153,26 +158,30 @@ function StateDetail({ state }: { state: FieldState }) {
               disabled={verifyMutation.isPending}
             >
               <Fingerprint className="h-3.5 w-3.5" aria-hidden />
-              {verifyMutation.isPending ? 'Verifying…' : 'Verify checksums'}
+              {verifyMutation.isPending ? t('verifying') : t('verifyChecksums')}
             </Button>
           </div>
           <CardDescription>
-            As-of {short(state.state_reference_time)} · period {short(state.period.start)} →{' '}
-            {short(state.period.end)} · timezone {state.timezone}
+            {t('asOfPeriod', {
+              time: short(state.state_reference_time),
+              start: short(state.period.start),
+              end: short(state.period.end),
+              timezone: state.timezone,
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {verifyError && (
             <Alert variant="destructive">
               <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Verification request failed</AlertTitle>
+              <AlertTitle>{t('verificationFailed')}</AlertTitle>
               <AlertDescription>{verifyError}</AlertDescription>
             </Alert>
           )}
           {verifyReport && (
             <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                Verification report
+                {t('verificationReport')}
               </p>
               <VerifyReport report={verifyReport} />
             </div>
@@ -180,7 +189,7 @@ function StateDetail({ state }: { state: FieldState }) {
 
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
-              Domain availability — absent domains are never fabricated
+              {t('domainAvailability')}
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
               {DIMENSION_ORDER.map((dim) => {
@@ -189,7 +198,9 @@ function StateDetail({ state }: { state: FieldState }) {
                 return (
                   <div key={dim} className="rounded-lg border border-stone-200 bg-white p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-stone-800">{DIMENSION_LABELS[dim]}</span>
+                      <span className="text-sm font-medium text-stone-800">
+                        {DIMENSION_LABEL_KEYS[dim] ? t(DIMENSION_LABEL_KEYS[dim]) : dim}
+                      </span>
                       <DimensionBadge status={info.status} />
                     </div>
                     {info.reason && <p className="mt-1 text-xs text-stone-500">{info.reason}</p>}
@@ -204,46 +215,51 @@ function StateDetail({ state }: { state: FieldState }) {
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-stone-200 bg-white p-3">
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-stone-500">Inputs pinned</p>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-stone-500">{t('inputsPinned')}</p>
               <ul className="space-y-1 text-xs text-stone-600">
                 <li>
-                  Feature run:{' '}
+                  {t('pinnedFeatureRun')}:{' '}
                   <span className="font-mono">{state.environmental_feature_run_id ?? '—'}</span>
                 </li>
                 <li>
-                  Water plan: <span className="font-mono">{state.water_plan_id ?? '—'}</span>
+                  {t('pinnedWaterPlan')}:{' '}
+                  <span className="font-mono">{state.water_plan_id ?? '—'}</span>
                 </li>
                 <li>
-                  Rotation run: <span className="font-mono">{state.rotation_run_id ?? '—'}</span>
+                  {t('pinnedRotationRun')}:{' '}
+                  <span className="font-mono">{state.rotation_run_id ?? '—'}</span>
                   {state.rotation_strategy_key ? ` (${state.rotation_strategy_key})` : ''}
                 </li>
-                <li>Crop history rows pinned: {state.crop_history_ids.length}</li>
-                <li>Knowledge packs pinned: {state.knowledge_pack_refs.length}</li>
+                <li>{t('pinnedCropHistory', { count: state.crop_history_ids.length })}</li>
+                <li>{t('pinnedKnowledgePacks', { count: state.knowledge_pack_refs.length })}</li>
                 <li>
-                  Observation manifest:{' '}
+                  {t('observationManifest')}:{' '}
                   {(() => {
                     const env = evidence.environmental ?? {}
-                    return `${String(env.observation_count ?? 0)} rows (${String(
-                      env.synthetic_observation_count ?? 0,
-                    )} synthetic)`
+                    return t('manifestRows', {
+                      rows: String(env.observation_count ?? 0),
+                      synthetic: String(env.synthetic_observation_count ?? 0),
+                    })
                   })()}
                 </li>
               </ul>
             </div>
             <div className="rounded-lg border border-stone-200 bg-white p-3">
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                Reproducibility
+                {t('reproducibility')}
               </p>
               <ul className="space-y-1 text-xs text-stone-600">
                 <li>
-                  State checksum: <span className="font-mono">{shortHash(state.checksum_sha256)}</span>
+                  {t('stateChecksum')}{' '}
+                  <span className="font-mono">{shortHash(state.checksum_sha256)}</span>
                 </li>
                 <li>
-                  Manifest SHA-256: <span className="font-mono">{shortHash(state.observation_manifest_sha256)}</span>
+                  {t('manifestSha')}{' '}
+                  <span className="font-mono">{shortHash(state.observation_manifest_sha256)}</span>
                 </li>
-                <li>Manifest format: {state.manifest_format_version}</li>
-                <li>Assembly: {state.field_state_assembly_version ?? '—'}</li>
-                <li>Created: {short(state.created_at)}</li>
+                <li>{t('manifestFormat', { version: state.manifest_format_version })}</li>
+                <li>{t('assemblyVersion', { version: state.field_state_assembly_version ?? '—' })}</li>
+                <li>{t('createdAt', { time: short(state.created_at) })}</li>
               </ul>
             </div>
           </div>
@@ -251,7 +267,7 @@ function StateDetail({ state }: { state: FieldState }) {
           {state.warnings.length > 0 && (
             <Alert>
               <MinusCircle className="h-4 w-4" />
-              <AlertTitle>Assembly warnings</AlertTitle>
+              <AlertTitle>{t('assemblyWarnings')}</AlertTitle>
               <AlertDescription>
                 <ul className="list-disc space-y-1 pl-4">
                   {state.warnings.map((w, i) => (
@@ -268,6 +284,8 @@ function StateDetail({ state }: { state: FieldState }) {
 }
 
 export function FieldStateView() {
+  const t = useTranslations('fieldstate')
+  const tNav = useTranslations('nav')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const statesQuery = useFieldStates(selectedField?.id ?? null)
@@ -313,11 +331,11 @@ export function FieldStateView() {
 
   if (!selectedField) {
     return (
-      <div className="space-y-4" aria-label="Field state">
+      <div className="space-y-4" aria-label={t('ariaFieldState')}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-stone-900">Field State</h2>
-            <p className="text-sm text-stone-500">Immutable, checksummed snapshots assembled from existing artifacts.</p>
+            <h2 className="text-lg font-semibold text-stone-900">{tNav('fieldstate')}</h2>
+            <p className="text-sm text-stone-500">{t('subtitle')}</p>
           </div>
           <FieldPicker value={null} onValueChange={setSelectedField} />
         </div>
@@ -325,8 +343,7 @@ export function FieldStateView() {
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
             <Layers className="h-8 w-8 text-stone-400" aria-hidden />
             <p className="text-sm text-stone-500">
-              Pick a field above to assemble and inspect its state snapshots — each one pins the exact boundary
-              version, environmental run, water plan and observation manifest it was built from.
+              {t('pickFieldHint')}
             </p>
           </CardContent>
         </Card>
@@ -335,13 +352,12 @@ export function FieldStateView() {
   }
 
   return (
-    <div className="space-y-6" aria-label="Field state">
+    <div className="space-y-6" aria-label={t('ariaFieldState')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-stone-900">Field State</h2>
+          <h2 className="text-lg font-semibold text-stone-900">{tNav('fieldstate')}</h2>
           <p className="text-sm text-stone-500">
-            For <strong className="font-medium text-stone-700">{selectedField.name}</strong> — a state references its
-            inputs; it never duplicates or rewrites them.
+            {t('forField', { name: selectedField.name })}
           </p>
         </div>
         <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
@@ -349,35 +365,35 @@ export function FieldStateView() {
 
       <Card className="border-stone-200 bg-white shadow-sm">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Assemble a new snapshot</CardTitle>
+          <CardTitle className="text-base">{t('assembleTitle')}</CardTitle>
           <CardDescription>
-            Pins the current boundary version, the latest succeeded feature run (or pin explicit refs via the API),
-            the latest water plan, the active knowledge packs and the dated crop history. Soil and management are
-            recorded as <span className="font-medium">not implemented</span> — they do not exist in this platform yet.
+            {t.rich('assembleDesc', {
+              span: (chunks) => <span className="font-medium">{chunks}</span>,
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {assembleError && (
             <Alert variant="destructive">
               <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Could not assemble the state</AlertTitle>
+              <AlertTitle>{t('assembleErrorTitle')}</AlertTitle>
               <AlertDescription>{assembleError}</AlertDescription>
             </Alert>
           )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-1.5">
-              <Label htmlFor="state-label">Label (optional)</Label>
+              <Label htmlFor="state-label">{t('labelOptional')}</Label>
               <Input
                 id="state-label"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
-                placeholder={`Field state ${selectedField.name}`}
+                placeholder={t('defaultStateLabel', { name: selectedField.name })}
                 maxLength={120}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="state-period-from" className="text-stone-600">
-                Period from (optional)
+                {t('periodFrom')}
               </Label>
               <Input
                 id="state-period-from"
@@ -389,7 +405,7 @@ export function FieldStateView() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="state-period-to" className="text-stone-600">
-                Period to (optional)
+                {t('periodTo')}
               </Label>
               <Input
                 id="state-period-to"
@@ -405,12 +421,11 @@ export function FieldStateView() {
               className="shrink-0 gap-1.5"
             >
               <Layers className="h-4 w-4" aria-hidden />
-              {assembleMutation.isPending ? 'Assembling…' : 'Assemble state'}
+              {assembleMutation.isPending ? t('assembling') : t('assembleState')}
             </Button>
           </div>
           <p className="text-xs text-stone-500">
-            Without a period, the snapshot inherits the pinned environmental run's window; fields without any
-            feature run require an explicit period.
+            {t('periodHint')}
           </p>
         </CardContent>
       </Card>
@@ -423,15 +438,15 @@ export function FieldStateView() {
       ) : statesQuery.isError ? (
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>Could not load field states</AlertTitle>
+          <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
           <AlertDescription>
-            {statesQuery.error instanceof Error ? statesQuery.error.message : 'Backend error.'}
+            {statesQuery.error instanceof Error ? statesQuery.error.message : t('backendError')}
           </AlertDescription>
         </Alert>
       ) : states.length === 0 ? (
         <Card className="border-dashed border-stone-300 bg-white">
           <CardContent className="p-6 text-center text-sm text-stone-500">
-            No states yet for this field — assemble the first snapshot above.
+            {t('noStatesYet')}
           </CardContent>
         </Card>
       ) : (
@@ -439,7 +454,7 @@ export function FieldStateView() {
           <Card className="border-stone-200 bg-white shadow-sm">
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-base">Snapshots ({states.length})</CardTitle>
+                <CardTitle className="text-base">{t('snapshotsCount', { count: states.length })}</CardTitle>
                 <Button
                   size="sm"
                   variant="outline"
@@ -448,11 +463,11 @@ export function FieldStateView() {
                   onClick={() => compareMutation.mutate()}
                 >
                   <GitCompareArrows className="h-3.5 w-3.5" aria-hidden />
-                  {compareMutation.isPending ? 'Comparing…' : 'Compare selected'}
+                  {compareMutation.isPending ? t('comparing') : t('compareSelected')}
                 </Button>
               </div>
               <CardDescription>
-                Select exactly two snapshots to compare boundary consistency, pinned inputs and period overlap.
+                {t('compareHint')}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -469,7 +484,7 @@ export function FieldStateView() {
                       <input
                         type="checkbox"
                         className="h-4 w-4 shrink-0 accent-emerald-700"
-                        aria-label={`Select ${state.label} for comparison`}
+                        aria-label={t('selectForComparison', { label: state.label })}
                         checked={checked}
                         onChange={(e) =>
                           setCompareIds((prev) =>
@@ -488,7 +503,7 @@ export function FieldStateView() {
                           <span className="truncate text-sm font-medium text-stone-800">{state.label}</span>
                           <StateStatusBadge status={state.status} />
                           <Badge variant="outline" className="font-normal text-stone-500">
-                            boundary v{state.boundary_version}
+                            {t('boundaryVersion', { version: state.boundary_version })}
                           </Badge>
                           <span className="text-[11px] text-stone-400">{short(state.created_at)}</span>
                         </span>
@@ -503,27 +518,27 @@ export function FieldStateView() {
               {compareReport && (
                 <div className="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs text-stone-600">
                   <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                    Comparison
+                    {t('comparison')}
                   </p>
                   <ul className="space-y-1">
                     <li>
-                      Boundary versions consistent:{' '}
+                      {t('boundaryVersionsConsistent')}{' '}
                       <span className="font-medium">{String(compareReport.boundary_versions_consistent)}</span>
                     </li>
                     {Object.entries(compareReport.dimension_comparison).map(([dim, info]) => (
                       <li key={dim}>
-                        {dim.replace(/_/g, ' ')} consistent:{' '}
+                        {t('dimConsistent', { dim: dim.replace(/_/g, ' ') })}{' '}
                         <span className="font-medium">{String(info.consistent)}</span>
                       </li>
                     ))}
                     {compareReport.pairwise_period_overlap.map((pair) => (
                       <li key={`${pair.state_a}-${pair.state_b}`}>
-                        period overlap:{' '}
+                        {t('periodOverlapLabel')}:{' '}
                         {pair.period_overlap_fraction === null
-                          ? 'n/a'
+                          ? t('overlapNa')
                           : `${Math.round((pair.period_overlap_fraction ?? 0) * 100)}%`}
                         {' · '}
-                        {pair.compatible_periods ? 'overlapping' : 'non-overlapping (not a time series)'}
+                        {pair.compatible_periods ? t('overlapping') : t('nonOverlapping')}
                       </li>
                     ))}
                   </ul>

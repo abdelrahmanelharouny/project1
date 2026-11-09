@@ -22,6 +22,7 @@
 
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,7 +38,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { ExportButton } from '@/components/fieldshift/export-button'
 import { FieldPicker } from '@/components/fieldshift/field-picker'
+import {
+  SensitivityCurvesChart,
+  SensitivityTornadoChart,
+} from '@/components/fieldshift/charts/sensitivity-charts'
 import {
   createSensitivityAnalysis,
   getSensitivityAnalysis,
@@ -59,13 +65,13 @@ import type {
 import { useFieldShiftUi } from '@/lib/store'
 import { Info, LineChart, Loader2, Play, ShieldAlert, ShieldCheck } from 'lucide-react'
 
-function apiErrorText(err: unknown): string {
+function apiErrorText(err: unknown, unexpectedLabel: string): string {
   if (err instanceof ApiError) {
     const detail = err.details[0]
     const detailText = detail?.reason ? `${detail.field}: ${detail.reason}` : detail?.field
     return detailText ? `${err.message} (${detailText})` : err.message
   }
-  return err instanceof Error ? err.message : 'Unexpected error'
+  return err instanceof Error ? err.message : unexpectedLabel
 }
 
 function fmt(value: number | null | undefined, digits = 4): string {
@@ -135,6 +141,7 @@ function UncertaintyStatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 function ResponseRow({ row }: { row: SensitivityOatResponse }) {
+  const t = useTranslations('sensitivity')
   const envelope = row.explored_parameter_range_envelope
   return (
     <TableRow>
@@ -151,7 +158,7 @@ function ResponseRow({ row }: { row: SensitivityOatResponse }) {
         {row.slope === null ? '—' : fmt(row.slope, 6)}
         <span className="ml-1 text-[10px] text-stone-400">{row.slope_units}</span>
         {row.slope_validity === 'invalid_across_suspected_discontinuity' && (
-          <span className="ml-1 text-[10px] text-orange-700">slope invalid across jump</span>
+          <span className="ml-1 text-[10px] text-orange-700">{t('slopeInvalidAcrossJump')}</span>
         )}
       </TableCell>
       <TableCell className="text-xs">
@@ -159,7 +166,7 @@ function ResponseRow({ row }: { row: SensitivityOatResponse }) {
           <span className="font-mono text-xs">{fmt(row.elasticity.value)}</span>
         ) : (
           <span className="text-[11px] text-stone-500" title={row.elasticity.reason ?? ''}>
-            unavailable: {row.elasticity.reason?.replace(/_/g, ' ')}
+            {t('elasticityUnavailable', { reason: row.elasticity.reason?.replace(/_/g, ' ') ?? '' })}
           </span>
         )}
       </TableCell>
@@ -172,6 +179,8 @@ function ResponseRow({ row }: { row: SensitivityOatResponse }) {
 }
 
 function ResponsesCard({ analysisId, parameterCode }: { analysisId: string; parameterCode: string | null }) {
+  const t = useTranslations('sensitivity')
+  const tCommon = useTranslations('common')
   const [classificationFilter, setClassificationFilter] = useState<string>('')
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['sensitivity-responses', analysisId, parameterCode, classificationFilter],
@@ -210,18 +219,37 @@ function ResponsesCard({ analysisId, parameterCode }: { analysisId: string; para
         <Skeleton className="h-40 w-full" />
       </div>
     )
-  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error)}</p>
+  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error, tCommon('unexpectedError'))}</p>
   if (!data) return null
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">One-factor-at-a-time responses</CardTitle>
-        <CardDescription>
-          Each parameter varies over the explored bounds while every other configured
-          parameter is held at its reference value. Slopes keep their units and are never
-          compared across different units.
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="text-base">{t('oatTitle')}</CardTitle>
+            <CardDescription>{t('oatDesc')}</CardDescription>
+          </div>
+          <ExportButton
+            baseFilename="sensitivity-oat"
+            getRows={() =>
+              rows.map((row) => ({
+                feature: row.feature_code,
+                slope: row.slope,
+                elasticity: row.elasticity.value,
+                difference_at_lower: row.difference_at_lower,
+                difference_at_upper: row.difference_at_upper,
+              }))
+            }
+            columns={[
+              { key: 'feature', label: t('colFeature') },
+              { key: 'slope', label: t('colSlope') },
+              { key: 'elasticity', label: t('colElasticity') },
+              { key: 'difference_at_lower', label: t('colDifferenceLower') },
+              { key: 'difference_at_upper', label: t('colDifferenceUpper') },
+            ]}
+          />
+        </div>
         <div className="flex flex-wrap gap-1.5 pt-1">
           {['', 'monotonic_increasing', 'monotonic_decreasing', 'threshold_suspected', 'non_monotonic', 'constant'].map(
             (c) => (
@@ -234,7 +262,7 @@ function ResponsesCard({ analysisId, parameterCode }: { analysisId: string; para
                     : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50'
                 }`}
               >
-                {c === '' ? 'all' : c.replace(/_/g, ' ')}
+                {c === '' ? t('filterAll') : c.replace(/_/g, ' ')}
               </button>
             ),
           )}
@@ -242,22 +270,23 @@ function ResponsesCard({ analysisId, parameterCode }: { analysisId: string; para
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-stone-500">No responses for this filter.</p>
+          <p className="py-6 text-center text-sm text-stone-500">{t('noResponses')}</p>
         ) : (
           <>
+          <SensitivityTornadoChart rows={rows} />
           <div className="max-h-96 overflow-y-auto rounded-md border">
             <Table>
               <TableHeader className="sticky top-0 bg-white">
                 <TableRow>
-                  <TableHead>Feature</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead className="text-right">Reference</TableHead>
-                  <TableHead className="text-right">Explored envelope</TableHead>
-                  <TableHead className="text-right">Output range</TableHead>
-                  <TableHead className="text-right">Slope (units)</TableHead>
-                  <TableHead>Elasticity</TableHead>
-                  <TableHead>Direction</TableHead>
-                  <TableHead>Classification</TableHead>
+                  <TableHead>{t('colFeature')}</TableHead>
+                  <TableHead>{t('colPeriod')}</TableHead>
+                  <TableHead className="text-right">{t('colReference')}</TableHead>
+                  <TableHead className="text-right">{t('colEnvelope')}</TableHead>
+                  <TableHead className="text-right">{t('colOutputRange')}</TableHead>
+                  <TableHead className="text-right">{t('colSlope')}</TableHead>
+                  <TableHead>{t('colElasticity')}</TableHead>
+                  <TableHead>{t('colDirection')}</TableHead>
+                  <TableHead>{t('colClassification')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -269,8 +298,7 @@ function ResponsesCard({ analysisId, parameterCode }: { analysisId: string; para
           </div>
           {rows.length > visible.length && (
             <p className="mt-2 text-xs text-stone-500">
-              Showing the first {visible.length} of {rows.length} responses — narrow with the
-              classification filter or a specific feature to see more.
+              {t('showingFirstResponses', { shown: visible.length, total: rows.length })}
             </p>
           )}
           </>
@@ -285,6 +313,8 @@ function ResponsesCard({ analysisId, parameterCode }: { analysisId: string; para
 // ---------------------------------------------------------------------------
 
 function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolean }) {
+  const t = useTranslations('sensitivity')
+  const tCommon = useTranslations('common')
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['sensitivity-grid', analysisId],
     queryFn: () => getSensitivityGrid(analysisId),
@@ -292,12 +322,10 @@ function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolea
   })
   if (!hasGrid)
     return (
-      <p className="text-sm text-stone-500">
-        No joint parameter grid was requested for this analysis.
-      </p>
+      <p className="text-sm text-stone-500">{t('noGrid')}</p>
     )
   if (isLoading) return <Skeleton className="h-40 w-full" />
-  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error)}</p>
+  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error, tCommon('unexpectedError'))}</p>
   if (!data) return null
 
   // A full joint grid stores one summary per feature key (thousands); render a
@@ -309,7 +337,7 @@ function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolea
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Joint parameter grid</CardTitle>
+        <CardTitle className="text-base">{t('gridTitle')}</CardTitle>
         <CardDescription>{data.note}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -317,14 +345,14 @@ function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolea
           <Table>
             <TableHeader className="sticky top-0 bg-white">
               <TableRow>
-                <TableHead>Feature</TableHead>
-                <TableHead>Period</TableHead>
-                <TableHead className="text-right">Grid range</TableHead>
-                <TableHead>Direction</TableHead>
-                <TableHead>Non-monotonic</TableHead>
-                <TableHead className="text-right">Threshold transitions</TableHead>
-                <TableHead className="text-right">Finite-grid interaction contrast</TableHead>
-                <TableHead>Interpretation</TableHead>
+                <TableHead>{t('colFeature')}</TableHead>
+                <TableHead>{t('colPeriod')}</TableHead>
+                <TableHead className="text-right">{t('colGridRange')}</TableHead>
+                <TableHead>{t('colDirection')}</TableHead>
+                <TableHead>{t('colNonMonotonic')}</TableHead>
+                <TableHead className="text-right">{t('colThresholdTransitions')}</TableHead>
+                <TableHead className="text-right">{t('colInteractionContrast')}</TableHead>
+                <TableHead>{t('colInterpretation')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -338,9 +366,9 @@ function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolea
                     {s.grid_min === null ? '—' : `[${fmt(s.grid_min)}, ${fmt(s.grid_max)}]`}
                   </TableCell>
                   <TableCell className="text-xs">{s.direction.replace(/_/g, ' ')}</TableCell>
-                  <TableCell className="text-xs">{s.non_monotonic ? 'yes' : 'no'}</TableCell>
+                  <TableCell className="text-xs">{s.non_monotonic ? t('yes') : t('no')}</TableCell>
                   <TableCell className="text-right font-mono text-xs">{s.threshold_transition_count}</TableCell>
-                  <TableCell className="text-right font-mono text-xs" title="finite-grid interaction contrast — not a Sobol index">
+                  <TableCell className="text-right font-mono text-xs" title={t('interactionContrastHint')}>
                     {s.interaction_contrast === null ? '—' : fmt(s.interaction_contrast, 6)}
                   </TableCell>
                   <TableCell className="text-xs">{s.interaction_interpretation.replace(/_/g, ' ')}</TableCell>
@@ -351,10 +379,10 @@ function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolea
         </div>
         {summaries.length > visible.length && (
           <p className="text-xs text-stone-500">
-            Showing the first {visible.length} of {summaries.length} grid summaries —
-            per-feature detail is available through the API&apos;s feature_code filter.
+            {t('showingFirstSummaries', { shown: visible.length, total: summaries.length })}
           </p>
         )}
+        <SensitivityCurvesChart grid={data} />
       </CardContent>
     </Card>
   )
@@ -365,13 +393,15 @@ function GridCard({ analysisId, hasGrid }: { analysisId: string; hasGrid: boolea
 // ---------------------------------------------------------------------------
 
 function UncertaintyCard({ analysisId }: { analysisId: string }) {
+  const t = useTranslations('sensitivity')
+  const tCommon = useTranslations('common')
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['sensitivity-uncertainty', analysisId],
     queryFn: () => getSensitivityUncertainty(analysisId),
     enabled: Boolean(analysisId),
   })
   if (isLoading) return <Skeleton className="h-40 w-full" />
-  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error)}</p>
+  if (isError) return <p className="text-sm text-red-700">{apiErrorText(error, tCommon('unexpectedError'))}</p>
   if (!data) return null
 
   const grouped = data.items.reduce<Record<string, typeof data.items>>((acc, item) => {
@@ -382,7 +412,7 @@ function UncertaintyCard({ analysisId }: { analysisId: string }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Uncertainty &amp; limitation registry</CardTitle>
+        <CardTitle className="text-base">{t('uncertaintyTitle')}</CardTitle>
         <CardDescription>{data.note}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -402,7 +432,7 @@ function UncertaintyCard({ analysisId }: { analysisId: string }) {
                     <span className="font-mono text-[11px] text-stone-400">{item.code}</span>
                     {item.affects_current_analysis && (
                       <Badge variant="outline" className="border-amber-200 bg-amber-50 font-normal text-amber-700">
-                        affects this analysis
+                        {t('affectsThisAnalysis')}
                       </Badge>
                     )}
                   </div>
@@ -422,6 +452,8 @@ function UncertaintyCard({ analysisId }: { analysisId: string }) {
 // ---------------------------------------------------------------------------
 
 function VerifyCard({ analysisId }: { analysisId: string }) {
+  const t = useTranslations('sensitivity')
+  const tCommon = useTranslations('common')
   const queryClient = useQueryClient()
   const verify = useMutation({
     mutationFn: () => verifySensitivityAnalysis(analysisId),
@@ -430,30 +462,26 @@ function VerifyCard({ analysisId }: { analysisId: string }) {
   const result = verify.data
   const flags: Array<readonly [keyof SensitivityVerifyResponse, string]> = result
     ? [
-        ['output_checksum_valid', 'output checksum'],
-        ['source_run_intact', 'source run intact'],
-        ['parent_snapshot_intact', 'parent snapshot intact'],
-        ['manifest_checksum_matches', 'manifest checksum matches'],
-        ['reference_reproduction_consistent', 'reference reproduction consistent'],
+        ['output_checksum_valid', t('flagOutputChecksum')],
+        ['source_run_intact', t('flagSourceRunIntact')],
+        ['parent_snapshot_intact', t('flagParentSnapshotIntact')],
+        ['manifest_checksum_matches', t('flagManifestChecksum')],
+        ['reference_reproduction_consistent', t('flagReferenceReproduction')],
       ]
     : []
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Integrity verification</CardTitle>
-        <CardDescription>
-          Recomputes the analysis checksum from persisted artifacts and re-checks the
-          source-run pins. Confirms the integrity of a hypothetical analysis — never that
-          transformed values are observations.
-        </CardDescription>
+        <CardTitle className="text-base">{t('verifyTitle')}</CardTitle>
+        <CardDescription>{t('verifyDesc')}</CardDescription>
       </CardHeader>
       <CardContent>
         <Button size="sm" variant="outline" onClick={() => verify.mutate()} disabled={verify.isPending}>
           {verify.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ShieldCheck className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
-          Verify analysis
+          {t('verifyButton')}
         </Button>
         {verify.isError && (
-          <p className="mt-2 text-sm text-red-700">{apiErrorText(verify.error)}</p>
+          <p className="mt-2 text-sm text-red-700">{apiErrorText(verify.error, tCommon('unexpectedError'))}</p>
         )}
         {result && (
           <div className="mt-3 space-y-1.5">
@@ -476,6 +504,7 @@ function VerifyCard({ analysisId }: { analysisId: string }) {
 }
 
 function AnalysisResults({ analysis }: { analysis: SensitivityAnalysis }) {
+  const t = useTranslations('sensitivity')
   const parameters = useMemo(
     () => Object.keys(analysis.parameter_design ?? {}),
     [analysis.parameter_design],
@@ -493,45 +522,43 @@ function AnalysisResults({ analysis }: { analysis: SensitivityAnalysis }) {
       <div className="flex flex-wrap items-center gap-2">
         <AnalysisStatusBadge status={analysis.analysis_status} />
         <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
-          {analysis.evaluation_count} evaluations · {analysis.evaluated_feature_count} features
+          {t('evaluationsBadge', { evaluations: analysis.evaluation_count, features: analysis.evaluated_feature_count })}
         </Badge>
         <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
-          checksum {shortHash(analysis.output_checksum)}
+          {t('checksumBadge', { hash: shortHash(analysis.output_checksum) })}
         </Badge>
         <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
-          method {analysis.analysis_method_version}
+          {t('methodBadge', { method: analysis.analysis_method_version })}
         </Badge>
       </div>
 
       <Alert className="border-amber-200 bg-amber-50">
         <Info className="h-4 w-4 text-amber-700" aria-hidden />
-        <AlertTitle className="text-amber-900">Deterministic sensitivity — not probability</AlertTitle>
+        <AlertTitle className="text-amber-900">{t('notProbabilityTitle')}</AlertTitle>
         <AlertDescription className="text-amber-900">
-          {analysis.evidence_note} All disclosures: {analysis.warnings.length > 0 ? 'see below.' : '—'}
+          {analysis.evidence_note}{' '}
+          {t('disclosuresLine', { list: analysis.warnings.length > 0 ? t('seeBelow') : '—' })}
         </AlertDescription>
       </Alert>
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Reference reproduction</CardTitle>
-          <CardDescription>
-            The analysis first reproduced the source execution exactly before comparing
-            anything. A failed reproduction aborts the analysis — no substitute baseline.
-          </CardDescription>
+          <CardTitle className="text-base">{t('reproductionTitle')}</CardTitle>
+          <CardDescription>{t('reproductionDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4 text-xs">
             <span>
-              reproduced:{' '}
+              {t('reproducedLabel')}{' '}
               <strong className={reproduction.reproduced ? 'text-emerald-700' : 'text-red-700'}>
                 {String(reproduction.reproduced)}
               </strong>
             </span>
             <span>
-              rows: {reproduction.matched_rows}/{reproduction.compared_rows} matched
+              {t('rowsMatched', { matched: reproduction.matched_rows, compared: reproduction.compared_rows })}
             </span>
             <span>
-              observation count match: <strong>{String(reproduction.observation_count_match)}</strong>
+              {t('obsCountMatchLabel')} <strong>{String(reproduction.observation_count_match)}</strong>
             </span>
           </div>
         </CardContent>
@@ -540,7 +567,7 @@ function AnalysisResults({ analysis }: { analysis: SensitivityAnalysis }) {
       {analysis.analysis_status === 'failed' && (
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" aria-hidden />
-          <AlertTitle>Analysis failed</AlertTitle>
+          <AlertTitle>{t('analysisFailed')}</AlertTitle>
           <AlertDescription>{analysis.error_summary}</AlertDescription>
         </Alert>
       )}
@@ -575,10 +602,8 @@ function AnalysisResults({ analysis }: { analysis: SensitivityAnalysis }) {
         Object.keys(analysis.not_analysed_features).length > 0 && (
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Features outside the analysis scope</CardTitle>
-              <CardDescription>
-                Inherited verbatim from the source execution — reported, never fabricated.
-              </CardDescription>
+              <CardTitle className="text-base">{t('notAnalysedTitle')}</CardTitle>
+              <CardDescription>{t('notAnalysedDesc')}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="max-h-64 space-y-1.5 overflow-y-auto">
@@ -595,7 +620,7 @@ function AnalysisResults({ analysis }: { analysis: SensitivityAnalysis }) {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Disclosures</CardTitle>
+          <CardTitle className="text-base">{t('disclosuresTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <ul className="list-disc space-y-1 pl-4 text-xs text-stone-600">
@@ -633,6 +658,8 @@ function DefinitionForm({
   onCreated: (analysis: SensitivityAnalysis) => void
 }) {
   const queryClient = useQueryClient()
+  const t = useTranslations('sensitivity')
+  const tCommon = useTranslations('common')
   const bothExplorable =
     explorableDetail.temperature_delta_c?.explorable && explorableDetail.precipitation_multiplier?.explorable
 
@@ -679,12 +706,8 @@ function DefinitionForm({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Define the exploration</CardTitle>
-        <CardDescription>
-          Bounds are user-supplied assumptions for a deterministic experiment — they
-          contain the source execution&apos;s reference values and imply no probability
-          distribution.
-        </CardDescription>
+        <CardTitle className="text-base">{t('defineTitle')}</CardTitle>
+        <CardDescription>{t('defineDesc')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
@@ -695,7 +718,7 @@ function DefinitionForm({
                 <div key={code} className="rounded-md border border-stone-200 bg-stone-50 p-3">
                   <p className="text-xs font-medium text-stone-700">{code.replace(/_/g, ' ')}</p>
                   <p className="mt-1 text-xs text-stone-500">
-                    Not applicable — {detail.reason}
+                    {t('notApplicable', { reason: detail.reason ?? '' })}
                   </p>
                 </div>
               )
@@ -708,13 +731,13 @@ function DefinitionForm({
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-medium text-stone-700">{code.replace(/_/g, ' ')}</p>
                   <Badge variant="outline" className="border-stone-200 font-normal text-stone-500">
-                    reference {fmt(ref)}
+                    {t('referenceBadge', { value: fmt(ref) })}
                   </Badge>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2">
                   <div>
                     <Label className="text-[11px] text-stone-500" htmlFor={`${code}-lower`}>
-                      Lower
+                      {t('lowerLabel')}
                     </Label>
                     <Input
                       id={`${code}-lower`}
@@ -726,7 +749,7 @@ function DefinitionForm({
                   </div>
                   <div>
                     <Label className="text-[11px] text-stone-500" htmlFor={`${code}-upper`}>
-                      Upper
+                      {t('upperLabel')}
                     </Label>
                     <Input
                       id={`${code}-upper`}
@@ -738,7 +761,7 @@ function DefinitionForm({
                   </div>
                   <div>
                     <Label className="text-[11px] text-stone-500" htmlFor={`${code}-points`}>
-                      Points (3–21)
+                      {t('pointsLabel')}
                     </Label>
                     <Input
                       id={`${code}-points`}
@@ -762,12 +785,12 @@ function DefinitionForm({
               onChange={(e) => setIncludeGrid(e.target.checked)}
               className="h-3.5 w-3.5"
             />
-            Also evaluate the joint deterministic parameter grid (both axes reuse these bounds)
+            {t('includeGridLabel')}
           </label>
         )}
 
         {formError && <p className="text-sm text-red-700">{formError}</p>}
-        {create.isError && <p className="text-sm text-red-700">{apiErrorText(create.error)}</p>}
+        {create.isError && <p className="text-sm text-red-700">{apiErrorText(create.error, tCommon('unexpectedError'))}</p>}
 
         <Button
           size="sm"
@@ -782,7 +805,7 @@ function DefinitionForm({
           ) : (
             <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden />
           )}
-          Run analysis
+          {t('runAnalysis')}
         </Button>
       </CardContent>
     </Card>
@@ -794,6 +817,7 @@ function DefinitionForm({
 // ---------------------------------------------------------------------------
 
 export function SensitivitySection() {
+  const t = useTranslations('sensitivity')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const selectedFieldId = selectedField?.id ?? null
@@ -860,7 +884,7 @@ export function SensitivitySection() {
         : {
             explorable: false,
             reference_value: null,
-            reason: 'parameter not configured in the source execution; no reference value exists',
+            reason: t('reasonNotConfigured'),
           },
     precipitation_multiplier:
       'precipitation_multiplier' in referenceValues
@@ -868,7 +892,7 @@ export function SensitivitySection() {
         : {
             explorable: false,
             reference_value: null,
-            reason: 'parameter not configured in the source execution; no reference value exists',
+            reason: t('reasonNotConfigured'),
           },
   }
 
@@ -878,12 +902,9 @@ export function SensitivitySection() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <LineChart className="h-4 w-4" aria-hidden />
-            Sensitivity &amp; Uncertainty
+            {t('title')}
           </CardTitle>
-          <CardDescription>
-            Pick a field to analyse how its scenario-derived environmental features
-            respond to the executed transformation parameters.
-          </CardDescription>
+          <CardDescription>{t('pickFieldDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldPicker
@@ -906,24 +927,16 @@ export function SensitivitySection() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <LineChart className="h-4 w-4" aria-hidden />
-            Sensitivity &amp; Uncertainty — {selectedField.name}
+            {t('titleWithField', { name: selectedField.name })}
           </CardTitle>
-          <CardDescription>
-            Deterministic one-factor-at-a-time analysis and optional joint parameter
-            grids over an immutable scenario execution. The explored parameter-range
-            envelope is a deterministic sensitivity result — not a confidence or
-            probability interval. No yield, climate or rainfall predictions exist here.
-          </CardDescription>
+          <CardDescription>{t('mainDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <p className="mb-1.5 text-xs font-medium text-stone-600">Scenario (finalized)</p>
+            <p className="mb-1.5 text-xs font-medium text-stone-600">{t('scenarioLabel')}</p>
             <div className="flex flex-wrap gap-1.5">
               {finalizedScenarios.length === 0 && (
-                <p className="text-xs text-stone-500">
-                  No finalized scenarios for this field yet — create one in the Scenarios
-                  tab.
-                </p>
+                <p className="text-xs text-stone-500">{t('noFinalizedScenarios')}</p>
               )}
               {finalizedScenarios.map((s) => (
                 <button
@@ -947,15 +960,10 @@ export function SensitivitySection() {
 
           {scenarioId && (
             <div>
-              <p className="mb-1.5 text-xs font-medium text-stone-600">
-                Execution run (result-bearing)
-              </p>
+              <p className="mb-1.5 text-xs font-medium text-stone-600">{t('runLabel')}</p>
               <div className="flex flex-wrap gap-1.5">
                 {resultRuns.length === 0 && (
-                  <p className="text-xs text-stone-500">
-                    No completed executions for this scenario — execute it in the
-                    Scenarios tab first.
-                  </p>
+                  <p className="text-xs text-stone-500">{t('noCompletedExecutions')}</p>
                 )}
                 {resultRuns.map((r) => (
                   <button
@@ -969,9 +977,9 @@ export function SensitivitySection() {
                         ? 'border-stone-800 bg-stone-800 text-white'
                         : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50'
                     }`}
-                    title={`status: ${r.run_status}`}
+                    title={t('statusTitle', { status: r.run_status })}
                   >
-                    run {r.run_id.slice(0, 8)}… · {r.run_status.replace(/_/g, ' ')}
+                    {t('runChip', { id: r.run_id.slice(0, 8), status: r.run_status.replace(/_/g, ' ') })}
                   </button>
                 ))}
               </div>
@@ -992,7 +1000,7 @@ export function SensitivitySection() {
           {(analysisList?.items ?? []).length > 0 && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Previous analyses of this run</CardTitle>
+                <CardTitle className="text-base">{t('previousAnalyses')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1.5">
                 {analysisList?.items.map((a) => (
@@ -1004,8 +1012,8 @@ export function SensitivitySection() {
                     <AnalysisStatusBadge status={a.analysis_status} />
                     <span className="font-mono text-stone-500">{shortHash(a.analysis_id)}</span>
                     <span className="text-stone-500">
-                      {Object.keys(a.parameter_design).length} parameter(s)
-                      {a.grid_design ? ' · joint grid' : ''}
+                      {t('paramCount', { count: Object.keys(a.parameter_design).length })}
+                      {a.grid_design ? ` ${t('jointGridSuffix')}` : ''}
                     </span>
                     <span className="ml-auto text-stone-400">
                       {a.completed_at ? a.completed_at.replace('T', ' ').slice(0, 16) : '—'}
@@ -1021,7 +1029,7 @@ export function SensitivitySection() {
       {effectiveAnalysis && (
         <div className="space-y-3">
           <Button size="sm" variant="ghost" onClick={() => setAnalysis(null)}>
-            ← Back to run {runId ? `· ${runId.slice(0, 8)}…` : ''}
+            {t('backToRun', { id: runId ? `· ${runId.slice(0, 8)}…` : '' })}
           </Button>
           <AnalysisResults analysis={effectiveAnalysis} />
         </div>

@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { MapPin } from 'lucide-react'
 import {
   Select,
@@ -25,18 +26,19 @@ interface FieldPickerProps {
 
 /** Shared "pick a field across all farms" dropdown for Observations / Data Passport. */
 export function FieldPicker({ value, onValueChange, id, emptyHint }: FieldPickerProps) {
+  const t = useTranslations('common')
   const { farms, allFields, isLoading } = useFarmsWithFields()
 
   if (isLoading) {
-    return <Skeleton className="h-9 w-full sm:w-[280px]" aria-label="Loading fields" />
+    return <Skeleton className="h-9 w-full sm:w-[280px]" aria-label={t('loadingFields')} />
   }
 
   if (allFields.length === 0) {
     return (
       emptyHint ?? (
         <div className="flex items-center gap-2 text-sm text-stone-500">
-          <span>No fields yet.</span>
-          <GoToFarmsButton label="Create a farm & field" />
+          <span>{t('noFieldsYet')}</span>
+          <GoToFarmsButton label={t('createFarmField')} />
         </div>
       )
     )
@@ -50,8 +52,8 @@ export function FieldPicker({ value, onValueChange, id, emptyHint }: FieldPicker
         if (field) onValueChange({ id: field.id, name: field.name, farmId: field.farm_id })
       }}
     >
-      <SelectTrigger id={id} className="w-full sm:w-[280px] bg-white" aria-label="Select a field">
-        <SelectValue placeholder="Select a field" />
+      <SelectTrigger id={id} className="w-full sm:w-[280px] bg-white" aria-label={t('selectField')}>
+        <SelectValue placeholder={t('selectField')} />
       </SelectTrigger>
       <SelectContent>
         {farms.map(({ farm, fields }) =>
@@ -74,11 +76,12 @@ export function FieldPicker({ value, onValueChange, id, emptyHint }: FieldPicker
   )
 }
 
-export function GoToFarmsButton({ label = 'Go to Farms & Fields' }: { label?: string }) {
+export function GoToFarmsButton({ label }: { label?: string }) {
+  const t = useTranslations('common')
   const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
   return (
     <Button variant="outline" size="sm" onClick={() => setActiveTab('farms')}>
-      {label}
+      {label ?? t('goToFarms')}
     </Button>
   )
 }

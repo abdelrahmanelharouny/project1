@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Cloud, FlaskConical, Loader2, LogIn, Sprout, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,8 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { useHealthReady } from '@/hooks/use-fieldshift'
-import { describeError, login, register, seedDemo, setToken } from '@/lib/api'
-import type { AuthResponse, SeedDemoResponse } from '@/lib/types'
+import { demoLogin, describeError, login, register } from '@/lib/api'
 
 interface AuthGateProps {
   onAuthed: () => void
@@ -20,18 +20,19 @@ interface AuthGateProps {
 
 function BackendStatusLine() {
   const { data, isError, isLoading } = useHealthReady()
+  const t = useTranslations('auth')
 
   let dotClass = 'bg-stone-400'
-  let label = 'Checking backend…'
+  let label = t('backendChecking')
   if (isLoading) {
     dotClass = 'bg-amber-500 animate-pulse'
-    label = 'Checking backend…'
+    label = t('backendChecking')
   } else if (data && data.status === 'ok') {
     dotClass = 'bg-emerald-600'
-    label = `PostgreSQL ${data.server_version} + PostGIS ${data.postgis_version} connected`
+    label = t('backendOk', { server: data.server_version, postgis: data.postgis_version })
   } else if (isError) {
     dotClass = 'bg-red-600'
-    label = 'Backend unreachable — try again shortly'
+    label = t('backendDown')
   }
 
   return (
@@ -42,25 +43,26 @@ function BackendStatusLine() {
   )
 }
 
+/**
+ * Sign-in / registration / demo entry (P1 i18n). Authentication goes through
+ * the Next.js /api/auth/* route handlers: session tokens are set as HttpOnly
+ * cookies server-side and never reach JavaScript.
+ */
 export function AuthGate({ onAuthed }: AuthGateProps) {
+  const t = useTranslations('auth')
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [regName, setRegName] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
 
-  const handleAuth = (auth: AuthResponse | SeedDemoResponse) => {
-    setToken(auth.token)
-    onAuthed()
-  }
-
   const loginMutation = useMutation({
     mutationFn: () => login({ email: loginEmail.trim(), password: loginPassword }),
     onSuccess: (auth) => {
-      toast.success(`Welcome back, ${auth.user.display_name}`, {
-        description: auth.organization ? `Organization: ${auth.organization.name}` : undefined,
+      toast.success(t('welcomeBack', { name: auth.user.display_name }), {
+        description: auth.organization ? t('orgPrefix', { name: auth.organization.name }) : undefined,
       })
-      handleAuth(auth)
+      onAuthed()
     },
     onError: (err) => {
       const { title, description } = describeError(err)
@@ -72,10 +74,10 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
     mutationFn: () =>
       register({ display_name: regName.trim(), email: regEmail.trim(), password: regPassword }),
     onSuccess: (auth) => {
-      toast.success(`Account created — welcome, ${auth.user.display_name}!`, {
-        description: `Organization "${auth.organization.name}" is ready.`,
+      toast.success(t('accountCreated', { name: auth.user.display_name }), {
+        description: auth.organization ? t('orgReady', { name: auth.organization.name }) : undefined,
       })
-      handleAuth(auth)
+      onAuthed()
     },
     onError: (err) => {
       const { title, description } = describeError(err)
@@ -84,12 +86,10 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
   })
 
   const demoMutation = useMutation({
-    mutationFn: seedDemo,
+    mutationFn: demoLogin,
     onSuccess: (demo) => {
-      toast.info('Demo workspace ready — SYNTHETIC fixture data only', {
-        description: demo.note,
-      })
-      handleAuth(demo)
+      toast.info(t('demoReady'), { description: demo.note })
+      onAuthed()
     },
     onError: (err) => {
       const { title, description } = describeError(err)
@@ -100,7 +100,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
   const submitLogin = (event: FormEvent) => {
     event.preventDefault()
     if (!loginEmail.trim() || !loginPassword) {
-      toast.error('Enter your email and password.')
+      toast.error(t('needCredentials'))
       return
     }
     loginMutation.mutate()
@@ -109,7 +109,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
   const submitRegister = (event: FormEvent) => {
     event.preventDefault()
     if (!regName.trim() || !regEmail.trim() || regPassword.length < 8) {
-      toast.error('Check the form', { description: 'Display name, email and a password of 8+ characters are required.' })
+      toast.error(t('checkForm'), { description: t('formRequirements') })
       return
     }
     registerMutation.mutate()
@@ -126,31 +126,27 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
               <Sprout className="h-6 w-6" aria-hidden />
             </span>
             <h1 className="text-2xl font-semibold tracking-tight text-stone-900">FieldShift</h1>
-            <p className="text-sm text-stone-500">
-              Agricultural decision support — boundaries, observations, data passports.
-            </p>
+            <p className="text-sm text-stone-500">{t('tagline')}</p>
           </div>
 
           <Card className="border-stone-200 shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Sign in to your workspace</CardTitle>
-              <CardDescription>
-                Farms, field boundaries, real reanalysis weather (Open-Meteo), file imports and data passports.
-              </CardDescription>
+              <CardTitle className="text-base">{t('signInTitle')}</CardTitle>
+              <CardDescription>{t('signInDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <BackendStatusLine />
 
               <Tabs defaultValue="login">
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="login">Sign in</TabsTrigger>
-                  <TabsTrigger value="register">Create account</TabsTrigger>
+                  <TabsTrigger value="login">{t('signInTab')}</TabsTrigger>
+                  <TabsTrigger value="register">{t('registerTab')}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="login">
-                  <form onSubmit={submitLogin} className="space-y-3 pt-1" aria-label="Sign in form">
+                  <form onSubmit={submitLogin} className="space-y-3 pt-1" aria-label={t('signInForm')}>
                     <div className="space-y-1.5">
-                      <Label htmlFor="login-email">Email</Label>
+                      <Label htmlFor="login-email">{t('email')}</Label>
                       <Input
                         id="login-email"
                         type="email"
@@ -162,7 +158,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="login-password">Password</Label>
+                      <Label htmlFor="login-password">{t('password')}</Label>
                       <Input
                         id="login-password"
                         type="password"
@@ -178,15 +174,15 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
                       ) : (
                         <LogIn className="h-4 w-4" aria-hidden />
                       )}
-                      Sign in
+                      {t('signIn')}
                     </Button>
                   </form>
                 </TabsContent>
 
                 <TabsContent value="register">
-                  <form onSubmit={submitRegister} className="space-y-3 pt-1" aria-label="Create account form">
+                  <form onSubmit={submitRegister} className="space-y-3 pt-1" aria-label={t('registerForm')}>
                     <div className="space-y-1.5">
-                      <Label htmlFor="reg-name">Display name</Label>
+                      <Label htmlFor="reg-name">{t('displayName')}</Label>
                       <Input
                         id="reg-name"
                         autoComplete="name"
@@ -197,7 +193,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="reg-email">Email</Label>
+                      <Label htmlFor="reg-email">{t('email')}</Label>
                       <Input
                         id="reg-email"
                         type="email"
@@ -209,17 +205,17 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="reg-password">Password</Label>
+                      <Label htmlFor="reg-password">{t('password')}</Label>
                       <Input
                         id="reg-password"
                         type="password"
                         autoComplete="new-password"
-                        placeholder="At least 8 characters"
+                        placeholder={t('passwordPlaceholder')}
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
                         disabled={busy}
                       />
-                      <p className="text-xs text-stone-500">Minimum 8 characters. A new organization is created for you.</p>
+                      <p className="text-xs text-stone-500">{t('passwordHint')}</p>
                     </div>
                     <Button type="submit" className="w-full bg-emerald-700 hover:bg-emerald-800" disabled={busy}>
                       {registerMutation.isPending ? (
@@ -227,7 +223,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
                       ) : (
                         <UserPlus className="h-4 w-4" aria-hidden />
                       )}
-                      Create account
+                      {t('createAccount')}
                     </Button>
                   </form>
                 </TabsContent>
@@ -236,7 +232,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
               <div className="relative">
                 <Separator />
                 <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs uppercase tracking-wide text-stone-400">
-                  or
+                  {t('or')}
                 </span>
               </div>
 
@@ -252,12 +248,15 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
                 ) : (
                   <FlaskConical className="h-4 w-4" aria-hidden />
                 )}
-                Enter demo workspace
+                {t('enterDemo')}
               </Button>
               <p className="flex items-start gap-1.5 text-xs text-stone-500">
                 <Cloud className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                The demo workspace contains <strong className="font-semibold text-stone-700">SYNTHETIC fixture data
-                only</strong> — safe to explore, never real measurements.
+                <span>
+                  {t('demoHintPrefix')}{' '}
+                  <strong className="font-semibold text-stone-700">{t('demoHintStrong')}</strong>{' '}
+                  {t('demoHintSuffix')}
+                </span>
               </p>
             </CardContent>
           </Card>

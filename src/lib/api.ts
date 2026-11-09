@@ -8,7 +8,7 @@
 import type {
   ApiErrorBody,
   ApiErrorDetail,
-  AuthResponse,
+  AuthSession,
   BoundaryVersionCreateResponse,
   BoundaryVersionListResponse,
   CatalogResponse,
@@ -16,6 +16,7 @@ import type {
   DataJob,
   DataJobCreateInput,
   DataPassport,
+  DemoSession,
   Farm,
   FarmCreateInput,
   FarmListResponse,
@@ -39,7 +40,6 @@ import type {
   ObservationListResponse,
   ProvidersHealthResponse,
   RegisterInput,
-  SeedDemoResponse,
   FieldState,
   FieldStateCreateInput,
   FieldStateListResponse,
@@ -58,9 +58,18 @@ import type {
   ObservationManifest,
 } from './types'
 
-export const TOKEN_STORAGE_KEY = 'fieldshift_token'
-export const REFRESH_STORAGE_KEY = 'fieldshift_refresh'
+/**
+ * P1 server-side sessions: the access and refresh tokens live in HttpOnly
+ * cookies set by the Next.js /api/auth/* route handlers. JavaScript never
+ * sees the token material — fetch() sends the cookies automatically for
+ * same-origin /api/v1 requests (forwarded to the backend through the
+ * gateway / rewrite), and the backend accepts the fs_token cookie as a
+ * bearer credential.
+ */
 const PORT_QUERY = 'XTransformPort=3030'
+/** Next.js route handlers that own the session cookies (no XTransformPort —
+ * these are handled by Next itself, NOT the backend gateway). */
+const AUTH_BASE = '/api/auth'
 
 /** Coverage window enforced by the backend for ingestion jobs. */
 export const COVERAGE_START = '2015-01-01'
@@ -113,58 +122,58 @@ function withPort(path: string): string {
   return `${path}${joiner}${PORT_QUERY}`
 }
 
-export function getToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY)
-}
-
-export function setToken(token: string | null): void {
-  if (typeof window === 'undefined') return
-  if (token) {
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
-  } else {
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY)
-    window.localStorage.removeItem(REFRESH_STORAGE_KEY)
-  }
-}
-
-function getRefreshToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return window.localStorage.getItem(REFRESH_STORAGE_KEY)
-}
-
-function setRefreshToken(token: string | null): void {
-  if (typeof window === 'undefined') return
-  if (token) {
-    window.localStorage.setItem(REFRESH_STORAGE_KEY, token)
-  } else {
-    window.localStorage.removeItem(REFRESH_STORAGE_KEY)
-  }
-}
-
 /**
- * Exchange the stored refresh token for a fresh access+refresh pair
+ * Exchange the HttpOnly refresh cookie for a fresh access+refresh cookie pair
  * (rotating refresh: the presented token is revoked server-side; reusing a
  * superseded token revokes the whole session family).
+ *
+ * Single-flight: several concurrent 401s share ONE rotation call — parallel
+ * rotations would present already-rotated tokens and revoke the family.
  */
+let refreshInFlight: Promise<boolean> | null = null
+
 export async function refreshSession(): Promise<boolean> {
-  const refresh = getRefreshToken()
-  if (!refresh) return false
-  try {
-    const payload = await request<AuthResponse>(
-      '/api/v1/auth/refresh',
-      { method: 'POST', body: { refresh_token: refresh }, anonymous: true },
-      { skipAuthRetry: true },
-    )
-    if (!payload?.token) return false
-    setToken(payload.token)
-    setRefreshToken(payload.refresh_token ?? null)
-    return true
-  } catch {
-    // Invalid/expired/reused refresh — drop the stored session.
-    setToken(null)
-    return false
+  if (!refreshInFlight) {
+    refreshInFlight = authRequest('/refresh')
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null
+      })
   }
+  return refreshInFlight
+}
+
+/** POST to a Next.js /api/auth/* route handler (session cookies live here). */
+async function authRequest<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${AUTH_BASE}${path}`, {
+    method: 'POST',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
+  })
+  const text = await response.text()
+  let payload: unknown = null
+  if (text) {
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      payload = null
+    }
+  }
+  if (!response.ok) {
+    const envelope = payload as ApiErrorBody | null
+    const error =
+      envelope && typeof envelope === 'object' && 'error' in envelope ? envelope.error : undefined
+    throw new ApiError({
+      status: response.status,
+      code: error?.code ?? `HTTP_${response.status}`,
+      message: error?.message ?? `Request failed with status ${response.status}.`,
+      details: error?.details ?? [],
+      requestId: error?.request_id,
+    })
+  }
+  return payload as T
 }
 
 interface RequestOptions {
@@ -172,7 +181,7 @@ interface RequestOptions {
   body?: unknown
   /** Multipart form body (file uploads). Content-Type is set by the browser. */
   formData?: FormData
-  /** Skip attaching the bearer token (health, dev/seed-demo). */
+  /** Skip the 401→refresh retry (health checks, anonymous endpoints). */
   anonymous?: boolean
 }
 
@@ -188,10 +197,6 @@ async function request<T>(
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
-  if (!options.anonymous) {
-    const token = getToken()
-    if (token) headers.Authorization = `Bearer ${token}`
-  }
 
   let response: Response
   try {
@@ -228,15 +233,11 @@ async function request<T>(
   if (!response.ok) {
     const envelope = payload as ApiErrorBody | null
     const error = envelope && typeof envelope === 'object' && 'error' in envelope ? envelope.error : undefined
-    // Rotating-refresh retry (P0-2): an access token may have simply expired
-    // while the session is still valid. Try ONE refresh, then retry the
-    // original request once. Never recurse from the refresh call itself.
-    if (
-      response.status === 401 &&
-      !options.anonymous &&
-      !internals.skipAuthRetry &&
-      !path.includes('/auth/refresh')
-    ) {
+    // Rotating-refresh retry (P0-2/P1): an access token may have simply
+    // expired while the session is still valid. Try ONE cookie refresh, then
+    // retry the original request once. Never recurse from the refresh call
+    // itself (it goes through authRequest, not here).
+    if (response.status === 401 && !options.anonymous && !internals.skipAuthRetry) {
       const refreshed = await refreshSession()
       if (refreshed) {
         return request<T>(path, options, { skipAuthRetry: true })
@@ -268,25 +269,29 @@ export function getHealthReady(): Promise<HealthReadyResponse> {
   return request<HealthReadyResponse>('/api/v1/health/ready', { anonymous: true })
 }
 
-export function seedDemo(): Promise<SeedDemoResponse> {
-  return request<SeedDemoResponse>('/api/v1/dev/seed-demo', { method: 'POST', anonymous: true })
+// --- auth (P1: cookie sessions via Next.js route handlers) -------------------
+
+/** Login sets HttpOnly session cookies server-side; tokens never reach JS. */
+export function login(input: LoginInput): Promise<AuthSession> {
+  return authRequest<AuthSession>('/login', input)
 }
 
-// --- auth -------------------------------------------------------------------
-
-export function register(input: RegisterInput): Promise<AuthResponse> {
-  return storeAuth(request<AuthResponse>('/api/v1/auth/register', { method: 'POST', body: input, anonymous: true }))
+export function register(input: RegisterInput): Promise<AuthSession> {
+  return authRequest<AuthSession>('/register', input)
 }
 
-export function login(input: LoginInput): Promise<AuthResponse> {
-  return storeAuth(request<AuthResponse>('/api/v1/auth/login', { method: 'POST', body: input, anonymous: true }))
+/** Seed the synthetic demo workspace and sign in as the demo user. */
+export function demoLogin(): Promise<DemoSession> {
+  return authRequest<DemoSession>('/demo')
 }
 
-/** Persist the refresh token alongside the access token after login/register. */
-async function storeAuth(payloadPromise: Promise<AuthResponse>): Promise<AuthResponse> {
-  const payload = await payloadPromise
-  if (payload?.refresh_token) setRefreshToken(payload.refresh_token)
-  return payload
+/** Revoke the session server-side and clear both cookies. */
+export async function logout(): Promise<void> {
+  try {
+    await authRequest('/logout')
+  } catch {
+    // Best-effort: the cookies are cleared by the handler's error path too.
+  }
 }
 
 export function getMe(): Promise<MeResponse> {

@@ -14,6 +14,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -42,6 +43,7 @@ import { useFieldShiftUi } from '@/lib/store'
 import { AlertTriangle, FileSearch, Loader2, Scale, GitCompareArrows } from 'lucide-react'
 
 export default function Decisions() {
+  const t = useTranslations('decisions')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const fieldId = selectedField?.id ?? null
   const queryClient = useQueryClient()
@@ -62,7 +64,7 @@ export default function Decisions() {
       setOpenId(doc.id)
       queryClient.invalidateQueries({ queryKey: ['decision-comparisons'] })
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to generate document'),
+    onError: (e) => setError(e instanceof ApiError ? e.message : t('generateFailed')),
   })
 
   if (!fieldId) {
@@ -71,7 +73,7 @@ export default function Decisions() {
         <Header />
         <Card>
           <CardContent className="py-10 text-center text-sm text-stone-500">
-            Select a field to compare scenarios, sensitivity results and robust plans.
+            {t('pickFieldDesc')}
           </CardContent>
         </Card>
       </div>
@@ -85,7 +87,7 @@ export default function Decisions() {
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" aria-hidden />
-          <AlertTitle>Request failed</AlertTitle>
+          <AlertTitle>{t('requestFailed')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -93,22 +95,19 @@ export default function Decisions() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div className="min-w-0">
-            <CardTitle className="text-base">Decision comparisons</CardTitle>
-            <CardDescription className="mt-1">
-              Evidence-linked document over stored executions, sensitivity analyses and
-              robust runs. A changed scope creates a new document (append-only).
-            </CardDescription>
+            <CardTitle className="text-base">{t('listTitle')}</CardTitle>
+            <CardDescription className="mt-1">{t('listDesc')}</CardDescription>
           </div>
           <div className="flex shrink-0 items-end gap-2">
             <div className="space-y-1">
               <Label htmlFor="cmp-title" className="sr-only">
-                Title
+                {t('titleLabel')}
               </Label>
               <Input
                 id="cmp-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Title (optional)"
+                placeholder={t('titlePlaceholder')}
                 className="h-9 w-40"
               />
             </div>
@@ -118,14 +117,14 @@ export default function Decisions() {
               ) : (
                 <GitCompareArrows className="mr-1 h-4 w-4" aria-hidden />
               )}
-              Generate
+              {t('generate')}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           {comparisons.isLoading && <Skeleton className="h-16 w-full" />}
           {comparisons.data && comparisons.data.items.length === 0 && (
-            <p className="text-xs text-stone-500">No decision documents yet.</p>
+            <p className="text-xs text-stone-500">{t('noDocsYet')}</p>
           )}
           <div className="grid gap-2">
             {(comparisons.data?.items ?? []).map((d) => (
@@ -144,9 +143,11 @@ export default function Decisions() {
                   </Badge>
                 </div>
                 <p className="mt-1 truncate text-xs text-stone-500">
-                  {(d.scope?.executions ?? []).length} executions ·{' '}
-                  {(d.scope?.robust_runs ?? []).length} robust runs · checksum{' '}
-                  {d.document_checksum.slice(0, 10)}…
+                  {t('docSummary', {
+                    executions: (d.scope?.executions ?? []).length,
+                    robust: (d.scope?.robust_runs ?? []).length,
+                    checksum: d.document_checksum.slice(0, 10),
+                  })}
                 </p>
               </button>
             ))}
@@ -160,22 +161,20 @@ export default function Decisions() {
 }
 
 function Header() {
+  const t = useTranslations('decisions')
   return (
     <div>
       <h2 className="flex items-center gap-2 text-lg font-semibold text-stone-900">
         <Scale className="h-5 w-5 text-emerald-700" aria-hidden />
-        Decision Intelligence
+        {t('title')}
       </h2>
-      <p className="mt-1 text-sm text-stone-600">
-        What changed between scenarios, which plans remain feasible, what is sensitive —
-        and what evidence is missing. Units stay visible; no composite scores, no
-        probabilities.
-      </p>
+      <p className="mt-1 text-sm text-stone-600">{t('desc')}</p>
     </div>
   )
 }
 
 function DocumentDetail({ id }: { id: string }) {
+  const t = useTranslations('decisions')
   const doc = useQuery({
     queryKey: ['decision-comparison', id],
     queryFn: () => getDecisionComparison(id),
@@ -187,7 +186,7 @@ function DocumentDetail({ id }: { id: string }) {
     return (
       <Alert variant="destructive">
         <AlertTriangle className="h-4 w-4" aria-hidden />
-        <AlertTitle>Could not load document</AlertTitle>
+        <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
       </Alert>
     )
   }
@@ -199,7 +198,7 @@ function DocumentDetail({ id }: { id: string }) {
       {doc.data.not_available && Object.keys(doc.data.not_available).length > 0 && (
         <Alert>
           <AlertTriangle className="h-4 w-4" aria-hidden />
-          <AlertTitle>Sections not available</AlertTitle>
+          <AlertTitle>{t('notAvailableTitle')}</AlertTitle>
           <AlertDescription>
             <ul className="list-disc space-y-1 pl-4">
               {Object.entries(doc.data.not_available).map(([k, v]) => (
@@ -214,7 +213,7 @@ function DocumentDetail({ id }: { id: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Findings (evidence-linked)</CardTitle>
+          <CardTitle className="text-base">{t('findingsTitle')}</CardTitle>
           <CardDescription>{d.honesty_note}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -228,7 +227,7 @@ function DocumentDetail({ id }: { id: string }) {
               </li>
             ))}
             {d.findings.length === 0 && (
-              <li className="text-xs text-stone-500">No findings in scope.</li>
+              <li className="text-xs text-stone-500">{t('noFindings')}</li>
             )}
           </ul>
         </CardContent>
@@ -236,7 +235,7 @@ function DocumentDetail({ id }: { id: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">What changed between scenarios</CardTitle>
+          <CardTitle className="text-base">{t('changesTitle')}</CardTitle>
           <CardDescription>{d.baseline_vs_scenario.ranking_note}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -244,12 +243,12 @@ function DocumentDetail({ id }: { id: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Scenario</TableHead>
-                  <TableHead>Feature</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Baseline</TableHead>
-                  <TableHead>Scenario</TableHead>
-                  <TableHead>Change</TableHead>
+                  <TableHead>{t('colScenario')}</TableHead>
+                  <TableHead>{t('colFeature')}</TableHead>
+                  <TableHead>{t('colPeriod')}</TableHead>
+                  <TableHead>{t('colBaseline')}</TableHead>
+                  <TableHead>{t('colScenario')}</TableHead>
+                  <TableHead>{t('colChange')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -278,28 +277,28 @@ function DocumentDetail({ id }: { id: string }) {
       {d.rotation_decisions.runs.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Which rotation decisions remain feasible</CardTitle>
-            <CardDescription>
-              Shared plans per robust run — a plan is robust only across the explicitly
-              selected scenarios and evaluated constraints.
-            </CardDescription>
+            <CardTitle className="text-base">{t('rotationTitle')}</CardTitle>
+            <CardDescription>{t('rotationDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {d.rotation_decisions.runs.map((r) => (
               <div key={r.robust_run_id} className="rounded-lg border border-stone-200 p-3">
                 <p className="text-xs text-stone-500">
-                  robust run {r.robust_run_id.slice(0, 8)} · {r.member_count} scenarios ·{' '}
-                  {r.seasons.map((s) => s.label).join(', ')}
+                  {t('robustRunLine', {
+                    id: r.robust_run_id.slice(0, 8),
+                    count: r.member_count,
+                    seasons: r.seasons.map((s) => s.label).join(', '),
+                  })}
                 </p>
                 <div className="mt-2 overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Plan</TableHead>
-                        <TableHead>Assignment</TableHead>
-                        <TableHead>Worst case</TableHead>
-                        <TableHead>Feasibility</TableHead>
-                        <TableHead>Solver</TableHead>
+                        <TableHead>{t('colPlan')}</TableHead>
+                        <TableHead>{t('colAssignment')}</TableHead>
+                        <TableHead>{t('colWorstCase')}</TableHead>
+                        <TableHead>{t('colFeasibility')}</TableHead>
+                        <TableHead>{t('colSolver')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -307,7 +306,7 @@ function DocumentDetail({ id }: { id: string }) {
                         <TableRow key={p.strategy_key}>
                           <TableCell className="text-xs font-medium">
                             {p.strategy_key}
-                            {p.is_baseline && ' (current)'}
+                            {p.is_baseline && ` ${t('currentSuffix')}`}
                           </TableCell>
                           <TableCell className="text-xs">
                             {p.assignment
@@ -331,7 +330,7 @@ function DocumentDetail({ id }: { id: string }) {
       {d.tradeoffs.matrix.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Objective trade-offs</CardTitle>
+            <CardTitle className="text-base">{t('tradeoffsTitle')}</CardTitle>
             <CardDescription>{d.tradeoffs.note}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -339,13 +338,13 @@ function DocumentDetail({ id }: { id: string }) {
               <Table>
                 <TableHeader className="sticky top-0 bg-white">
                   <TableRow>
-                    <TableHead>Plan</TableHead>
-                    <TableHead>Scenario</TableHead>
-                    <TableHead>Criterion</TableHead>
-                    <TableHead>Value</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead>Direction</TableHead>
-                    <TableHead>State</TableHead>
+                    <TableHead>{t('colPlan')}</TableHead>
+                    <TableHead>{t('colScenario')}</TableHead>
+                    <TableHead>{t('colCriterion')}</TableHead>
+                    <TableHead>{t('colValue')}</TableHead>
+                    <TableHead>{t('colUnit')}</TableHead>
+                    <TableHead>{t('colDirection')}</TableHead>
+                    <TableHead>{t('colState')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -360,7 +359,7 @@ function DocumentDetail({ id }: { id: string }) {
                         <TableCell className="text-xs">{m.raw_value ?? '—'}</TableCell>
                         <TableCell className="text-xs">{m.unit ?? '—'}</TableCell>
                         <TableCell className="text-xs">{m.direction ?? '—'}</TableCell>
-                        <TableCell className="text-xs">{m.evaluable ? 'evaluable' : 'missing'}</TableCell>
+                        <TableCell className="text-xs">{m.evaluable ? t('evaluable') : t('missing')}</TableCell>
                       </TableRow>
                     ))}
                 </TableBody>
@@ -372,8 +371,8 @@ function DocumentDetail({ id }: { id: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">What evidence is missing</CardTitle>
-          <CardDescription>{d.missing_evidence.count} item(s)</CardDescription>
+          <CardTitle className="text-base">{t('missingEvidenceTitle')}</CardTitle>
+          <CardDescription>{t('itemsCount', { count: d.missing_evidence.count })}</CardDescription>
         </CardHeader>
         <CardContent>
           <ul className="max-h-64 list-disc space-y-1 overflow-y-auto pl-4 text-xs text-stone-600">
@@ -393,7 +392,7 @@ function DocumentDetail({ id }: { id: string }) {
           ) : (
             <FileSearch className="mr-1 h-4 w-4" aria-hidden />
           )}
-          Verify document & sources
+          {t('verifyButton')}
         </Button>
         {verify.data && (
           <Badge
@@ -404,7 +403,7 @@ function DocumentDetail({ id }: { id: string }) {
                 : 'border-red-200 bg-red-50 text-red-800'
             }
           >
-            {verify.data.verified ? 'verified' : `${verify.data.findings.length} finding(s)`}
+            {verify.data.verified ? t('verified') : t('findingsCount', { count: verify.data.findings.length })}
           </Badge>
         )}
       </div>

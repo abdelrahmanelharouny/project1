@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
@@ -50,12 +51,7 @@ import { useFieldShiftUi, type SelectedField } from '@/lib/store'
 import type { FeatureRun, FeatureValue } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-const AGGREGATION_LEVELS = [
-  { value: 'monthly', label: 'Monthly', hint: 'Totals, means, indices, anomalies per calendar month' },
-  { value: 'seasonal', label: 'Seasonal', hint: 'Meteorological seasons of the chosen hemisphere' },
-  { value: 'crop_season', label: 'Crop seasons', hint: 'Explicit date windows you supply below' },
-  { value: 'daily', label: 'Daily', hint: 'Per-day values — limited to ~3 years per run' },
-] as const
+const AGGREGATION_LEVELS = ['monthly', 'seasonal', 'crop_season', 'daily'] as const
 
 const MAX_DAILY_DAYS = 1100
 
@@ -97,6 +93,7 @@ function CreateRunForm({
   selectedField: SelectedField
   onCreated: (run: FeatureRun) => void
 }) {
+  const t = useTranslations('features')
   const [start, setStart] = useState('2023-01-01')
   const [end, setEnd] = useState('2023-12-31')
   const [levels, setLevels] = useState<string[]>(['monthly'])
@@ -113,20 +110,20 @@ function CreateRunForm({
 
   const validate = (): string | null => {
     const dateRe = /^\d{4}-\d{2}-\d{2}$/
-    if (!dateRe.test(start) || !dateRe.test(end)) return 'Enter start and end as YYYY-MM-DD.'
-    if (end < start) return 'The end date must be on or after the start date.'
+    if (!dateRe.test(start) || !dateRe.test(end)) return t('errDateFormat')
+    if (end < start) return t('errDateOrder')
     const years = (Date.parse(end) - Date.parse(start)) / (365.25 * 24 * 3600 * 1000)
-    if (years > 31) return 'A run covers at most 31 years.'
+    if (years > 31) return t('errMaxYears')
     if (levels.includes('daily') && Date.parse(end) - Date.parse(start) > MAX_DAILY_DAYS * 86_400_000) {
-      return 'Daily aggregation is limited to ~3 years per run — uncheck Daily or shorten the window.'
+      return t('errDailyLimit')
     }
     if (levels.includes('crop_season') && seasons.length === 0) {
-      return 'Add at least one crop-season window or uncheck Crop seasons.'
+      return t('errNoSeasons')
     }
     for (const s of seasons) {
-      if (!s.label.trim()) return 'Every crop season needs a label.'
-      if (!dateRe.test(s.start) || !dateRe.test(s.end)) return `Season "${s.label}" needs YYYY-MM-DD dates.`
-      if (s.end < s.start) return `Season "${s.label}" ends before it starts.`
+      if (!s.label.trim()) return t('errSeasonLabel')
+      if (!dateRe.test(s.start) || !dateRe.test(s.end)) return t('errSeasonDates', { label: s.label })
+      if (s.end < s.start) return t('errSeasonOrder', { label: s.label })
     }
     return null
   }
@@ -146,12 +143,15 @@ function CreateRunForm({
     onSuccess: (run) => {
       queryClient.invalidateQueries({ queryKey: ['feature-runs', selectedField.id] })
       if (run.status === 'succeeded') {
-        toast.success('Feature run completed', {
-          description: `${run.records_written} values written · engine ${run.feature_engine_version}`,
+        toast.success(t('runCompleted'), {
+          description: t('runCompletedDesc', {
+            count: run.records_written,
+            version: run.feature_engine_version,
+          }),
         })
         onCreated(run)
       } else if (run.status === 'failed') {
-        toast.error('Feature run failed', { description: run.error_summary ?? undefined })
+        toast.error(t('runFailed'), { description: run.error_summary ?? undefined })
       }
     },
     onError: (err) => {
@@ -165,47 +165,45 @@ function CreateRunForm({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <CalendarRange className="h-4 w-4 text-emerald-700" aria-hidden />
-          Create feature run
+          {t('createTitle')}
         </CardTitle>
         <CardDescription>
-          Derived features are computed from ONE source per variable (products are never blended).
-          Coverage below a definition&apos;s minimum leaves the value explicitly empty — missing data
-          is never treated as zero.
+          {t('createDesc')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5">
-            <Label htmlFor="feature-start">Period start</Label>
+            <Label htmlFor="feature-start">{t('periodStart')}</Label>
             <Input id="feature-start" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="feature-end">Period end</Label>
+            <Label htmlFor="feature-end">{t('periodEnd')}</Label>
             <Input id="feature-end" type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="feature-hemisphere">Season hemisphere</Label>
+            <Label htmlFor="feature-hemisphere">{t('hemisphereLabel')}</Label>
             <Select value={hemisphere} onValueChange={(v) => setHemisphere(v as 'north' | 'south')}>
-              <SelectTrigger id="feature-hemisphere" aria-label="Season hemisphere">
+              <SelectTrigger id="feature-hemisphere" aria-label={t('hemisphereLabel')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="north">North (DJF · MAM · JJA · SON)</SelectItem>
-                <SelectItem value="south">South (JJA · SON · DJF · MAM)</SelectItem>
+                <SelectItem value="north">{t('hemisphereNorth')}</SelectItem>
+                <SelectItem value="south">{t('hemisphereSouth')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Aggregation levels</Label>
+            <Label>{t('levelsLabel')}</Label>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 pt-1">
               {AGGREGATION_LEVELS.map((level) => (
-                <label key={level.value} className="flex min-w-0 items-center gap-1.5 text-sm text-stone-700">
+                <label key={level} className="flex min-w-0 items-center gap-1.5 text-sm text-stone-700">
                   <Checkbox
-                    checked={levels.includes(level.value)}
-                    onCheckedChange={() => toggleLevel(level.value)}
-                    aria-label={`Aggregation level ${level.label}`}
+                    checked={levels.includes(level)}
+                    onCheckedChange={() => toggleLevel(level)}
+                    aria-label={t('levelAria', { level: t(`level.${level}`) })}
                   />
-                  {level.label}
+                  {t(`level.${level}`)}
                 </label>
               ))}
             </div>
@@ -215,29 +213,26 @@ function CreateRunForm({
         {levels.includes('crop_season') && (
           <div className="space-y-2 rounded-lg border border-stone-200 bg-stone-50 p-3">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-stone-700">Crop-season windows</p>
+              <p className="text-sm font-medium text-stone-700">{t('seasonWindowsTitle')}</p>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setSeasons((prev) => [...prev, { label: '', start: '', end: '' }])}
               >
-                Add window
+                {t('addWindow')}
               </Button>
             </div>
-            <p className="text-xs text-stone-500">
-              Windows are recorded verbatim in run provenance. Crop calendars from the sourced
-              knowledge base arrive in a later milestone — nothing is invented here.
-            </p>
+            <p className="text-xs text-stone-500">{t('seasonWindowsDesc')}</p>
             {seasons.map((season, index) => (
               <div key={index} className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
                 <Input
-                  placeholder="Label, e.g. maize_2024"
+                  placeholder={t('seasonLabelPlaceholder')}
                   value={season.label}
                   onChange={(e) =>
                     setSeasons((prev) => prev.map((s, i) => (i === index ? { ...s, label: e.target.value } : s)))
                   }
-                  aria-label={`Season ${index + 1} label`}
+                  aria-label={t('seasonLabelAria', { n: index + 1 })}
                 />
                 <Input
                   type="date"
@@ -245,7 +240,7 @@ function CreateRunForm({
                   onChange={(e) =>
                     setSeasons((prev) => prev.map((s, i) => (i === index ? { ...s, start: e.target.value } : s)))
                   }
-                  aria-label={`Season ${index + 1} start`}
+                  aria-label={t('seasonStartAria', { n: index + 1 })}
                 />
                 <Input
                   type="date"
@@ -253,14 +248,14 @@ function CreateRunForm({
                   onChange={(e) =>
                     setSeasons((prev) => prev.map((s, i) => (i === index ? { ...s, end: e.target.value } : s)))
                   }
-                  aria-label={`Season ${index + 1} end`}
+                  aria-label={t('seasonEndAria', { n: index + 1 })}
                 />
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={() => setSeasons((prev) => prev.filter((_, i) => i !== index))}
-                  aria-label={`Remove season ${index + 1}`}
+                  aria-label={t('removeSeasonAria', { n: index + 1 })}
                 >
                   <XCircle className="h-4 w-4" aria-hidden />
                 </Button>
@@ -272,25 +267,20 @@ function CreateRunForm({
         {levels.includes('daily') && (
           <Alert>
             <Info className="h-4 w-4" aria-hidden />
-            <AlertTitle>Daily values are voluminous</AlertTitle>
+            <AlertTitle>{t('dailyAlertTitle')}</AlertTitle>
             <AlertDescription>
-              Each requested day becomes one stored value per feature. Keep daily windows to about
-              three years per run.
+              {t('dailyAlertDesc')}
             </AlertDescription>
           </Alert>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-stone-500">
-            Indices follow cited meteorological conventions (WMO dry day, ETCCDI temperature
-            indices). Crop-specific stress thresholds remain unevaluated until the sourced crop
-            knowledge base exists.
-          </p>
+          <p className="text-xs text-stone-500">{t('indicesNote')}</p>
           <Button
             onClick={() => {
               const problem = validate()
               if (problem) {
-                toast.error('Check the run settings', { description: problem })
+                toast.error(t('checkSettings'), { description: problem })
                 return
               }
               mutation.mutate()
@@ -303,7 +293,7 @@ function CreateRunForm({
             ) : (
               <FlaskConical className="h-4 w-4" aria-hidden />
             )}
-            Run features
+            {t('runFeatures')}
           </Button>
         </div>
       </CardContent>
@@ -312,6 +302,7 @@ function CreateRunForm({
 }
 
 function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
+  const t = useTranslations('features')
   const [level, setLevel] = useState<string>(run.aggregation_levels[0] ?? 'monthly')
   const runsQuery = useFeatureRuns(fieldId)
   const valuesQuery = useFeatureValues(run.run_id, { aggregationLevel: level })
@@ -329,13 +320,19 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-              Run {run.run_id.slice(0, 8)}
+              {t('runTitle', { id: run.run_id.slice(0, 8) })}
               <JobStatusBadge status={run.status} />
               {run.is_synthetic && <SyntheticBadge />}
             </CardTitle>
             <CardDescription className="mt-1">
-              {run.period.start} → {run.period.end} · {run.calendar_timezone} ({run.hemisphere})
-              · engine {run.feature_engine_version} · catalog {run.feature_catalog_version}
+              {t('runMeta', {
+                start: run.period.start,
+                end: run.period.end,
+                timezone: run.calendar_timezone,
+                hemisphere: run.hemisphere,
+                engine: run.feature_engine_version,
+                catalog: run.feature_catalog_version,
+              })}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -361,10 +358,9 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
         {run.is_synthetic && (
           <Alert className="border-amber-300 bg-amber-50">
             <AlertTriangle className="h-4 w-4 text-amber-700" aria-hidden />
-            <AlertTitle className="text-amber-900">Synthetic fixture data</AlertTitle>
+            <AlertTitle className="text-amber-900">{t('syntheticTitle')}</AlertTitle>
             <AlertDescription className="text-amber-900">
-              This run is computed from SYNTHETIC fixture data — values demonstrate the pipeline
-              and are never valid for real-world conclusions.
+              {t('syntheticDesc')}
             </AlertDescription>
           </Alert>
         )}
@@ -372,7 +368,7 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
         {run.warnings.length > 0 && (
           <div className="space-y-1.5 rounded-lg border border-stone-200 bg-stone-50 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-              Run warnings ({run.warnings.length})
+              {t('warningsCount', { count: run.warnings.length })}
             </p>
             <ul className="max-h-32 space-y-1 overflow-y-auto text-xs text-stone-600">
               {run.warnings.map((w, i) => (
@@ -388,7 +384,7 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
         {Object.keys(run.not_evaluated_reasons).length > 0 && (
           <div className="space-y-1.5 rounded-lg border border-stone-200 bg-stone-50 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-              Not evaluated — with reasons
+              {t('notEvaluatedTitle')}
             </p>
             <ul className="max-h-32 space-y-1 overflow-y-auto text-xs text-stone-600">
               {Object.entries(run.not_evaluated_reasons).map(([code, reason]) => (
@@ -403,7 +399,7 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
         {run.error_summary && (
           <Alert variant="destructive">
             <XCircle className="h-4 w-4" aria-hidden />
-            <AlertTitle>Run failed</AlertTitle>
+            <AlertTitle>{t('runFailedTitle')}</AlertTitle>
             <AlertDescription className="break-words">{run.error_summary}</AlertDescription>
           </Alert>
         )}
@@ -411,27 +407,29 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
         {/* values */}
         {valuesQuery.isLoading ? (
           <div className="flex h-24 items-center justify-center text-sm text-stone-500">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Loading values…
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> {t('loadingValues')}
           </div>
         ) : valuesQuery.data && valuesQuery.data.items.length > 0 ? (
           <div className="space-y-1">
             {valuesQuery.data.total > valuesQuery.data.items.length ? (
               <p className="text-[11px] text-stone-500">
-                Showing the first {valuesQuery.data.items.length} of {valuesQuery.data.total}{' '}
-                values — narrow the level or window to see everything.
+                {t('showingValues', {
+                  shown: valuesQuery.data.items.length,
+                  total: valuesQuery.data.total,
+                })}
               </p>
             ) : null}
             <div className="max-h-96 overflow-y-auto rounded-lg border border-stone-200">
             <Table>
               <TableHeader className="sticky top-0 bg-white">
                 <TableRow>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Feature</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-right">Unit</TableHead>
-                  <TableHead className="text-right">Coverage</TableHead>
-                  <TableHead>Quality</TableHead>
-                  <TableHead>Provenance</TableHead>
+                  <TableHead>{t('colPeriod')}</TableHead>
+                  <TableHead>{t('colFeature')}</TableHead>
+                  <TableHead className="text-right">{t('colValue')}</TableHead>
+                  <TableHead className="text-right">{t('colUnit')}</TableHead>
+                  <TableHead className="text-right">{t('colCoverage')}</TableHead>
+                  <TableHead>{t('colQuality')}</TableHead>
+                  <TableHead>{t('colProvenance')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -452,9 +450,11 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs text-stone-500">
-                      {v.provenance.observation_count ?? v.provenance.inputs?.observation_count ?? '—'} obs
+                      {t('obsCount', {
+                        count: v.provenance.observation_count ?? v.provenance.inputs?.observation_count ?? '—',
+                      })}
                       {v.provenance.baseline
-                        ? ` · baseline ${v.provenance.baseline.n_years}y`
+                        ? t('baselineSuffix', { years: v.provenance.baseline.n_years })
                         : ''}
                     </TableCell>
                   </TableRow>
@@ -465,7 +465,7 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
           </div>
         ) : (
           <p className="rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">
-            No stored values for level “{level}” in this run.
+            {t('noValuesForLevel', { level })}
           </p>
         )}
 
@@ -474,10 +474,10 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
           <div className="space-y-3 rounded-lg border border-stone-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <GitCompareArrows className="h-4 w-4 text-stone-500" aria-hidden />
-              <p className="text-sm font-medium text-stone-700">Compare with another run</p>
+              <p className="text-sm font-medium text-stone-700">{t('compareTitle')}</p>
               <Select value={againstId || undefined} onValueChange={setAgainstId}>
-                <SelectTrigger className="h-8 w-56" aria-label="Select run to compare against">
-                  <SelectValue placeholder="Choose a run…" />
+                <SelectTrigger className="h-8 w-56" aria-label={t('compareAria')}>
+                  <SelectValue placeholder={t('chooseRun')} />
                 </SelectTrigger>
                 <SelectContent>
                   {otherRuns.map((r) => (
@@ -493,10 +493,10 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
                 <Table>
                   <TableHeader className="sticky top-0 bg-white">
                     <TableRow>
-                      <TableHead>Period</TableHead>
-                      <TableHead>Feature</TableHead>
-                      <TableHead className="text-right">This run</TableHead>
-                      <TableHead className="text-right">Against</TableHead>
+                      <TableHead>{t('colPeriod')}</TableHead>
+                      <TableHead>{t('colFeature')}</TableHead>
+                      <TableHead className="text-right">{t('colThisRun')}</TableHead>
+                      <TableHead className="text-right">{t('colAgainst')}</TableHead>
                       <TableHead className="text-right">Δ</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -525,9 +525,7 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
               </div>
             )}
             {comparisonQuery.data && comparisonQuery.data.deltas.length === 0 && (
-              <p className="text-xs text-stone-500">
-                No overlapping evaluated periods between these runs.
-              </p>
+              <p className="text-xs text-stone-500">{t('noOverlap')}</p>
             )}
             {againstId && (
               <p className="text-xs text-stone-500">{comparisonQuery.data?.note}</p>
@@ -540,6 +538,9 @@ function RunDetail({ fieldId, run }: { fieldId: string; run: FeatureRun }) {
 }
 
 export function Features() {
+  const t = useTranslations('features')
+  const tCommon = useTranslations('common')
+  const tNav = useTranslations('nav')
   const selectedField = useFieldShiftUi((s) => s.selectedField)
   const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
   const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
@@ -556,11 +557,10 @@ export function Features() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CalendarRange className="h-4 w-4 text-emerald-700" aria-hidden />
-            Features
+            {tNav('features')}
           </CardTitle>
           <CardDescription>
-            Pick a field to create reproducible feature runs: daily, monthly, seasonal and
-            crop-season aggregations with baselines, anomalies and drought/heat indicators.
+            {t('noFieldDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -569,9 +569,9 @@ export function Features() {
             onValueChange={setSelectedField}
             emptyHint={
               <div className="flex flex-wrap items-center gap-2 text-sm text-stone-500">
-                <span>Create a farm and field first.</span>
+                <span>{t('createFirst')}</span>
                 <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
-                  Go to Farms & Fields <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                  {tCommon('goToFarms')} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
                 </Button>
               </div>
             }
@@ -589,11 +589,10 @@ export function Features() {
             <div className="min-w-0">
               <CardTitle className="flex items-center gap-2 text-base">
                 <CalendarRange className="h-4 w-4 text-emerald-700" aria-hidden />
-                Features
+                {tNav('features')}
               </CardTitle>
               <CardDescription>
-                Versioned feature definitions · reproducible runs · full provenance to source
-                observations
+                {t('mainDesc')}
               </CardDescription>
             </div>
             <div className="min-w-0">
@@ -608,13 +607,13 @@ export function Features() {
       {/* runs list */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Feature runs</CardTitle>
+          <CardTitle className="text-base">{t('runsTitle')}</CardTitle>
           <CardDescription>
             {runsQuery.isLoading
-              ? 'Loading runs…'
+              ? t('loadingRuns')
               : runs.length === 0
-                ? 'No runs yet for this field.'
-                : `${runsQuery.data?.total ?? runs.length} run(s) — newest first`}
+                ? t('noRuns')
+                : t('runsCount', { count: runsQuery.data?.total ?? runs.length })}
           </CardDescription>
         </CardHeader>
         {runs.length > 0 && (
@@ -633,13 +632,17 @@ export function Features() {
                     {run.is_synthetic && <SyntheticBadge />}
                     <span className="font-mono text-xs text-stone-700">{run.run_id.slice(0, 8)}</span>
                     <span className="text-xs text-stone-500">
-                      {run.period.start} → {run.period.end} · {run.aggregation_levels.join(', ')} ·{' '}
-                      {run.records_written} values
+                      {t('runLine', {
+                        start: run.period.start,
+                        end: run.period.end,
+                        levels: run.aggregation_levels.join(', '),
+                        count: run.records_written,
+                      })}
                     </span>
                   </div>
                   {openRunId === run.run_id ? (
                     <Button variant="ghost" size="sm" onClick={() => setOpenRunId(null)}>
-                      Hide details
+                      {t('hideDetails')}
                     </Button>
                   ) : (
                     <Button
@@ -651,7 +654,7 @@ export function Features() {
                       }}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
-                      Details
+                      {t('details')}
                     </Button>
                   )}
                 </div>
@@ -667,7 +670,7 @@ export function Features() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
-            Feature catalog{' '}
+            {t('catalogTitle')}{' '}
             {catalogQuery.data && (
               <Badge variant="outline" className="ml-2 border-stone-300 font-mono text-[10px] font-normal">
                 {catalogQuery.data.feature_catalog_version}
@@ -675,8 +678,7 @@ export function Features() {
             )}
           </CardTitle>
           <CardDescription>
-            Definitions are versioned data: every value records the catalog version and formula
-            reference it was computed with.
+            {t('catalogDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -694,7 +696,7 @@ export function Features() {
                         {f.unit}
                       </Badge>
                       <Badge variant="outline" className="border-stone-300 px-1.5 py-0 text-[10px]">
-                        coverage ≥ {Math.round(f.min_coverage_ratio * 100)}%
+                        {t('coverageMin', { pct: Math.round(f.min_coverage_ratio * 100) })}
                       </Badge>
                     </div>
                   </div>
