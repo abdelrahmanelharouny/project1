@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useQuery, useQueries, type UseQueryResult } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
   compareFeatureRuns,
   createFieldState,
@@ -512,5 +512,79 @@ export function useSoilMethods(): UseQueryResult<SoilMethodsResponse> {
     queryKey: ['soil-methods'],
     queryFn: getSoilMethods,
     staleTime: 10 * 60 * 1000,
+  })
+}
+
+// =============================================================
+// Milestone 8 — AI insights: recommendations, field brief, advisor
+// =============================================================
+
+import {
+  getAdvisorHistory,
+  getFieldInsights,
+  getRecommendations,
+  queryAdvisor,
+  refreshRecommendations,
+} from '@/lib/api'
+import type {
+  AdvisorHistoryResponse,
+  FieldInsightsResponse,
+  RecommendationsResponse,
+} from '@/lib/types'
+
+/** Stored domain recommendations (rules + LLM narrative). */
+export function useFieldRecommendations(
+  fieldId: string | null,
+): UseQueryResult<RecommendationsResponse> {
+  return useQuery({
+    queryKey: ['recommendations', fieldId],
+    queryFn: () => getRecommendations(fieldId as string),
+    enabled: !!fieldId,
+    staleTime: 60_000,
+  })
+}
+
+/** Regenerate recommendations through the AI pipeline; syncs insights too. */
+export function useRefreshRecommendations(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => refreshRecommendations(fieldId as string),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recommendations'] })
+      queryClient.invalidateQueries({ queryKey: ['field-insights'] })
+    },
+  })
+}
+
+/** Anomaly/trend insights plus the short AI field brief. */
+export function useFieldInsights(fieldId: string | null): UseQueryResult<FieldInsightsResponse> {
+  return useQuery({
+    queryKey: ['field-insights', fieldId],
+    queryFn: () => getFieldInsights(fieldId as string),
+    enabled: !!fieldId,
+    staleTime: 60_000,
+  })
+}
+
+/** Recent advisor conversation for the field (user/assistant pairs). */
+export function useAdvisorHistory(
+  fieldId: string | null,
+  limit = 20,
+): UseQueryResult<AdvisorHistoryResponse> {
+  return useQuery({
+    queryKey: ['advisor-history', fieldId, limit],
+    queryFn: () => getAdvisorHistory(fieldId as string, limit),
+    enabled: !!fieldId,
+  })
+}
+
+/** Ask the AI agronomist; the answer is persisted server-side into history. */
+export function useAdvisorQuery(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (question: string) => queryAdvisor(fieldId as string, question),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['advisor-history'] })
+    },
   })
 }

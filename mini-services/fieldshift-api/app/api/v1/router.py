@@ -16,6 +16,7 @@ from app.api.v1 import (
     knowledge,
     management,
     members,
+    recommendations,
     robust_rotation,
     rotation,
     scenario_executions,
@@ -49,3 +50,4 @@ api_router.include_router(sensitivity.router)
 api_router.include_router(robust_rotation.router)
 api_router.include_router(decision.router)
 api_router.include_router(digital_twin.router)
+api_router.include_router(recommendations.router)

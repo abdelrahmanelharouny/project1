@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Scale,
   Sigma,
+  Sparkles,
   Sprout,
   Target,
 } from 'lucide-react'
@@ -41,6 +42,7 @@ import { Soil } from '@/components/fieldshift/soil'
 import { Management } from '@/components/fieldshift/management'
 import SensitivitySection from '@/components/fieldshift/sensitivity'
 import Decisions from '@/components/fieldshift/decisions'
+import AiInsights from '@/components/fieldshift/ai-insights'
 import DigitalTwin from '@/components/fieldshift/digital-twin'
 import RobustPlan from '@/components/fieldshift/robust-plan'
 import { useHealth } from '@/hooks/use-fieldshift'
@@ -64,6 +66,7 @@ const TAB_ITEMS: { value: WorkspaceTab; icon: React.ReactNode }[] = [
   { value: 'sensitivity', icon: <LineChart className="h-4 w-4" aria-hidden /> },
   { value: 'robustplan', icon: <Target className="h-4 w-4" aria-hidden /> },
   { value: 'decisions', icon: <Scale className="h-4 w-4" aria-hidden /> },
+  { value: 'aiinsights', icon: <Sparkles className="h-4 w-4" aria-hidden /> },
   { value: 'digitaltwin', icon: <Network className="h-4 w-4" aria-hidden /> },
   { value: 'passport', icon: <ClipboardCheck className="h-4 w-4" aria-hidden /> },
 ]
@@ -322,6 +325,9 @@ export function Workspace() {
           </TabsContent>
           <TabsContent value="decisions" className="mt-4">
             <Decisions />
+          </TabsContent>
+          <TabsContent value="aiinsights" className="mt-4">
+            <AiInsights />
           </TabsContent>
           <TabsContent value="digitaltwin" className="mt-4">
             <DigitalTwin />

@@ -3249,6 +3249,102 @@ export interface TwinValidationListResponse {
   note: string
 }
 
+// =============================================================
+// AI Insights — recommendations, field insights, advisor (ai-insights.tsx)
+// =============================================================
+
+export type RecommendationSeverity = 'info' | 'advisory' | 'recommended' | 'required'
+
+export type RecommendationDomain = 'climate' | 'water' | 'soil' | 'rotation' | 'management'
+
+export interface AiEngineInfo {
+  mode: string
+  model: string | null
+}
+
+export interface RecommendationEvidence {
+  type: string
+  id: string
+  label: string
+  detail: string | null
+}
+
+export interface Recommendation {
+  id: string
+  domain: RecommendationDomain
+  severity: RecommendationSeverity
+  title: string
+  summary: string
+  rationale: string | null
+  evidence: RecommendationEvidence[]
+  actions: string[]
+  confidence: number | null
+  confidence_basis: string | null
+  status: string
+  generated_by: string
+  created_at: string
+  narrative: string | null
+}
+
+export interface RecommendationsResponse {
+  field_id: string
+  generated_at: string
+  engine: AiEngineInfo
+  domains: RecommendationDomain[]
+  counts: {
+    total: number
+    by_severity: Partial<Record<RecommendationSeverity, number>>
+  }
+  recommendations: Recommendation[]
+}
+
+export interface FieldInsightItem {
+  kind: string
+  title: string
+  detail: string
+  metric: string | null
+  value: number | null
+  baseline_mean: number | null
+  z: number | null
+  direction: 'above' | 'below' | 'flat' | null
+  severity: RecommendationSeverity
+}
+
+export interface FieldInsightsResponse {
+  field_id: string
+  insights: FieldInsightItem[]
+  summary: string | null
+  engine: AiEngineInfo
+}
+
+export interface AdvisorEvidence {
+  type: string
+  id: string
+  label: string
+  detail?: string | null
+}
+
+export interface AdvisorQueryResponse {
+  field_id: string
+  question: string
+  answer: string
+  evidence_used: AdvisorEvidence[]
+  engine: AiEngineInfo
+  disclaimer: string
+  created_at: string
+}
+
+export interface AdvisorHistoryMessage {
+  role: 'user' | 'assistant'
+  question: string | null
+  answer: string | null
+  created_at: string
+}
+
+export interface AdvisorHistoryResponse {
+  messages: AdvisorHistoryMessage[]
+}
+
 // The recovered management.tsx references `CoverPlan` without importing it
 // (lost in recovery); expose it globally so the component compiles untouched.
 declare global {

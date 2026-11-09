@@ -40,6 +40,7 @@ export const messageNamespaces = [
   'sensitivity',
   'robustplan',
   'decisions',
+  'aiinsights',
   'digitaltwin',
   'passport',
 ] as const

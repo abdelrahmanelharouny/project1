@@ -15,6 +15,7 @@ export type WorkspaceTab =
   | 'management'
   | 'sensitivity'
   | 'decisions'
+  | 'aiinsights'
   | 'digitaltwin'
   | 'robustplan'
   | 'passport'

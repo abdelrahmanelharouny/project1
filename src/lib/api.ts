@@ -6,6 +6,10 @@
  * the FastAPI mini-service. Absolute URLs are never used.
  */
 import type {
+  AdvisorEvidence,
+  AdvisorHistoryResponse,
+  AdvisorQueryResponse,
+  AiEngineInfo,
   ApiErrorBody,
   ApiErrorDetail,
   AuthSession,
@@ -30,6 +34,7 @@ import type {
   Field,
   FieldCreateInput,
   FieldCreateResponse,
+  FieldInsightsResponse,
   FieldListResponse,
   FieldMapResponse,
   FieldPatchInput,
@@ -39,6 +44,7 @@ import type {
   MeResponse,
   ObservationListResponse,
   ProvidersHealthResponse,
+  RecommendationsResponse,
   RegisterInput,
   FieldState,
   FieldStateCreateInput,
@@ -1367,4 +1373,43 @@ export function validateDigitalTwin(fieldId: string): Promise<TwinValidationResp
 
 export function listTwinValidations(fieldId: string): Promise<TwinValidationListResponse> {
   return request<TwinValidationListResponse>(`/api/v1/fields/${fieldId}/digital-twin/validations`)
+}
+
+// =============================================================
+// AI Insights — recommendations, field insights, advisor
+// =============================================================
+
+/** Stored recommendations for a field. `refresh=true` also regenerates inline. */
+export function getRecommendations(fieldId: string, refresh = false): Promise<RecommendationsResponse> {
+  return request<RecommendationsResponse>(
+    `/api/v1/fields/${fieldId}/recommendations${refresh ? '?refresh=true' : ''}`,
+  )
+}
+
+/** Regenerate recommendations through the AI pipeline (same shape as GET). */
+export function refreshRecommendations(fieldId: string): Promise<RecommendationsResponse> {
+  return request<RecommendationsResponse>(`/api/v1/fields/${fieldId}/recommendations/refresh`, {
+    method: 'POST',
+    body: {},
+  })
+}
+
+/** Anomaly/trend insights plus the short AI field brief. */
+export function getFieldInsights(fieldId: string): Promise<FieldInsightsResponse> {
+  return request<FieldInsightsResponse>(`/api/v1/fields/${fieldId}/insights`)
+}
+
+/** Ask the AI agronomist a question grounded in FieldShift engine outputs. */
+export function queryAdvisor(fieldId: string, question: string): Promise<AdvisorQueryResponse> {
+  return request<AdvisorQueryResponse>(`/api/v1/fields/${fieldId}/advisor/query`, {
+    method: 'POST',
+    body: { question },
+  })
+}
+
+/** Recent advisor conversation, oldest first (user/assistant pairs). */
+export function getAdvisorHistory(fieldId: string, limit = 20): Promise<AdvisorHistoryResponse> {
+  return request<AdvisorHistoryResponse>(
+    `/api/v1/fields/${fieldId}/advisor/history?limit=${limit}`,
+  )
 }
