@@ -56,7 +56,8 @@ def ensure_demo_workspace(db: Session) -> dict:
     created = False
     if user is None:
         user = User(email=DEMO_EMAIL, password_hash=hash_password(DEMO_PASSWORD),
-                    display_name="Demo Farmer (fixture)")
+                    display_name="Demo Farmer (fixture)",
+                    email_verified=True)
         db.add(user)
         org = Organization(name="Demo Organization (SYNTHETIC)")
         db.add(org)
@@ -64,6 +65,9 @@ def ensure_demo_workspace(db: Session) -> dict:
         db.add(Membership(organization_id=org.id, user_id=user.id, role_code="owner", status="active"))
         db.flush()
         created = True
+    elif not user.email_verified:
+        # Heal demo accounts created before email verification was enforced.
+        user.email_verified = True
 
     org_id = db.scalar(select(Membership.organization_id).where(Membership.user_id == user.id))
     farm = db.scalar(select(Farm).where(Farm.organization_id == org_id))

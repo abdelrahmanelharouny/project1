@@ -14,6 +14,9 @@ JOBS = [
     ('07-request-lifecycle.html', '07-request-lifecycle.png', 1600),
     ('08-soil-science-pipeline.html', '08-soil-science-pipeline.png', 1220),
     ('09-data-governance.html', '09-data-governance.png', 1320),
+    ('10-role-journey.html', '10-role-journey.png', 1560),
+    ('11-tech-stack.html', '11-tech-stack.png', 1430),
+    ('12-security-architecture.html', '12-security-architecture.png', 1280),
 ]
 
 async def render(page, html_name, png_name, width):

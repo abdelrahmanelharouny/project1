@@ -102,7 +102,22 @@ def client():
 @pytest.fixture(autouse=True)
 def clean_tables():
     yield
-    for attempt in range(2):
+    # Existence-filtered, retrying truncate. Two failure modes observed on
+    # this sandbox (both intermittent, order/timing dependent):
+    #  1. UndefinedTable — Base.metadata can know a table the test DB has not
+    #     got yet (metadata grows as tests lazily import model modules).
+    #     TRUNCATE now references ONLY tables that actually exist.
+    #  2. Deadlock — the single-statement TRUNCATE takes ~81 AccessExclusive
+    #     locks one by one and can cross-lock with a lazy seeder running on
+    #     another pooled connection (load_knowledge -> seed_default_packs).
+    #     PostgreSQL resolves the deadlock in ~1s (deadlock_timeout); the
+    #     victim's transaction aborts, so a short retry on a FRESH
+    #     transaction reliably completes the cleanup.
+    postgis_internal = (
+        "'alembic_version', 'spatial_ref_sys', 'geography_columns', 'geometry_columns'"
+    )
+    last_exc: Exception | None = None
+    for attempt in range(3):
         try:
             with engine.begin() as conn:
                 # Fail fast instead of hanging the suite: lock waits cap at
@@ -110,23 +125,23 @@ def clean_tables():
                 # on this storage previously blocked runs indefinitely).
                 conn.exec_driver_sql("SET lock_timeout = '10s'")
                 conn.exec_driver_sql("SET statement_timeout = '120s'")
+                rows = conn.exec_driver_sql(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                    f"AND tablename NOT IN ({postgis_internal}) ORDER BY tablename"
+                ).fetchall()
+                tables = ", ".join(f'"{row[0]}"' for row in rows)
                 # One statement for ALL tables: TRUNCATE of the full set needs
                 # no CASCADE (every referencing table is included) and issues
                 # one relation-lock cycle instead of ~80.
-                tables = ", ".join(f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables))
-                conn.exec_driver_sql(f"TRUNCATE TABLE {tables}")
+                if tables:
+                    conn.exec_driver_sql(f"TRUNCATE TABLE {tables}")
             return
-        except Exception:
-            if attempt == 1:
-                raise
-            # Retry once with the historical per-table CASCADE path on a
-            # FRESH transaction (the failed attempt aborts its transaction —
-            # retrying on it would raise InFailedSqlTransaction).
-            with engine.begin() as conn:
-                conn.exec_driver_sql("SET lock_timeout = '10s'")
-                conn.exec_driver_sql("SET statement_timeout = '300s'")
-                for table in reversed(Base.metadata.sorted_tables):
-                    conn.exec_driver_sql(f'TRUNCATE TABLE "{table.name}" CASCADE')
+        except Exception as exc:  # noqa: BLE001 — any DB error: back off, retry
+            last_exc = exc
+            import time as _time
+
+            _time.sleep(1.0 + attempt)
+    assert last_exc is None, f"clean_tables truncate failed after retries: {last_exc}"
 
 
 @pytest.fixture(scope="session", autouse=False)

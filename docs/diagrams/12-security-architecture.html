@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1280px; margin: 0 auto; padding: 48px 52px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 34px; }
+
+  .band { border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC; padding: 24px 20px 18px; position: relative; }
+  .band-label { position: absolute; top: -11px; left: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; }
+  .band-claim { position: absolute; top: -14px; right: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #64748B; }
+
+  .cards { display: flex; gap: 14px; }
+  .card {
+    background: #FFFFFF; border: 1.5px solid #94A3B8; border-radius: 10px;
+    padding: 12px 15px; flex: 1; min-width: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .card .c-name { font-size: 13.5px; font-weight: 700; line-height: 1.35; }
+  .card .c-desc { font-size: 12px; color: #475569; line-height: 1.6; margin-top: 5px; }
+  .card .c-desc b { color: #111827; }
+  .card .c-desc i { color: #64748B; font-style: normal; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; }
+
+  .zone-row { display: flex; gap: 18px; margin-top: 26px; align-items: stretch; }
+  .zone { flex: 1; }
+
+  .seq { margin-top: 26px; }
+  .seq-flow { display: flex; align-items: stretch; gap: 0; }
+  .step {
+    flex: 1; background: #FFFFFF; border: 2px solid #64748B; border-radius: 10px;
+    padding: 10px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); min-width: 0;
+  }
+  .step .st-num { display: inline-block; font-size: 10.5px; font-weight: 800; color: #475569; background: #F1F5F9; border: 1px solid #E2E8F0; border-radius: 9px; padding: 0 7px; }
+  .step .st-name { font-size: 12.5px; font-weight: 700; margin-top: 5px; line-height: 1.3; }
+  .step .st-desc { font-size: 12px; color: #64748B; line-height: 1.5; margin-top: 4px; }
+  .step.alert { border-color: #F87171; background: #FEF2F2; }
+  .step.alert .st-name { color: #991B1B; }
+  .step.alert .st-desc { color: #B91C1C; }
+  .step.alert .st-num { color: #991B1B; background: #FEE2E2; border-color: #FECACA; }
+  .flow-arrow { display: flex; align-items: center; flex-shrink: 0; padding: 0 1px; }
+  .flow-arrow .f-stem { width: 12px; height: 2px; background: #94A3B8; }
+  .flow-arrow .f-head { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid #94A3B8; }
+
+  .strip { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
+  .strip .stat { font-size: 12.5px; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 7px 14px; }
+  .strip .stat b { color: #111827; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">FieldShift Security Architecture</div>
+  <div class="subtitle">Defense in depth on a single origin &mdash; identity, authorization, audit and transport controls, with refresh-token reuse detected and revoked</div>
+
+  <!-- ZONE A: IDENTITY & ACCESS -->
+  <div class="band">
+    <div class="band-label">Identity &amp; Access</div><div class="band-claim">short-lived sessions, hardened credentials</div>
+    <div class="cards">
+      <div class="card"><div class="c-name">Password hashing</div><div class="c-desc">PBKDF2-HMAC-SHA256 at <b>600,000 iterations</b> with a per-user salt. The iteration count is <i>embedded</i> in every stored hash, so rising work factors re-hash transparently at next login.</div></div>
+      <div class="card"><div class="c-name">Access token</div><div class="c-desc">Bearer JSON Web Token with a <b>12-hour</b> lifetime; carries the caller&rsquo;s identity and workspace context on every request.</div></div>
+      <div class="card"><div class="c-name">Refresh token rotation</div><div class="c-desc"><b>30-day</b> refresh tokens rotate on every use. Presenting a retired token is treated as theft: the <b>entire token family is revoked</b>.</div></div>
+    </div>
+    <div class="cards" style="margin-top: 14px;">
+      <div class="card"><div class="c-name">Account lockout</div><div class="c-desc"><b>5</b> consecutive failed logins lock the account for <b>15 minutes</b>; the lockout window is advertised to the client.</div></div>
+      <div class="card"><div class="c-name">Authentication rate limiting</div><div class="c-desc">Sliding-window limit of <b>10 requests per minute</b> on authentication endpoints, per client &mdash; dependency-free and enforced in-process.</div></div>
+      <div class="card"><div class="c-name">Recovery &amp; verification tokens</div><div class="c-desc">Single-use, time-boxed tokens: password reset expires in <b>1 hour</b>, email verification in <b>24 hours</b>; both are consumed on first use.</div></div>
+    </div>
+  </div>
+
+  <!-- ZONES B, C, D -->
+  <div class="zone-row">
+    <div class="zone band">
+      <div class="band-label">Authorization</div>
+      <div class="cards" style="flex-direction: column; gap: 12px;">
+        <div class="card"><div class="c-name">Per-farm membership RBAC</div><div class="c-desc">Authority derives from farm membership in four ordered roles: <b>owner &gt; manager &gt; agronomist &gt; viewer</b>. The same account may hold different roles on different farms.</div></div>
+        <div class="card"><div class="c-name">Tenant isolation in the service layer</div><div class="c-desc">Every query is scoped to the caller&rsquo;s farms before it reaches the database; viewers are read-only across all modules.</div></div>
+      </div>
+    </div>
+    <div class="zone band">
+      <div class="band-label">Audit &amp; Traceability</div>
+      <div class="cards" style="flex-direction: column; gap: 12px;">
+        <div class="card"><div class="c-name">AuditEvent records</div><div class="c-desc">Append-only trail of login success and failure, token refresh, refresh-reuse detection, role changes and password events.</div></div>
+        <div class="card"><div class="c-name">Request correlation</div><div class="c-desc"><i>x-request-id</i> is propagated from the gateway through the API into logs, error payloads and background jobs.</div></div>
+      </div>
+    </div>
+    <div class="zone band">
+      <div class="band-label">Transport &amp; Configuration</div>
+      <div class="cards" style="flex-direction: column; gap: 12px;">
+        <div class="card"><div class="c-name">Same-origin gateway</div><div class="c-desc">SPA and API are served behind one gateway origin; the API port is never directly exposed.</div></div>
+        <div class="card"><div class="c-name">CORS allow-list &amp; upload guard</div><div class="c-desc">Cross-origin access limited to approved origins; request bodies capped at <b>32 MB</b> for CSV and GeoTIFF imports.</div></div>
+        <div class="card"><div class="c-name">Configuration hygiene</div><div class="c-desc">All settings read from <i>FIELDSHIFT_*</i>-prefixed environment variables; development mode is explicitly <b>off by default</b>.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SEQUENCE STRIP -->
+  <div class="seq band">
+    <div class="band-label">Token lifecycle under attack &mdash; sequence</div>
+    <div class="seq-flow">
+      <div class="step"><span class="st-num">1</span><div class="st-name">Login</div><div class="st-desc">Credentials verified over HTTPS; lockout and rate limit guard the endpoint.</div></div>
+      <div class="flow-arrow"><div class="f-stem"></div><div class="f-head"></div></div>
+      <div class="step"><span class="st-num">2</span><div class="st-name">Tokens issued</div><div class="st-desc">Access token (12 h) plus refresh token (30 d) forming one rotation family.</div></div>
+      <div class="flow-arrow"><div class="f-stem"></div><div class="f-head"></div></div>
+      <div class="step"><span class="st-num">3</span><div class="st-name">401 received</div><div class="st-desc">Access token expires mid-session; the API rejects the request.</div></div>
+      <div class="flow-arrow"><div class="f-stem"></div><div class="f-head"></div></div>
+      <div class="step"><span class="st-num">4</span><div class="st-name">Refresh &amp; retry</div><div class="st-desc">Client redeems the refresh token once and replays the failed request.</div></div>
+      <div class="flow-arrow"><div class="f-stem"></div><div class="f-head"></div></div>
+      <div class="step alert"><span class="st-num">5</span><div class="st-name">Reuse detected</div><div class="st-desc">A refresh token that was already rotated is presented again.</div></div>
+      <div class="flow-arrow"><div class="f-stem"></div><div class="f-head"></div></div>
+      <div class="step alert"><span class="st-num">6</span><div class="st-name">Family revoked</div><div class="st-desc">All descendant tokens are invalidated; re-login is required and the event is audited.</div></div>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="stat"><b>176</b> endpoints &mdash; all bearer-protected except public health checks</div>
+    <div class="stat">Security events land in an <b>append-only</b> audit table</div>
+    <div class="stat">Every response carries <b>x-request-id</b></div>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 12 of 12</span>
+  </div>
+</div>
+</body>
+</html>

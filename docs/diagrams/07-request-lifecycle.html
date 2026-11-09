@@ -11,7 +11,7 @@
   .title { font-size: 24px; font-weight: 700; text-align: center; }
   .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 36px; }
 
-  #seq { position: relative; width: 1440px; margin: 0 auto; height: 1210px; }
+  #seq { position: relative; width: 1440px; margin: 0 auto; height: 2320px; }
 
   .actor {
     position: absolute; top: 0; width: 176px; text-align: center;
@@ -79,7 +79,7 @@
 <body>
 <div id="root">
   <div class="title">Security &amp; Request Lifecycle</div>
-  <div class="subtitle">How an unauthenticated login becomes a workspace-scoped, audited data exchange &mdash; five participants, two phases</div>
+  <div class="subtitle">How an unauthenticated login becomes a workspace-scoped, audited data exchange &mdash; five participants, four phases</div>
 
   <div id="seq">
     <!-- participants -->
@@ -90,11 +90,11 @@
     <div class="actor db"      style="left: 1242px;"><div class="a-name">Database</div><div class="a-sub">PostgreSQL + PostGIS &middot; :5433</div></div>
 
     <!-- lifelines -->
-    <div class="lifeline" style="left: 150px; height: 1120px;"></div>
-    <div class="lifeline" style="left: 445px; height: 1120px;"></div>
-    <div class="lifeline" style="left: 740px; height: 1120px;"></div>
-    <div class="lifeline" style="left: 1035px; height: 1120px;"></div>
-    <div class="lifeline" style="left: 1300px; height: 1120px;"></div>
+    <div class="lifeline" style="left: 150px; height: 2120px;"></div>
+    <div class="lifeline" style="left: 445px; height: 2120px;"></div>
+    <div class="lifeline" style="left: 740px; height: 2120px;"></div>
+    <div class="lifeline" style="left: 1035px; height: 2120px;"></div>
+    <div class="lifeline" style="left: 1300px; height: 2120px;"></div>
 
     <!-- PHASE A -->
     <div class="phase-band" style="top: 92px;"><span class="pb-tag">Phase A</span> Authentication &amp; session issue</div>
@@ -164,17 +164,82 @@
       <div class="m-line dashed"><div class="m-head-l"></div></div>
     </div>
 
+    <!-- PHASE C -->
+    <div class="phase-band" style="top: 1120px;"><span class="pb-tag">Phase C</span> Asynchronous long-running operation</div>
+
+    <div class="msg" style="top: 1204px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">15</span>POST /api/v1/scenario-executions &mdash; long-running analysis request</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 1260px; left: 445px; width: 295px;">
+      <div class="m-label"><span class="m-num">16</span>forward &middot; :3000</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 1316px; left: 740px; width: 295px;">
+      <div class="m-label"><span class="m-num">17</span>proxy &middot; :3030</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+
+    <div class="self-stub" style="top: 1386px; left: 1035px; width: 26px;"></div>
+    <div class="self-note" style="top: 1364px; left: 1065px;">
+      <b>18 &middot; Queue as a background job</b> &mdash; validate the request, record a BackgroundJob row and return immediately; in-process workers execute it with progress and stage tracking.
+    </div>
+
+    <div class="msg" style="top: 1490px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">19</span>HTTP 202 Accepted &mdash; job id &middot; Location: /api/v1/jobs/background/{id}</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+    <div class="msg" style="top: 1546px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">20</span>poll GET /api/v1/jobs/background/{id} &middot; Authorization: Bearer</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 1602px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">21</span>HTTP 200 &mdash; progress % &middot; current stage (repeat while running)</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+    <div class="msg" style="top: 1658px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">22</span>HTTP 200 &mdash; terminal state &middot; succeeded: result &middot; failed: reason</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+
+    <!-- PHASE D -->
+    <div class="phase-band" style="top: 1740px;"><span class="pb-tag">Phase D</span> Token expiry &amp; silent refresh</div>
+
+    <div class="msg" style="top: 1824px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">23</span>GET /api/v1/&hellip; &mdash; bearer access token expired</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 1880px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">24</span>HTTP 401 Unauthorized &mdash; expired token rejected</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+
+    <div class="self-stub" style="top: 1952px; left: 1035px; width: 26px;"></div>
+    <div class="self-note" style="top: 1930px; left: 1065px;">
+      <b>25 &middot; Refresh once</b> &mdash; POST /api/v1/auth/refresh with the rotating refresh token issues a new access token, and the failed request is retried exactly once. Reuse of a retired refresh token revokes the whole token family.
+    </div>
+
+    <div class="msg" style="top: 2064px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">26</span>retry original request &mdash; new bearer token</div>
+      <div class="m-line"><div class="m-head-r"></div></div>
+    </div>
+    <div class="msg" style="top: 2120px; left: 150px; width: 885px;">
+      <div class="m-label"><span class="m-num">27</span>HTTP 200 &mdash; request succeeds &middot; refresh event audited</div>
+      <div class="m-line dashed"><div class="m-head-l"></div></div>
+    </div>
+
     <!-- bottom notes -->
-    <div class="note-band" style="top: 1118px;">
+    <div class="note-band" style="top: 2186px;">
       <div class="note-card"><b>Public endpoints.</b> Only <b>/api/v1/health</b> liveness and readiness checks are reachable without a token. Every other endpoint requires a valid bearer token issued by the authentication service.</div>
-      <div class="note-card"><b>Audit trail.</b> Security-relevant actions (logins, token issue and revoke, data changes) are recorded in an append-only audit table, and every query is scoped to the caller&rsquo;s organization.</div>
+      <div class="note-card"><b>Audit trail.</b> Security-relevant actions (logins, token issue, refresh and revoke, data changes) are recorded in an append-only audit table, and every query is scoped to the caller&rsquo;s organization.</div>
+      <div class="note-card"><b>Asynchronous honesty.</b> Long-running analyses answer <b>202 Accepted</b> with a job id; progress and stage are polled from <b>/jobs/background/{id}</b> &mdash; no request is ever silently dropped.</div>
       <div class="note-card"><b>Connection hygiene.</b> Database connections are pooled and recycled on a fixed schedule, so long-lived services never hold stale sessions.</div>
     </div>
   </div>
 
   <div class="fig-foot">
     <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
-    <span>Figure 7 of 9</span>
+    <span>Figure 7 of 12</span>
   </div>
 </div>
 </body>

@@ -136,20 +136,26 @@
         <div class="n-title">FastAPI Modular Monolith</div>
         <div class="n-sub">uvicorn &middot; port 3030 &middot; /api/v1</div>
         <div class="router-chips">
-          <span class="chip">auth <b>4</b></span><span class="chip">farms <b>2</b></span>
-          <span class="chip">fields <b>4</b></span><span class="chip">data_platform <b>12</b></span>
-          <span class="chip">features <b>5</b></span><span class="chip">knowledge <b>9</b></span>
-          <span class="chip">rotation <b>6</b></span><span class="chip">water <b>4</b></span>
-          <span class="chip">field_states <b>5</b></span><span class="chip">scenarios <b>11</b></span>
-          <span class="chip">soil <b>19</b></span><span class="chip">management <b>23</b></span>
-          <span class="chip">scenario_executions <b>6</b></span><span class="chip">sensitivity <b>7</b></span>
-          <span class="chip">robust_rotation <b>8</b></span><span class="chip">decision <b>3</b></span>
+          <span class="chip">auth <b>9</b></span><span class="chip">members <b>4</b></span>
+          <span class="chip">jobs <b>2</b></span><span class="chip">farms <b>4</b></span>
+          <span class="chip">fields <b>7</b></span><span class="chip">data_platform <b>12</b></span>
+          <span class="chip">features <b>6</b></span><span class="chip">knowledge <b>9</b></span>
+          <span class="chip">rotation <b>8</b></span><span class="chip">water <b>6</b></span>
+          <span class="chip">field_states <b>6</b></span><span class="chip">scenarios <b>15</b></span>
+          <span class="chip">soil <b>23</b></span><span class="chip">management <b>30</b></span>
+          <span class="chip">scenario_executions <b>7</b></span><span class="chip">sensitivity <b>8</b></span>
+          <span class="chip">robust_rotation <b>11</b></span><span class="chip">decision <b>4</b></span>
           <span class="chip">digital_twin <b>3</b></span><span class="chip">health <b>2</b></span>
         </div>
         <div class="n-desc" style="margin-top:10px">
           <b>Domain engines:</b> geospatial (PostGIS + PyProj geodesics) &middot; soil science engine v1.0 (USDA texture triangle, SOC stock) &middot; feature engine &middot; rotation planner &middot; water intelligence &middot; scenario execution &middot; sensitivity (one-at-a-time + 2-D grids) &middot; robust planning (constraint optimization) &middot; decision comparisons &middot; digital twin.
-          <br><b>Security:</b> bearer-token authentication with workspace-scoped authorization. <b>Data honesty policy:</b> a missing capability is reported as <i>unknown</i>, never as poor health.
+          <br><b>Security:</b> bearer-token authentication, per-farm membership RBAC (owner &gt; manager &gt; agronomist &gt; viewer), append-only audit trail, request-ID logging. <b>Data honesty policy:</b> a missing capability is reported as <i>unknown</i>, never as poor health.
         </div>
+      </div>
+      <div class="node backend" style="max-width: 300px; min-width: 260px;">
+        <div class="n-title">Background Job Workers</div>
+        <div class="n-sub">in-process pool &middot; progress &amp; stage tracking</div>
+        <div class="n-desc">Long-running operations are recorded as BackgroundJob rows and executed by workers inside the API process &mdash; callers receive <b>202 Accepted</b> with a job id and poll <b>/jobs/background/{id}</b> for progress percentage and current stage, instead of holding the request open.</div>
       </div>
     </div>
   </div>
@@ -199,8 +205,8 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><b>18</b> API routers</div>
-    <div class="stat"><b>133</b> REST endpoints</div>
+    <div class="stat"><b>20</b> API routers</div>
+    <div class="stat"><b>176</b> REST endpoints</div>
     <div class="stat"><b>81</b> database tables</div>
     <div class="stat"><b>15</b> workspace modules</div>
     <div class="stat"><b>5</b> functional domains</div>
@@ -208,7 +214,7 @@
 
   <div class="fig-foot">
     <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
-    <span>Figure 1 of 9</span>
+    <span>Figure 1 of 12</span>
   </div>
 </div>
 </body>

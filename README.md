@@ -36,7 +36,7 @@ All analytics artifacts are immutable and checksummed; every module exposes `/ve
 ├── db/                           # user-space PostgreSQL runtime (gitignored data)
 └── mini-services/fieldshift-api/ # FastAPI backend (modular monolith)
     ├── app/                      # api/v1 routers, domains, feature/rotation/water/soil/… engines
-    ├── migrations/               # Alembic (head 0015_auth_hardening)
+    ├── migrations/               # Alembic (head 0016_background_jobs)
     ├── tests/                    # pytest: unit / integration / contract (real PostGIS)
     ├── docs/                     # backend docs cited from the code
     ├── Dockerfile                # python:3.12-slim, non-root, healthcheck

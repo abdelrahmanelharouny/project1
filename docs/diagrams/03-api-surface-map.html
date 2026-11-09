@@ -53,53 +53,55 @@
 </head>
 <body>
 <div id="root">
-  <div class="title">FieldShift REST API Surface &mdash; 133 endpoints &middot; 18 routers</div>
+  <div class="title">FieldShift REST API Surface &mdash; 176 endpoints &middot; 20 routers</div>
   <div class="subtitle">Unique route templates per router under <b>/api/v1</b>, grouped by functional domain &middot; all endpoints bearer-token protected except public health checks</div>
 
   <div class="era">
-    <div class="era-label">Platform Foundation</div><div class="era-total">24 endpoints</div>
+    <div class="era-label">Platform Foundation</div><div class="era-total">40 endpoints</div>
     <div class="cards">
       <div class="card slate"><div class="c-name">health</div><div class="c-prefix">/api/v1/health</div><div class="c-count"><b>2</b>public liveness / readiness</div></div>
-      <div class="card slate"><div class="c-name">auth</div><div class="c-prefix">/api/v1/auth</div><div class="c-count"><b>4</b>login &middot; demo &middot; me &middot; logout</div></div>
-      <div class="card slate"><div class="c-name">farms</div><div class="c-prefix">/api/v1/farms</div><div class="c-count"><b>2</b>farm registry</div></div>
-      <div class="card slate"><div class="c-name">fields</div><div class="c-prefix">/api/v1/fields</div><div class="c-count"><b>4</b>boundaries &middot; geometry</div></div>
+      <div class="card slate"><div class="c-name">auth</div><div class="c-prefix">/api/v1/auth</div><div class="c-count"><b>9</b>register &middot; login &middot; refresh &amp; logout &middot; lockout &middot; password reset &middot; email verification</div></div>
+      <div class="card slate"><div class="c-name">members</div><div class="c-prefix">/api/v1/farms/{id}/members</div><div class="c-count"><b>4</b>list &middot; add &middot; change role &middot; remove</div></div>
+      <div class="card slate"><div class="c-name">farms</div><div class="c-prefix">/api/v1/farms</div><div class="c-count"><b>4</b>farm registry</div></div>
+      <div class="card slate"><div class="c-name">fields</div><div class="c-prefix">/api/v1/fields</div><div class="c-count"><b>7</b>boundaries &middot; geometry</div></div>
+      <div class="card slate"><div class="c-name">jobs</div><div class="c-prefix">/api/v1/jobs/background</div><div class="c-count"><b>2</b>poll status &middot; progress &amp; stage</div></div>
       <div class="card slate"><div class="c-name">data_platform</div><div class="c-prefix">/api/v1/data</div><div class="c-count"><b>12</b>sources &middot; products &middot; ingestion jobs</div></div>
     </div>
   </div>
 
   <div class="era">
-    <div class="era-label">Agronomic Intelligence</div><div class="era-total">24 endpoints</div>
+    <div class="era-label">Agronomic Intelligence</div><div class="era-total">29 endpoints</div>
     <div class="cards">
-      <div class="card blue"><div class="c-name">features</div><div class="c-prefix">/api/v1/features</div><div class="c-count"><b>5</b>engine &middot; definitions &middot; runs</div></div>
+      <div class="card blue"><div class="c-name">features</div><div class="c-prefix">/api/v1/features</div><div class="c-count"><b>6</b>engine &middot; definitions &middot; runs</div></div>
       <div class="card blue"><div class="c-name">knowledge</div><div class="c-prefix">/api/v1/knowledge</div><div class="c-count"><b>9</b>packs &middot; sources &middot; crops</div></div>
-      <div class="card blue"><div class="c-name">rotation</div><div class="c-prefix">/api/v1/rotation</div><div class="c-count"><b>6</b>rules &middot; strategies &middot; runs</div></div>
-      <div class="card blue"><div class="c-name">water</div><div class="c-prefix">/api/v1/water</div><div class="c-count"><b>4</b>irrigation plans</div></div>
+      <div class="card blue"><div class="c-name">rotation</div><div class="c-prefix">/api/v1/rotation</div><div class="c-count"><b>8</b>rules &middot; strategies &middot; runs</div></div>
+      <div class="card blue"><div class="c-name">water</div><div class="c-prefix">/api/v1/water</div><div class="c-count"><b>6</b>irrigation plans</div></div>
     </div>
   </div>
 
   <div class="era">
-    <div class="era-label">Soil &amp; Management Science</div><div class="era-total">42 endpoints</div>
+    <div class="era-label">Soil &amp; Management Science</div><div class="era-total">53 endpoints</div>
     <div class="cards">
-      <div class="card teal"><div class="c-name">soil</div><div class="c-prefix">/api/v1/soil</div><div class="c-count"><b>19</b>samplings &middot; layers &middot; USDA texture &middot; SOC stock &middot; assessments</div></div>
-      <div class="card teal"><div class="c-name">management</div><div class="c-prefix">/api/v1/management</div><div class="c-count"><b>23</b>nutrient budgets &middot; cover crops &middot; residue &middot; operations &middot; plans</div></div>
+      <div class="card teal"><div class="c-name">soil</div><div class="c-prefix">/api/v1/soil</div><div class="c-count"><b>23</b>samplings &middot; layers &middot; USDA texture &middot; SOC stock &middot; assessments</div></div>
+      <div class="card teal"><div class="c-name">management</div><div class="c-prefix">/api/v1/management</div><div class="c-count"><b>30</b>nutrient budgets &middot; cover crops &middot; residue &middot; operations &middot; plans</div></div>
     </div>
   </div>
 
   <div class="era">
-    <div class="era-label">Field Baseline &amp; Scenario Governance</div><div class="era-total">16 endpoints</div>
+    <div class="era-label">Field Baseline &amp; Scenario Governance</div><div class="era-total">21 endpoints</div>
     <div class="cards">
-      <div class="card purple"><div class="c-name">field_states</div><div class="c-prefix">/api/v1/field-states</div><div class="c-count"><b>5</b>immutable snapshots &middot; checksums</div></div>
-      <div class="card purple"><div class="c-name">scenarios</div><div class="c-prefix">/api/v1/scenarios</div><div class="c-count"><b>11</b>types &middot; lineage &middot; validation records</div></div>
+      <div class="card purple"><div class="c-name">field_states</div><div class="c-prefix">/api/v1/field-states</div><div class="c-count"><b>6</b>immutable snapshots &middot; checksums</div></div>
+      <div class="card purple"><div class="c-name">scenarios</div><div class="c-prefix">/api/v1/scenarios</div><div class="c-count"><b>15</b>types &middot; lineage &middot; validation records</div></div>
     </div>
   </div>
 
   <div class="era" style="margin-bottom: 0;">
-    <div class="era-label">Analysis &amp; Decision Support</div><div class="era-total">27 endpoints</div>
+    <div class="era-label">Analysis &amp; Decision Support</div><div class="era-total">33 endpoints</div>
     <div class="cards">
-      <div class="card amber"><div class="c-name">scenario_executions</div><div class="c-prefix">/api/v1/scenario-executions</div><div class="c-count"><b>6</b>runs &middot; derived observations</div></div>
-      <div class="card amber"><div class="c-name">sensitivity</div><div class="c-prefix">/api/v1/sensitivity</div><div class="c-count"><b>7</b>OAT &middot; grids &middot; uncertainty</div></div>
-      <div class="card amber"><div class="c-name">robust_rotation</div><div class="c-prefix">/api/v1/robust-rotation</div><div class="c-count"><b>8</b>sets &middot; strategies &middot; evaluations</div></div>
-      <div class="card amber"><div class="c-name">decision</div><div class="c-prefix">/api/v1/decisions</div><div class="c-count"><b>3</b>side-by-side comparisons</div></div>
+      <div class="card amber"><div class="c-name">scenario_executions</div><div class="c-prefix">/api/v1/scenario-executions</div><div class="c-count"><b>7</b>runs &middot; derived observations</div></div>
+      <div class="card amber"><div class="c-name">sensitivity</div><div class="c-prefix">/api/v1/sensitivity</div><div class="c-count"><b>8</b>OAT &middot; grids &middot; uncertainty</div></div>
+      <div class="card amber"><div class="c-name">robust_rotation</div><div class="c-prefix">/api/v1/robust-rotation</div><div class="c-count"><b>11</b>sets &middot; strategies &middot; evaluations</div></div>
+      <div class="card amber"><div class="c-name">decision</div><div class="c-prefix">/api/v1/decisions</div><div class="c-count"><b>4</b>side-by-side comparisons</div></div>
       <div class="card amber"><div class="c-name">digital_twin</div><div class="c-prefix">/api/v1/digital-twin</div><div class="c-count"><b>3</b>twin validations</div></div>
     </div>
   </div>
@@ -114,7 +116,7 @@
 
   <div class="fig-foot">
     <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
-    <span>Figure 3 of 9</span>
+    <span>Figure 3 of 12</span>
   </div>
 </div>
 </body>

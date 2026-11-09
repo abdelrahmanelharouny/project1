@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1560px; margin: 0 auto; padding: 48px 52px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 34px; }
+
+  #board { width: 1456px; margin: 0 auto; }
+
+  .lane-row { display: flex; gap: 12px; margin-bottom: 12px; align-items: stretch; }
+  .lane-row:last-child { margin-bottom: 0; }
+  .lane-label { width: 208px; flex-shrink: 0; }
+  .cell { flex: 1; }
+
+  .stage-head { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 9px 12px 8px; }
+  .stage-head .s-num { display: inline-block; font-size: 11px; font-weight: 800; color: #FFFFFF; background: #475569; border-radius: 9px; padding: 1px 8px; letter-spacing: 0.04em; }
+  .stage-head .s-name { font-size: 12.5px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; line-height: 1.3; }
+  .stage-head .s-sub { font-size: 12px; color: #94A3B8; margin-top: 2px; line-height: 1.35; }
+
+  .role-card { border: 2px solid; border-radius: 10px; padding: 12px 14px; height: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .role-card .r-name { font-size: 15px; font-weight: 700; line-height: 1.3; }
+  .role-card .r-sub { font-size: 12px; color: #475569; margin-top: 4px; line-height: 1.45; }
+  .meter { display: flex; gap: 4px; margin-top: 11px; }
+  .meter span { width: 24px; height: 6px; border-radius: 3px; background: #E2E8F0; }
+  .meter .on-o { background: #1D4ED8; } .meter .on-m { background: #2563EB; }
+  .meter .on-a { background: #60A5FA; } .meter .on-v { background: #93C5FD; }
+  .role-card .r-depth { font-size: 11.5px; font-weight: 600; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 6px; }
+
+  .cap {
+    background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px;
+    padding: 11px 13px; height: 100%;
+  }
+  .cap ul { list-style: none; }
+  .cap li { font-size: 12px; color: #475569; line-height: 1.45; padding-left: 13px; position: relative; }
+  .cap li + li { margin-top: 6px; }
+  .cap li::before { content: ''; position: absolute; left: 0; top: 6px; width: 5px; height: 5px; border-radius: 2px; }
+
+  .cap.owner    { border-left: 3px solid #1D4ED8; } .cap.owner    li::before { background: #93B4F5; }
+  .cap.manager  { border-left: 3px solid #2563EB; } .cap.manager  li::before { background: #A5C2F7; }
+  .cap.agro     { border-left: 3px solid #60A5FA; } .cap.agro     li::before { background: #B9D3FA; }
+  .cap.viewer   { border-left: 3px solid #93C5FD; } .cap.viewer   li::before { background: #CDE0FC; }
+
+  .role-card.owner   { border-color: #1D4ED8; background: #EFF6FF; }
+  .role-card.manager { border-color: #2563EB; background: #F3F8FF; }
+  .role-card.agro    { border-color: #60A5FA; background: #F7FAFF; }
+  .role-card.viewer  { border-color: #93C5FD; background: #FAFCFF; }
+
+  .band { border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC; padding: 24px 20px 18px; position: relative; margin-top: 26px; }
+  .band-label { position: absolute; top: -11px; left: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; }
+  .band-claim { position: absolute; top: -14px; right: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #64748B; }
+  .row { display: flex; gap: 14px; align-items: stretch; }
+  .ncard { background: #FFFFFF; border: 1.5px solid #94A3B8; border-radius: 10px; padding: 12px 15px; flex: 1; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .ncard .n-name { font-size: 13.5px; font-weight: 700; }
+  .ncard .n-desc { font-size: 12px; color: #475569; line-height: 1.6; margin-top: 5px; }
+
+  .legend { display: flex; gap: 20px; justify-content: center; align-items: center; margin-top: 24px; flex-wrap: wrap; }
+  .legend span { font-size: 12px; color: #475569; display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+  .sw.owner { background: #1D4ED8; } .sw.manager { background: #2563EB; }
+  .sw.agro { background: #60A5FA; } .sw.viewer { background: #93C5FD; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">Role Journey &amp; Capability Map</div>
+  <div class="subtitle">What each FieldShift role can do at every stage of the farm lifecycle &mdash; privilege depth runs from Farm Owner to Viewer, enforced per farm through membership</div>
+
+  <div id="board">
+    <!-- stage headers -->
+    <div class="lane-row">
+      <div class="lane-label"></div>
+      <div class="cell stage-head"><span class="s-num">01</span><div class="s-name">Onboard &amp; Structure</div><div class="s-sub">set up the farm and its fields</div></div>
+      <div class="cell stage-head"><span class="s-num">02</span><div class="s-name">Data &amp; Evidence</div><div class="s-sub">bring observations under governance</div></div>
+      <div class="cell stage-head"><span class="s-num">03</span><div class="s-name">Analysis &amp; Simulation</div><div class="s-sub">model alternatives on the baseline</div></div>
+      <div class="cell stage-head"><span class="s-num">04</span><div class="s-name">Decision &amp; Plan</div><div class="s-sub">commit to a course of action</div></div>
+      <div class="cell stage-head"><span class="s-num">05</span><div class="s-name">Operate &amp; Record</div><div class="s-sub">execute the plan in the field</div></div>
+      <div class="cell stage-head"><span class="s-num">06</span><div class="s-name">Govern &amp; Audit</div><div class="s-sub">keep the record defensible</div></div>
+    </div>
+
+    <!-- Farm Owner -->
+    <div class="lane-row" style="margin-top: 14px;">
+      <div class="lane-label role-card owner">
+        <div class="r-name">Farm Owner</div>
+        <div class="r-sub">accountable for the farm &middot; manages members and roles</div>
+        <div class="meter"><span class="on-o"></span><span class="on-o"></span><span class="on-o"></span><span class="on-o"></span></div>
+        <div class="r-depth">privilege depth 4 / 4</div>
+      </div>
+      <div class="cell cap owner"><ul>
+        <li>Create the farm and its fields</li>
+        <li>Invite members and assign roles</li>
+        <li>Set the farm profile</li>
+      </ul></div>
+      <div class="cell cap owner"><ul>
+        <li>Oversee data ingestion</li>
+        <li>Trace data provenance</li>
+      </ul></div>
+      <div class="cell cap owner"><ul>
+        <li>Commission scenario runs</li>
+        <li>Review result summaries</li>
+      </ul></div>
+      <div class="cell cap owner"><ul>
+        <li>Approve the rotation plan</li>
+        <li>Sign off decision comparisons</li>
+      </ul></div>
+      <div class="cell cap owner"><ul>
+        <li>Monitor execution status</li>
+        <li>Resolve escalated issues</li>
+      </ul></div>
+      <div class="cell cap owner"><ul>
+        <li>Manage members and roles</li>
+        <li>Review the audit trail</li>
+      </ul></div>
+    </div>
+
+    <!-- Farm Manager -->
+    <div class="lane-row">
+      <div class="lane-label role-card manager">
+        <div class="r-name">Farm Manager</div>
+        <div class="r-sub">runs day-to-day operations and data collection</div>
+        <div class="meter"><span class="on-m"></span><span class="on-m"></span><span class="on-m"></span><span></span></div>
+        <div class="r-depth">privilege depth 3 / 4</div>
+      </div>
+      <div class="cell cap manager"><ul>
+        <li>Register field boundaries</li>
+        <li>Configure farm defaults</li>
+      </ul></div>
+      <div class="cell cap manager"><ul>
+        <li>Upload observations and CSV imports</li>
+        <li>Track ingestion jobs</li>
+      </ul></div>
+      <div class="cell cap manager"><ul>
+        <li>Launch scenario runs</li>
+        <li>Compare alternatives</li>
+      </ul></div>
+      <div class="cell cap manager"><ul>
+        <li>Commit the rotation plan</li>
+        <li>Plan operations and inputs</li>
+      </ul></div>
+      <div class="cell cap manager"><ul>
+        <li>Record field operations</li>
+        <li>Track completion status</li>
+      </ul></div>
+      <div class="cell cap manager"><ul>
+        <li>Review change history</li>
+        <li>Maintain quality flags</li>
+      </ul></div>
+    </div>
+
+    <!-- Agronomist -->
+    <div class="lane-row">
+      <div class="lane-label role-card agro">
+        <div class="r-name">Agronomist</div>
+        <div class="r-sub">technical analysis, modelling and advice</div>
+        <div class="meter"><span class="on-a"></span><span class="on-a"></span><span></span><span></span></div>
+        <div class="r-depth">privilege depth 2 / 4</div>
+      </div>
+      <div class="cell cap agro"><ul>
+        <li>Verify field geometry</li>
+        <li>Advise on agronomic setup</li>
+      </ul></div>
+      <div class="cell cap agro"><ul>
+        <li>Curate soil samplings</li>
+        <li>Flag observation quality</li>
+      </ul></div>
+      <div class="cell cap agro"><ul>
+        <li>Run soil and feature analyses</li>
+        <li>Run sensitivity analyses</li>
+      </ul></div>
+      <div class="cell cap agro"><ul>
+        <li>Recommend robust rotations</li>
+        <li>Quantify trade-offs</li>
+      </ul></div>
+      <div class="cell cap agro"><ul>
+        <li>Interpret in-season observations</li>
+        <li>Recommend adjustments</li>
+      </ul></div>
+      <div class="cell cap agro"><ul>
+        <li>Document method notes</li>
+        <li>Annotate evidence</li>
+      </ul></div>
+    </div>
+
+    <!-- Viewer -->
+    <div class="lane-row">
+      <div class="lane-label role-card viewer">
+        <div class="r-name">Viewer</div>
+        <div class="r-sub">read-only visibility across all modules</div>
+        <div class="meter"><span class="on-v"></span><span></span><span></span><span></span></div>
+        <div class="r-depth">privilege depth 1 / 4</div>
+      </div>
+      <div class="cell cap viewer"><ul>
+        <li>View the farm structure</li>
+        <li>Browse the field map</li>
+      </ul></div>
+      <div class="cell cap viewer"><ul>
+        <li>View the data catalog</li>
+        <li>Read provenance metadata</li>
+      </ul></div>
+      <div class="cell cap viewer"><ul>
+        <li>View published results</li>
+        <li>Follow run progress</li>
+      </ul></div>
+      <div class="cell cap viewer"><ul>
+        <li>View decision comparisons</li>
+        <li>Read plan summaries</li>
+      </ul></div>
+      <div class="cell cap viewer"><ul>
+        <li>View operational records</li>
+        <li>Read completion status</li>
+      </ul></div>
+      <div class="cell cap viewer"><ul>
+        <li>Read audit summaries</li>
+        <li>View member list</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <div class="band-label">Role enforcement model</div><div class="band-claim">authority is scoped per farm, not per account</div>
+    <div class="row">
+      <div class="ncard"><div class="n-name">Per-farm membership RBAC</div><div class="n-desc">Roles attach to farm membership. Authority is ordered <b>owner &gt; manager &gt; agronomist &gt; viewer</b>, and the same account can hold different roles on different farms.</div></div>
+      <div class="ncard"><div class="n-name">Read-only floor</div><div class="n-desc">Viewers hold read-only access across every module. Write and execute capabilities require agronomist or above, and heavy engine runs require agronomist or above.</div></div>
+      <div class="ncard"><div class="n-name">Owner-managed membership</div><div class="n-desc">Only farm owners invite members and grant or change roles. Every membership and role change is recorded in the append-only audit trail.</div></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="sw owner"></i>Farm Owner</span>
+    <span><i class="sw manager"></i>Farm Manager</span>
+    <span><i class="sw agro"></i>Agronomist</span>
+    <span><i class="sw viewer"></i>Viewer</span>
+    <span>Deeper shade = broader authority &middot; 4 roles &times; 6 lifecycle stages</span>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 10 of 12</span>
+  </div>
+</div>
+</body>
+</html>

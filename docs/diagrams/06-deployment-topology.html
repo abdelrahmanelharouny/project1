@@ -64,11 +64,16 @@
       <div class="box src">
         <div class="b-title">FastAPI service source</div>
         <div class="b-sub">mini-services/fieldshift-api</div>
-        <div class="b-desc">FastAPI app (18 routers), Alembic migrations (16 revisions), domain engines, process launcher and database bootstrap scripts.</div>
+        <div class="b-desc">FastAPI app (20 routers), Alembic migrations (16 revisions), domain engines, background job workers, process launcher and database bootstrap scripts.</div>
       </div>
       <div class="box src">
         <div class="b-title">Environment bootstrap &amp; documentation</div>
         <div class="b-desc">Reproducible PostgreSQL environment bootstrap (micromamba), architecture documentation and technical references.</div>
+      </div>
+      <div class="box src">
+        <div class="b-title">Deployment artifacts &amp; CI</div>
+        <div class="b-sub">Dockerfile (web) &middot; Dockerfile (api) &middot; docker-compose.yml &middot; .env.example</div>
+        <div class="b-desc">Compose defines the <b>db &middot; api &middot; web &middot; gateway</b> services with health checks. GitHub Actions CI runs pytest and Alembic against a PostgreSQL&nbsp;16 / PostGIS&nbsp;3.5 service container, plus frontend lint and type-check.</div>
       </div>
     </div>
 
@@ -131,12 +136,13 @@
   <div class="legend">
     <div class="stat">External entry: gateway <b>:81</b> only</div>
     <div class="stat">Internal: <b>3000</b> web &middot; <b>3030</b> API &middot; <b>5433</b> database</div>
+    <div class="stat">Compose services: <b>db &middot; api &middot; web &middot; gateway</b></div>
     <div class="stat">Full-stack recovery time: <b>&lt; 10 min</b></div>
   </div>
 
   <div class="fig-foot">
     <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
-    <span>Figure 6 of 9</span>
+    <span>Figure 6 of 12</span>
   </div>
 </div>
 </body>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --text: #111827; --sub: #6B7280; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #FFFFFF; color: var(--text); -webkit-font-smoothing: antialiased; }
+  #root { width: fit-content; min-width: 1430px; margin: 0 auto; padding: 48px 52px; }
+
+  .title { font-size: 24px; font-weight: 700; text-align: center; }
+  .subtitle { font-size: 14px; color: var(--sub); text-align: center; margin-top: 8px; margin-bottom: 34px; }
+
+  .stack-wrap { display: flex; gap: 20px; justify-content: center; align-items: stretch; }
+  .stack { width: 1120px; }
+  .side { width: 252px; }
+
+  .layer {
+    display: flex; gap: 20px; align-items: center;
+    border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC;
+    padding: 15px 18px;
+  }
+  .l-label { width: 186px; flex-shrink: 0; }
+  .l-label .l-num { display: inline-block; font-size: 11px; font-weight: 800; color: #FFFFFF; border-radius: 9px; padding: 1px 8px; letter-spacing: 0.04em; }
+  .l-label .l-name { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; line-height: 1.3; }
+  .l-label .l-role { font-size: 12px; color: #64748B; margin-top: 3px; line-height: 1.45; }
+  .l-items { flex: 1; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
+    font-size: 12px; color: #334155; background: #FFFFFF;
+    border: 1.5px solid; border-radius: 9px; padding: 4px 11px; white-space: nowrap; font-weight: 500;
+  }
+  .chip b { font-weight: 700; }
+  .sub-head { font-size: 11.5px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin: 2px 0 6px; }
+  .sub-head + .chips { margin-bottom: 8px; }
+
+  .connector { display: flex; flex-direction: column; align-items: center; line-height: 1; padding: 5px 0; }
+  .connector .stem { width: 2px; height: 9px; background: #94A3B8; }
+  .connector .head { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #94A3B8; }
+
+  /* tier hues follow Figure 1 */
+  .layer.client { border-color: #A8A29E; } .layer.client .l-num { background: #78716C; } .layer.client .l-name { color: #57534E; }
+  .chip.client  { border-color: #D6D3D1; }
+  .layer.edge   { border-color: #94A3B8; } .layer.edge .l-num { background: #475569; } .layer.edge .l-name { color: #334155; }
+  .chip.edge    { border-color: #CBD5E1; }
+  .layer.api    { border-color: #93C5FD; } .layer.api .l-num { background: #2563EB; } .layer.api .l-name { color: #1E40AF; }
+  .chip.api     { border-color: #BFDBFE; }
+  .layer.domain { border-color: #5EEAD4; } .layer.domain .l-num { background: #0D9488; } .layer.domain .l-name { color: #0F766E; }
+  .chip.domain  { border-color: #99F6E4; }
+  .layer.data   { border-color: #FDBA74; } .layer.data .l-num { background: #C2410C; } .layer.data .l-name { color: #9A3412; }
+  .chip.data    { border-color: #FED7AA; }
+  .layer.ops    { border-color: #C4B5FD; } .layer.ops .l-num { background: #6D28D9; } .layer.ops .l-name { color: #5B21B6; }
+  .chip.ops     { border-color: #DDD6FE; }
+
+  .band { border: 1.5px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC; padding: 24px 18px 16px; position: relative; height: 100%; }
+  .band-label { position: absolute; top: -11px; left: 16px; background: #FFFFFF; padding: 0 10px; font-size: 12px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; }
+  .port { display: flex; justify-content: space-between; align-items: baseline; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px 13px; }
+  .port + .port { margin-top: 9px; }
+  .port .p-name { font-size: 12.5px; font-weight: 600; color: #334155; }
+  .port .p-desc { font-size: 12px; color: #9CA3AF; margin-top: 1px; }
+  .port .p-num { font-size: 13.5px; font-weight: 700; color: #1E40AF; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+  .side-note { font-size: 12px; color: #475569; line-height: 1.6; margin-top: 14px; padding-top: 12px; border-top: 1px solid #E2E8F0; }
+  .side-note b { color: #111827; }
+
+  .stats { display: flex; gap: 10px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+  .stat { font-size: 12.5px; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 7px 14px; }
+  .stat b { color: #111827; font-variant-numeric: tabular-nums; }
+
+  .fig-foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: #9CA3AF; letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="title">FieldShift Technology Stack</div>
+  <div class="subtitle">Six layers, one runtime &mdash; tier colors follow Figure 1; every layer runs inside a single Docker Compose project</div>
+
+  <div class="stack-wrap">
+    <div class="stack">
+      <div class="layer client">
+        <div class="l-label"><span class="l-num">L1</span><div class="l-name">Client</div><div class="l-role">browser workspace and interactive map</div></div>
+        <div class="l-items"><div class="chips">
+          <span class="chip client">Next.js 16 <b>App Router</b></span>
+          <span class="chip client">React 19</span>
+          <span class="chip client">TypeScript 5</span>
+          <span class="chip client">Tailwind CSS 4</span>
+          <span class="chip client">shadcn/ui</span>
+          <span class="chip client">MapLibre GL</span>
+          <span class="chip client">TanStack Query + Zustand</span>
+        </div></div>
+      </div>
+      <div class="connector"><div class="stem"></div><div class="head"></div></div>
+
+      <div class="layer edge">
+        <div class="l-label"><span class="l-num">L2</span><div class="l-name">Edge &amp; Delivery</div><div class="l-role">one origin for pages and API</div></div>
+        <div class="l-items"><div class="chips">
+          <span class="chip edge">Caddy reverse proxy gateway</span>
+          <span class="chip edge">Next.js route rewrites <b>/api/v1/*</b></span>
+          <span class="chip edge">Single-origin SPA</span>
+        </div></div>
+      </div>
+      <div class="connector"><div class="stem"></div><div class="head"></div></div>
+
+      <div class="layer api">
+        <div class="l-label"><span class="l-num">L3</span><div class="l-name">Application API</div><div class="l-role">one FastAPI process, one port</div></div>
+        <div class="l-items"><div class="chips">
+          <span class="chip api">FastAPI</span>
+          <span class="chip api">Pydantic v2 settings</span>
+          <span class="chip api">Uvicorn</span>
+          <span class="chip api">SQLAlchemy 2 sessions</span>
+          <span class="chip api">In-process background job workers</span>
+          <span class="chip api">Sliding-window rate limiter</span>
+          <span class="chip api">Request-ID logging</span>
+        </div></div>
+      </div>
+      <div class="connector"><div class="stem"></div><div class="head"></div></div>
+
+      <div class="layer domain">
+        <div class="l-label"><span class="l-num">L4</span><div class="l-name">Domain Services</div><div class="l-role">the agronomic engines</div></div>
+        <div class="l-items"><div class="chips">
+          <span class="chip domain">Farms &amp; fields</span>
+          <span class="chip domain">Field state</span>
+          <span class="chip domain">Observations</span>
+          <span class="chip domain">Soil</span>
+          <span class="chip domain">Water</span>
+          <span class="chip domain">Rotation</span>
+          <span class="chip domain">Robust rotation</span>
+          <span class="chip domain">Scenario execution</span>
+          <span class="chip domain">Sensitivity</span>
+          <span class="chip domain">Decision</span>
+          <span class="chip domain">Digital twin</span>
+          <span class="chip domain">Data passport</span>
+        </div></div>
+      </div>
+      <div class="connector"><div class="stem"></div><div class="head"></div></div>
+
+      <div class="layer data">
+        <div class="l-label"><span class="l-num">L5</span><div class="l-name">Data</div><div class="l-role">one database, versioned schema</div></div>
+        <div class="l-items"><div class="chips">
+          <span class="chip data">PostgreSQL 16 + PostGIS 3.5</span>
+          <span class="chip data">Alembic migrations <b>0001 &rarr; 0016</b></span>
+          <span class="chip data">BackgroundJob table</span>
+          <span class="chip data">AuditEvent table</span>
+        </div></div>
+      </div>
+      <div class="connector"><div class="stem"></div><div class="head"></div></div>
+
+      <div class="layer ops">
+        <div class="l-label"><span class="l-num">L6</span><div class="l-name">External &amp; Ops</div><div class="l-role">data sources and toolchain</div></div>
+        <div class="l-items">
+          <div class="sub-head">External data sources</div>
+          <div class="chips">
+            <span class="chip ops">Open-Meteo archive</span>
+            <span class="chip ops">SoilGrids WCS</span>
+            <span class="chip ops">CHIRPS</span>
+            <span class="chip ops">Deterministic synthetic provider</span>
+            <span class="chip ops">Farmer CSV imports</span>
+          </div>
+          <div class="sub-head" style="margin-top: 10px;">Build &amp; operations toolchain</div>
+          <div class="chips">
+            <span class="chip ops">Docker</span>
+            <span class="chip ops">Docker Compose</span>
+            <span class="chip ops">GitHub Actions CI</span>
+            <span class="chip ops">pytest</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="band">
+        <div class="band-label">Sandbox ports</div>
+        <div class="port"><div><div class="p-name">Web application</div><div class="p-desc">Next.js standalone server</div></div><span class="p-num">:3000</span></div>
+        <div class="port"><div><div class="p-name">API service</div><div class="p-desc">FastAPI under /api/v1</div></div><span class="p-num">:3030</span></div>
+        <div class="port"><div><div class="p-name">PostgreSQL</div><div class="p-desc">PostGIS-enabled cluster</div></div><span class="p-num">:5433</span></div>
+        <div class="side-note"><b>Single external entry.</b> Only the edge gateway (one HTTPS origin) is reachable from outside; web, API and database ports are internal to the deployment network.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>6</b> layers</div>
+    <div class="stat"><b>20</b> API routers</div>
+    <div class="stat"><b>176</b> REST endpoints</div>
+    <div class="stat"><b>81</b> database tables</div>
+    <div class="stat"><b>16</b> schema migrations</div>
+    <div class="stat"><b>4</b> compose services (db &middot; api &middot; web &middot; gateway)</div>
+  </div>
+
+  <div class="fig-foot">
+    <span>FieldShift &mdash; Global Agricultural Decision-Intelligence Platform</span>
+    <span>Figure 11 of 12</span>
+  </div>
+</div>
+</body>
+</html>
