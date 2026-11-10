@@ -316,3 +316,41 @@ verified baseline (commit `15013c7`).
 - Frontend: 14-tab workspace (Soil, Management, Sensitivity, Robust Plan, Decisions, Digital Twin added); ESLint + tsc clean.
 - Reconciliation rules enforced: M7.1 field states do not pin soil/management artifacts (availability reasons updated); M7.2 capabilities truthful (`scenario_execution=implemented`, soil/management scenario dimensions unavailable); M7.3–M7.6 contain no invented soil/management semantics; M7.7 twin censuses M6B/M6C records + run artifacts (checksum recomputation where stored) and the capability matrix distinguishes implemented vs data-ready.
 - Browser E2E evidence: SOC stock run reproduced FAO identity exactly (12.4 g/kg × 1.32 g/cm³ × 30 cm × 0.1 = 49.104 Mg C/ha) with checksum; cover-crop plan evaluated with honest conditional candidate; twin validation walk verified both artifacts; login contract fixed (login now returns `organization` like register); tenant isolation re-verified live (403 cross-tenant); desktop 1280 + mobile 390 clean (`tool-results/m6bc-*.png`).
+
+---
+
+## P0 — Production readiness hardening (2026-11-11, DONE)
+
+Audit: `download/CropTwist-Engineering-Audit-2026-11-10.md` (+ first P0 pass
+2026-11-10). This section reflects the 2026-11-11 full-scope completion pass.
+Status legend per P0 task spec: DONE / IMPLEMENTED / BLOCKED / NOT STARTED.
+
+| P0 item | Status | Evidence (all executed 2026-11-11) |
+|---|---|---|
+| Frontend CI TypeScript failure | DONE | `bunx tsc --noEmit` clean at repo root (scope: frontend src; mini-services/skills excluded). Root `tsconfig.json` exclusion landed 2026-11-10; this pass removed the two remaining `react-hooks/set-state-in-effect` lint errors (carousel, use-mobile) and flipped `typescript.ignoreBuildErrors` to **false** |
+| ESLint | DONE | `bun run lint` exit 0 |
+| Frontend production build | DONE | isolated `NEXT_DIST_DIR=.next-build-check bunx next build` green with type checking enforced; running dev server untouched; temp dir removed |
+| Full backend pytest | DONE | full suite: **1110 passed, 1 skipped, 0 failed, 0 errors** (final certification run; historical failure `test_data_passport::test_same_variable_from_two_sources_gets_two_entries` root-caused to a LIVE Open-Meteo call — shared-IP HTTP 429 → ingestion failed → 1 passport entry instead of 2 — and fixed at the root with a suite-wide external-transport fake in `tests/conftest.py`) |
+| Alembic migration verification | DONE | single head `0017_ai_recommendations`; `alembic upgrade head` idempotent; **`alembic check` fully clean** after fixing (a) `migrations/env.py` missing `models_ai` import (autogenerate would have DROPPED the AI tables) and (b) two stale model declarations reconciled with migrations 0005-F18 / 0007-F30 (no DB mutation) |
+| Backup archive creation + validation | DONE | `backup_db.sh` v2: pg_dump **custom format** (`-Fc`, direct `-f`), `pg_restore --list` integrity check, non-empty check, sha256 sidecar, `backup.log`, keep-7 retention; live run produced `croptwist-20261110-214841.dump` (468 KB, 169 TOC entries) + checksum |
+| Restore into disposable DB verified | DONE | `restore_db.sh` (new): refusal paths verified (no `--force`, active-DB `croptwist`, production env); disposable `croptwist_restore_test_p0` restored with pre-restore backup; post-restore verification reported migration `0017` + rows `farms=1 fields=2 users=1 observations=3285` (identical to live, farm identity string identical); only the disposable DB dropped |
+| `rebuild_stack.sh --dry-run` | DONE | plan printed (missing vs present per step), zero changes |
+| Stack bootstrap without data destruction | DONE | full rebuild executed from a genuinely wiped sandbox (no pgenv/pgdata/venv/bridge node_modules): `CropTwist stack OK: pg :5433, api :3030, bridge :3035, web :3000`; idempotent re-run verified; `initdb` guarded by `PG_VERSION` existence (never re-inits over data) |
+| E2E login→advisor workflow | DONE | `scripts/e2e_smoke.py`: happy path ALL CHECKS PASSED (bridge up, `rules+llm`/`llm` modes, glm-4-plus narratives, evidence citations, disclaimer, authz 401/404) **and** fallback run ALL CHECKS PASSED with bridge stopped (`--expect-rules-only`: engine mode `rules`, insight summary honestly suppressed). Browser smoke: login page → workspace → AI Insights → advisor answer with `[evidence: …]`; zero console/page errors; Arabic RTL verified; 390px no horizontal overflow |
+| CI reflects actual checks | IMPLEMENTED | `.github/workflows/ci.yml`: blocking tsc, lint, type-checked production build, bridge typecheck, bun cache, alembic idempotency + `alembic check` gate, full pytest on PostGIS service, live-stack E2E smoke stage. Every command verified locally; GitHub-hosted run not observable from the sandbox — confirm green on first push |
+| Documentation | DONE | `docs/operations/BACKUP_AND_RESTORE.md`, `docs/operations/STACK_BOOTSTRAP.md`, `docs/operations/CI_AND_TESTING.md`, this section |
+
+Dependency audit re-verified this pass: `bun install --frozen-lockfile` →
+"Checked 630 installs across 734 packages (no changes)"; lockfile root name
+`croptwist`; FE 53 runtime + 9 dev deps; BE 40 pinned requirements — every
+entry either directly imported or a justified transitive/CLI/runtime
+dependency (alembic/uvicorn family, psycopg2 driver, pydantic internals).
+
+**Remaining known issues (honest):**
+- GitHub Actions greenness unobservable from the sandbox (no runner access).
+- Daily 02:00 backup cron keeps 7 dumps; WAL-archiving/PITR is a production
+  concern, not implemented locally.
+- `alembic check` gate now also runs in CI; any future model change without a
+  migration will fail CI by design.
+- LLM-bridge port is hardcoded 3035 in the bridge itself (probes configurable).
+- Playwright deliberately not introduced (see docs/operations/CI_AND_TESTING.md).
