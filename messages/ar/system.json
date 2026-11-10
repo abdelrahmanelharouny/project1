@@ -1,0 +1,11 @@
+{
+  "errorTitle": "حدث خطأ ما",
+  "errorDescription": "حدث خطأ غير متوقع أثناء عرض هذه الشاشة. يمكنك إعادة المحاولة أو إعادة تحميل التطبيق بالكامل.",
+  "errorDigest": "مرجع الخطأ",
+  "globalErrorTitle": "خطأ حرج",
+  "globalErrorDescription": "فشل تشغيل التطبيق. يرجى إعادة تحميل الصفحة.",
+  "notFoundTitle": "الصفحة غير موجودة",
+  "notFoundDescription": "الصفحة التي تبحث عنها غير موجودة أو تم نقلها.",
+  "backHome": "العودة إلى FieldShift",
+  "reload": "إعادة تحميل الصفحة"
+}

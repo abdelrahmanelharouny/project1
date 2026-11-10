@@ -1,0 +1,11 @@
+{
+  "errorTitle": "Something went wrong",
+  "errorDescription": "An unexpected error interrupted this view. You can retry, or reload the whole app.",
+  "errorDigest": "Error reference",
+  "globalErrorTitle": "Critical error",
+  "globalErrorDescription": "The application failed to start. Please reload the page.",
+  "notFoundTitle": "Page not found",
+  "notFoundDescription": "The page you are looking for does not exist or has been moved.",
+  "backHome": "Back to FieldShift",
+  "reload": "Reload page"
+}
