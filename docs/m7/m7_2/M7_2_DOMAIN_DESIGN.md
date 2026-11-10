@@ -1,6 +1,6 @@
 # M7.2 — Domain Design: Scenario Domain & Immutable Scenario Definitions
 
-**Status:** implemented (commit `cfbf112`; module `app/scenarios/`, tables `scenarios` + `scenario_validation_records`, migration `0008_scenario_domain`, frontend `src/components/fieldshift/scenarios.tsx`)
+**Status:** implemented (commit `cfbf112`; module `app/scenarios/`, tables `scenarios` + `scenario_validation_records`, migration `0008_scenario_domain`, frontend `src/components/croptwist/scenarios.tsx`)
 
 ## 1. Mission
 
@@ -30,7 +30,7 @@ Inherited building blocks (nothing duplicated):
 | `app/field_state/manifest.py` | `canonical_json`, `sha256_of_document` (single canonicalization authority) |
 | M7.1 immutability idiom | new row per version, checksums over stored content, RESTRICT-FK reference protection |
 | `app/domains/identity` | `get_principal` / `get_field_for_principal` tenant resolution at every boundary |
-| `app/core/errors.py` | structured error envelope; domain codes via `FieldShiftError(code=…)` |
+| `app/core/errors.py` | structured error envelope; domain codes via `CropTwistError(code=…)` |
 | Frontend workspace | 9th tab, `api.ts` typed wrappers, honest badge vocabulary from the Field State tab |
 
 ## 3. Data model

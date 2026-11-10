@@ -38,12 +38,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ExportButton } from '@/components/fieldshift/export-button'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
+import { ExportButton } from '@/components/croptwist/export-button'
+import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   SensitivityCurvesChart,
   SensitivityTornadoChart,
-} from '@/components/fieldshift/charts/sensitivity-charts'
+} from '@/components/croptwist/charts/sensitivity-charts'
 import {
   createSensitivityAnalysis,
   getSensitivityAnalysis,
@@ -62,7 +62,7 @@ import type {
   SensitivityOatResponse,
   SensitivityVerifyResponse,
 } from '@/lib/types'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 import { Info, LineChart, Loader2, Play, ShieldAlert, ShieldCheck } from 'lucide-react'
 
 function apiErrorText(err: unknown, unexpectedLabel: string): string {
@@ -818,8 +818,8 @@ function DefinitionForm({
 
 export function SensitivitySection() {
   const t = useTranslations('sensitivity')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const selectedFieldId = selectedField?.id ?? null
   const [scenarioId, setScenarioId] = useState<string | null>(null)
   const [runId, setRunId] = useState<string | null>(null)

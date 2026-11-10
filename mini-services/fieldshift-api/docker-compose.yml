@@ -1,4 +1,4 @@
-# FieldShift API-local orchestration (api + db + web).
+# CropTwist API-local orchestration (api + db + web).
 #
 # NOTE: the repository-root docker-compose.yml is the primary stack (it adds
 # the Caddy gateway on :81 and consumes the root .env). This file exists for
@@ -11,24 +11,24 @@
 #
 # The `api` service applies Alembic migrations before serving traffic.
 
-name: fieldshift
+name: croptwist
 
 services:
   db:
     image: postgis/postgis:16-3.5
     restart: unless-stopped
     environment:
-      POSTGRES_USER: fieldshift
-      POSTGRES_PASSWORD: fieldshift
-      POSTGRES_DB: fieldshift
+      POSTGRES_USER: croptwist
+      POSTGRES_PASSWORD: croptwist
+      POSTGRES_DB: croptwist
     ports:
       # Host 5433 -> container 5432 (sandbox convention; keeps a local
       # user-space PostgreSQL on 5433 from colliding).
       - "5433:5432"
     volumes:
-      - fieldshift-pgdata:/var/lib/postgresql/data
+      - croptwist-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fieldshift -d fieldshift"]
+      test: ["CMD-SHELL", "pg_isready -U croptwist -d croptwist"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -42,12 +42,12 @@ services:
     environment:
       # Inside the compose network the database is `db:5432` (host mapping
       # 5433 is only for tools running on the host). The env name must be
-      # FIELDSHIFT_DATABASE_URL — pydantic-settings maps it to the
+      # CROPTWIST_DATABASE_URL — pydantic-settings maps it to the
       # `database_url` setting in app/core/config.py.
-      FIELDSHIFT_DATABASE_URL: postgresql+psycopg2://fieldshift:fieldshift@db:5432/fieldshift
+      CROPTWIST_DATABASE_URL: postgresql+psycopg2://croptwist:croptwist@db:5432/croptwist
       # Seed endpoint (POST /api/v1/dev/seed-demo) is disabled outside dev.
-      FIELDSHIFT_DEV_MODE: "false"
-      FIELDSHIFT_ENVIRONMENT: production
+      CROPTWIST_DEV_MODE: "false"
+      CROPTWIST_ENVIRONMENT: production
     ports:
       - "3030:3030"
     depends_on:
@@ -81,7 +81,7 @@ services:
       - api
 
 volumes:
-  fieldshift-pgdata:
+  croptwist-pgdata:
 
 # NOTE (known limitation, deliberate: app code must not change here):
 # next.config.ts rewrites /api/v1/:path* -> http://127.0.0.1:3030/api/v1/:path*

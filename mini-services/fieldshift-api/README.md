@@ -1,6 +1,6 @@
-# FieldShift API
+# CropTwist API
 
-FastAPI backend for **FieldShift**, a global agriculture decision-intelligence platform. It provides multi-tenant farm/field management with PostGIS geometry, a canonical field-data pipeline (data platform → features → knowledge), agronomic modeling (rotation, water, soil, digital twin), and a decision layer (scenarios, sensitivity, robust rotation, comparisons) — all under a versioned `/api/v1` contract.
+FastAPI backend for **CropTwist**, a global agriculture decision-intelligence platform. It provides multi-tenant farm/field management with PostGIS geometry, a canonical field-data pipeline (data platform → features → knowledge), agronomic modeling (rotation, water, soil, digital twin), and a decision layer (scenarios, sensitivity, robust rotation, comparisons) — all under a versioned `/api/v1` contract.
 
 ## Architecture at a glance
 
@@ -29,7 +29,7 @@ External data providers: Open-Meteo historical archive (ERA5/ERA5-Land reanalysi
 
 ## Quickstart (local, sandbox convention)
 
-Prerequisites: Python 3.12, [bun](https://bun.sh), and a PostgreSQL 16 + PostGIS 3.5 server. `scripts/run_dev.py` auto-starts the bundled **user-space** cluster (micromamba/conda-forge, `db/pgdata`, port **5433**, unix socket `/tmp`) — on a machine without it, point `FIELDSHIFT_DATABASE_URL` at your own instance and create the database.
+Prerequisites: Python 3.12, [bun](https://bun.sh), and a PostgreSQL 16 + PostGIS 3.5 server. `scripts/run_dev.py` auto-starts the bundled **user-space** cluster (micromamba/conda-forge, `db/pgdata`, port **5433**, unix socket `/tmp`) — on a machine without it, point `CROPTWIST_DATABASE_URL` at your own instance and create the database.
 
 ```bash
 cd mini-services/fieldshift-api
@@ -38,11 +38,11 @@ python3 -m venv .venv
 bun run dev            # runs scripts/run_dev.py: ensure PG → alembic upgrade head → uvicorn --reload
 ```
 
-The API listens on `http://127.0.0.1:3030` (dev binds the loopback interface on purpose). Dev conveniences require `FIELDSHIFT_DEV_MODE=true`; with it, seed the demo tenant:
+The API listens on `http://127.0.0.1:3030` (dev binds the loopback interface on purpose). Dev conveniences require `CROPTWIST_DEV_MODE=true`; with it, seed the demo tenant:
 
 ```bash
 curl -X POST http://127.0.0.1:3030/api/v1/dev/seed-demo
-# demo account: demo@fieldshift.local / fieldshift-demo-2026
+# demo account: demo@croptwist.local / croptwist-demo-2026
 ```
 
 Frontend (from the repo root): `bun install && bun run dev` → `http://localhost:3000`.
@@ -54,7 +54,7 @@ The repository-root compose file builds the whole stack (db + api + web + Caddy 
 ```bash
 cd /home/z/my-project
 docker compose up --build
-# db:  postgis/postgis:16-3.5 on host port 5433 (named volume fieldshift-pgdata)
+# db:  postgis/postgis:16-3.5 on host port 5433 (named volume croptwist-pgdata)
 # api: alembic upgrade head, then uvicorn on 3030
 # web: Next.js standalone build on 3000
 # gateway: caddy:2 on 81 (XTransformPort routing, host networking)
@@ -64,47 +64,47 @@ A backend-local subset (db + api + web, without the gateway) lives in this direc
 
 ## Configuration
 
-All settings come from `app/core/config.py` (pydantic-settings, prefix `FIELDSHIFT_`, optional `.env` in the API working directory). See [`.env.example`](.env.example) for the annotated template, including settings reserved for in-flight workstreams.
+All settings come from `app/core/config.py` (pydantic-settings, prefix `CROPTWIST_`, optional `.env` in the API working directory). See [`.env.example`](.env.example) for the annotated template, including settings reserved for in-flight workstreams.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FIELDSHIFT_SERVICE_NAME` | `fieldshift-api` | Service identity in `/health` |
-| `FIELDSHIFT_API_VERSION` | `v1` | API version prefix |
-| `FIELDSHIFT_ENVIRONMENT` | `development` | `development` / `test` / `production` |
-| `FIELDSHIFT_DATABASE_URL` | `postgresql+psycopg2://postgres@127.0.0.1:5433/fieldshift` | SQLAlchemy URL (PostgreSQL + PostGIS) |
-| `FIELDSHIFT_DB_PGDATA_DIR` | `/home/z/my-project/db/pgdata` | Sandbox user-space cluster data dir |
-| `FIELDSHIFT_DB_PORT` | `5433` | Sandbox cluster port |
-| `FIELDSHIFT_DB_SOCKET_DIR` | `/tmp` | Sandbox unix socket dir |
-| `FIELDSHIFT_AUTH_TOKEN_TTL_SECONDS` | `43200` (12 h) | Bearer token lifetime |
-| `FIELDSHIFT_AUTH_REFRESH_TTL_SECONDS` | `2592000` (30 d) | Refresh-token lifetime (rotation + family revocation) |
-| `FIELDSHIFT_PASSWORD_PBKDF2_ITERATIONS` | `600000` | PBKDF2 work factor (embedded per hash) |
-| `FIELDSHIFT_AUTH_MAX_FAILED_LOGINS` | `5` | Failed logins before lockout |
-| `FIELDSHIFT_AUTH_LOCKOUT_SECONDS` | `900` | Lockout window |
-| `FIELDSHIFT_AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Auth-endpoint rate limit per IP (0 disables) |
-| `FIELDSHIFT_PASSWORD_RESET_TTL_SECONDS` | `3600` | Password-reset challenge TTL |
-| `FIELDSHIFT_EMAIL_VERIFICATION_TTL_SECONDS` | `86400` | Email-verification challenge TTL |
-| `FIELDSHIFT_DEV_MODE` | `false` | Enables `POST /api/v1/dev/seed-demo`; **must be `false` in production** |
-| `FIELDSHIFT_DEFAULT_PAGE_SIZE` | `50` | Default pagination size |
-| `FIELDSHIFT_MAX_PAGE_SIZE` | `500` | Pagination hard cap |
-| `FIELDSHIFT_CORS_ALLOW_ORIGINS` | *(empty)* | Comma-separated allow-list; empty disables CORS middleware |
-| `FIELDSHIFT_OPEN_METEO_BASE_URL` | Open-Meteo archive | Weather provider base URL |
-| `FIELDSHIFT_OPEN_METEO_TIMEOUT_SECONDS` | `25.0` | Weather provider timeout |
-| `FIELDSHIFT_OPEN_METEO_MAX_YEARS_PER_REQUEST` | `10` | Provider request window cap |
-| `FIELDSHIFT_SOILGRIDS_WCS_BASE_URL` | ISRIC mapserv | Soil provider base URL |
-| `FIELDSHIFT_SOILGRIDS_TIMEOUT_SECONDS` | `45.0` | Soil provider timeout |
-| `FIELDSHIFT_PROVIDER_PROBE_TIMEOUT_SECONDS` | `6.0` | Provider availability probe timeout |
-| `FIELDSHIFT_PROVIDER_PROBE_CACHE_SECONDS` | `120` | Provider probe cache TTL |
-| `FIELDSHIFT_MAX_IMPORT_FILE_BYTES` | `32000000` (32 MB) | Upload cap for CSV/GeoTIFF imports |
-| `FIELDSHIFT_JOB_WORKERS` | `2` | Background worker threads (provider ingestion); `0` = legacy inline execution |
+| `CROPTWIST_SERVICE_NAME` | `croptwist-api` | Service identity in `/health` |
+| `CROPTWIST_API_VERSION` | `v1` | API version prefix |
+| `CROPTWIST_ENVIRONMENT` | `development` | `development` / `test` / `production` |
+| `CROPTWIST_DATABASE_URL` | `postgresql+psycopg2://postgres@127.0.0.1:5433/croptwist` | SQLAlchemy URL (PostgreSQL + PostGIS) |
+| `CROPTWIST_DB_PGDATA_DIR` | `/home/z/my-project/db/pgdata` | Sandbox user-space cluster data dir |
+| `CROPTWIST_DB_PORT` | `5433` | Sandbox cluster port |
+| `CROPTWIST_DB_SOCKET_DIR` | `/tmp` | Sandbox unix socket dir |
+| `CROPTWIST_AUTH_TOKEN_TTL_SECONDS` | `43200` (12 h) | Bearer token lifetime |
+| `CROPTWIST_AUTH_REFRESH_TTL_SECONDS` | `2592000` (30 d) | Refresh-token lifetime (rotation + family revocation) |
+| `CROPTWIST_PASSWORD_PBKDF2_ITERATIONS` | `600000` | PBKDF2 work factor (embedded per hash) |
+| `CROPTWIST_AUTH_MAX_FAILED_LOGINS` | `5` | Failed logins before lockout |
+| `CROPTWIST_AUTH_LOCKOUT_SECONDS` | `900` | Lockout window |
+| `CROPTWIST_AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Auth-endpoint rate limit per IP (0 disables) |
+| `CROPTWIST_PASSWORD_RESET_TTL_SECONDS` | `3600` | Password-reset challenge TTL |
+| `CROPTWIST_EMAIL_VERIFICATION_TTL_SECONDS` | `86400` | Email-verification challenge TTL |
+| `CROPTWIST_DEV_MODE` | `false` | Enables `POST /api/v1/dev/seed-demo`; **must be `false` in production** |
+| `CROPTWIST_DEFAULT_PAGE_SIZE` | `50` | Default pagination size |
+| `CROPTWIST_MAX_PAGE_SIZE` | `500` | Pagination hard cap |
+| `CROPTWIST_CORS_ALLOW_ORIGINS` | *(empty)* | Comma-separated allow-list; empty disables CORS middleware |
+| `CROPTWIST_OPEN_METEO_BASE_URL` | Open-Meteo archive | Weather provider base URL |
+| `CROPTWIST_OPEN_METEO_TIMEOUT_SECONDS` | `25.0` | Weather provider timeout |
+| `CROPTWIST_OPEN_METEO_MAX_YEARS_PER_REQUEST` | `10` | Provider request window cap |
+| `CROPTWIST_SOILGRIDS_WCS_BASE_URL` | ISRIC mapserv | Soil provider base URL |
+| `CROPTWIST_SOILGRIDS_TIMEOUT_SECONDS` | `45.0` | Soil provider timeout |
+| `CROPTWIST_PROVIDER_PROBE_TIMEOUT_SECONDS` | `6.0` | Provider availability probe timeout |
+| `CROPTWIST_PROVIDER_PROBE_CACHE_SECONDS` | `120` | Provider probe cache TTL |
+| `CROPTWIST_MAX_IMPORT_FILE_BYTES` | `32000000` (32 MB) | Upload cap for CSV/GeoTIFF imports |
+| `CROPTWIST_JOB_WORKERS` | `2` | Background worker threads (provider ingestion); `0` = legacy inline execution |
 
 ## Background jobs (async ingestion)
 
 Provider ingestion runs on an in-process worker pool (`app/core/jobs.py`, migration `0016_background_jobs`):
-`POST /fields/{id}/data-jobs` returns `202` with the job **queued**, the pool executes the provider fetch outside the request, and clients poll the unchanged status URL (`GET /jobs/{job_id}`). A unified queue view lives at `GET /api/v1/jobs/background` and `GET /api/v1/jobs/background/{id}` (progress, stage, terminal flag). Jobs left `queued` by a crash are re-executed on startup; jobs found `running` are marked failed (`interrupted by restart`). Set `FIELDSHIFT_JOB_WORKERS=0` to restore inline execution (the test suite does).
+`POST /fields/{id}/data-jobs` returns `202` with the job **queued**, the pool executes the provider fetch outside the request, and clients poll the unchanged status URL (`GET /jobs/{job_id}`). A unified queue view lives at `GET /api/v1/jobs/background` and `GET /api/v1/jobs/background/{id}` (progress, stage, terminal flag). Jobs left `queued` by a crash are re-executed on startup; jobs found `running` are marked failed (`interrupted by restart`). Set `CROPTWIST_JOB_WORKERS=0` to restore inline execution (the test suite does).
 
 ## Testing
 
-The suite needs a real PostgreSQL + PostGIS (no SQLite fallback) on `127.0.0.1:5433`. `tests/conftest.py` creates `fieldshift_test`, enables PostGIS, migrates to head, and truncates tables between tests. Override the target with `FIELDSHIFT_TEST_DB_URL` (e.g. in CI).
+The suite needs a real PostgreSQL + PostGIS (no SQLite fallback) on `127.0.0.1:5433`. `tests/conftest.py` creates `croptwist_test`, enables PostGIS, migrates to head, and truncates tables between tests. Override the target with `CROPTWIST_TEST_DB_URL` (e.g. in CI).
 
 ```bash
 cd mini-services/fieldshift-api
@@ -122,7 +122,7 @@ mini-services/fieldshift-api/
 ├── requirements.txt         # 48 pinned deps (ortools, rasterio, geoalchemy2, …)
 ├── Dockerfile               # multi-stage python:3.12-slim image, non-root
 ├── docker-compose.yml       # backend-local subset (db + api + web)
-├── .env.example             # annotated FIELDSHIFT_* template (no .env is committed)
+├── .env.example             # annotated CROPTWIST_* template (no .env is committed)
 ├── app/
 │   ├── main.py              # create_app: CORS, request-id middleware, router mount
 │   ├── api/v1/              # 19 routers (see table above) + router.py aggregator
@@ -171,7 +171,7 @@ Cited from the code, kept next to it:
 
 ## Deployment
 
-Run modes, sandbox layout, and the production checklist (managed PostGIS, `FIELDSHIFT_DEV_MODE=false`, CORS, HTTPS at the gateway, PBKDF2 ≥ 600k, secrets, backups) live in [`docs/architecture/deployment.md`](docs/architecture/deployment.md).
+Run modes, sandbox layout, and the production checklist (managed PostGIS, `CROPTWIST_DEV_MODE=false`, CORS, HTTPS at the gateway, PBKDF2 ≥ 600k, secrets, backups) live in [`docs/architecture/deployment.md`](docs/architecture/deployment.md).
 
 ## Known limitations
 

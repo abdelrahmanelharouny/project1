@@ -51,17 +51,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { ExportButton } from '@/components/fieldshift/export-button'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
-import { WaterMonthlyChart } from '@/components/fieldshift/charts/water-monthly'
-import { useFieldShiftUi } from '@/lib/store'
+import { ExportButton } from '@/components/croptwist/export-button'
+import { FieldPicker } from '@/components/croptwist/field-picker'
+import { WaterMonthlyChart } from '@/components/croptwist/charts/water-monthly'
+import { useCropTwistUi } from '@/lib/store'
 import {
   useKnowledgeCrops,
   useWaterMethods,
   useWaterPlan,
   useWaterPlans,
   useWaterReadiness,
-} from '@/hooks/use-fieldshift'
+} from '@/hooks/use-croptwist'
 import { createWaterPlan, deleteWaterPlan } from '@/lib/api'
 import { describeError } from '@/lib/api'
 import type {
@@ -90,7 +90,7 @@ const READINESS_STYLES: Record<string, string> = {
 
 function ReadinessCard() {
   const t = useTranslations('water')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const readiness = useWaterReadiness(selectedField?.id ?? null)
 
   if (!selectedField) return null
@@ -198,7 +198,7 @@ const PE_METHOD_LABEL_KEYS: Record<string, string> = {
 }
 
 function PlanBuilderCard({ onPlanCreated }: { onPlanCreated: (id: string) => void }) {
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const queryClient = useQueryClient()
   const t = useTranslations('water')
   const methods = useWaterMethods()
@@ -969,9 +969,9 @@ function PlanHistory({
 export function Water() {
   const t = useTranslations('water')
   const tCommon = useTranslations('common')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
-  const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
+  const goToObservationsFor = useCropTwistUi((s) => s.goToObservationsFor)
   const [activePlanId, setActivePlanId] = useState<string | null>(null)
   const plan = useWaterPlan(activePlanId)
   const methods = useWaterMethods()

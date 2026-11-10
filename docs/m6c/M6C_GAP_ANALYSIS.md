@@ -16,7 +16,7 @@ this phase; every claim below checked against code, not prior reports.
 | Frontend lint | ✅ clean (`bun run lint`, exit 0) |
 | Migrations | ✅ single head `0007_soil_intelligence`, applied; `alembic current == heads` |
 | API | ✅ `:3030` `/api/v1/health` → `{"status":"ok"}` (uvicorn) |
-| Next.js | ✅ `:3000` HTTP 200, "FieldShift — Agricultural decision support" |
+| Next.js | ✅ `:3000` HTTP 200, "CropTwist — Agricultural decision support" |
 | Browser smoke | ✅ auth gate → "Enter demo workspace" → 8 tabs render (Overview, Farms & Fields, Observations, Features, Rotation, Water, Soil, Data Passport); zero page errors |
 | Database | ✅ PostgreSQL 16 + PostGIS on :5433 (`db/pgenv`, `db/pgdata`); demo data present (1 farm / 2 fields / 11 crops / 153 crop traits / 4 water plans / 0 soil-management events) |
 | Environment | ✅ `mini-services/fieldshift-api/.venv` present; both dev servers running |
@@ -49,7 +49,7 @@ Next.js (dev server, canary line per package.json), Node/bun workspace, OR-Tools
 | **Passport honest gating** | `app/passport/service.py` readiness rules with explicit missing-input lists | management-plan readiness follows the same "blocked with reasons" shape |
 | **API conventions** | `/api/v1/` prefix, error envelope (`error.code/message/details/request_id`), 202 job pattern, idempotency keys, tenant-scoped 403s | M6C routes follow exactly (see §8) |
 | **Optimizer** | `app/rotation/optimizer.py` OR-Tools CP-SAT adapter with named-assumption infeasibility reporting | operations scheduling reuses CP-SAT via a **new** scheduling-specific formulation in `app/management/` (not by touching the rotation optimizer) |
-| **Frontend design system** | `src/components/fieldshift/*`: workspace tabs, `badges.tsx` (SyntheticBadge, QualityBadge…), field picker, Simple/Expert disclosure patterns, sticky footer (`mt-auto`), offline map worker | new **Management** tab follows the same structure (see §9) |
+| **Frontend design system** | `src/components/croptwist/*`: workspace tabs, `badges.tsx` (SyntheticBadge, QualityBadge…), field picker, Simple/Expert disclosure patterns, sticky footer (`mt-auto`), offline map worker | new **Management** tab follows the same structure (see §9) |
 | **Dev seed** | `app/dev/seed.py` idempotent demo seed | extended additively with M6C demo fixtures, clearly labelled synthetic |
 
 ## 2. Existing management event types vs proposed M6C operations

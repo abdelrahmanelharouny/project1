@@ -1,13 +1,13 @@
 # M7.0 — Field Digital Twin Readiness
 
-**Inspection date:** 2026-11-01 · **Question:** what level of digital representation does FieldShift *genuinely* support today?
+**Inspection date:** 2026-11-01 · **Question:** what level of digital representation does CropTwist *genuinely* support today?
 **Verdict up front: the highest honestly supportable level is Level 1 — Historical Digital Profile, with strong, purpose-built ingredients for Level 2.** The existing workspace is a decision-support dashboard over versioned analytical runs; it is **not** a Digital Twin and must not be labelled one. Levels 4–5 are not reachable and there is no calibration dataset or operational feedback loop.
 
 ---
 
 ## 1. Maturity classification (with evidence)
 
-| Level | Definition (spec) | FieldShift today | Verdict |
+| Level | Definition (spec) | CropTwist today | Verdict |
 |---|---|---|---|
 | **L0 — Static Field Record** | field identity + manually recorded information | `fields` + `field_boundary_versions` (append-only, change_reason), `crop_history` (farmer-reported), `farm_constraints`, farmer CSV imports | **ACHIEVED** |
 | **L1 — Historical Digital Profile** | environmental, soil, crop, management history | environmental: ✅ observations (5 real/synthetic providers) + 29 versioned features over explicit periods; crop: ✅ crop history + rotation runs + knowledge packs; soil: ⚠️ only SoilGrids 0–5 cm predictions & farmer CSV points — **no sampling events, no profiles, no assessment history (M6B absent)**; management: ❌ none (M6C absent) | **ACHIEVED WITH GAPS** (environmental/crop complete; soil thin; management absent) |
@@ -16,7 +16,7 @@
 | **L4 — Calibrated Predictive Twin** | model behavior calibrated & evaluated against sufficiently frequent real field observations | **no calibration capability of any kind**: no calibration tables, no parameter estimation, no validation-against-observations loop; FAO-56/FAO-33/Saxton-Rawls are used as *uncalibrated reference methods* with that status disclosed; real-farm observation frequency is entirely user-dependent and currently demo-synthetic | **NOT ACHIEVED — and must not be claimed** |
 | **L5 — Operationally Connected Twin** | ongoing observations update state; validated predictive & operational feedback | no ingestion automation/scheduling, no live sensor connectors, no feedback of actual outcomes into model parameters, no reconciliation process | **NOT ACHIEVED** |
 
-**Highest genuine level: L1** (L0 fully, L1 with documented soil/management gaps). The honest classification the spec demands: *FieldShift is a versioned decision-intelligence platform with twin-grade provenance habits, at L1 maturity, on a credible trajectory to L2/L3, with no current basis for L4/L5 claims.*
+**Highest genuine level: L1** (L0 fully, L1 with documented soil/management gaps). The honest classification the spec demands: *CropTwist is a versioned decision-intelligence platform with twin-grade provenance habits, at L1 maturity, on a credible trajectory to L2/L3, with no current basis for L4/L5 claims.*
 
 ## 2. Required capability investigation
 

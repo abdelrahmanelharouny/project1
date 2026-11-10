@@ -38,10 +38,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslations } from 'next-intl'
-import { ExportButton } from '@/components/fieldshift/export-button'
-import { FarmMap } from '@/components/fieldshift/farm-map'
-import { FieldMap } from '@/components/fieldshift/field-map'
-import { useBoundaryVersions, useFieldMap, useFields, useFarms } from '@/hooks/use-fieldshift'
+import { ExportButton } from '@/components/croptwist/export-button'
+import { FarmMap } from '@/components/croptwist/farm-map'
+import { FieldMap } from '@/components/croptwist/field-map'
+import { useBoundaryVersions, useFieldMap, useFields, useFarms } from '@/hooks/use-croptwist'
 import {
   createBoundaryVersion,
   createFarm,
@@ -52,7 +52,7 @@ import {
   patchField,
 } from '@/lib/api'
 import { formatArea, formatDay, formatDateTime } from '@/lib/format'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 import type {
   BoundaryVersionCreateResponse,
   Farm,
@@ -513,7 +513,7 @@ function RenameFieldDialog({
   const queryClient = useQueryClient()
   const t = useTranslations('farms')
   const tCommon = useTranslations('common')
-  const renameSelectedField = useFieldShiftUi((s) => s.renameSelectedField)
+  const renameSelectedField = useCropTwistUi((s) => s.renameSelectedField)
   const [name, setName] = useState(field.name)
 
   // Sync the input with the current field name each time the dialog opens.
@@ -859,12 +859,12 @@ export function FarmsFields() {
   const tCommon = useTranslations('common')
   const tNav = useTranslations('nav')
   const farmsQuery = useFarms()
-  const storedFarmId = useFieldShiftUi((s) => s.selectedFarmId)
-  const setSelectedFarmId = useFieldShiftUi((s) => s.setSelectedFarmId)
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
-  const createFarmOpen = useFieldShiftUi((s) => s.createFarmDialogOpen)
-  const setCreateFarmOpen = useFieldShiftUi((s) => s.setCreateFarmDialogOpen)
+  const storedFarmId = useCropTwistUi((s) => s.selectedFarmId)
+  const setSelectedFarmId = useCropTwistUi((s) => s.setSelectedFarmId)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
+  const createFarmOpen = useCropTwistUi((s) => s.createFarmDialogOpen)
+  const setCreateFarmOpen = useCropTwistUi((s) => s.setCreateFarmDialogOpen)
 
   const [addFieldOpen, setAddFieldOpen] = useState(false)
 

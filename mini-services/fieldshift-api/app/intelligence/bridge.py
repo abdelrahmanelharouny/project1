@@ -1,4 +1,4 @@
-"""LLM bridge client (sync httpx — FieldShift endpoints are sync `def` and
+"""LLM bridge client (sync httpx — CropTwist endpoints are sync `def` and
 FastAPI runs them in its threadpool, so blocking calls are safe here).
 
 Contract with the bridge mini-service:
@@ -22,7 +22,7 @@ import httpx
 
 from app.intelligence.config import ai_settings
 
-logger = logging.getLogger("fieldshift.intelligence.bridge")
+logger = logging.getLogger("croptwist.intelligence.bridge")
 
 
 def _post(url: str, payload: dict[str, Any], timeout: float) -> tuple[dict[str, Any] | None, str | None]:

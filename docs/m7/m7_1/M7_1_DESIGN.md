@@ -21,7 +21,7 @@ NOT_IMPLEMENTED — verified by M7.0).
 | Period compatibility | F-02 | Per-dimension coverage records in `period_compatibility`; zero-overlap environmental run REFUSED; zero-overlap water plan recorded as `period_mismatch` + warning | `app/field_state/service.py` |
 | Staleness / as-of semantics | F-10 | `state_reference_time` (as-of instant) + explicit as-of rule for crop history (`sowing_date <= reference time`); undated rows never guessed | `app/field_state/service.py` |
 | Provenance surfacing | F-09 / F-20 / F-32 | `created_by` surfaced in feature-run, water-plan, rotation-run, field-state payloads; `solver_version` now written per rotation run; `started_at`/`completed_at` added to water plans | `app/features/service.py`, `app/water/service.py`, `app/rotation/{problem,service}.py` |
-| Inspection UI | readiness docs (browser-verified state view) | 8th workspace tab "Field State": assemble, inspect, verify, compare | `src/components/fieldshift/field-state.tsx` |
+| Inspection UI | readiness docs (browser-verified state view) | 8th workspace tab "Field State": assemble, inspect, verify, compare | `src/components/croptwist/field-state.tsx` |
 
 Deliberately NOT in M7.1 (recorded for M7.2+): the full run-envelope projection
 (`M7_0_API_AND_DATABASE_READINESS.md` §5 lands the serialization convention with the
@@ -83,7 +83,7 @@ Application-layer membership guards on every new route (platform convention: for
 **Created:** `migrations/versions/0007_field_state_foundation.py` ·
 `app/field_state/{__init__,contracts,manifest,service}.py` ·
 `app/api/v1/field_states.py` · `tests/unit/test_observation_manifest.py` ·
-`tests/integration/test_field_states.py` · `src/components/fieldshift/field-state.tsx` ·
+`tests/integration/test_field_states.py` · `src/components/croptwist/field-state.tsx` ·
 this document set (`docs/m7/m7_1/*.md`).
 
 **Modified (additive only):** `app/db/models.py` (FieldState model + 5 additive columns) ·
@@ -94,8 +94,8 @@ idempotency_key) · `app/data_platform/ingestion/service.py` (scoped replay) ·
 `app/rotation/problem.py` (`solver_version()`) · `app/rotation/service.py` (write
 `solver_version`, surface `created_by`) · `app/api/v1/features.py`
 (`?include_manifest=true` on run detail) · `app/api/v1/router.py` ·
-`src/lib/{types,api}.ts`, `src/hooks/use-fieldshift.ts`, `src/lib/store.ts`,
-`src/components/fieldshift/workspace.tsx` · `tests/integration/test_migrations.py`.
+`src/lib/{types,api}.ts`, `src/hooks/use-croptwist.ts`, `src/lib/store.ts`,
+`src/components/croptwist/workspace.tsx` · `tests/integration/test_migrations.py`.
 
 ## 5. Restriction compliance
 

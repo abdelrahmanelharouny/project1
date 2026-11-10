@@ -31,7 +31,7 @@ from app.recommendations import service as recommendation_service
 router = APIRouter(tags=["recommendations"])
 
 ADVISOR_DISCLAIMER = (
-    "AI-generated guidance grounded in FieldShift engine outputs. "
+    "AI-generated guidance grounded in CropTwist engine outputs. "
     "Verify before acting."
 )
 

@@ -15,7 +15,7 @@ from typing import Any
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
 from app.recommendations.registry import RecommendationContext, registry
 
-logger = logging.getLogger("fieldshift.recommendations.rotation")
+logger = logging.getLogger("croptwist.recommendations.rotation")
 
 # At or above this many crop-season pairs with unevaluated water requirements,
 # the water-evidence gap gets its own advisory.

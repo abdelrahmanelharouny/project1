@@ -16,7 +16,7 @@ Records architectural decisions (ADR-style, lightweight). Each entry: context â†
 
 **Context.** The spec requires PostgreSQL + PostGIS. The sandbox has no root, no Docker, and the `pgserver` wheel ships without PostGIS.
 
-**Decision.** Install PostgreSQL 16.10 + PostGIS 3.5.0 (GEOS 3.13, PROJ 9.5) from conda-forge into `db/pgenv` (fully user-space, no root), cluster in `db/pgdata`, listening on `127.0.0.1:5433`. `scripts/ensure_db.py` starts it on demand and guarantees the `fieldshift` database + `postgis` extension exist. Migrations are authored as plain Alembic/PostGIS DDL that runs unchanged on a managed PostgreSQL+PostGIS service in production.
+**Decision.** Install PostgreSQL 16.10 + PostGIS 3.5.0 (GEOS 3.13, PROJ 9.5) from conda-forge into `db/pgenv` (fully user-space, no root), cluster in `db/pgdata`, listening on `127.0.0.1:5433`. `scripts/ensure_db.py` starts it on demand and guarantees the `croptwist` database + `postgis` extension exist. Migrations are authored as plain Alembic/PostGIS DDL that runs unchanged on a managed PostgreSQL+PostGIS service in production.
 
 **Consequences.** The running database is genuinely PostgreSQL + PostGIS (geometry columns, `ST_Area` on geography, spatial indexes). Sandbox lifecycle scripts are dev-only conveniences, documented in `docs/architecture/deployment.md`.
 
@@ -71,9 +71,9 @@ Records architectural decisions (ADR-style, lightweight). Each entry: context â†
 ## Assumptions
 
 1. The sandbox preview always reaches the API through the gateway or the Next rewrite; both are covered.
-2. Demo workspace seeding (`POST /api/v1/dev/seed-demo`) is dev-only and disabled when `FIELDSHIFT_DEV_MODE=false`.
+2. Demo workspace seeding (`POST /api/v1/dev/seed-demo`) is dev-only and disabled when `CROPTWIST_DEV_MODE=false`.
 3. The Next.js `/` route is the only user-visible route in this environment; all sections live in one workspace.
-4. Prisma/SQLite scaffolding in the repository remains untouched and unused by FieldShift (sandbox convention), to be removed when the template constraint lifts.
+4. Prisma/SQLite scaffolding in the repository remains untouched and unused by CropTwist (sandbox convention), to be removed when the template constraint lifts.
 5. Coordinate reference for all stored boundaries is EPSG:4326 as specified; antimeridian inputs produce warnings rather than silent re-wrapping.
 
 ## ADR-0009 â€” Open-Meteo: explicit model selection with a verified model-variable matrix
@@ -160,7 +160,7 @@ Records architectural decisions (ADR-style, lightweight). Each entry: context â†
 ## ADR-0019 â€” Baselines are classified, never called "climatology" (deepening F-11)
 
 WMO climatological normals require standard reference periods and dense
-records. FieldShift run windows hold â‰¤10 years, so every baseline records
+records. CropTwist run windows hold â‰¤10 years, so every baseline records
 `baseline_class` (`short_record_exploratory` / `long_record_reference`) and
 `includes_evaluated_period: true`. Catalog version bumped to
 `featurespec-2026.11.1-d1`; historical runs keep their original provenance.

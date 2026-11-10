@@ -23,7 +23,7 @@ from app.intelligence.anomaly import detect_feature_anomalies
 from app.intelligence.evidence import build_field_evidence
 from app.recommendations.contracts import DOMAINS, Recommendation
 
-logger = logging.getLogger("fieldshift.recommendations.registry")
+logger = logging.getLogger("croptwist.recommendations.registry")
 
 Generator = Callable[[Session, Any, "RecommendationContext"], list[Recommendation]]
 

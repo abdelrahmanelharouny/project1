@@ -27,27 +27,27 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { AuthGate } from '@/components/fieldshift/auth-gate'
-import { LocaleSwitcher } from '@/components/fieldshift/locale-switcher'
-import { Overview } from '@/components/fieldshift/overview'
-import { FarmsFields } from '@/components/fieldshift/farms-fields'
-import { Observations } from '@/components/fieldshift/observations'
-import { Features } from '@/components/fieldshift/features'
-import { DataPassport } from '@/components/fieldshift/data-passport'
-import { Rotation } from '@/components/fieldshift/rotation'
-import { Water } from '@/components/fieldshift/water'
-import { FieldStateView } from '@/components/fieldshift/field-state'
-import Scenarios from '@/components/fieldshift/scenarios'
-import { Soil } from '@/components/fieldshift/soil'
-import { Management } from '@/components/fieldshift/management'
-import SensitivitySection from '@/components/fieldshift/sensitivity'
-import Decisions from '@/components/fieldshift/decisions'
-import AiInsights from '@/components/fieldshift/ai-insights'
-import DigitalTwin from '@/components/fieldshift/digital-twin'
-import RobustPlan from '@/components/fieldshift/robust-plan'
-import { useHealth } from '@/hooks/use-fieldshift'
+import { AuthGate } from '@/components/croptwist/auth-gate'
+import { LocaleSwitcher } from '@/components/croptwist/locale-switcher'
+import { Overview } from '@/components/croptwist/overview'
+import { FarmsFields } from '@/components/croptwist/farms-fields'
+import { Observations } from '@/components/croptwist/observations'
+import { Features } from '@/components/croptwist/features'
+import { DataPassport } from '@/components/croptwist/data-passport'
+import { Rotation } from '@/components/croptwist/rotation'
+import { Water } from '@/components/croptwist/water'
+import { FieldStateView } from '@/components/croptwist/field-state'
+import Scenarios from '@/components/croptwist/scenarios'
+import { Soil } from '@/components/croptwist/soil'
+import { Management } from '@/components/croptwist/management'
+import SensitivitySection from '@/components/croptwist/sensitivity'
+import Decisions from '@/components/croptwist/decisions'
+import AiInsights from '@/components/croptwist/ai-insights'
+import DigitalTwin from '@/components/croptwist/digital-twin'
+import RobustPlan from '@/components/croptwist/robust-plan'
+import { useHealth } from '@/hooks/use-croptwist'
 import { getMe, logout } from '@/lib/api'
-import { useFieldShiftUi, type WorkspaceTab } from '@/lib/store'
+import { useCropTwistUi, type WorkspaceTab } from '@/lib/store'
 import type { MeResponse } from '@/lib/types'
 
 type Phase = 'checking' | 'guest' | 'authed'
@@ -82,9 +82,9 @@ const TAB_IDS = TAB_ITEMS.map((item) => item.value)
 function useWorkspaceUrlSync() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
-  const setSelectedFarmId = useFieldShiftUi((s) => s.setSelectedFarmId)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
+  const setSelectedFarmId = useCropTwistUi((s) => s.setSelectedFarmId)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const hydrated = useRef(false)
 
   // Restore state from a shared link exactly once on mount.
@@ -122,8 +122,8 @@ function useWorkspaceUrlSync() {
       lastQs = qs
       router.replace(qs ? `/?${qs}` : '/', { scroll: false })
     }
-    writeUrl(useFieldShiftUi.getState())
-    return useFieldShiftUi.subscribe((state) => writeUrl(state))
+    writeUrl(useCropTwistUi.getState())
+    return useCropTwistUi.subscribe((state) => writeUrl(state))
   }, [router])
 }
 
@@ -186,7 +186,7 @@ function SessionHeader({ session, onSignOut }: { session: MeResponse; onSignOut:
             <Sprout className="h-4.5 w-4.5" aria-hidden />
           </span>
           <div className="min-w-0 leading-tight">
-            <p className="truncate text-sm font-semibold text-stone-900">FieldShift</p>
+            <p className="truncate text-sm font-semibold text-stone-900">CropTwist</p>
             <p className="truncate text-[11px] text-stone-500">
               {session.user.display_name} · {session.user.email}
             </p>
@@ -226,9 +226,9 @@ export function Workspace() {
   // automatically; tokens are never readable from JS).
   const [phase, setPhase] = useState<Phase>('checking')
   const [session, setSession] = useState<MeResponse | null>(null)
-  const activeTab = useFieldShiftUi((s) => s.activeTab)
-  const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
-  const resetSelections = useFieldShiftUi((s) => s.setSelectedField)
+  const activeTab = useCropTwistUi((s) => s.activeTab)
+  const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
+  const resetSelections = useCropTwistUi((s) => s.setSelectedField)
 
   useWorkspaceUrlSync()
 

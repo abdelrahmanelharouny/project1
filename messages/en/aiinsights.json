@@ -42,13 +42,13 @@
   "vsBaseline": "vs {baseline} baseline",
   "zLabel": "z = {z}",
   "advisorTitle": "Ask the AI Agronomist",
-  "advisorDesc": "Ask anything about this field. Answers are grounded in FieldShift engine outputs and list the evidence used.",
+  "advisorDesc": "Ask anything about this field. Answers are grounded in CropTwist engine outputs and list the evidence used.",
   "questionPlaceholder": "Ask about water, soil, rotation, risks…",
   "send": "Send question",
   "thinking": "Thinking…",
   "history": "Conversation history",
   "noMessagesYet": "No questions yet — start the conversation below.",
   "evidenceChips": "Evidence used",
-  "disclaimer": "AI-generated guidance grounded in FieldShift engine outputs. Verify before acting.",
+  "disclaimer": "AI-generated guidance grounded in CropTwist engine outputs. Verify before acting.",
   "advisorError": "The advisor could not answer just now. Please try again."
 }

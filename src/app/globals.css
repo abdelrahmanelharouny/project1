@@ -121,7 +121,7 @@
   }
 }
 
-/* ---- FieldShift: thin stone scrollbar for long lists ---- */
+/* ---- CropTwist: thin stone scrollbar for long lists ---- */
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--color-stone-300) transparent;
@@ -142,11 +142,11 @@
 }
 
 /* ---- MapLibre: rounded corners + calm frame ---- */
-.fieldshift-map .maplibregl-ctrl-group {
+.croptwist-map .maplibregl-ctrl-group {
   border-radius: 8px;
   overflow: hidden;
 }
-.fieldshift-map .maplibregl-ctrl-scale {
+.croptwist-map .maplibregl-ctrl-scale {
   background: rgb(28 25 23 / 60%);
   color: #fafaf9;
   border-color: rgb(28 25 23 / 0%);

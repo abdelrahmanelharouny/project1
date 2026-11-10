@@ -61,10 +61,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useTranslations } from 'next-intl'
-import { ExportButton } from '@/components/fieldshift/export-button'
-import { FieldPicker, GoToFarmsButton } from '@/components/fieldshift/field-picker'
-import { JobStatusBadge, QualityBadge, SyntheticBadge } from '@/components/fieldshift/badges'
-import { useCatalog, useDataCoverage, useObservations, useProvidersHealth } from '@/hooks/use-fieldshift'
+import { ExportButton } from '@/components/croptwist/export-button'
+import { FieldPicker, GoToFarmsButton } from '@/components/croptwist/field-picker'
+import { JobStatusBadge, QualityBadge, SyntheticBadge } from '@/components/croptwist/badges'
+import { useCatalog, useDataCoverage, useObservations, useProvidersHealth } from '@/hooks/use-croptwist'
 import {
   COVERAGE_END,
   COVERAGE_START,
@@ -78,7 +78,7 @@ import {
   validateJobWindow,
 } from '@/lib/api'
 import { humanizeCode } from '@/lib/format'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 import type { DataJob, Observation, ProviderHealth, SyntheticProfile } from '@/lib/types'
 
 const PROFILES: SyntheticProfile[] = [
@@ -212,8 +212,8 @@ export function Observations() {
   const tCommon = useTranslations('common')
   const tNav = useTranslations('nav')
   const queryClient = useQueryClient()
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
 
   const catalog = useCatalog()
   const providersHealth = useProvidersHealth()

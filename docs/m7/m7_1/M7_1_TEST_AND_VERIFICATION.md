@@ -24,7 +24,7 @@ longer apply; all changes additive; engine behavior untouched and regression-pro
 | New integration tests | 31 (`tests/integration/test_field_states.py`) |
 | New migration tests | 2 (`TestM7_1FieldStateFoundation` in `test_migrations.py`) |
 | Frontend lint | exit 0 |
-| Type check (`tsc --noEmit`) | no NEW errors; 3 pre-existing errors remain in untouched files (`features.tsx` ×2 `JobStatus` — known M7.0 F-39; `water.tsx` ×1) — one pre-existing missing import in `use-fieldshift.ts` (touched file) was fixed |
+| Type check (`tsc --noEmit`) | no NEW errors; 3 pre-existing errors remain in untouched files (`features.tsx` ×2 `JobStatus` — known M7.0 F-39; `water.tsx` ×1) — one pre-existing missing import in `use-croptwist.ts` (touched file) was fixed |
 | Migration head (code & DB) | `0007_field_state_foundation` |
 | Migration up/down | verified twice: dev DB upgrade → downgrade → re-upgrade, plus scratch-DB tests (upgrade creates field_states/columns/index, downgrade to 0006 reverses exactly, incl. restoring the legacy ingestion index) |
 

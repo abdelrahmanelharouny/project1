@@ -27,4 +27,4 @@ Rules enforced in this slice:
 7. **Geospatial** (`app/geospatial`) is a pure library (Shapely/PyProj) — reusable by ingestion or future importers.
 8. **core** (`app/core`) provides config/database/errors/security/logging to everyone; imports nothing from layers above.
 
-Frontend mirrors this: `src/lib/api.ts` (typed transport, the only place that knows about `XTransformPort`), `src/lib/types.ts` (contract types), `src/hooks/use-fieldshift.ts` (server state), `src/components/fieldshift/*` (presentation), `src/lib/store.ts` (ephemeral UI state).
+Frontend mirrors this: `src/lib/api.ts` (typed transport, the only place that knows about `XTransformPort`), `src/lib/types.ts` (contract types), `src/hooks/use-croptwist.ts` (server state), `src/components/croptwist/*` (presentation), `src/lib/store.ts` (ephemeral UI state).

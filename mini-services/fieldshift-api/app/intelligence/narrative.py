@@ -15,13 +15,13 @@ from typing import Any
 
 from app.intelligence.bridge import chat_detail
 
-logger = logging.getLogger("fieldshift.intelligence.narrative")
+logger = logging.getLogger("croptwist.intelligence.narrative")
 
 MAX_NARRATIVE_CHARS = 600
 MAX_RECS_IN_PROMPT = 30
 
 _SYSTEM_PROMPT = (
-    "You are FieldShift's narrative writer. You expand deterministic "
+    "You are CropTwist's narrative writer. You expand deterministic "
     "agronomic recommendations for farmers. You MUST only use the facts in "
     "the given recommendation list — never invent numbers, never add claims "
     "that are not present. Write 1-2 short, farmer-friendly sentences per "

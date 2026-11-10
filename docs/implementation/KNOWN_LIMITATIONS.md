@@ -19,7 +19,7 @@ Honest record of what this slice does NOT do. Nothing here is claimed to work.
 
 8. **Password hashing iterations are lowered for sandbox CPUs** (120k PBKDF2 vs. OWASP-recommended ≥600k for production); token TTL is 12 h; no refresh-token rotation yet.
 9. **No rate limiting** on exposed endpoints; no file upload scanning (no uploads exist).
-10. **CORS is disabled by default** (same-origin only via gateway). Production must set `FIELDSHIFT_CORS_ALLOW_ORIGINS` to approved origins.
+10. **CORS is disabled by default** (same-origin only via gateway). Production must set `CROPTWIST_CORS_ALLOW_ORIGINS` to approved origins.
 11. **No background worker queue**: ingestion executes inline within the request (jobs remain 202-shaped, so the contract survives moving to workers).
 12. **In-memory metrics counters** are per-process; durable observability comes from structured logs + job tables.
 

@@ -14,7 +14,7 @@ from typing import Any
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
 from app.recommendations.registry import RecommendationContext, registry
 
-logger = logging.getLogger("fieldshift.recommendations.soil")
+logger = logging.getLogger("croptwist.recommendations.soil")
 
 # Screening heuristic (disclosed): below this stock the profile is treated as
 # carbon-depleted for ADVISORY purposes only. No regionally validated reference

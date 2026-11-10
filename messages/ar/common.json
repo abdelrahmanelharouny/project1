@@ -1,5 +1,5 @@
 {
-  "appName": "FieldShift",
+  "appName": "CropTwist",
   "loading": "جارٍ التحميل…",
   "loadingFields": "جارٍ تحميل الحقول",
   "retry": "إعادة المحاولة",
@@ -20,7 +20,7 @@
   "locale": "اللغة",
   "localeEn": "English",
   "localeAr": "العربية",
-  "networkError": "تعذّر الوصول إلى واجهة برمجة FieldShift.",
+  "networkError": "تعذّر الوصول إلى واجهة برمجة CropTwist.",
   "unexpectedError": "خطأ غير متوقع",
   "ha": "هكتار"
 }

@@ -41,7 +41,7 @@ from app.data_platform.contracts.observations import (
 )
 from app.data_platform.contracts.variables import variable_definition
 
-logger = logging.getLogger("fieldshift.providers.open_meteo")
+logger = logging.getLogger("croptwist.providers.open_meteo")
 
 PROVIDER_CODE = "open_meteo"
 PROVIDER_NAME = "Open-Meteo Historical Weather API"

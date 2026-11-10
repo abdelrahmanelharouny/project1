@@ -1,6 +1,6 @@
-# FieldShift
+# CropTwist
 
-**Global agriculture decision-intelligence platform.** FieldShift turns farm records and environmental observations into traceable, reproducible decision support — it is a **decision-support system**, not an autonomous agronomist and not a guarantee of yield, water savings, soil improvement, or profit.
+**Global agriculture decision-intelligence platform.** CropTwist turns farm records and environmental observations into traceable, reproducible decision support — it is a **decision-support system**, not an autonomous agronomist and not a guarantee of yield, water savings, soil improvement, or profit.
 
 ## What it does
 
@@ -40,7 +40,7 @@ All analytics artifacts are immutable and checksummed; every module exposes `/ve
     ├── tests/                    # pytest: unit / integration / contract (real PostGIS)
     ├── docs/                     # backend docs cited from the code
     ├── Dockerfile                # python:3.12-slim, non-root, healthcheck
-    └── .env.example              # annotated FIELDSHIFT_* template
+    └── .env.example              # annotated CROPTWIST_* template
 ```
 
 The backend is a **modular monolith**: one FastAPI service (`uvicorn app.main:app`), 19 routers under `/api/v1`, 80 tables on PostgreSQL 16 + PostGIS 3.5. The frontend talks to it through relative `/api/v1` URLs: behind the Caddy gateway requests carry `?XTransformPort=3030`; when hitting the web server directly, `next.config.ts` rewrites `/api/v1/*` to `127.0.0.1:3030` (works when both share a host — the sandbox case).
@@ -60,7 +60,7 @@ docker compose up --build
 | db (PostgreSQL 16 + PostGIS 3.5) | 5433 | `postgis/postgis:16-3.5`, named volume, `pg_isready` healthcheck |
 | gateway (Caddy) | 81 | mounts the repo `Caddyfile`, host networking (Linux) |
 
-With `FIELDSHIFT_DEV_MODE=1` (compose default for demos): `curl -X POST http://127.0.0.1:3030/api/v1/dev/seed-demo` seeds the demo tenant (`demo@fieldshift.local` / `fieldshift-demo-2026`).
+With `CROPTWIST_DEV_MODE=1` (compose default for demos): `curl -X POST http://127.0.0.1:3030/api/v1/dev/seed-demo` seeds the demo tenant (`demo@croptwist.local` / `croptwist-demo-2026`).
 
 ## Quickstart (manual, development)
 
@@ -89,7 +89,7 @@ Open the app on port 3000 (or the gateway on 81). API docs: FastAPI's OpenAPI UI
 | Port | Service | Binding |
 | --- | --- | --- |
 | 3000 | Next.js web | `0.0.0.0` |
-| 3030 | FieldShift FastAPI | `127.0.0.1` in the sandbox, `0.0.0.0` in containers |
+| 3030 | CropTwist FastAPI | `127.0.0.1` in the sandbox, `0.0.0.0` in containers |
 | 5433 | PostgreSQL 16 + PostGIS 3.5 | `127.0.0.1` (sandbox user-space cluster or compose mapping) |
 | 81 | Caddy gateway | host; routes `?XTransformPort=<port>` to services, everything else to :3000 |
 
@@ -97,7 +97,7 @@ Open the app on port 3000 (or the gateway on 81). API docs: FastAPI's OpenAPI UI
 
 ```bash
 cd /home/z/my-project/mini-services/fieldshift-api
-.venv/bin/python -m pytest tests -q     # needs local PG + PostGIS on 5433 (db fieldshift_test)
+.venv/bin/python -m pytest tests -q     # needs local PG + PostGIS on 5433 (db croptwist_test)
 cd /home/z/my-project && bun run lint   # frontend lint
 ```
 

@@ -1,6 +1,6 @@
 """Pytest fixtures: isolated test database (real PostgreSQL + PostGIS), API client.
 
-The test database is `fieldshift_test` on the local sandbox cluster. All env
+The test database is `croptwist_test` on the local sandbox cluster. All env
 overrides happen BEFORE any app import so cached settings pick them up.
 """
 
@@ -11,22 +11,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 TEST_DB_URL = os.environ.get(
-    "FIELDSHIFT_TEST_DB_URL",
-    "postgresql+psycopg2://postgres@127.0.0.1:5433/fieldshift_test",
+    "CROPTWIST_TEST_DB_URL",
+    "postgresql+psycopg2://postgres@127.0.0.1:5433/croptwist_test",
 )
-os.environ["FIELDSHIFT_DATABASE_URL"] = TEST_DB_URL
-os.environ["FIELDSHIFT_ENVIRONMENT"] = "test"
+os.environ["CROPTWIST_DATABASE_URL"] = TEST_DB_URL
+os.environ["CROPTWIST_ENVIRONMENT"] = "test"
 # Sandbox parity (auth hardening P0-2): registration auto-verifies emails,
-# matching the dev server which runs with FIELDSHIFT_DEV_MODE=true via .env.
-os.environ.setdefault("FIELDSHIFT_DEV_MODE", "true")
+# matching the dev server which runs with CROPTWIST_DEV_MODE=true via .env.
+os.environ.setdefault("CROPTWIST_DEV_MODE", "true")
 # The per-IP auth rate limiter would count ALL tests against the shared
 # "testclient" key; disable it suite-wide. Dedicated hardening tests
 # monkeypatch settings.auth_rate_limit_per_minute and reset the store.
-os.environ.setdefault("FIELDSHIFT_AUTH_RATE_LIMIT_PER_MINUTE", "0")
+os.environ.setdefault("CROPTWIST_AUTH_RATE_LIMIT_PER_MINUTE", "0")
 # Async jobs (P0-3): keep legacy inline ingestion suite-wide (existing tests
 # assert synchronous completion). Dedicated background-job tests start the
 # executor explicitly via start_workers() + wait_for_job().
-os.environ.setdefault("FIELDSHIFT_JOB_WORKERS", "0")
+os.environ.setdefault("CROPTWIST_JOB_WORKERS", "0")
 
 import psycopg2  # noqa: E402
 import pytest  # noqa: E402
@@ -36,11 +36,11 @@ def _ensure_test_database() -> None:
     conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="postgres")
     conn.autocommit = True
     cur = conn.cursor()
-    cur.execute("SELECT 1 FROM pg_database WHERE datname = 'fieldshift_test'")
+    cur.execute("SELECT 1 FROM pg_database WHERE datname = 'croptwist_test'")
     if cur.fetchone() is None:
-        cur.execute("CREATE DATABASE fieldshift_test ENCODING 'UTF8'")
+        cur.execute("CREATE DATABASE croptwist_test ENCODING 'UTF8'")
     conn.close()
-    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="fieldshift_test")
+    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="croptwist_test")
     conn.autocommit = True
     conn.cursor().execute("CREATE EXTENSION IF NOT EXISTS postgis")
     conn.close()

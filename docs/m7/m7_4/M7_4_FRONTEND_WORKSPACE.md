@@ -1,6 +1,6 @@
 # M7.4 — Frontend Workspace
 
-**Component:** `src/components/fieldshift/sensitivity.tsx`
+**Component:** `src/components/croptwist/sensitivity.tsx`
 **Navigation:** new workspace tab **"Sensitivity"** (icon: `LineChart`), placed
 after **Scenarios**.
 

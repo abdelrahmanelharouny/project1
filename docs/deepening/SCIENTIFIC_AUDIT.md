@@ -1,4 +1,4 @@
-# SCIENTIFIC_AUDIT.md — FieldShift Pre-M6 Deepening Program
+# SCIENTIFIC_AUDIT.md — CropTwist Pre-M6 Deepening Program
 
 Date: 2026-10-31 · Scope: M1–M5 · Baseline: 314 passing tests reproduced before any change.
 Classification per Master deepening protocol §14. Statuses: FIXED / MITIGATED / DOCUMENTED / OPEN.

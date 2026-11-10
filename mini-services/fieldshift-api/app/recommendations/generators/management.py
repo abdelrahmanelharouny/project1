@@ -15,7 +15,7 @@ from typing import Any
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
 from app.recommendations.registry import RecommendationContext, registry
 
-logger = logging.getLogger("fieldshift.recommendations.management")
+logger = logging.getLogger("croptwist.recommendations.management")
 
 # Screening heuristic (disclosed): below this protective-cover fraction the
 # field is flagged for cover improvement. No regionally validated threshold

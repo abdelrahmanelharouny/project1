@@ -45,9 +45,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
-import { SocStockChart } from '@/components/fieldshift/charts/soil-soc'
-import { useFieldShiftUi } from '@/lib/store'
+import { FieldPicker } from '@/components/croptwist/field-picker'
+import { SocStockChart } from '@/components/croptwist/charts/soil-soc'
+import { useCropTwistUi } from '@/lib/store'
 import {
   useSocRuns,
   useSoilDataReadiness,
@@ -55,7 +55,7 @@ import {
   useSoilIndicators,
   useSoilMethods,
   useSoilProfile,
-} from '@/hooks/use-fieldshift'
+} from '@/hooks/use-croptwist'
 import {
   createNutrientBudgetRun,
   createSocStockRun,
@@ -184,7 +184,7 @@ function DomainCard({ domain, expert }: { domain: SoilDomainRow; expert: boolean
 
 function AssessmentSection() {
   const t = useTranslations('soil')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const [expert, setExpert] = useState(false)
   const health = useSoilHealth(selectedField?.id ?? null)
   const queryClient = useQueryClient()
@@ -249,7 +249,7 @@ function AssessmentSection() {
 function ProfileExplorer() {
   const t = useTranslations('soil')
   const tc = useTranslations('common')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const profile = useSoilProfile(selectedField?.id ?? null)
   const indicators = useSoilIndicators(selectedField?.id ?? null)
 
@@ -364,7 +364,7 @@ function ProfileExplorer() {
 
 function SocSection() {
   const t = useTranslations('soil')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const runs = useSocRuns(selectedField?.id ?? null)
   const queryClient = useQueryClient()
   const [expert, setExpert] = useState(false)
@@ -521,7 +521,7 @@ function SocSection() {
 
 function NutrientSection() {
   const t = useTranslations('soil')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const queryClient = useQueryClient()
   const [season, setSeason] = useState('summer_2026')
   const [areaHa, setAreaHa] = useState('1')
@@ -622,7 +622,7 @@ function NutrientSection() {
 
 function LabImportSection() {
   const t = useTranslations('soil')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const fileRef = useRef<HTMLInputElement>(null)
   const [report, setReport] = useState<{
     imported: number
@@ -709,7 +709,7 @@ function LabImportSection() {
 function ReadinessSection() {
   const t = useTranslations('soil')
   const tc = useTranslations('common')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const readiness = useSoilDataReadiness(selectedField?.id ?? null)
 
   if (!selectedField) return null
@@ -754,8 +754,8 @@ function ReadinessSection() {
 
 export function Soil() {
   const t = useTranslations('soil')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const methods = useSoilMethods()
 
   return (

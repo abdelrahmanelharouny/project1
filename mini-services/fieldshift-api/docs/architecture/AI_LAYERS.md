@@ -1,6 +1,6 @@
-# FieldShift AI Layers — Architecture
+# CropTwist AI Layers — Architecture
 
-FieldShift is **AI-driven and data-driven by design**: every suggestion the
+CropTwist is **AI-driven and data-driven by design**: every suggestion the
 product makes is produced by deterministic engines over provenance-tracked
 data, and the AI layers organize, narrate and explain those outputs — they
 never replace them. The stack is structured in four layers:
@@ -61,7 +61,7 @@ data layer.
   sustained trends. Pure statistics, no ML dependencies, baselines never mix
   series.
 - **`bridge.py` — LLM bridge client.** Sync `httpx` client for the optional
-  bridge mini-service (`POST {FIELDSHIFT_LLM_BRIDGE_URL}/chat`). Best-effort:
+  bridge mini-service (`POST {CROPTWIST_LLM_BRIDGE_URL}/chat`). Best-effort:
   any failure (disabled, unreachable, timeout, non-200, malformed) returns
   `None` after logging; one retry on connection error only.
 - **`advisor.py` — AI agronomist.** `answer_field_question` grounds every
@@ -71,8 +71,8 @@ data layer.
 - **`narrative.py` — recommendation narratives.** ONE bridge call per
   refresh; the model may only expand the given facts into a `narrative`
   field. Defensive parsing; on any failure recommendations are unchanged.
-- **`config.py` —** `FIELDSHIFT_LLM_BRIDGE_URL` (default
-  `http://127.0.0.1:3035`), `FIELDSHIFT_LLM_ENABLED` (default `true`),
+- **`config.py` —** `CROPTWIST_LLM_BRIDGE_URL` (default
+  `http://127.0.0.1:3035`), `CROPTWIST_LLM_ENABLED` (default `true`),
   20 s timeout. Same pydantic-settings pattern as the central settings.
 
 ## 3. Recommendation Layer — `app/recommendations/`
@@ -125,7 +125,7 @@ registry; nothing else in the codebase emits user-facing advice.
 
 - The bridge client NEVER raises toward callers: any failure returns `None`
   and the caller falls back. One retry, connection errors only, 20 s timeout.
-- `FIELDSHIFT_LLM_ENABLED=false` disables every LLM call globally.
+- `CROPTWIST_LLM_ENABLED=false` disables every LLM call globally.
 - Refreshes, insights and advisor queries therefore never fail because of the
   LLM — worst case they return the deterministic content alone.
 

@@ -296,7 +296,7 @@ def seed_default_packs(db: Session) -> None:
     # then find the pack rows already present and skip (idempotent).
     from sqlalchemy import text
 
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('fieldshift:seed:knowledge_packs'))"))
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('croptwist:seed:knowledge_packs'))"))
 
     for get_pack in (get_seed_pack, get_m6c_practices_pack):
         pack, _report, _created = import_pack(db, get_pack(), activate=True)

@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models as dbm
 
-logger = logging.getLogger("fieldshift.intelligence.anomaly")
+logger = logging.getLogger("croptwist.intelligence.anomaly")
 
 MIN_VALUES = 5
 Z_THRESHOLD = 1.5

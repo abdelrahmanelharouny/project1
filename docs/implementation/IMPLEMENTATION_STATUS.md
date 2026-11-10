@@ -8,7 +8,7 @@ Legend: ✅ done · 🔄 in progress · ⛔ blocked · ⬜ not started
 
 | Task | Status | Notes |
 |---|---|---|
-| Inspect repository, git state, existing stack | ✅ | Next.js 16 + TS + Tailwind + shadcn template; Prisma/SQLite scaffolding; no prior FieldShift work |
+| Inspect repository, git state, existing stack | ✅ | Next.js 16 + TS + Tailwind + shadcn template; Prisma/SQLite scaffolding; no prior CropTwist work |
 | Identify conflicts with master spec, record ADRs | ✅ | ADR-0001..0008 in `docs/implementation/DECISIONS_AND_ASSUMPTIONS.md` |
 | Establish tooling | ✅ | FastAPI backend as sandbox mini-service; pytest; Next.js dev on :3000 |
 

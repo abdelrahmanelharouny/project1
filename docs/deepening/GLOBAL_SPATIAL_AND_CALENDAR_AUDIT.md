@@ -46,7 +46,7 @@ action; automatic longitude re-wrapping is backlog G-1.
 - Centre-inclusion mean per property across mean/Q0.05/Q0.95 coverages;
   same sub-grid fallback and low-coverage flags.
 - **Area weighting investigated and deliberately not applied**: at 250 m the
-  fraction of FieldShift-scale fields spanning ≤2 cells is small, the
+  fraction of CropTwist-scale fields spanning ≤2 cells is small, the
   all-touched fallback already discloses the widening, and per-quantile
   weighting would triple the intersection work for a marginal correction.
   Revisit if sub-hectare field support becomes a requirement (backlog G-2).

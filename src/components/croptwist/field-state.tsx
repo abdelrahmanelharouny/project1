@@ -21,11 +21,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
-import { useFieldStates, useFieldStateVerify } from '@/hooks/use-fieldshift'
+import { FieldPicker } from '@/components/croptwist/field-picker'
+import { useFieldStates, useFieldStateVerify } from '@/hooks/use-croptwist'
 import { createFieldState, describeError, verifyFieldState, compareFieldStates, ApiError } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 import type { FieldState, FieldStateDimension, FieldStateVerifyResponse, FieldStateCompareResponse } from '@/lib/types'
 
 const DIMENSION_ORDER = ['environmental', 'water', 'rotation', 'crop_history', 'soil', 'management'] as const
@@ -286,8 +286,8 @@ function StateDetail({ state }: { state: FieldState }) {
 export function FieldStateView() {
   const t = useTranslations('fieldstate')
   const tNav = useTranslations('nav')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const statesQuery = useFieldStates(selectedField?.id ?? null)
   const queryClient = useQueryClient()
 

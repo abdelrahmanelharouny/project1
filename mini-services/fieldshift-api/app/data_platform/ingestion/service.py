@@ -31,7 +31,7 @@ from app.db.models import (
     ObservationQualityFlag,
 )
 
-logger = logging.getLogger("fieldshift.ingestion")
+logger = logging.getLogger("croptwist.ingestion")
 
 
 def _product_for_provider(

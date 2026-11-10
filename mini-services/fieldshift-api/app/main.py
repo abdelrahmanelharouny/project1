@@ -1,4 +1,4 @@
-"""FieldShift API application factory (FastAPI, Master §9-10)."""
+"""CropTwist API application factory (FastAPI, Master §9-10)."""
 
 import logging
 import uuid
@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging, request_id_var
 
-logger = logging.getLogger("fieldshift.main")
+logger = logging.getLogger("croptwist.main")
 
 
 @asynccontextmanager
@@ -49,10 +49,10 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="FieldShift API",
+        title="CropTwist API",
         version=__version__,
         description=(
-            "FieldShift agricultural decision-support platform — first vertical slice. "
+            "CropTwist agricultural decision-support platform — first vertical slice. "
             "Farm/field management with PostGIS geometry, canonical observation contracts, "
             "a deterministic synthetic provider, and the Field Data Passport. "
             "NASA connectors are intentionally NOT implemented (future adapter)."

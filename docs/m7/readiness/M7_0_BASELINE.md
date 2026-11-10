@@ -13,12 +13,12 @@ The repository is at the **M6A baseline** — not M6C.
 | Historical claim | Actual repository evidence | Verdict |
 |---|---|---|
 | "M6B (Soil Health & Nutrient Cycling) complete" | No `app/soil/` package exists; no migration `0007_*`; no soil-assessment tests; `docs/implementation/` contains no M6B document | **NOT IMPLEMENTED** |
-| "M6C (Field Management Intelligence) complete" | No `app/management/` package; no migration `0008_field_management`; no management tests; no M6C document; the M6C engineering prompt exists only as an untracked upload (`upload/FieldShift_M6C_Master_Engineering_Prompt.md`, 1,140 lines) that was never acted on | **NOT IMPLEMENTED** |
+| "M6C (Field Management Intelligence) complete" | No `app/management/` package; no migration `0008_field_management`; no management tests; no M6C document; the M6C engineering prompt exists only as an untracked upload (`upload/CropTwist_M6C_Master_Engineering_Prompt.md`, 1,140 lines) that was never acted on | **NOT IMPLEMENTED** |
 | "742 backend tests, 1 skipped" | Fresh run: **441 passed, 0 failed, 0 skipped** (161.7 s) | M6A-era count (441) is correct; 742 does not correspond to this repository |
 | "Migration `0008_field_management` at head" | `alembic heads` → **`0006_water_intelligence (head)`**; `alembic_version` table in the live DB → `0006_water_intelligence` | Migration chain ends at M6A |
 | "M6C management and operations functionality complete" | No management tables, endpoints, or frontend tab anywhere in the repo | **NOT IMPLEMENTED** |
 
-The workspace exposes exactly **7 tabs** — Overview, Farms & Fields, Observations, Features, Rotation, Water, Data Passport (`src/components/fieldshift/workspace.tsx:23-31`). There is **no Soil tab and no Management tab** in the frontend. All M7.0 readiness assessments in this document set are therefore made against the **actual M6A-complete state**.
+The workspace exposes exactly **7 tabs** — Overview, Farms & Fields, Observations, Features, Rotation, Water, Data Passport (`src/components/croptwist/workspace.tsx:23-31`). There is **no Soil tab and no Management tab** in the frontend. All M7.0 readiness assessments in this document set are therefore made against the **actual M6A-complete state**.
 
 ---
 
@@ -28,9 +28,9 @@ The workspace exposes exactly **7 tabs** — Overview, Farms & Fields, Observati
 |---|---|
 | Branch | `main` |
 | HEAD | `71a8c344c2ab9b02f81bd573ceecf40e384d60f2` ("3fd40a5a-…", 2026-10-31) |
-| Working tree | Clean with respect to application logic relative to M6A completion: modified files are the M6A-era set (water module, migration 0006, water tests, M6A docs, `src/components/fieldshift/water.tsx`) plus sandbox artifacts (`db/mamba-root/pkgs/…`, `.zscripts/dev.pid`, screenshots). The M6A changes are uncommitted working-tree state — the last commits carry UUID-only messages, so the git history does not label milestones; file-level inspection is authoritative. |
-| Untracked (non-artifact) | `upload/FieldShift_M6C_Master_Engineering_Prompt.md`, `upload/FieldShift_Master_Engineering_Prompt.md`, two pasted-content files |
-| Repo size signal | Backend `app/` ≈ 60 Python modules; frontend FieldShift components ≈ 8,508 LOC across 17 files |
+| Working tree | Clean with respect to application logic relative to M6A completion: modified files are the M6A-era set (water module, migration 0006, water tests, M6A docs, `src/components/croptwist/water.tsx`) plus sandbox artifacts (`db/mamba-root/pkgs/…`, `.zscripts/dev.pid`, screenshots). The M6A changes are uncommitted working-tree state — the last commits carry UUID-only messages, so the git history does not label milestones; file-level inspection is authoritative. |
+| Untracked (non-artifact) | `upload/CropTwist_M6C_Master_Engineering_Prompt.md`, `upload/CropTwist_Master_Engineering_Prompt.md`, two pasted-content files |
+| Repo size signal | Backend `app/` ≈ 60 Python modules; frontend CropTwist components ≈ 8,508 LOC across 17 files |
 
 ---
 
@@ -66,7 +66,7 @@ Suite composition (by file family): unit (geometry, variables, determinism, prov
 |---|---|
 | PostgreSQL | **18.6** (conda-forge user-space build at `db/pgenv`, port 5433, socket `/tmp`) |
 | PostGIS | **3.7.0** (GEOS 3.14.1, PROJ 9.9.0) |
-| Database | `fieldshift` (UTF8); demo data seeded via `POST /api/v1/dev/seed-demo` (idempotent) |
+| Database | `croptwist` (UTF8); demo data seeded via `POST /api/v1/dev/seed-demo` (idempotent) |
 | Alembic head (code) | `0006_water_intelligence` |
 | Alembic version (DB) | `0006_water_intelligence` |
 | Tables (public schema) | 36 total = 32 application tables + `alembic_version` + PostGIS bookkeeping |
@@ -80,7 +80,7 @@ Environment: Next.js dev server :3000; API :3030; demo workspace (SYNTHETIC fixt
 
 | Check | Result |
 |---|---|
-| Application opens (`/`) | ✅ Title "FieldShift — Agricultural decision support" |
+| Application opens (`/`) | ✅ Title "CropTwist — Agricultural decision support" |
 | Auth gate | ✅ Sign in / Create account / **Enter demo workspace** rendered |
 | Demo workspace entry | ✅ Seeded SYNTHETIC fixtures, landed in workspace with token |
 | Tab set | ✅ **Overview, Farms & Fields, Observations, Features, Rotation, Water, Data Passport** — no Soil, no Management tab (confirms §1) |

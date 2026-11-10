@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.db import models as dbm
 from app.management.soil_cover import build_cover_timeline
 
-logger = logging.getLogger("fieldshift.intelligence.evidence")
+logger = logging.getLogger("croptwist.intelligence.evidence")
 
 # Monthly climate codes surfaced in the pack (extremes + latest anomaly).
 _PRIORITY_MONTHLY_CODES: tuple[str, ...] = (

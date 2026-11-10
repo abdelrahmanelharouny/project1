@@ -54,7 +54,7 @@ Codes: `VALIDATION_FAILED` (422), `INVALID_GEOMETRY` (422), `UNSUPPORTED_VARIABL
 - `GET /jobs/{job_id}` → job (tenant-checked)
 - `GET /fields/{field_id}/observations?variable_code=&start=&end=&limit≤5000&offset=` → `{items:[Observation], total, limit, offset}` — each item carries unit, time_support, spatial_support, quality_status, `is_synthetic`, processing_version, metadata{generator_version, seed, profile, purpose}
 - `GET /fields/{field_id}/data-passport` → DataPassport (see `docs/data_dictionary/evidence-and-quality.md`): overall_status, per-variable facts + provenance + aggregated warnings (with `occurrences`), missing_variables with reasons, analyses with status/missing_inputs/reasons, notes. **No composite score.**
-- `POST /dev/seed-demo` → 200 demo token + ids (dev-only; disabled when `FIELDSHIFT_DEV_MODE=false`; synthetic data only)
+- `POST /dev/seed-demo` → 200 demo token + ids (dev-only; disabled when `CROPTWIST_DEV_MODE=false`; synthetic data only)
 
 ## Notes
 - Every response carries `x-request-id` header; the same id appears inside error envelopes.

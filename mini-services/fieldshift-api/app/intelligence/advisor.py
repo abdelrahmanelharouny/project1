@@ -25,10 +25,10 @@ from app.intelligence.bridge import chat_detail
 from app.intelligence.evidence import build_field_evidence
 from app.intelligence.anomaly import detect_feature_anomalies
 
-logger = logging.getLogger("fieldshift.intelligence.advisor")
+logger = logging.getLogger("croptwist.intelligence.advisor")
 
 _SYSTEM_PROMPT = (
-    "You are FieldShift's AI agronomist. You MUST ground every claim in the "
+    "You are CropTwist's AI agronomist. You MUST ground every claim in the "
     "provided evidence pack. Cite evidence items by their label like "
     "[evidence: LABEL]. If the evidence does not contain the answer, say "
     "what data is missing. Never invent numbers. User's language: respond in "
@@ -204,7 +204,7 @@ def field_brief(db: Any, field: Any) -> dict[str, Any]:
             {
                 "role": "system",
                 "content": (
-                    "You are FieldShift's AI agronomist. Write a 2-3 sentence "
+                    "You are CropTwist's AI agronomist. Write a 2-3 sentence "
                     "field brief. Ground EVERY statement ONLY in the provided "
                     "evidence pack; cite labels like [evidence: LABEL]; name "
                     "missing data as missing; never invent numbers. Respond in "

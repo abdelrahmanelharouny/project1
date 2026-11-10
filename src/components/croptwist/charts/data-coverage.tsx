@@ -23,7 +23,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-import { useDataCoverage } from '@/hooks/use-fieldshift'
+import { useDataCoverage } from '@/hooks/use-croptwist'
 import { humanizeCode } from '@/lib/format'
 
 const MAX_VARIABLES = 16

@@ -11,15 +11,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="FIELDSHIFT_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="CROPTWIST_", env_file=".env", extra="ignore")
 
     # Service identity
-    service_name: str = "fieldshift-api"
+    service_name: str = "croptwist-api"
     api_version: str = "v1"
     environment: str = "development"  # development | test | production
 
     # Database (PostgreSQL + PostGIS). Conda-forge user-space cluster in the sandbox.
-    database_url: str = "postgresql+psycopg2://postgres@127.0.0.1:5433/fieldshift"
+    database_url: str = "postgresql+psycopg2://postgres@127.0.0.1:5433/croptwist"
     db_pgdata_dir: str = "/home/z/my-project/db/pgdata"
     db_port: int = 5433
     db_socket_dir: str = "/tmp"
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     job_workers: int = 2
 
     # Dev conveniences. Secure-by-default: false unless explicitly enabled.
-    # The sandbox runs with FIELDSHIFT_DEV_MODE=true via .env (gitignored);
+    # The sandbox runs with CROPTWIST_DEV_MODE=true via .env (gitignored);
     # docker-compose and production set false. MUST be false in production
     # (seed endpoint disabled, registration auto-verifies emails when true).
     dev_mode: bool = False

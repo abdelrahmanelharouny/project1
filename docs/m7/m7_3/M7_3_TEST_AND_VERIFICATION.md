@@ -19,7 +19,7 @@ migration → frontend).
 ## 2. Full regression results
 
 Environment: sandbox session of 2026-11-02, `main` with the M7.3 working tree at final verification;
-PostgreSQL+PostGIS `db/pgenv` on :5433; test DB `fieldshift_test` (fresh, migrated to head by conftest).
+PostgreSQL+PostGIS `db/pgenv` on :5433; test DB `croptwist_test` (fresh, migrated to head by conftest).
 
 Final-verification run (all suites, this session):
 

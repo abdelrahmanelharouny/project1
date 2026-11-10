@@ -13,7 +13,7 @@ Additive migration:
 - `locked_until` TIMESTAMPTZ NULL — set when the failed-login threshold is
   reached; sign-in attempts inside the window are rejected with 423.
 - `email_verified` BOOLEAN NOT NULL server_default true — registration gate.
-  Sandboxes run with FIELDSHIFT_DEV_MODE=true which auto-verifies.
+  Sandboxes run with CROPTWIST_DEV_MODE=true which auto-verifies.
 
 `auth_tokens` — refresh-token rotation families:
 

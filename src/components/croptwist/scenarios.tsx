@@ -29,13 +29,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
+import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   useFieldStates,
   useScenarioCapabilities,
   useScenarioTypes,
   useScenarios,
-} from '@/hooks/use-fieldshift'
+} from '@/hooks/use-croptwist'
 import {
   archiveScenario,
   compareScenarios,
@@ -50,8 +50,8 @@ import {
   validateScenario,
   verifyScenario,
 } from '@/lib/api'
-import { useFieldShiftUi } from '@/lib/store'
-import { ScenarioExecutionSection } from '@/components/fieldshift/scenario-execution'
+import { useCropTwistUi } from '@/lib/store'
+import { ScenarioExecutionSection } from '@/components/croptwist/scenario-execution'
 import type {
   Scenario,
   ScenarioCompareResponse,
@@ -792,8 +792,8 @@ function ComparisonCard({
 
 export default function Scenarios() {
   const t = useTranslations('scenarios')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const fieldId = selectedField?.id ?? null
 
   const scenariosQuery = useScenarios(fieldId)

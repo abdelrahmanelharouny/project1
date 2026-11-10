@@ -255,7 +255,7 @@ def seed_demo_endpoint(
     response: Response,
     db: Session = Depends(get_db),
 ) -> dict:
-    """DEV-ONLY convenience (disabled when FIELDSHIFT_DEV_MODE=false).
+    """DEV-ONLY convenience (disabled when CROPTWIST_DEV_MODE=false).
 
     Creates/reuses a clearly-labelled demo workspace with SYNTHETIC data so the
     preview UI can be explored without manual setup. It never contains real
@@ -357,7 +357,7 @@ def observations_csv_template() -> Response:
     return Response(
         content=template,
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="fieldshift-observations-template.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="croptwist-observations-template.csv"'},
     )
 
 

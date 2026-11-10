@@ -35,7 +35,7 @@
 | Check | Result |
 |---|---|
 | `bun run lint` (eslint) | exit 0, clean |
-| `tsc --noEmit` | zero errors in M7.2 files (`scenarios.tsx`, `workspace.tsx`, `store.ts`, `api.ts`, `types.ts`, `use-fieldshift.ts`); pre-existing M7.0-tracked errors elsewhere remain out of scope |
+| `tsc --noEmit` | zero errors in M7.2 files (`scenarios.tsx`, `workspace.tsx`, `store.ts`, `api.ts`, `types.ts`, `use-croptwist.ts`); pre-existing M7.0-tracked errors elsewhere remain out of scope |
 | New workspace tab | **Scenarios** (9th tab) |
 
 ### 2.3 Browser E2E (agent-browser, zero console errors)
@@ -69,7 +69,7 @@ Golden path exercised end-to-end against the live demo workspace:
 - `app/api/v1/scenarios.py` + router registration — 15 endpoints, no execution endpoint
 - `app/db/models.py` — `Scenario`, `ScenarioValidationRecord`
 - `migrations/versions/0008_scenario_domain.py` — 2 tables, 8 CHECK constraints, 4 indexes, immutability trigger
-- `src/components/fieldshift/scenarios.tsx` + workspace/store/api/types/hook wiring
+- `src/components/croptwist/scenarios.tsx` + workspace/store/api/types/hook wiring
 - `tests/` — 3 new files + migration test class (91 tests)
 
 **Documentation** (`docs/m7/m7_2/` — this document set):

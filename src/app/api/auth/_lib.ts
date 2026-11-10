@@ -72,7 +72,7 @@ export async function backend<T>(
       ok: false,
       status: 0,
       payload: null,
-      error: { code: 'NETWORK_ERROR', message: 'Could not reach the FieldShift API.' },
+      error: { code: 'NETWORK_ERROR', message: 'Could not reach the CropTwist API.' },
     }
   }
 }

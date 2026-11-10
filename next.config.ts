@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: false,
   devIndicators: false,
   // Fallback proxy: when the app is reached directly on :3000 (bypassing the
-  // Caddy gateway), forward /api/v1/* to the FieldShift FastAPI mini-service.
+  // Caddy gateway), forward /api/v1/* to the CropTwist FastAPI mini-service.
   // Behind the gateway, Caddy handles this via ?XTransformPort=3030 and Next
   // never sees these requests.
   async rewrites() {

@@ -30,8 +30,8 @@ export async function POST(request: Request) {
 
   const demo = seed.payload
   const credentials = demo.demo_user ?? {
-    email: 'demo@fieldshift.local',
-    password: 'fieldshift-demo-2026',
+    email: 'demo@croptwist.local',
+    password: 'croptwist-demo-2026',
   }
   const login = await backend<BackendSession>('/auth/login', {
     method: 'POST',

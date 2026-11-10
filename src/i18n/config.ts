@@ -1,5 +1,5 @@
 /**
- * i18n configuration for FieldShift (next-intl, no i18n routing).
+ * i18n configuration for CropTwist (next-intl, no i18n routing).
  *
  * The app is a single-route client SPA, so there is no locale prefix in the
  * URL: the active locale is stored in the NEXT_LOCALE cookie and resolved

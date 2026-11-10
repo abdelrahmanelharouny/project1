@@ -2,7 +2,7 @@
 
 **Status:** implemented (as-built)
 **Code:** `app/soil/assessment.py` (engine), `app/soil/service.py` (read models),
-`src/components/fieldshift/soil.tsx` (Soil tab).
+`src/components/croptwist/soil.tsx` (Soil tab).
 **ADRs:** ADR-0026 (no composite index), ADR-0027 (comparability gate),
 ADR-0028 (qualitative VOI).
 

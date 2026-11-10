@@ -1,12 +1,12 @@
 # AI-2a — Backend AI Layers (Intelligence + Recommendation)
 
-**Task:** FieldShift AI-driven pivot — backend layers for the FastAPI service
+**Task:** CropTwist AI-driven pivot — backend layers for the FastAPI service
 (`mini-services/fieldshift-api/`). Status: **COMPLETE**, import-verified.
 
 ## What was built
 
 ### 1. Intelligence Layer — `app/intelligence/` (new package, 7 files)
-- `config.py` — AI settings (pydantic-settings, `FIELDSHIFT_` prefix, reads
+- `config.py` — AI settings (pydantic-settings, `CROPTWIST_` prefix, reads
   `.env`): `llm_bridge_url` (default `http://127.0.0.1:3035`), `llm_enabled`
   (default true), `llm_timeout_seconds` = 20, `llm_temperature` = 0.3.
 - `bridge.py` — sync `httpx` client (all existing endpoints are sync `def`):
@@ -88,8 +88,8 @@ features.py exactly. Registered with the exact mount line below.
 ### 5. Docs + config
 - `docs/architecture/AI_LAYERS.md` — 4-layer architecture, degradation
   policy, honesty contract.
-- `.env` (fieldshift-api dir; file did not exist, created with the single
-  line): `FIELDSHIFT_LLM_BRIDGE_URL=http://127.0.0.1:3035`
+- `.env` (croptwist-api dir; file did not exist, created with the single
+  line): `CROPTWIST_LLM_BRIDGE_URL=http://127.0.0.1:3035`
 
 ## Router mount line (the only edits to existing code)
 ```python
@@ -135,7 +135,7 @@ api_router.include_router(recommendations.router)
    `not_evaluated` ledger (crop-season pairs with unevaluated dimensions,
    incl. `water_requirement`) and label it honestly instead of fabricating
    exclusion counts.
-7. `.env` did not exist in the fieldshift-api dir, so it was created
+7. `.env` did not exist in the croptwist-api dir, so it was created
    containing exactly the one required line (nothing was overwritten).
 
 ## Notes for other agents
@@ -147,7 +147,7 @@ api_router.include_router(recommendations.router)
   "created_at"}]}` — recommendations sorted severity-desc then domain order.
 - Engine modes: recommendations payload `rules` | `rules+llm`; insights/advisor
   `llm` | `rules`.
-- The bridge contract my layer expects: `POST {FIELDSHIFT_LLM_BRIDGE_URL}/chat`
+- The bridge contract my layer expects: `POST {CROPTWIST_LLM_BRIDGE_URL}/chat`
   with `{"messages":[{role,content}...], "temperature":0.3}` →
   `{"content": "...", "model"?: "..."}` (AI-2b's service on port 3035).
 - Until migration 0017 runs, the 5 new endpoints will 500 on the

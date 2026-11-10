@@ -17,7 +17,7 @@
 | Water | `water.tsx` (1,099) | readiness matrix, plan builder (seasons/crops/allocation/soil source/expert mode), stage timeline (CSS proportional bar), ladder with conversions, monthly table, deficit accordions, plan history | `(not evaluated)` ladder steps, "unknown ≠ unlimited" allocation warning, "no evidence" cells, methodology & deliberate-omissions card |
 | Data Passport | `data-passport.tsx` (374) | per-variable source cards, missing-variables with reasons, analyses available/blocked with required inputs | synthetic/real entries never merged; license/attribution cards |
 
-Shared infrastructure: `badges.tsx` (Synthetic/Quality/JobStatus/Passport badges), `field-picker.tsx` (cross-farm picker + empty states), `lib/format.ts` (units/dates/code humanization), TanStack Query hooks (`hooks/use-fieldshift.ts`, ~30 typed hooks), zustand UI store with cross-tab jump actions, `lib/api.ts` (bearer header + `XTransformPort` gateway + `ApiError` envelope mapping → sonner toasts).
+Shared infrastructure: `badges.tsx` (Synthetic/Quality/JobStatus/Passport badges), `field-picker.tsx` (cross-farm picker + empty states), `lib/format.ts` (units/dates/code humanization), TanStack Query hooks (`hooks/use-croptwist.ts`, ~30 typed hooks), zustand UI store with cross-tab jump actions, `lib/api.ts` (bearer header + `XTransformPort` gateway + `ApiError` envelope mapping → sonner toasts).
 
 ## 2. Can these foundations host the six proposed M7 surfaces?
 
@@ -38,7 +38,7 @@ Shared infrastructure: `badges.tsx` (Synthetic/Quality/JobStatus/Passport badges
 |---|---|---|---|
 | Component reuse | high — badges/pickers/format/api shared everywhere | §1 | extend, don't fork |
 | Navigation complexity | 7 tabs + zustand cross-tab jumps; flat structure holds | `workspace.tsx:23-31,148-188` | 7→9 tabs (add States, Scenarios) still manageable; keep tab strip scroll pattern |
-| Data consistency across tabs | consistent field scoping; each tab re-fetches via TanStack Query with invalidation on mutation | hooks/use-fieldshift.ts | state/scenario APIs must follow same query-key conventions |
+| Data consistency across tabs | consistent field scoping; each tab re-fetches via TanStack Query with invalidation on mutation | hooks/use-croptwist.ts | state/scenario APIs must follow same query-key conventions |
 | Responsive layout | mobile-first Tailwind: stacked headers (`flex-col sm:flex-row`), 2-col mobile grids, `overflow-x-auto` tables with min-widths, scrollable tab strip | §1 components | verified 390 px this session: no overflow |
 | Mobile behavior | footer `mt-auto` + safe-area inset; tab strip scrolls; no horizontal overflow | `workspace.tsx:36,157-158` + live check | keep for new tabs |
 | Accessibility | semantic tablist/panels (Radix), labeled inputs, alt-free decorative SVGs; **no dedicated audit done this session** | component structure | run an a11y pass before M7.7 (low risk, Radix base) |

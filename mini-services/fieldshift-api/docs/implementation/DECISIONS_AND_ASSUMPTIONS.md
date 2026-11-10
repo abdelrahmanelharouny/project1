@@ -1,7 +1,7 @@
 # Decisions and Assumptions (ADR index)
 
 Authoritative record of the architectural decisions and standing assumptions
-behind the FieldShift API. Each entry names the code that implements it, so
+behind the CropTwist API. Each entry names the code that implements it, so
 this document cannot silently drift: if the code changes, update the entry.
 
 ## Decisions
@@ -13,10 +13,10 @@ this document cannot silently drift: if the code changes, update the entry.
   digital_twin). Routers live in `app/api/v1/` and are aggregated by
   `router.py`. No inter-service network calls inside the backend.
 - **ADR-0002 — Configuration via environment.** All settings are read by
-  pydantic-settings (`app/core/config.py`, prefix `FIELDSHIFT_`, optional
+  pydantic-settings (`app/core/config.py`, prefix `CROPTWIST_`, optional
   `.env` in the API working directory). No secrets in code or images; a
   committed `.env` is intentionally absent — `.env.example` documents every
-  variable. Unknown `FIELDSHIFT_*` variables are ignored (`extra="ignore"`),
+  variable. Unknown `CROPTWIST_*` variables are ignored (`extra="ignore"`),
   which lets deployments pre-provision reserved settings.
 - **ADR-0003 — PostgreSQL + PostGIS only.** The platform requires PostGIS
   (boundary geometry, geodesic area, spatial queries). There is no SQLite
@@ -24,7 +24,7 @@ this document cannot silently drift: if the code changes, update the entry.
 - **ADR-0004 — Small, auditable auth.** Passwords: PBKDF2-HMAC-SHA256 with a
   per-user random salt (`app/core/security.py`); the iteration count is
   embedded in every stored hash, so raising
-  `FIELDSHIFT_PASSWORD_PBKDF2_ITERATIONS` (default 600,000) keeps old hashes
+  `CROPTWIST_PASSWORD_PBKDF2_ITERATIONS` (default 600,000) keeps old hashes
   verifiable. Access tokens: 256-bit opaque tokens stored as SHA-256 hashes.
   Refresh tokens rotate on every use; reuse of a rotated token revokes the
   whole token family. Account lockout after repeated failures; per-IP
@@ -66,9 +66,9 @@ this document cannot silently drift: if the code changes, update the entry.
   and expose `/verify` endpoints.
 - **Runs execute inline.** Scenario executions, sensitivity analyses and
   robust runs are computed synchronously inside the request. An async mode
-  ships for provider ingestion behind `FIELDSHIFT_JOB_WORKERS` (documented in
+  ships for provider ingestion behind `CROPTWIST_JOB_WORKERS` (documented in
   `.env.example`).
-- **Dev conveniences are gated.** `FIELDSHIFT_DEV_MODE` (default false)
+- **Dev conveniences are gated.** `CROPTWIST_DEV_MODE` (default false)
   enables the demo seed endpoint and auto-verified registration; it must be
   false in production.
 - **Sandbox deployment scripts are sandbox-specific.** `scripts/ensure_db.py`

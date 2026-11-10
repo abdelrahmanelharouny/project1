@@ -582,12 +582,12 @@ def _count_other_active_owners(
 def add_member(
     db: Session, principal: Principal, farm: Farm, *, email: str, role_code: str
 ) -> Membership:
-    """Add an existing FieldShift account to the farm's organization (owner-only)."""
+    """Add an existing CropTwist account to the farm's organization (owner-only)."""
     require_farm_role(db, principal, farm, "owner")
     email_normalized = email.strip().lower()
     user = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
     if user is None:
-        raise NotFound("No FieldShift account exists with this email.")
+        raise NotFound("No CropTwist account exists with this email.")
     existing = db.scalar(
         select(Membership).where(
             Membership.organization_id == farm.organization_id,

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from app.core.errors import FieldShiftError
+from app.core.errors import CropTwistError
 from app.data_platform.contracts.observations import (
     AreaOfInterest,
     EnvironmentalDataProvider,
@@ -96,14 +96,14 @@ class TestContractSuite:
         assert all(o.uncertainty_value is None for o in big.observations)
 
     def test_rejects_invalid_date_ranges(self, provider):
-        with pytest.raises(FieldShiftError):
+        with pytest.raises(CropTwistError):
             provider.fetch_observations(
                 area_of_interest=AOI, variables=["precipitation"],
                 start=END, end=START, options={"seed": 1},
             )
 
     def test_rejects_unsupported_variables(self, provider):
-        with pytest.raises(FieldShiftError):
+        with pytest.raises(CropTwistError):
             provider.fetch_observations(
                 area_of_interest=AOI, variables=["not_a_variable"],
                 start=START, end=END, options={"seed": 1},

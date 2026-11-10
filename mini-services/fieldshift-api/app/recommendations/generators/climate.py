@@ -15,7 +15,7 @@ from app.intelligence.anomaly import Z_THRESHOLD
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
 from app.recommendations.registry import RecommendationContext, registry
 
-logger = logging.getLogger("fieldshift.recommendations.climate")
+logger = logging.getLogger("croptwist.recommendations.climate")
 
 # Documented screening thresholds (heuristic, applied to engine metric values).
 DRY_SPELL_ADVISORY_DAYS = 14   # ≥ 2 weeks under the WMO dry-day convention

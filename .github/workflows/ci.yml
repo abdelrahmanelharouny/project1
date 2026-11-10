@@ -1,8 +1,8 @@
-# FieldShift CI — backend (Alembic + pytest against real PostGIS) + frontend.
+# CropTwist CI — backend (Alembic + pytest against real PostGIS) + frontend.
 #
 # Backend: the suite needs a real PostgreSQL + PostGIS (no SQLite fallback).
 # A postgis/postgis:16-3.5 service container is published on host port 5433
-# (the port tests/conftest.py and alembic expect), database fieldshift_test.
+# (the port tests/conftest.py and alembic expect), database croptwist_test.
 # Migration 0001 issues CREATE EXTENSION IF NOT EXISTS postgis, which the
 # image's superuser role satisfies.
 #
@@ -31,7 +31,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: fieldshift_test
+          POSTGRES_DB: croptwist_test
         ports:
           - 5433:5432
         options: >-
@@ -41,12 +41,12 @@ jobs:
           --health-retries 20
           --health-start-period 10s
     env:
-      # tests/conftest.py reads FIELDSHIFT_TEST_DB_URL (its default targets
+      # tests/conftest.py reads CROPTWIST_TEST_DB_URL (its default targets
       # the passwordless sandbox cluster; CI must authenticate with a
       # password). Host/port stay 127.0.0.1:5433 as the suite expects.
-      FIELDSHIFT_TEST_DB_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/fieldshift_test
-      # alembic env.py reads settings.database_url (FIELDSHIFT_ prefix).
-      FIELDSHIFT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/fieldshift_test
+      CROPTWIST_TEST_DB_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/croptwist_test
+      # alembic env.py reads settings.database_url (CROPTWIST_ prefix).
+      CROPTWIST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/croptwist_test
       # conftest's bootstrap connections (CREATE DATABASE / EXTENSION) use
       # libpq and pick up PGPASSWORD.
       PGPASSWORD: postgres

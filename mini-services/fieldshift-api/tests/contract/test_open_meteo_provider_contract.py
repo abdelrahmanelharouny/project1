@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from app.core.errors import FieldShiftError
+from app.core.errors import CropTwistError
 from app.data_platform.contracts.observations import (
     AreaOfInterest,
     EnvironmentalDataProvider,
@@ -147,13 +147,13 @@ class TestOpenMeteoContractSuite:
         )
 
     def test_rejects_invalid_date_ranges(self, provider):
-        with pytest.raises(FieldShiftError):
+        with pytest.raises(CropTwistError):
             provider.fetch_observations(
                 area_of_interest=AOI, variables=["precipitation"], start=END, end=START
             )
 
     def test_rejects_unsupported_variables(self, provider):
-        with pytest.raises(FieldShiftError):
+        with pytest.raises(CropTwistError):
             provider.fetch_observations(
                 area_of_interest=AOI, variables=["not_a_variable"], start=START, end=END
             )

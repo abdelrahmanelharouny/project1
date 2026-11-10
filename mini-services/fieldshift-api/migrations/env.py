@@ -1,4 +1,4 @@
-"""Alembic environment for FieldShift migrations."""
+"""Alembic environment for CropTwist migrations."""
 
 from logging.config import fileConfig
 

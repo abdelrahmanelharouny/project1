@@ -13,8 +13,8 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { useFarmsWithFields } from '@/hooks/use-fieldshift'
-import { useFieldShiftUi, type SelectedField } from '@/lib/store'
+import { useFarmsWithFields } from '@/hooks/use-croptwist'
+import { useCropTwistUi, type SelectedField } from '@/lib/store'
 
 interface FieldPickerProps {
   value: string | null
@@ -78,7 +78,7 @@ export function FieldPicker({ value, onValueChange, id, emptyHint }: FieldPicker
 
 export function GoToFarmsButton({ label }: { label?: string }) {
   const t = useTranslations('common')
-  const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
+  const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
   return (
     <Button variant="outline" size="sm" onClick={() => setActiveTab('farms')}>
       {label ?? t('goToFarms')}

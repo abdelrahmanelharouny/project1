@@ -1,4 +1,4 @@
-# FieldShift API — FastAPI + SQLAlchemy 2 on PostgreSQL 16 / PostGIS 3.5.
+# CropTwist API — FastAPI + SQLAlchemy 2 on PostgreSQL 16 / PostGIS 3.5.
 #
 # Multi-stage build pinned to python:3.12-slim (matches the sandbox runtime,
 # CPython 3.12.16). All 48 pinned requirements ship manylinux cp312 wheels
@@ -26,22 +26,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
 # Dedicated non-root user for the API process.
-RUN groupadd --system --gid 10001 fieldshift \
- && useradd --system --uid 10001 --gid fieldshift --home-dir /app --shell /usr/sbin/nologin fieldshift
+RUN groupadd --system --gid 10001 croptwist \
+ && useradd --system --uid 10001 --gid croptwist --home-dir /app --shell /usr/sbin/nologin croptwist
 
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
 # Application code + Alembic migration set (the compose entrypoint runs
 # `alembic upgrade head` before uvicorn; migrations/env.py reads
-# FIELDSHIFT_DATABASE_URL via app.core.config).
+# CROPTWIST_DATABASE_URL via app.core.config).
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
 
-RUN chown -R fieldshift:fieldshift /app
+RUN chown -R croptwist:croptwist /app
 
-USER fieldshift
+USER croptwist
 
 EXPOSE 3030
 

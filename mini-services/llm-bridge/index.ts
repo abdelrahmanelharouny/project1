@@ -1,6 +1,6 @@
 /**
  * llm-bridge — tiny Bun HTTP bridge exposing the JS-only `z-ai-web-dev-sdk`
- * LLM to the FieldShift FastAPI (Python) backend.
+ * LLM to the CropTwist FastAPI (Python) backend.
  *
  * Endpoints:
  *   POST /chat    { messages: [{role, content}, ...], temperature?, max_tokens? }

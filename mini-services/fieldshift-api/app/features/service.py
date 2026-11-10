@@ -43,7 +43,7 @@ from app.features.catalog import (
     FEATURE_ENGINE_VERSION,
 )
 
-logger = logging.getLogger("fieldshift.features")
+logger = logging.getLogger("croptwist.features")
 
 ALLOWED_AGGREGATION_LEVELS = ("daily", "monthly", "seasonal", "crop_season")
 MAX_WINDOW_YEARS = 31

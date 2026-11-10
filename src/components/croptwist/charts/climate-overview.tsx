@@ -35,7 +35,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-import { useObservations } from '@/hooks/use-fieldshift'
+import { useObservations } from '@/hooks/use-croptwist'
 import { COVERAGE_END, COVERAGE_START } from '@/lib/api'
 
 const WINDOW_DAYS = 120

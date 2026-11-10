@@ -51,9 +51,9 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
-import { SyntheticBadge } from '@/components/fieldshift/badges'
-import { useFieldShiftUi } from '@/lib/store'
+import { FieldPicker } from '@/components/croptwist/field-picker'
+import { SyntheticBadge } from '@/components/croptwist/badges'
+import { useCropTwistUi } from '@/lib/store'
 import { describeError } from '@/lib/api'
 import {
   createCoverCropPlan,
@@ -169,9 +169,9 @@ type SubView = (typeof SUB_VIEWS)[number]['value']
 
 export function Management() {
   const t = useTranslations('management')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
-  const selectedFarmId = useFieldShiftUi((s) => s.selectedFarmId)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
+  const selectedFarmId = useCropTwistUi((s) => s.selectedFarmId)
   const [view, setView] = useState<SubView>('plan')
   const [expert, setExpert] = useState(false)
 

@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
-import { useHealthReady } from '@/hooks/use-fieldshift'
+import { useHealthReady } from '@/hooks/use-croptwist'
 import { demoLogin, describeError, login, register } from '@/lib/api'
 
 interface AuthGateProps {
@@ -125,7 +125,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-700 text-emerald-50 shadow-sm">
               <Sprout className="h-6 w-6" aria-hidden />
             </span>
-            <h1 className="text-2xl font-semibold tracking-tight text-stone-900">FieldShift</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-stone-900">CropTwist</h1>
             <p className="text-sm text-stone-500">{t('tagline')}</p>
           </div>
 

@@ -1,6 +1,6 @@
 # Known Limitations
 
-Honest inventory of what the FieldShift API does **not** do. Items here are
+Honest inventory of what the CropTwist API does **not** do. Items here are
 gaps by design or by priority — not hidden defects. Where a future direction
 exists it is named; nothing in this list is simulated elsewhere in the code.
 
@@ -25,13 +25,13 @@ exists it is named; nothing in this list is simulated elsewhere in the code.
   synchronously inside the HTTP request. Long scenario sets are bounded by
   documented caps (e.g. `MAX_SCENARIO_SET_SIZE = 5`), but there is no job
   queue yet. An async mode is being added behind the reserved
-  background worker pool for provider ingestion (`FIELDSHIFT_JOB_WORKERS`); domain run endpoints (rotation, sensitivity, robust rotation, SOC) still execute inside the request and can adopt the same pool per-domain as their UIs gain progress polling.
+  background worker pool for provider ingestion (`CROPTWIST_JOB_WORKERS`); domain run endpoints (rotation, sensitivity, robust rotation, SOC) still execute inside the request and can adopt the same pool per-domain as their UIs gain progress polling.
 - **Metrics are in-process only.** `opentelemetry-api` is pinned in
   `requirements.txt` but no exporter, collector or external metrics endpoint
   is configured. Observability today: structured logging, `x-request-id`
   correlation headers, and the health/readiness endpoints.
 - No caching layer: provider probes use a small in-process TTL cache
-  (`FIELDSHIFT_PROVIDER_PROBE_CACHE_SECONDS`); everything else reads
+  (`CROPTWIST_PROVIDER_PROBE_CACHE_SECONDS`); everything else reads
   PostgreSQL directly.
 
 ## Data platform

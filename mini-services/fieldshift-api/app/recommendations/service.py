@@ -29,7 +29,7 @@ from app.recommendations import contracts as rc
 from app.recommendations.registry import registry
 from app.intelligence import narrative
 
-logger = logging.getLogger("fieldshift.recommendations.service")
+logger = logging.getLogger("croptwist.recommendations.service")
 
 
 def _row_to_contract(row: models_ai.AIRecommendation) -> rc.Recommendation:

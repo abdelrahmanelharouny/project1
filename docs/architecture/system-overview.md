@@ -1,6 +1,6 @@
 # System Overview
 
-FieldShift is an agricultural decision-support platform. This is the **first vertical slice**: farm/field management on real PostgreSQL+PostGIS, a canonical observation pipeline with a deterministic synthetic provider, and the Field Data Passport. It contains **no NASA connectors** and **no real-world agronomic recommendations** (per the master specification).
+CropTwist is an agricultural decision-support platform. This is the **first vertical slice**: farm/field management on real PostgreSQL+PostGIS, a canonical observation pipeline with a deterministic synthetic provider, and the Field Data Passport. It contains **no NASA connectors** and **no real-world agronomic recommendations** (per the master specification).
 
 ## Architecture at a glance
 

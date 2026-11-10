@@ -6,7 +6,7 @@ Every decision here is implemented and tested; deviations are in the backlog.
 ## 1. Baseline / climatology methodology (F-11)
 
 WMO climatological normals are computed for standard reference periods
-(e.g. 1991–2020) from dense complete records. FieldShift's run windows hold at
+(e.g. 1991–2020) from dense complete records. CropTwist's run windows hold at
 most ~10 years of provider coverage, so:
 
 - `n_years < 5` → anomaly features are `not_evaluated` (reason in provenance).

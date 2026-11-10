@@ -54,7 +54,7 @@ from app.sensitivity import contracts as sc
 from app.sensitivity import math as smath
 from app.sensitivity import registry as sregistry
 
-logger = logging.getLogger("fieldshift.sensitivity")
+logger = logging.getLogger("croptwist.sensitivity")
 
 # ---------------------------------------------------------------------------
 # Source-run eligibility (M7.4 architecture §2)

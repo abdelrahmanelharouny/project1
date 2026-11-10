@@ -39,15 +39,15 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
+import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   useAdvisorHistory,
   useAdvisorQuery,
   useFieldInsights,
   useFieldRecommendations,
   useRefreshRecommendations,
-} from '@/hooks/use-fieldshift'
-import { useFieldShiftUi } from '@/lib/store'
+} from '@/hooks/use-croptwist'
+import { useCropTwistUi } from '@/lib/store'
 import type {
   AdvisorEvidence,
   FieldInsightItem,
@@ -166,8 +166,8 @@ function Header() {
 
 export default function AiInsights() {
   const t = useTranslations('aiinsights')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const fieldId = selectedField?.id ?? null
 
   if (!fieldId || !selectedField) {

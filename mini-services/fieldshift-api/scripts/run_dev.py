@@ -28,7 +28,7 @@ def main() -> None:
     os.execv(uvicorn, [
         uvicorn, "app.main:app",
         "--host", "127.0.0.1",
-        "--port", os.environ.get("FIELDSHIFT_API_PORT", "3030"),
+        "--port", os.environ.get("CROPTWIST_API_PORT", "3030"),
         "--reload",
     ])
 

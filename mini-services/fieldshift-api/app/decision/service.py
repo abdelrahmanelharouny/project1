@@ -27,7 +27,7 @@ from app.db import models as dbm
 from app.field_state.manifest import sha256_of_document
 from app.decision import contracts as dc
 
-logger = logging.getLogger("fieldshift.decision")
+logger = logging.getLogger("croptwist.decision")
 
 RESULT_RUN_STATUSES = ("succeeded", "completed_with_limitations")
 RESULT_ANALYSIS_STATUSES = ("succeeded", "completed_with_limitations")

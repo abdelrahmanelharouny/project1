@@ -1,4 +1,4 @@
-# llm-bridge — z-ai LLM HTTP bridge for FieldShift
+# llm-bridge — z-ai LLM HTTP bridge for CropTwist
 
 Tiny Bun microservice exposing the JS-only `z-ai-web-dev-sdk` chat LLM over HTTP so the Python FastAPI backend (`mini-services/fieldshift-api`) can use it.
 Port: `127.0.0.1:3035` (localhost only). Endpoints: `POST /chat` — body `{"messages":[{"role","content"},...],"temperature?","max_tokens?"}` → `{"content","model"}`; `GET /health` → `{"ok","in_flight","uptime_s"}`.

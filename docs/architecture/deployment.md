@@ -26,12 +26,12 @@ cd /home/z/my-project && bun run lint         # frontend lint
 
 ## Production (guidance — not yet automated)
 
-1. Provision managed **PostgreSQL 16 + PostGIS 3.x**; set `FIELDSHIFT_DATABASE_URL`. Run `alembic upgrade head` (the DDL is plain PostGIS — no sandbox-specific artifacts).
-2. Run FastAPI behind a reverse proxy (uvicorn workers / gunicorn-uvicorn); restrict CORS via `FIELDSHIFT_CORS_ALLOW_ORIGINS`; set `FIELDSHIFT_DEV_MODE=false` (disables `/dev/seed-demo`).
-3. Raise `FIELDSHIFT_PASSWORD_PBKDF2_ITERATIONS` (≥600k) and review token TTL.
+1. Provision managed **PostgreSQL 16 + PostGIS 3.x**; set `CROPTWIST_DATABASE_URL`. Run `alembic upgrade head` (the DDL is plain PostGIS — no sandbox-specific artifacts).
+2. Run FastAPI behind a reverse proxy (uvicorn workers / gunicorn-uvicorn); restrict CORS via `CROPTWIST_CORS_ALLOW_ORIGINS`; set `CROPTWIST_DEV_MODE=false` (disables `/dev/seed-demo`).
+3. Raise `CROPTWIST_PASSWORD_PBKDF2_ITERATIONS` (≥600k) and review token TTL.
 4. Serve the Next.js production build; keep the single-route workspace.
 5. Add Redis + a task worker when ingestion moves off-request (job tables/contracts are ready); add object storage for rasters when raster providers arrive.
 6. Backups: standard `pg_basebackup`/managed snapshots; `db/pgdata` is dev-only state.
 7. Health/readiness probes: `/api/v1/health`, `/api/v1/health/ready`.
 
-Environment variables (prefix `FIELDSHIFT_`, see `app/core/config.py`): `DATABASE_URL`, `DB_PGDATA_DIR`, `DB_PORT`, `AUTH_TOKEN_TTL_SECONDS`, `PASSWORD_PBKDF2_ITERATIONS`, `DEV_MODE`, `CORS_ALLOW_ORIGINS`, `ENVIRONMENT`.
+Environment variables (prefix `CROPTWIST_`, see `app/core/config.py`): `DATABASE_URL`, `DB_PGDATA_DIR`, `DB_PORT`, `AUTH_TOKEN_TTL_SECONDS`, `PASSWORD_PBKDF2_ITERATIONS`, `DEV_MODE`, `CORS_ALLOW_ORIGINS`, `ENVIRONMENT`.

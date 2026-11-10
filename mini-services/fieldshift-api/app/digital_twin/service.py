@@ -37,7 +37,7 @@ from app.db import models as dbm
 from app.field_state.manifest import sha256_of_document
 from app.digital_twin import contracts as tc
 
-logger = logging.getLogger("fieldshift.digital_twin")
+logger = logging.getLogger("croptwist.digital_twin")
 
 TWIN_SNAPSHOT_VERSION = "digital-twin-view-1.0"
 

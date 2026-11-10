@@ -1,6 +1,6 @@
 # M7.3 — Frontend Scenario Execution Workspace
 
-**Component:** `src/components/fieldshift/scenario-execution.tsx` (new), wired into the existing
+**Component:** `src/components/croptwist/scenario-execution.tsx` (new), wired into the existing
 **Scenarios** tab (`scenarios.tsx`). API client: `src/lib/api.ts` (7 new functions); types: `src/lib/types.ts`.
 
 ---

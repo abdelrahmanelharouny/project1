@@ -1,6 +1,6 @@
 """Idempotent demo workspace seeding (SYNTHETIC data, dev-only).
 
-Creates demo@fieldshift.local with a farm and two fields, ingests clearly
+Creates demo@croptwist.local with a farm and two fields, ingests clearly
 labelled synthetic observations, and returns a login token. Every observation
 is a software fixture (is_synthetic=true) — never real-world data.
 """
@@ -14,8 +14,8 @@ from app.core.security import generate_token, hash_password, verify_password
 from app.db.models import AuthToken, Farm, Field, IngestionJob, Membership, Organization, User
 from app.data_platform.ingestion.service import start_ingestion_job
 
-DEMO_EMAIL = "demo@fieldshift.local"
-DEMO_PASSWORD = "fieldshift-demo-2026"
+DEMO_EMAIL = "demo@croptwist.local"
+DEMO_PASSWORD = "croptwist-demo-2026"
 
 _FARM = {
     "name": "Demo Nile Delta Farm (SYNTHETIC)",

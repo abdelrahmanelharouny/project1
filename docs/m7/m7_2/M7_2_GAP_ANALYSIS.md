@@ -28,7 +28,7 @@ Every claim below was re-measured on the live working tree on the day of this an
 | Boundary version pinning (H-01) | `field_states.boundary_version` NOT NULL; `feature_runs`/`water_plans` same; append-only `field_boundary_versions`; RESTRICT-FK artifact protection (F-13) | ✅ |
 | Observation manifest (H-02) | `app/field_state/manifest.py` — canonical JSON (`sort_keys`, tight separators, UTF-8), ISO-UTC timestamps, stable ordering `(observed_at, id)`, explicit nulls, `field-observation-manifest-1` format | ✅ |
 | Tenant isolation | `app/domains/identity/service.py` — `Principal` (bearer token → memberships), `get_field_for_principal` (404 for foreign objects), org-scoped membership check | ✅ |
-| Error envelope | `app/core/errors.py` — `FieldShiftError` hierarchy → `{"error": {code, message, details, request_id}}`, 404-vs-403 platform convention | ✅ |
+| Error envelope | `app/core/errors.py` — `CropTwistError` hierarchy → `{"error": {code, message, details, request_id}}`, 404-vs-403 platform convention | ✅ |
 | Immutable-run idiom | water plans / feature runs / field states: `running → succeeded/failed` rows, never rewritten; recomputation = new row; run-envelope timestamps | ✅ |
 | Canonical hashing utilities | `sha256_of_document`, `canonical_json`, `iso_utc` in `app/field_state/manifest.py` | ✅ (reused; scenario module imports — no duplication) |
 | Frontend workspace | 8 tabs (`overview, farms, observations, features, rotation, water, fieldstate, passport`); zustand `WorkspaceTab`; typed `src/lib/api.ts` with `XTransformPort=3030` relative-path gateway rule; honest `not_implemented` badges for soil/management in the Field State tab | ✅ |

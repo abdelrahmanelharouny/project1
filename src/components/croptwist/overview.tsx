@@ -6,12 +6,12 @@ import { FlaskConical, Map, Plus, RefreshCw, Ruler, Sprout, Tractor } from 'luci
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useFields, useFarms, useHealthReady } from '@/hooks/use-fieldshift'
-import { ClimateOverview } from '@/components/fieldshift/charts/climate-overview'
-import { DataCoverage } from '@/components/fieldshift/charts/data-coverage'
-import { FarmMap } from '@/components/fieldshift/farm-map'
+import { useFields, useFarms, useHealthReady } from '@/hooks/use-croptwist'
+import { ClimateOverview } from '@/components/croptwist/charts/climate-overview'
+import { DataCoverage } from '@/components/croptwist/charts/data-coverage'
+import { FarmMap } from '@/components/croptwist/farm-map'
 import { formatArea } from '@/lib/format'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 
 function StatCard({
   icon,
@@ -62,10 +62,10 @@ export function Overview() {
   const firstField = fieldsQuery.data?.items[0] ?? null
   const healthReady = useHealthReady()
 
-  const setActiveTab = useFieldShiftUi((s) => s.setActiveTab)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
-  const openCreateFarm = useFieldShiftUi((s) => s.openCreateFarm)
-  const goToPassportFor = useFieldShiftUi((s) => s.goToPassportFor)
+  const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
+  const openCreateFarm = useCropTwistUi((s) => s.openCreateFarm)
+  const goToPassportFor = useCropTwistUi((s) => s.goToPassportFor)
 
   const handleMapSelect = useCallback(
     (field: { id: string; name: string; farm_id: string }) => {

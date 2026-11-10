@@ -26,7 +26,7 @@ export interface SelectedField {
   farmId: string
 }
 
-interface FieldShiftUiState {
+interface CropTwistUiState {
   activeTab: WorkspaceTab
   selectedFarmId: string | null
   selectedField: SelectedField | null
@@ -45,7 +45,7 @@ interface FieldShiftUiState {
   goToScenariosFor: (field: SelectedField) => void
 }
 
-export const useFieldShiftUi = create<FieldShiftUiState>((set) => ({
+export const useCropTwistUi = create<CropTwistUiState>((set) => ({
   activeTab: 'overview',
   selectedFarmId: null,
   selectedField: null,

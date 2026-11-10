@@ -329,7 +329,7 @@ export function FarmMap({
     <div className={`relative ${className ?? ''}`}>
       <div
         ref={containerRef}
-        className="fieldshift-map h-[280px] w-full overflow-hidden rounded-lg border border-stone-300 md:h-[340px]"
+        className="croptwist-map h-[280px] w-full overflow-hidden rounded-lg border border-stone-300 md:h-[340px]"
         role="img"
         aria-label={tMap('mapAria', { count: drawable.length })}
       />

@@ -14,7 +14,7 @@ from typing import Any
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
 from app.recommendations.registry import RecommendationContext, registry
 
-logger = logging.getLogger("fieldshift.recommendations.water")
+logger = logging.getLogger("croptwist.recommendations.water")
 
 # A root-zone stress window of at least this many days escalates the timing
 # advisory to `recommended` (documented screening heuristic).

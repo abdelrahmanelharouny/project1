@@ -60,7 +60,7 @@ deliberately NOT extended).
 
 ## 4. Frontend
 
-`src/components/fieldshift/management.tsx` — the **Management** tab (between
+`src/components/croptwist/management.tsx` — the **Management** tab (between
 Soil and Data Passport) with six sub-views: Overview (plan), Cover Crops,
 Soil Cover, Residue, Erosion, Operations. Simple/Expert toggle; status chips
 render colour + text; SYNTHETIC warnings surface inline; long lists scroll

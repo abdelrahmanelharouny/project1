@@ -15,10 +15,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-logger = logging.getLogger("fieldshift.errors")
+logger = logging.getLogger("croptwist.errors")
 
 
-class FieldShiftError(Exception):
+class CropTwistError(Exception):
     """Base class for domain errors that map to structured API errors."""
 
     status_code = status.HTTP_400_BAD_REQUEST
@@ -41,47 +41,47 @@ class FieldShiftError(Exception):
             self.status_code = status_code
 
 
-class ValidationFailed(FieldShiftError):
+class ValidationFailed(CropTwistError):
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "VALIDATION_FAILED"
 
 
-class InvalidGeometry(FieldShiftError):
+class InvalidGeometry(CropTwistError):
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "INVALID_GEOMETRY"
 
 
-class UnsupportedVariable(FieldShiftError):
+class UnsupportedVariable(CropTwistError):
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "UNSUPPORTED_VARIABLE"
 
 
-class InvalidDateRange(FieldShiftError):
+class InvalidDateRange(CropTwistError):
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "INVALID_DATE_RANGE"
 
 
-class NotFound(FieldShiftError):
+class NotFound(CropTwistError):
     status_code = status.HTTP_404_NOT_FOUND
     code = "NOT_FOUND"
 
 
-class Unauthorized(FieldShiftError):
+class Unauthorized(CropTwistError):
     status_code = status.HTTP_401_UNAUTHORIZED
     code = "UNAUTHORIZED"
 
 
-class Forbidden(FieldShiftError):
+class Forbidden(CropTwistError):
     status_code = status.HTTP_403_FORBIDDEN
     code = "FORBIDDEN"
 
 
-class Conflict(FieldShiftError):
+class Conflict(CropTwistError):
     status_code = status.HTTP_409_CONFLICT
     code = "CONFLICT"
 
 
-class AccountLocked(FieldShiftError):
+class AccountLocked(CropTwistError):
     """Sign-in blocked by the temporary failed-login lockout (P0-2).
 
     Carries `retry_after_seconds` so clients can show a countdown; the value
@@ -109,7 +109,7 @@ class AccountLocked(FieldShiftError):
         self.retry_after_seconds = retry_after_seconds
 
 
-class TooManyRequests(FieldShiftError):
+class TooManyRequests(CropTwistError):
     """Sliding-window rate limit exceeded (P0-2). Carries `retry_after_seconds`."""
 
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
@@ -133,26 +133,26 @@ class TooManyRequests(FieldShiftError):
         self.retry_after_seconds = retry_after_seconds
 
 
-class EmailNotVerified(FieldShiftError):
+class EmailNotVerified(CropTwistError):
     """Sign-in denied because the account's email address is not verified (P0-2)."""
 
     status_code = status.HTTP_403_FORBIDDEN
     code = "EMAIL_NOT_VERIFIED"
 
 
-class InsufficientData(FieldShiftError):
+class InsufficientData(CropTwistError):
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "INSUFFICIENT_DATA"
 
 
-class ProviderRequestError(FieldShiftError):
+class ProviderRequestError(CropTwistError):
     """A provider rejected the request (bad params, out-of-coverage, API error body)."""
 
     status_code = status.HTTP_502_BAD_GATEWAY
     code = "PROVIDER_REQUEST_ERROR"
 
 
-class ProviderUnavailable(FieldShiftError):
+class ProviderUnavailable(CropTwistError):
     """An optional provider is unreachable/degraded. Other providers are unaffected."""
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -176,8 +176,8 @@ def _error_payload(
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    @app.exception_handler(FieldShiftError)
-    async def domain_error_handler(request: Request, exc: FieldShiftError) -> JSONResponse:
+    @app.exception_handler(CropTwistError)
+    async def domain_error_handler(request: Request, exc: CropTwistError) -> JSONResponse:
         request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
         headers = None
         if isinstance(exc, (TooManyRequests, AccountLocked)):

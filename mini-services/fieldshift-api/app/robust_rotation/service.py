@@ -66,7 +66,7 @@ from app.robust_rotation import contracts as rc
 from app.robust_rotation import climate as rclimate
 from app.robust_rotation.engine import intersection_candidates, optimize_shared_plan
 
-logger = logging.getLogger("fieldshift.robust")
+logger = logging.getLogger("croptwist.robust")
 
 RESULT_RUN_STATUSES = ("succeeded", "completed_with_limitations")
 

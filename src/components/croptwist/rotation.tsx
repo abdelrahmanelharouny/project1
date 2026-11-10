@@ -50,9 +50,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ExportButton } from '@/components/fieldshift/export-button'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
-import { SyntheticBadge } from '@/components/fieldshift/badges'
+import { ExportButton } from '@/components/croptwist/export-button'
+import { FieldPicker } from '@/components/croptwist/field-picker'
+import { SyntheticBadge } from '@/components/croptwist/badges'
 import {
   useCropHistory,
   useKnowledgeCrops,
@@ -62,14 +62,14 @@ import {
   useRotationRules,
   useRotationRun,
   useRotationRuns,
-} from '@/hooks/use-fieldshift'
+} from '@/hooks/use-croptwist'
 import {
   addCropHistory,
   createRotationRun,
   describeError,
   generateCropCandidates,
 } from '@/lib/api'
-import { useFieldShiftUi, type SelectedField } from '@/lib/store'
+import { useCropTwistUi, type SelectedField } from '@/lib/store'
 import type {
   CandidateAssessment,
   CandidateSeason,
@@ -841,9 +841,9 @@ function KnowledgeBrowser() {
 export function Rotation() {
   const t = useTranslations('rotation')
   const tCommon = useTranslations('common')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
-  const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
+  const goToObservationsFor = useCropTwistUi((s) => s.goToObservationsFor)
   const [seasons, setSeasons] = useState<SeasonWindow[]>([
     { label: 'summer_2026', start: '2026-05-01', end: '2026-09-15' },
   ])

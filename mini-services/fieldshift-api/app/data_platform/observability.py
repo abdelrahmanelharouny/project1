@@ -10,7 +10,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-logger = logging.getLogger("fieldshift.metrics")
+logger = logging.getLogger("croptwist.metrics")
 
 _counters: dict[str, int] = {}
 _latencies: dict[str, list[float]] = {}

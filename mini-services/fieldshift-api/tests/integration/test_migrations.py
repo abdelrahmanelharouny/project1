@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SCRATCH_DB = "fieldshift_mig_test"
+SCRATCH_DB = "croptwist_mig_test"
 SCRATCH_URL = f"postgresql+psycopg2://postgres@127.0.0.1:5433/{SCRATCH_DB}"
 
 
@@ -26,7 +26,7 @@ def _psql(dbname: str, sql: str) -> None:
 
 def _alembic(*args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env["FIELDSHIFT_DATABASE_URL"] = SCRATCH_URL
+    env["CROPTWIST_DATABASE_URL"] = SCRATCH_URL
     # Prefer an in-project virtualenv when present; otherwise run alembic from
     # the CURRENT interpreter (works when the suite runs from any venv path,
     # e.g. /home/z/fieldshift-api-venv in the sandbox or the CI runner).

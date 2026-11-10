@@ -45,7 +45,7 @@
 | # | Defect found | Fix | Files |
 |---|---|---|---|
 | 1 | `direction_payload` raised TypeError on all-None corner values (grid analyses failed) | filter None values before comparison | `app/sensitivity/math.py` |
-| 2 | Unbounded OAT/grid tables (3 264 + 132k rows) wedged the browser tab during E2E | capped render windows (100 OAT / 50 grid summaries) with explicit "showing first N of M" notes; evaluated-first client sort | `src/components/fieldshift/sensitivity.tsx` |
+| 2 | Unbounded OAT/grid tables (3 264 + 132k rows) wedged the browser tab during E2E | capped render windows (100 OAT / 50 grid summaries) with explicit "showing first N of M" notes; evaluated-first client sort | `src/components/croptwist/sensitivity.tsx` |
 | 3 | Test-side: wrong envelope expectation (ref ± bounds instead of ref ± (bound − refΔT)); trigger test used a broken transaction pattern; tenant test asserted only 404 | corrected to the engine-correct expectation; DBAPIError-based tamper test; 403/404 both accepted as denials | `tests/integration/test_sensitivity_analyses.py` |
 
 All three re-verified after the fix (full suite re-run; browser journey repeated).

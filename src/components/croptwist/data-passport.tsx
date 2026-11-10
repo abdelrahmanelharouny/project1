@@ -16,11 +16,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
-import { PassportStatusBadge, PassportStatusExplanation, SyntheticBadge } from '@/components/fieldshift/badges'
-import { useCatalog, useDataPassport } from '@/hooks/use-fieldshift'
+import { FieldPicker } from '@/components/croptwist/field-picker'
+import { PassportStatusBadge, PassportStatusExplanation, SyntheticBadge } from '@/components/croptwist/badges'
+import { useCatalog, useDataPassport } from '@/hooks/use-croptwist'
 import { formatDateTime, humanizeCode, pct } from '@/lib/format'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 import type { PassportDatasetProduct, PassportWarning } from '@/lib/types'
 
 function WarningLine({ warning }: { warning: PassportWarning }) {
@@ -38,8 +38,8 @@ function WarningLine({ warning }: { warning: PassportWarning }) {
 
 export function DataPassport() {
   const t = useTranslations('passport')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const passportQuery = useDataPassport(selectedField?.id ?? null)
   const catalog = useCatalog(Boolean(selectedField))
 

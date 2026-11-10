@@ -1,6 +1,6 @@
 """Integration: background job executor + unified jobs API (P0-3 async jobs).
 
-The suite runs with FIELDSHIFT_JOB_WORKERS=0 (legacy inline ingestion); these
+The suite runs with CROPTWIST_JOB_WORKERS=0 (legacy inline ingestion); these
 tests start the executor explicitly and shut it down after each test.
 """
 

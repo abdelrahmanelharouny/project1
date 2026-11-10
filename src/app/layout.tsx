@@ -17,9 +17,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FieldShift — Agricultural decision support",
+  title: "CropTwist — Agricultural decision support",
   description:
-    "FieldShift brings field boundaries, observations and data passports together for calm, evidence-aware agronomic decisions. First vertical slice.",
+    "CropTwist brings field boundaries, observations and data passports together for calm, evidence-aware agronomic decisions. First vertical slice.",
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },

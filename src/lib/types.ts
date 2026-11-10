@@ -1,5 +1,5 @@
 /**
- * FieldShift API contract types (frozen, verified against the FastAPI backend).
+ * CropTwist API contract types (frozen, verified against the FastAPI backend).
  * All endpoints live under /api/v1 and are reached through the gateway with
  * the `XTransformPort=3030` query parameter (see src/lib/api.ts).
  */

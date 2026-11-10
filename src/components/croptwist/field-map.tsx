@@ -100,7 +100,7 @@ export function FieldMap({ mapData, className }: { mapData: FieldMapResponse; cl
   return (
     <div
       ref={containerRef}
-      className={`fieldshift-map h-[300px] w-full overflow-hidden rounded-lg border border-stone-700/40 md:h-[360px] ${className ?? ''}`}
+      className={`croptwist-map h-[300px] w-full overflow-hidden rounded-lg border border-stone-700/40 md:h-[360px] ${className ?? ''}`}
       role="img"
       aria-label={`Offline map preview of field ${mapData.field.name}, fitted to its boundary`}
     />

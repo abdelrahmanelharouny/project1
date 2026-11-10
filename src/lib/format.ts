@@ -1,4 +1,4 @@
-/** Presentation helpers shared across FieldShift components. */
+/** Presentation helpers shared across CropTwist components. */
 
 /** Format hectares with the active UI locale (falls back to runtime locale). */
 export function formatArea(ha: number | null | undefined, locale?: string): string {

@@ -1,6 +1,6 @@
 # Data Platform — Provider Contracts
 
-How external environmental data enters FieldShift, and the guarantees every
+How external environmental data enters CropTwist, and the guarantees every
 provider implementation must uphold. Implementation:
 `app/data_platform/` (registry, ingestion, imports, providers, contracts,
 observability).
@@ -50,7 +50,7 @@ forecast, climate projection, NASA/satellite products — see
   failures (HTTP 202 + job resource).
 - **Idempotent reruns** via natural-key uniqueness — re-posting the same
   payload does not duplicate observations.
-- Upload guards: `FIELDSHIFT_MAX_IMPORT_FILE_BYTES` caps CSV/GeoTIFF sizes
+- Upload guards: `CROPTWIST_MAX_IMPORT_FILE_BYTES` caps CSV/GeoTIFF sizes
   (default 32 MB).
 - Provider availability probes (`provider_probe_*` settings) feed the
   data-platform status view with a small in-process TTL cache.

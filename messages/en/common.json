@@ -1,5 +1,5 @@
 {
-  "appName": "FieldShift",
+  "appName": "CropTwist",
   "loading": "Loading…",
   "loadingFields": "Loading fields",
   "retry": "Retry",
@@ -20,7 +20,7 @@
   "locale": "Language",
   "localeEn": "English",
   "localeAr": "العربية",
-  "networkError": "Could not reach the FieldShift API.",
+  "networkError": "Could not reach the CropTwist API.",
   "unexpectedError": "Unexpected error",
   "ha": "ha"
 }

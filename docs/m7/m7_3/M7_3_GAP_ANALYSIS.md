@@ -49,7 +49,7 @@ M7.3 scope ("M6B and M6C are not present … preserve that limitation").
 3. Recreated the wiped sandbox runtime: `.venv` (requirements.txt), PostgreSQL+PostGIS into `db/pgenv`
    (micromamba, fresh package cache — the git-tracked cache had symlink corruption after the sandbox reset),
    `initdb -U postgres --auth=trust` into `db/pgdata`, cluster on port 5433.
-4. Fresh `alembic upgrade head` on database `fieldshift` → `0008_scenario_domain` (single head, linear chain). ✅
+4. Fresh `alembic upgrade head` on database `croptwist` → `0008_scenario_domain` (single head, linear chain). ✅
 5. Demo seed `POST /api/v1/dev/seed-demo` → healthy. `/api/v1/health` → ok.
 
 ## 4. Verified reusable components (M7.3 will build on these — inspected, not assumed)

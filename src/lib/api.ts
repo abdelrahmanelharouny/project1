@@ -1,5 +1,5 @@
 /**
- * Typed fetch wrapper for the FieldShift API.
+ * Typed fetch wrapper for the CropTwist API.
  *
  * Gateway rule: every request goes to a RELATIVE path and carries the
  * `XTransformPort=3030` query parameter so the Caddy gateway forwards it to
@@ -221,7 +221,7 @@ async function request<T>(
     throw new ApiError({
       status: 0,
       code: 'NETWORK_ERROR',
-      message: 'Could not reach the FieldShift API.',
+      message: 'Could not reach the CropTwist API.',
       details: [],
     })
   }
@@ -1399,7 +1399,7 @@ export function getFieldInsights(fieldId: string): Promise<FieldInsightsResponse
   return request<FieldInsightsResponse>(`/api/v1/fields/${fieldId}/insights`)
 }
 
-/** Ask the AI agronomist a question grounded in FieldShift engine outputs. */
+/** Ask the AI agronomist a question grounded in CropTwist engine outputs. */
 export function queryAdvisor(fieldId: string, question: string): Promise<AdvisorQueryResponse> {
   return request<AdvisorQueryResponse>(`/api/v1/fields/${fieldId}/advisor/query`, {
     method: 'POST',

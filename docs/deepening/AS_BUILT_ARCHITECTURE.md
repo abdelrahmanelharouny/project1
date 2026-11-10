@@ -42,10 +42,10 @@ Caddy gateway ──────────────► FastAPI backend (uvi
 
 ## 3. Frontend
 
-- `src/components/fieldshift/*`: workspace shell (tabs, sticky footer, mobile-safe),
+- `src/components/croptwist/*`: workspace shell (tabs, sticky footer, mobile-safe),
   auth-gate, farms/fields (+MapLibre offline map), observations, features,
   rotation (913 lines), data-passport, badges, overview.
-- `src/lib/api.ts` (fetch wrapper), `src/hooks/use-fieldshift.ts` (TanStack Query),
+- `src/lib/api.ts` (fetch wrapper), `src/hooks/use-croptwist.ts` (TanStack Query),
   `src/lib/types.ts` (1000+ lines of response contracts).
 - Honesty rules enforced client-side post-deepening: synthetic badges are
   flag-driven (F-01), charts annotate provenance mix (F-17), missing counts

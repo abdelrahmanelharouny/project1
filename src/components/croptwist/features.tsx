@@ -43,11 +43,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
-import { JobStatusBadge, QualityBadge, SyntheticBadge } from '@/components/fieldshift/badges'
-import { useFeatureCatalog, useFeatureComparison, useFeatureRuns, useFeatureValues } from '@/hooks/use-fieldshift'
+import { FieldPicker } from '@/components/croptwist/field-picker'
+import { JobStatusBadge, QualityBadge, SyntheticBadge } from '@/components/croptwist/badges'
+import { useFeatureCatalog, useFeatureComparison, useFeatureRuns, useFeatureValues } from '@/hooks/use-croptwist'
 import { createFeatureRun, describeError } from '@/lib/api'
-import { useFieldShiftUi, type SelectedField } from '@/lib/store'
+import { useCropTwistUi, type SelectedField } from '@/lib/store'
 import type { FeatureRun, FeatureValue } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -541,9 +541,9 @@ export function Features() {
   const t = useTranslations('features')
   const tCommon = useTranslations('common')
   const tNav = useTranslations('nav')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
-  const setSelectedField = useFieldShiftUi((s) => s.setSelectedField)
-  const goToObservationsFor = useFieldShiftUi((s) => s.goToObservationsFor)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
+  const goToObservationsFor = useCropTwistUi((s) => s.goToObservationsFor)
   const catalogQuery = useFeatureCatalog()
   const runsQuery = useFeatureRuns(selectedField?.id ?? null)
   const [openRunId, setOpenRunId] = useState<string | null>(null)

@@ -17,7 +17,7 @@ bun run lint
 ## Environment under test
 
 - Python 3.12.16, FastAPI 0.162.0, SQLAlchemy 2.1.6, GeoAlchemy2 0.20.0, Shapely 2.2.0, PyProj 3.8.0, Pydantic 2.14.2, httpx 0.28.1, rasterio 1.5.2 (M3)
-- PostgreSQL 16.10 + PostGIS 3.5.0 (GEOS 3.13.0, PROJ 9.5.1), database `fieldshift_test` for integration tests
+- PostgreSQL 16.10 + PostGIS 3.5.0 (GEOS 3.13.0, PROJ 9.5.1), database `croptwist_test` for integration tests
 - Node: Next.js 16.1.3 (webpack dev mode), React 19, maplibre-gl 6.16.0
 
 ## Unit tests

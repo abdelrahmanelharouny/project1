@@ -30,7 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
+import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   ApiError,
   createDecisionComparison,
@@ -39,12 +39,12 @@ import {
   verifyDecisionComparison,
 } from '@/lib/api'
 import type { DecisionComparisonSummary, DecisionDocument } from '@/lib/types'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 import { AlertTriangle, FileSearch, Loader2, Scale, GitCompareArrows } from 'lucide-react'
 
 export default function Decisions() {
   const t = useTranslations('decisions')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const fieldId = selectedField?.id ?? null
   const queryClient = useQueryClient()
   const [title, setTitle] = useState('')

@@ -1,4 +1,4 @@
-"""Ensure the PostgreSQL cluster is running and the fieldshift DB exists.
+"""Ensure the PostgreSQL cluster is running and the croptwist DB exists.
 
 Sandbox-specific helper: the conda-forge PostgreSQL cluster in db/pgdata is
 started on demand. In production, use a managed PostgreSQL + PostGIS service
@@ -9,11 +9,11 @@ import os
 import subprocess
 import sys
 
-PGDATA = os.environ.get("FIELDSHIFT_DB_PGDATA", "/home/z/my-project/db/pgdata")
-PGPORT = os.environ.get("FIELDSHIFT_DB_PORT", "5433")
-PGSOCKDIR = os.environ.get("FIELDSHIFT_DB_SOCKET_DIR", "/tmp")
+PGDATA = os.environ.get("CROPTWIST_DB_PGDATA", "/home/z/my-project/db/pgdata")
+PGPORT = os.environ.get("CROPTWIST_DB_PORT", "5433")
+PGSOCKDIR = os.environ.get("CROPTWIST_DB_SOCKET_DIR", "/tmp")
 PGUSER = "postgres"
-DBNAME = os.environ.get("FIELDSHIFT_DB_NAME", "fieldshift")
+DBNAME = os.environ.get("CROPTWIST_DB_NAME", "croptwist")
 PGBIN = os.path.join(os.path.dirname(PGDATA), "pgenv", "bin")
 
 

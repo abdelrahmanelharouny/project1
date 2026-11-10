@@ -42,5 +42,5 @@ Frontend lint: clean (`bun run lint`, exit 0).
 ## 4. Migration tests
 
 `test_migrations.py` exercises upgrade→downgrade→upgrade each run; the suite
-rebuilds `fieldshift_test` from scratch via conftest (0001→0008), so 0008's
+rebuilds `croptwist_test` from scratch via conftest (0001→0008), so 0008's
 16 tables and their CHECK constraints are validated on every run.

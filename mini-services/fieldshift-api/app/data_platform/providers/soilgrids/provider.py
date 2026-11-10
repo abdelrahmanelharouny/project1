@@ -57,7 +57,7 @@ from app.data_platform.contracts.observations import (
 )
 from app.data_platform.contracts.variables import variable_definition
 
-logger = logging.getLogger("fieldshift.providers.soilgrids")
+logger = logging.getLogger("croptwist.providers.soilgrids")
 
 PROVIDER_CODE = "soilgrids"
 PROVIDER_NAME = "SoilGrids 2.0 (ISRIC) — WCS"

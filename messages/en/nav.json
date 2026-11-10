@@ -17,7 +17,7 @@
   "passport": "Data Passport",
   "signOut": "Sign out",
   "restoringSession": "Restoring your session…",
-  "footerNote": "FieldShift — decision support, not an autonomous agronomist.",
+  "footerNote": "CropTwist — decision support, not an autonomous agronomist.",
   "footerSynthetic": "Synthetic data is always labelled.",
   "apiStatus": "API status…",
   "apiVersion": "API v{version}"

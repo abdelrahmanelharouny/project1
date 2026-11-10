@@ -1,6 +1,6 @@
 # M7.0 — Final Readiness Report
 
-**Project:** FieldShift — Global Agricultural Decision Intelligence Platform
+**Project:** CropTwist — Global Agricultural Decision Intelligence Platform
 **Inspection:** Cross-Domain Integration Audit, Field State Architecture & Digital Twin Readiness
 **Date:** 2026-11-01 · **Mode:** repository-first, evidence-driven, read-only · **Scope:** M1–M6C
 **Deliverable set:** this report + 12 companion documents in `docs/m7/readiness/`
@@ -9,7 +9,7 @@
 
 ## 1. Executive summary
 
-FieldShift was reported to be at "M6C complete" (742 tests, migration 0008 at head). **The repository does not corroborate that.** Independent inspection establishes the actual state as **M6A complete**: 441/441 backend tests pass freshly (0 skipped, 161.7 s), frontend lint is clean, migration head is `0006_water_intelligence`, and the browser exposes exactly seven tabs (Overview, Farms & Fields, Observations, Features, Rotation, Water, Data Passport) with zero console errors — **no Soil tab, no Management tab, no `app/soil/`, no `app/management/`, no migrations 0007/0008**. The M6C engineering prompt exists only as an untracked upload that was never implemented.
+CropTwist was reported to be at "M6C complete" (742 tests, migration 0008 at head). **The repository does not corroborate that.** Independent inspection establishes the actual state as **M6A complete**: 441/441 backend tests pass freshly (0 skipped, 161.7 s), frontend lint is clean, migration head is `0006_water_intelligence`, and the browser exposes exactly seven tabs (Overview, Farms & Fields, Observations, Features, Rotation, Water, Data Passport) with zero console errors — **no Soil tab, no Management tab, no `app/soil/`, no `app/management/`, no migrations 0007/0008**. The M6C engineering prompt exists only as an untracked upload that was never implemented.
 
 This discrepancy is itself the single most consequential inspection finding: **M7 planning must proceed from the real M6A baseline**, which is nonetheless strong. Five domains are genuinely production-grade with unusual provenance discipline: versioned knowledge packs (checksummed, lifecycle-managed), reproducible feature runs, a deterministic CP-SAT rotation optimizer with named infeasibility, an FAO-56/FAO-33 water engine with honest refusal paths, and field/boundary versioning with geodesic area cross-checks.
 

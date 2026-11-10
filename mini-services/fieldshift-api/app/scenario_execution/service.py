@@ -55,7 +55,7 @@ from app.scenario_execution.dependency_graph import (
 from app.scenario_execution.transformations import apply_transformations
 from app.scenarios import contracts as sc
 
-logger = logging.getLogger("fieldshift.scenario_execution")
+logger = logging.getLogger("croptwist.scenario_execution")
 
 MAX_EXECUTION_WINDOW_DAYS = 366 * 3
 

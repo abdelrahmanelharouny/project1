@@ -39,7 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { FieldPicker } from '@/components/fieldshift/field-picker'
+import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   ApiError,
   createRobustRun,
@@ -60,7 +60,7 @@ import type {
   ScenarioExecutionRun,
   ScenarioSet,
 } from '@/lib/types'
-import { useFieldShiftUi } from '@/lib/store'
+import { useCropTwistUi } from '@/lib/store'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -130,7 +130,7 @@ function SolverBadge({ status }: { status: string | null }) {
 
 export default function RobustPlan() {
   const t = useTranslations('robustplan')
-  const selectedField = useFieldShiftUi((s) => s.selectedField)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
   const fieldId = selectedField?.id ?? null
 
   const sets = useQuery({

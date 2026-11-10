@@ -40,7 +40,7 @@ from typing import Any
 
 from app.core.config import settings
 
-logger = logging.getLogger("fieldshift.jobs")
+logger = logging.getLogger("croptwist.jobs")
 
 ProgressFn = Callable[[int, str | None], None]
 # Work function: receives (job_id, progress). Opens its own DB session(s).
@@ -126,7 +126,7 @@ def start_workers() -> int:
             break
     _recover_orphans()
     for i in range(n):
-        t = threading.Thread(target=_worker_loop, name=f"fieldshift-job-{i}", daemon=True)
+        t = threading.Thread(target=_worker_loop, name=f"croptwist-job-{i}", daemon=True)
         t.start()
         _threads.append(t)
     logger.info("background job workers started: %d", n)

@@ -1,8 +1,8 @@
 {
-  "name": "fieldshift-api",
+  "name": "croptwist-api",
   "version": "0.1.0",
   "private": true,
-  "description": "FieldShift FastAPI backend (mini-service, port 3030). Runs PostgreSQL+PostGIS, migrations, then uvicorn with auto-reload.",
+  "description": "CropTwist FastAPI backend (mini-service, port 3030). Runs PostgreSQL+PostGIS, migrations, then uvicorn with auto-reload.",
   "scripts": {
     "dev": "python3 scripts/run_dev.py",
     "setup": "python3 scripts/setup_env.sh",

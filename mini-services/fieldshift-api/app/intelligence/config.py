@@ -1,14 +1,14 @@
 """Intelligence-layer settings.
 
 Mirrors the central pattern (app/core/config.py: pydantic-settings with the
-FIELDSHIFT_ env prefix and a .env file) without modifying the frozen central
+CROPTWIST_ env prefix and a .env file) without modifying the frozen central
 module. The AI variables:
 
-- FIELDSHIFT_LLM_BRIDGE_URL — base URL of the LLM bridge mini-service
+- CROPTWIST_LLM_BRIDGE_URL — base URL of the LLM bridge mini-service
   (default http://127.0.0.1:3035). The bridge exposes POST /chat.
-- FIELDSHIFT_LLM_ENABLED — master switch (default true). When false every
+- CROPTWIST_LLM_ENABLED — master switch (default true). When false every
   intelligence function runs rules-only; the bridge is never called.
-- FIELDSHIFT_LLM_TIMEOUT_SECONDS — per-request timeout (default 20s).
+- CROPTWIST_LLM_TIMEOUT_SECONDS — per-request timeout (default 20s).
 
 Environment variables take precedence over the .env file (pydantic-settings
 semantics, same as the central Settings).
@@ -20,7 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AISettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="FIELDSHIFT_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="CROPTWIST_", env_file=".env", extra="ignore")
 
     llm_bridge_url: str = "http://127.0.0.1:3035"
     llm_enabled: bool = True
