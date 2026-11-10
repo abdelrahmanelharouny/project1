@@ -7,9 +7,14 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  /* config options here */
+  // Isolated build dir (e.g. NEXT_DIST_DIR=.next-build-check bunx next build)
+  // lets CI/ops run a production build without clobbering a running dev
+  // server's .next directory. Defaults to the standard .next.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Type errors now FAIL the build: the codebase is tsc-clean (P0 Phase 1)
+  // and `bunx tsc --noEmit` is a blocking CI gate. Do not re-enable.
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   reactStrictMode: false,
   devIndicators: false,

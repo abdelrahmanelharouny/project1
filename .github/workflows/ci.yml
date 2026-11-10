@@ -1,16 +1,18 @@
-# CropTwist CI — backend (Alembic + pytest against real PostGIS) + frontend.
+# CropTwist CI — reproducible quality gate.
 #
-# Backend: the suite needs a real PostgreSQL + PostGIS (no SQLite fallback).
-# A postgis/postgis:16-3.5 service container is published on host port 5433
-# (the port tests/conftest.py and alembic expect), database croptwist_test.
-# Migration 0001 issues CREATE EXTENSION IF NOT EXISTS postgis, which the
-# image's superuser role satisfies.
-#
-# Frontend: dependency install, a NON-BLOCKING TypeScript check
-# (continue-on-error: true — next.config.ts currently sets
-# typescript.ignoreBuildErrors: true, so type errors must not fail CI yet),
-# and `bun run lint` (eslint .). `bun run build` is deliberately NOT run in
-# CI; production images are built via the Dockerfiles.
+# backend: Alembic migrations + full pytest against a real PostGIS 16-3.5
+#   service container (the suite has no SQLite fallback), then an API-level
+#   E2E smoke of the live stack (uvicorn + llm-bridge + scripts/e2e_smoke.py,
+#   happy path — the bridge is up in CI; the rules-only fallback contract is
+#   asserted in scripts/e2e_smoke.py --expect-rules-only, verified locally
+#   and documented in docs/operations/CI_AND_TESTING.md).
+# frontend: dependency install (frozen lockfile), BLOCKING TypeScript check
+#   (next.config.ts sets typescript.ignoreBuildErrors: false since P0 — type
+#   errors fail the build too), ESLint, and a production `next build`.
+#   `bunx tsc --noEmit` at the repo root validates ONLY the frontend src/
+#   project (tsconfig.json excludes mini-services/ and skills/).
+# bridge: strict TypeScript check for the LLM bridge package
+#   (mini-services/llm-bridge owns its own tsconfig + @types/bun).
 
 name: CI
 
@@ -20,7 +22,7 @@ on:
 
 jobs:
   backend:
-    name: backend (pytest + alembic on PostGIS 16-3.5)
+    name: backend (pytest + alembic + E2E on PostGIS 16-3.5)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,8 +55,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Python 3.12 matches the sandbox runtime (CPython 3.12.16) and the
-      # pinned requirements (all 48 deps ship cp312 manylinux wheels).
+      # Python 3.12 matches the sandbox runtime (CPython 3.12.x) and the
+      # pinned requirements (all deps ship cp312 manylinux wheels).
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -67,11 +69,53 @@ jobs:
       - name: Apply migrations to head
         run: alembic upgrade head
 
+      - name: Verify migrations are idempotent at head + no model drift
+        run: |
+          alembic upgrade head  # second run must be a no-op
+          alembic current
+          alembic check  # fails if models drift from migrations (P0 fix)
+
       - name: Run test suite
         run: pytest -q
 
+      # ---------------- live-stack E2E smoke (happy path) ----------------
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install llm-bridge dependencies
+        working-directory: mini-services/llm-bridge
+        run: bun install --frozen-lockfile
+
+      - name: Seed demo workspace
+        run: |
+          python -c "from app.core.database import SessionLocal; \
+                     from app.dev.seed import ensure_demo_workspace; \
+                     db = SessionLocal(); ensure_demo_workspace(db); \
+                     db.commit(); db.close()"
+
+      - name: Start API + bridge, wait for health
+        run: |
+          nohup python -m uvicorn app.main:app \
+            --host 127.0.0.1 --port 3030 > /tmp/api-ci.log 2>&1 &
+          (cd ../llm-bridge && nohup bun run start \
+            > /tmp/bridge-ci.log 2>&1 &)
+          for i in $(seq 1 60); do
+            curl -fs http://127.0.0.1:3030/api/v1/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fs http://127.0.0.1:3030/api/v1/health
+          for i in $(seq 1 30); do
+            curl -fs http://127.0.0.1:3035/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fs http://127.0.0.1:3035/health
+
+      - name: E2E smoke (login → insights → recommendations → advisor)
+        run: python scripts/e2e_smoke.py
+
   frontend:
-    name: frontend (tsc check + eslint)
+    name: frontend (tsc + eslint + build) + bridge typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,16 +124,32 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # Non-blocking TypeScript check: the build currently sets
-      # typescript.ignoreBuildErrors: true in next.config.ts, so this is
-      # informational until the codebase is type-clean.
-      - name: Type check (non-blocking)
-        continue-on-error: true
+      # BLOCKING: repo-root tsconfig.json scopes this to the frontend src/
+      # project (mini-services/ and skills/ are excluded). The build also
+      # type-checks (typescript.ignoreBuildErrors: false in next.config.ts).
+      - name: Type check (blocking)
         run: bunx tsc --noEmit
 
       # package.json defines "lint": "eslint ." — keep in sync if renamed.
       - name: Lint
         run: bun run lint
+
+      # Production build (includes its own type check + page data collection).
+      - name: Production build
+        run: bun run build
+
+      # The LLM bridge is an independent bun package with its own tsconfig
+      # and @types/bun — typecheck it in isolation.
+      - name: Bridge type check
+        working-directory: mini-services/llm-bridge
+        run: ../../node_modules/.bin/tsc --noEmit
