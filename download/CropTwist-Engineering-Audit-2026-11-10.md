@@ -100,3 +100,27 @@ CropTwist is a global agriculture **decision-intelligence platform** now organiz
 **Intentionally NOT renamed (legacy technical identifiers):** `/home/z/fieldshift-pg`, `/home/z/fieldshift-api-venv`, `/home/z/fieldshift-app` (wired into the watchdog cron job and daemonize commands; renaming requires recreating the cron in the same change), database name `fieldshift` (requires pg_dump/restore + app cutover), log filenames (`fieldshift-api.log`). Recommend a single coordinated maintenance window to migrate these; the watchdog job text should be updated to "CropTwist stack OK" at the same time.
 
 **Verification:** zero `FieldShift|fieldshift` brand matches remain in `src/`, `messages/`, backend `app/`, `docs/`, README; `bunx tsc --noEmit` clean inside `src/`; end-to-end AI flow re-verified post-rename; all committed in `ca157b6`.
+
+---
+
+## 6. P0 execution report (2026-11-10, same day)
+
+All five P0 items executed and verified:
+
+| Item | Status | Evidence |
+|---|---|---|
+| E1 tsconfig scope | **DONE** | `tsconfig.json` excludes `mini-services/`, `skills/`, `download/`; root `bunx tsc --noEmit` exit 0. Bonus: found & removed dead `src/components/fieldshift/` (17 broken files importing removed `useFieldShiftUi`) that would have kept CI red regardless of the exclusion. |
+| E3 pytest green | **DONE** | `1110 passed, 1 skipped, 0 failed` in 27:06 — includes the historically-failing `test_data_passport.py`. Smoke re-run (14 passed) after uninstalling the 7 trimmed packages proves no runtime imports of removed deps. |
+| E6 backup | **DONE** | `scripts/backup_db.sh` (pg_dump + `gzip -t` integrity + keep-7 retention); first dump **restore-probed** into a scratch DB (0 SQL errors, data queryable). Daily cron 02:00 Cairo (job 521478). Dumps land in gitignored `/backups/`. |
+| rebuild_stack.sh | **DONE** | `scripts/rebuild_stack.sh` — one-command idempotent bootstrap (micromamba pgenv → initdb → ensure_db → venv → alembic → seed → daemonized uvicorn → verify). **Used in anger the same day**: a sandbox wipe killed `/home/z/fieldshift-pg`, `/home/z/fieldshift-api-venv`, and `.env`; the script rebuilt the entire stack in one run and re-verified login. State now lives in-repo (`db/pgenv`, `db/pgdata`, `.venv`) so future wipes only need one command. |
+| E2 dependency audit | **DONE** | FE 67→53 deps (removed dnd-kit trio, mdxeditor, framer-motion, next-auth, zod, uuid, react-syntax-highlighter, tanstack-table, reactuses, hookform-resolvers, prisma stack); BE requirements 48→40 (pgserver, fasteners, psutil, websockets, email-validator, dnspython, pyyaml — all zero-import, zero transitive-need). `bun.lock` regenerated with root name `croptwist` (E7). tsc + eslint green. |
+
+**Bonus fixes discovered during P0 (root-caused via browser + dev.log):**
+1. **Eternal "Loading CropTwist workspace…"** — Next.js 16.4.6's new dev-origin protection blocked `/_next/*` fetches from origins outside `allowedDevOrigins`, so the client-side workspace dynamic import never resolved. Fixed with `allowedDevOrigins: ["127.0.0.1", "localhost"]` + dev server restart. Verified in a real browser: workspace loads, tabs render.
+2. **`MISSING_MESSAGE: 'system'` spam** — `messages/{en,ar}/system.json` existed but `system` was never registered in `messageNamespaces`. Registered.
+3. **Watchdog cron referenced dead paths** (`/home/z/fieldshift-*` + old venv) — recreated as "CropTwist keep-alive + auto-heal" (job 521483) with in-repo paths; success line is now `CropTwist stack OK (pg 5433, api 3030, web 3000)`.
+4. **Demo data restored post-wipe**: feature run (168 features, 2023 window), CP-SAT rotation run (`optimal`, 4 strategies), FAO-56 water plan (maize, 120k m³ allocation) re-triggered via API; recommendations refresh returns 9 recs / 5 domains (1 required, 1 recommended, 5 advisory, 2 info), all narrated `rules+llm` by `glm-4-plus`; advisor answers carry `[evidence: …]` citations with exact engine numbers — verified end-to-end in the browser (desktop + 390px mobile, no overflow).
+
+**Commits:** `1455f34` (P0 hardening) · `ce35150` (dev-origin + i18n fixes).
+
+**Next up (P1):** A1 climatology baselines in anomaly detection, A2 async+circuit-breaker LLM calls, A3 narrative cache, A4 recommendation fingerprinting, A12 feedback loop, notification center for `required` findings.
