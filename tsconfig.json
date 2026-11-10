@@ -38,6 +38,9 @@
   ],
   "exclude": [
     "node_modules",
-    "examples"
+    "examples",
+    "mini-services",
+    "skills",
+    "download"
   ]
 }

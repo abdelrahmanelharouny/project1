@@ -67,3 +67,6 @@ public/*.zip
 
 # conda/mamba package cache (env tooling, never commit)
 /db/mamba-root/
+
+# CropTwist sandbox DB dumps (backup cron, never commit)
+/backups/

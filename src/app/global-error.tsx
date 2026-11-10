@@ -15,7 +15,7 @@ export default function GlobalError({
   reset: () => void
 }) {
   useEffect(() => {
-    console.error('[fieldshift/web] global error', {
+    console.error('[croptwist/web] global error', {
       digest: error.digest,
       message: error.message,
     })

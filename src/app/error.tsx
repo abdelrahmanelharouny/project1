@@ -30,7 +30,7 @@ export default function Error({
 
   useEffect(() => {
     // Client-side observability hook: console today, remote sink later.
-    console.error('[fieldshift/web] unhandled error', {
+    console.error('[croptwist/web] unhandled error', {
       digest: error.digest,
       message: error.message,
     })
