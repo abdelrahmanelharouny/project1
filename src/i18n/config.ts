@@ -43,6 +43,7 @@ export const messageNamespaces = [
   'aiinsights',
   'digitaltwin',
   'passport',
+  'system',
 ] as const
 
 export type MessageNamespace = (typeof messageNamespaces)[number]

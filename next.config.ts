@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
   },
   reactStrictMode: false,
   devIndicators: false,
+  // Next 16 dev origin protection: the sandbox serves the app via 127.0.0.1
+  // (direct) and the gateway host (preview panel). Without these, HMR and
+  // lazy-chunk fetches from those origins are blocked and the client-side
+  // workspace chunk never loads (eternal "Loading CropTwist workspace…").
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   // Fallback proxy: when the app is reached directly on :3000 (bypassing the
   // Caddy gateway), forward /api/v1/* to the CropTwist FastAPI mini-service.
   // Behind the gateway, Caddy handles this via ?XTransformPort=3030 and Next
