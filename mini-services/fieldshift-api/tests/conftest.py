@@ -83,6 +83,107 @@ _migrate_test_database()
 Base.metadata.create_all(bind=engine)
 
 
+# ---------------------------------------------------------------------------
+# P0 determinism (audit Phase 2): intercept OUTBOUND provider transport
+# suite-wide. The provider contract suites already mock httpx ("the suite
+# never needs a network" — see tests/contract docstrings); integration tests
+# must obey the same rule. Live Open-Meteo made the suite nondeterministic:
+# a shared-IP HTTP 429 from archive-api.open-meteo.com failed
+# test_data_passport (job → 'ProviderUnavailable' → 1 passport entry instead
+# of 2). This fixture fakes the Open-Meteo archive deterministically from
+# the request params, delegates INTERNAL hosts (LLM bridge on 127.0.0.1) to
+# the real transport, and fails LOUDLY on any other external host so new
+# live dependencies cannot silently creep into ordinary tests.
+# ---------------------------------------------------------------------------
+import datetime as _dt  # noqa: E402
+from urllib.parse import urlsplit as _urlsplit  # noqa: E402
+
+import httpx as _httpx  # noqa: E402
+
+_REAL_HTTPX_GET = _httpx.get
+
+_OPEN_METEO_UNITS = {
+    "temperature_2m_mean": "degC",
+    "temperature_2m_min": "degC",
+    "temperature_2m_max": "degC",
+    "precipitation_sum": "mm",
+    "et0_fao_evapotranspiration": "mm",
+    "soil_moisture_0_to_7cm_mean": "m3/m3",
+    "wind_speed_10m_mean": "km/h",
+}
+_INTERNAL_HOSTS = {"127.0.0.1", "localhost", "testserver", "::1"}
+
+
+class _FakeResponse:
+    """Minimal httpx.Response stand-in for the provider's sync calls."""
+
+    def __init__(self, payload: dict, url: str):
+        self.status_code = 200
+        self._payload = payload
+        self.text = ""
+        self._url = url
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def _fake_open_meteo_archive(params: dict) -> dict:
+    start = _dt.date.fromisoformat(str(params["start_date"]))
+    end = _dt.date.fromisoformat(str(params["end_date"]))
+    days: list[str] = []
+    cursor = start
+    while cursor <= end:
+        days.append(cursor.isoformat())
+        cursor += _dt.timedelta(days=1)
+    daily_codes = str(params.get("daily", "")).split(",") if params.get("daily") else []
+
+    def _value(day_index: int, code: str) -> float:
+        n = day_index * 7 + len(code)
+        if code.startswith("temperature_2m"):
+            return round(10 + (n % 15) / 2, 2)
+        if code == "precipitation_sum":
+            return round((n % 30) / 4, 2)
+        if code == "et0_fao_evapotranspiration":
+            return round(1 + (n % 8) / 2, 2)
+        if code.startswith("soil_moisture"):
+            return round(0.10 + (n % 20) / 100, 3)
+        return round(2 + (n % 14) / 3, 2)
+
+    daily: dict = {"time": days}
+    for code in daily_codes:
+        daily[code] = [_value(i, code) for i in range(len(days))]
+    return {
+        "latitude": params.get("latitude"),
+        "longitude": params.get("longitude"),
+        "elevation": 3.0,
+        "utc_offset_seconds": 0,
+        "timezone": "GMT",
+        "daily_units": {c: _OPEN_METEO_UNITS.get(c, "unit") for c in daily_codes},
+        "daily": daily,
+    }
+
+
+def _fake_httpx_get(url, params=None, **kwargs):  # noqa: ANN001, ANN002
+    host = (_urlsplit(str(url)).hostname or "").lower()
+    if host in _INTERNAL_HOSTS or host.endswith(".local"):
+        return _REAL_HTTPX_GET(url, params=params, **kwargs)
+    if host in ("archive-api.open-meteo.com", "api.open-meteo.com"):
+        return _FakeResponse(_fake_open_meteo_archive(dict(params or {})), str(url))
+    # geocoding or any other external host: loud, deterministic failure
+    raise RuntimeError(
+        "test hit external network host "
+        f"'{host}' — ordinary tests must not need the network. If this is a "
+        "new provider, add a deterministic fake to tests/conftest.py or mock "
+        "at the provider boundary (see tests/contract/)."
+    )
+
+
+_httpx.get = _fake_httpx_get  # type: ignore[assignment]
+
+
 @pytest.fixture()
 def db():
     session = SessionLocal()

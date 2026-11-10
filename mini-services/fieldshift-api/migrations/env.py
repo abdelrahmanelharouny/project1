@@ -8,6 +8,14 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import settings
 from app.db.models import Base
 
+# Register the AI-layer tables on Base.metadata. models_ai is deliberately
+# NOT imported by app/db/models.py (kept frozen for the AI pivot), so without
+# this import alembic autogenerate/check treats ai_recommendations and
+# ai_advisor_messages as unknown objects and would generate a migration
+# DROPPING them. Import every model module here so target_metadata always
+# mirrors the full schema.
+import app.db.models_ai  # noqa: F401  (side-effect: registers AI tables)
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

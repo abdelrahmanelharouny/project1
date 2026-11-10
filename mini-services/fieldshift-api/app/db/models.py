@@ -325,7 +325,10 @@ class IngestionJob(Base, TimestampMixin):
             "status IN ('queued','running','succeeded','failed','cancelled','retrying')",
             name="ck_ingestion_job_status",
         ),
-        Index("uq_ingestion_idempotency", idempotency_key, unique=True,
+        # F-30 (migration 0007): idempotency is FIELD-SCOPED, not key-only.
+        # Mirrors the composite partial unique index created by migration
+        # 0007 (upgraded from the legacy key-only `uq_ingestion_idempotency`).
+        Index("uq_ingestion_idempotency_v2", field_id, idempotency_key, unique=True,
                postgresql_where=text_("idempotency_key IS NOT NULL")),
         Index("ix_ingestion_jobs_field", field_id),
     )
@@ -942,9 +945,13 @@ class CropWaterParameter(Base, TimestampMixin):
         # Deepening F-18: NULLS NOT DISTINCT — species-level rows (NULL
         # variety) were previously treated as distinct by PostgreSQL, allowing
         # duplicate Kc anchor rows that only the import validator caught.
-        UniqueConstraint(
+        # F-18 (migration 0005): uniqueness is a UNIQUE INDEX with NULLS
+        # NOT DISTINCT (raw DDL in the migration), not a table constraint.
+        # Mirrors: CREATE UNIQUE INDEX uq_crop_water_param ... NULLS NOT DISTINCT.
+        Index(
+            "uq_crop_water_param",
             "crop_id", "crop_variety_id", "growth_stage", "kc_method", "valid_region",
-            name="uq_crop_water_param",
+            unique=True,
             postgresql_nulls_not_distinct=True,
         ),
         Index("ix_crop_water_crop", crop_id),
