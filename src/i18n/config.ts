@@ -43,6 +43,12 @@ export const messageNamespaces = [
   'aiinsights',
   'digitaltwin',
   'passport',
+  'satellite',
+  'forecast',
+  'soilmemory',
+  'failurelab',
+  'adaptiveevidence',
+  'portfolio',
   'system',
 ] as const
 

@@ -19,6 +19,12 @@ export type WorkspaceTab =
   | 'digitaltwin'
   | 'robustplan'
   | 'passport'
+  | 'satellite'
+  | 'forecast'
+  | 'soilmemory'
+  | 'failurelab'
+  | 'adaptiveevidence'
+  | 'portfolio'
 
 export interface SelectedField {
   id: string

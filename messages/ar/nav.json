@@ -20,5 +20,11 @@
   "footerNote": "CropTwist — دعم للقرار، وليس خبيرًا زراعيًا مستقلًا.",
   "footerSynthetic": "البيانات الاصطناعية موسومة دائمًا.",
   "apiStatus": "حالة الواجهة…",
-  "apiVersion": "الواجهة v{version}"
+  "apiVersion": "الواجهة v{version}",
+  "satellite": "الأقمار الصناعية",
+  "forecast": "التنبؤات",
+  "soilmemory": "ذاكرة التربة",
+  "failurelab": "مختبر الإخفاق",
+  "adaptiveevidence": "الأدلة التكيفية",
+  "portfolio": "الحوض الزراعي"
 }

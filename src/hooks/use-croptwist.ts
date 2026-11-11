@@ -622,3 +622,256 @@ export function useRecommendationFeedback(fieldId: string | null) {
     },
   })
 }
+
+// -------------------------------------------------------------
+// P2 hooks (satellite, climate, soil memory, failure lab, evidence, portfolio)
+// -------------------------------------------------------------
+
+export function useVegetationSummary(fieldId: string | null, index = 'ndvi') {
+  return useQuery({
+    queryKey: ['vegetation-summary', fieldId, index],
+    queryFn: () => getVegetationSummary(fieldId!, index),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useVegetationScenes(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['vegetation-scenes', fieldId],
+    queryFn: () => getVegetationScenes(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useClimateCapabilities() {
+  return useQuery({
+    queryKey: ['climate-capabilities'],
+    queryFn: getClimateCapabilities,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useForecastWindow(fieldId: string | null, variableCode: string) {
+  return useQuery({
+    queryKey: ['forecast-window', fieldId, variableCode],
+    queryFn: () => getForecastWindow(fieldId!, variableCode),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useForecastRisks(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['forecast-risks', fieldId],
+    queryFn: () => getForecastRisks(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useIngestForecast(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { variables?: string[]; forecast_days?: number }) => ingestForecast(fieldId!, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['forecast-window', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['forecast-risks', fieldId] })
+    },
+  })
+}
+
+export function useSoilTimeline(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['soil-timeline', fieldId],
+    queryFn: () => getSoilTimeline(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useSoilAlerts(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['soil-alerts', fieldId],
+    queryFn: () => getSoilAlerts(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 60_000,
+  })
+}
+
+export function useCreateSoilSnapshot(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (asOf: string) => createSoilSnapshot(fieldId!, asOf),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['soil-timeline', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['soil-alerts', fieldId] })
+    },
+  })
+}
+
+export function useCreateSoilChangeEstimate(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { start: string; end: string }) =>
+      createSoilChangeEstimate(fieldId!, input.start, input.end),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['soil-timeline', fieldId] })
+    },
+  })
+}
+
+export function useStressPacks() {
+  return useQuery({
+    queryKey: ['stress-packs'],
+    queryFn: getStressPacks,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useRotationStressRuns(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['rotation-stress-runs', fieldId],
+    queryFn: () => getRotationStressRuns(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useCreateRotationStressRun(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { packs: Array<string | Record<string, unknown>>; candidates?: string[] }) =>
+      createRotationStressRun(fieldId!, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rotation-stress-runs', fieldId] })
+    },
+  })
+}
+
+export function useEvidenceGaps(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['evidence-gaps', fieldId],
+    queryFn: () => getEvidenceGaps(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 60_000,
+  })
+}
+
+export function useStaleness(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['evidence-staleness', fieldId],
+    queryFn: () => getStaleness(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 60_000,
+  })
+}
+
+export function useEvidenceActions(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['evidence-actions', fieldId],
+    queryFn: () => getEvidenceActions(fieldId!),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useCreateEvidenceAction(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { gap_code: string; action_type: string; title: string }) =>
+      createEvidenceAction(fieldId!, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['evidence-actions', fieldId] })
+    },
+  })
+}
+
+export function useTransitionEvidenceAction(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { actionId: string; toStatus: string; note?: string }) =>
+      transitionEvidenceAction(fieldId!, input.actionId, input.toStatus, input.note),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['evidence-actions', fieldId] })
+    },
+  })
+}
+
+export function useApplyEvidence(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { ref_kind: string; ref_id?: string; action_id?: string }) =>
+      applyEvidence(fieldId!, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['evidence-staleness', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['evidence-actions', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['recommendations', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['vegetation-summary', fieldId] })
+    },
+  })
+}
+
+export function usePortfolioConstraints() {
+  return useQuery({
+    queryKey: ['portfolio-constraints'],
+    queryFn: getPortfolioConstraints,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function usePortfolioRuns(farmId: string | null) {
+  return useQuery({
+    queryKey: ['portfolio-runs', farmId],
+    queryFn: () => getPortfolioRuns(farmId!),
+    enabled: !!farmId,
+    staleTime: 30_000,
+  })
+}
+
+export function usePortfolioRun(runId: string | null) {
+  return useQuery({
+    queryKey: ['portfolio-run', runId],
+    queryFn: () => getPortfolioRun(runId!),
+    enabled: !!runId,
+    staleTime: 60_000,
+  })
+}
+
+export function useCreatePortfolioRun(farmId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Parameters<typeof createPortfolioRun>[1]) => createPortfolioRun(farmId!, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio-runs', farmId] })
+    },
+  })
+}
+
+import {
+  applyEvidence,
+  createEvidenceAction,
+  createPortfolioRun,
+  createRotationStressRun,
+  createSoilChangeEstimate,
+  createSoilSnapshot,
+  getClimateCapabilities,
+  getEvidenceActions,
+  getEvidenceGaps,
+  getForecastRisks,
+  getForecastWindow,
+  getPortfolioConstraints,
+  getPortfolioRun,
+  getPortfolioRuns,
+  getRotationStressRun,
+  getRotationStressRuns,
+  getSoilAlerts,
+  getSoilTimeline,
+  getStaleness,
+  getStressPacks,
+  getVegetationScenes,
+  getVegetationSummary,
+  ingestForecast,
+  transitionEvidenceAction,
+} from '@/lib/api'

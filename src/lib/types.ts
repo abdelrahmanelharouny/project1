@@ -3425,3 +3425,352 @@ export interface FeedbackHistoryResponse {
 declare global {
   type CoverPlan = CoverCropPlan
 }
+
+// -------------------------------------------------------------
+// P2 — Satellite / Climate / Soil Memory / Failure Lab / Evidence / Portfolio
+// -------------------------------------------------------------
+
+export interface VegetationSummary {
+  field_id: string
+  index: string
+  formula: string
+  series_state: { state: string; detail: string; can_assess: boolean; years?: number[] }
+  monthly_stats: Array<{ year: number; month: number; mean: number; n_valid: number; n_excluded_cloud: number }>
+  findings: Array<Record<string, unknown>>
+  stress_signals: Array<{
+    index: string
+    observed_change: Record<string, unknown>
+    possible_context: Array<{ factor: string; detail?: string; [k: string]: unknown }>
+    not_supported: string[]
+    severity: string
+  }>
+  data_gaps: string[]
+  observation_counts: { total: number; valid: number; missing_or_cloudy: number; cloud_excluded_from_stats: number }
+  scenes: Array<{
+    observed_at: string | null
+    value: number | null
+    quality_status: string | null
+    cloud_cover_pct: number | null
+    scene_id: string | null
+    spatial_resolution_m: number | null
+    platform: string | null
+  }>
+  dormancy_months_hint: number[] | null
+  limitations: string[]
+  generated_at: string
+}
+
+export interface SatelliteScenesResponse {
+  field_id: string
+  total: number
+  limit: number
+  offset: number
+  scenes: Array<{
+    id: string
+    provider_code: string
+    product_code: string
+    scene_id: string
+    acquired_at: string | null
+    cloud_cover_pct: number | null
+    spatial_resolution_m: number | null
+    coverage_fraction: number | null
+    is_synthetic: boolean
+    asset_refs: Record<string, unknown> | null
+  }>
+}
+
+export interface ClimateCapabilities {
+  capability_matrix: Array<{
+    provider_code: string
+    products: string[]
+    forecast_class: string
+    temporal_horizon: string
+    spatial_resolution_m: number | null
+    update_frequency: string
+    variables: string[]
+    licensing: string
+    authentication: string
+    known_limitations: string
+    status?: string
+  }>
+  classification_vocabulary: string[]
+}
+
+export interface ForecastFreshness {
+  variable_code: string
+  latest_issued_at: string | null
+  age_hours: number | null
+  max_age_hours: number
+  fresh: boolean
+  detail: string
+}
+
+export interface ForecastWindowResponse {
+  field_id: string
+  variable_code: string
+  basis: string
+  freshness: ForecastFreshness
+  window: { start: string; end: string }
+  values: Array<{
+    valid_time: string
+    issued_at: string
+    horizon_hours: number
+    value: number | null
+    unit: string
+    model_id: string | null
+    is_synthetic: boolean
+  }>
+}
+
+export interface ForecastRiskItem {
+  risk_code: string
+  severity: string
+  title: string
+  detail: string
+  window_start: string | null
+  window_end: string | null
+  threshold: string
+  threshold_source: string
+  affected_days: number
+  forecast_days_total: number
+  basis: string
+  crop_context: string | null
+}
+
+export interface ForecastRisksResponse {
+  field_id: string
+  basis: string
+  window: { start: string; end: string }
+  risks: ForecastRiskItem[]
+  limitations: string[]
+}
+
+export interface ForecastVerificationResponse {
+  verifications: Array<{ variable_code: string; horizon_bucket_hours: string; pair_count: number; bias: number | null; mae: number | null; rmse: number | null }>
+  pairs_total: number
+  persisted: number
+  limitations: string[]
+}
+
+export interface ProjectionsResponse {
+  field_id: string
+  records: Array<Record<string, unknown>>
+  adapter_status: string
+  note: string
+}
+
+export interface SoilMemorySnapshot {
+  id: string
+  field_id: string
+  as_of: string
+  checksum_sha256: string
+  missing_evidence: string[]
+  variable_count: number
+  engine_version: string
+  created_at: string | null
+}
+
+export interface SoilSnapshotDetail extends SoilMemorySnapshot {
+  snapshot: {
+    variables: Array<{
+      variable_code: string
+      value: number | null
+      unit: string
+      top_depth_cm: number | null
+      bottom_depth_cm: number | null
+      evidence_class: string
+      source_kind: string
+      observed_at: string
+    }>
+    management_events: Array<Record<string, unknown>>
+    crop_history: Array<Record<string, unknown>>
+  }
+  source_refs: Array<Record<string, unknown>>
+  alerts: SoilAlert[]
+}
+
+export interface SoilAlert {
+  code: string
+  severity: string
+  title: string
+  detail: string
+  basis: string
+}
+
+export interface SoilTimelineResponse {
+  field_id: string
+  events: Array<{ kind: string; date: string; [k: string]: unknown }>
+  snapshots: SoilMemorySnapshot[]
+  engine_version: string
+  note: string
+}
+
+export interface SoilChangeEstimateResponse {
+  id: string
+  method: string
+  model_version: string
+  result: {
+    soc_trajectory: { value: number | null; unit?: string; window?: { years?: number }; not_evaluated?: string; estimated?: boolean }
+    window: { start: string; end: string }
+    estimated: boolean
+    note: string
+  }
+  assumptions: string[]
+  uncertainty: Record<string, unknown> | null
+  checksum_sha256: string
+  alerts: SoilAlert[]
+}
+
+export interface StressPack {
+  code: string
+  label: string
+  kind: string
+  parameters: Record<string, number>
+  assumption_note: string
+  provenance: Record<string, unknown>
+}
+
+export interface RotationStressRun {
+  id: string
+  field_id: string
+  status: 'running' | 'succeeded' | 'failed'
+  request_parameters: Record<string, unknown>
+  result: {
+    evaluations: Array<{
+      candidate_key: string
+      pack_code: string
+      feasible: boolean | null
+      assignment?: Array<{ season_label: string; crop_code: string | null }>
+      constraint_violations?: Array<Record<string, unknown>>
+      explanations?: Array<Record<string, unknown>>
+      criteria?: Record<string, unknown>
+    }>
+    robustness?: Record<string, { worst_case_score?: { value: number | null }; mean_score?: { value: number | null }; score_variance?: { value: number | null }; downside_risk?: { value: number | null }; feasibility_rate?: { value: number | null }; worst_case_regret?: { value: number | null }; [k: string]: unknown }>
+    [k: string]: unknown
+  } | null
+  warnings: unknown[]
+  not_evaluated: Array<{ code: string; reason: string }>
+  checksum_sha256: string | null
+  created_at: string | null
+}
+
+export interface EvidenceGap {
+  gap_code: string
+  importance: string
+  affected_decisions: string[]
+  required_evidence: string
+  current_status: string
+  freshness_requirement: string
+  spatial_relevance: string
+  potential_impact: string
+  how_to_obtain: string
+  urgent: boolean
+  urgency: string
+  collection_cost: { category: string; effort: string }
+  decision_sensitivity: { level: string; detail: string }
+  voi: {
+    decision_sensitivity: { level: string; detail: string }
+    expected_ranking_change: string[]
+    honesty_note: string
+  }
+}
+
+export interface EvidenceGapsResponse {
+  field_id: string
+  gaps: EvidenceGap[]
+  completeness: { domains_ready: string[]; domains_with_gaps: string[]; critical_missing: string[]; gap_count: number }
+  acquisition_plans: Array<{
+    gap_code: string
+    action_type: string
+    title: string
+    what_is_missing: string
+    why_it_matters: string
+    affected_decisions: string[]
+    how_to_obtain: string
+    urgent: boolean
+    uncertainty_reduced: string | null
+    collection_cost: { category: string; effort: string }
+  }>
+  checksum_sha256?: string
+}
+
+export interface EvidenceAction {
+  id: string
+  field_id: string
+  gap_code: string
+  action_type: string
+  title: string
+  status: 'suggested' | 'in_progress' | 'submitted' | 'resolved' | 'dismissed'
+  submitted_ref_kind: string | null
+  submitted_ref_id: string | null
+  created_at: string | null
+  resolved_at: string | null
+  events?: Array<{ id: string; from_status: string | null; to_status: string; note: string | null; created_at: string | null }>
+}
+
+export interface EvidenceApplyReport {
+  field_id: string
+  evidence_ref: { kind: string; id: string | null; detail: string }
+  resolved_action_id: string | null
+  recomputed: Array<{ artifact: string; action: string; detail?: string; counts?: Record<string, unknown> }>
+  changed_recommendation_fingerprints: string[]
+  changed_count: number
+  note: string
+}
+
+export interface StalenessReport {
+  domains: Record<
+    string,
+    {
+      latest_evidence_at: string | null
+      downstream: Record<string, { artifact_updated_at: string | null; stale: boolean; status: string }>
+    }
+  >
+}
+
+export interface PortfolioConstraintsInfo {
+  engine_version: string
+  objective_keys: string[]
+  objective_modes: string[]
+  constraint_keys: string[]
+  disclosures: string[]
+}
+
+export interface PortfolioRun {
+  id: string
+  farm_id: string
+  status: 'running' | 'succeeded' | 'failed'
+  request_parameters: Record<string, unknown>
+  result: {
+    status?: string
+    objective_value?: number | null
+    per_criterion_scores?: Record<string, { value: number | null; unit?: string; not_evaluated?: string; basis?: string }>
+    binding_constraints?: Array<{ name: string; limit?: number; used?: number; slack?: number; unit?: string; [k: string]: unknown }>
+    conflicts?: Array<Record<string, unknown>>
+    independent_comparison?: {
+      comparisons: Array<{ criterion: string; portfolio_value: number | null; independent_value: number | null; unit: string | null; verdict: string; detail: string }>
+      explanations: string[]
+    }
+    scenario_evaluation?: { verdict: string; detail: string; allocation_deltas: Array<Record<string, unknown>>; [k: string]: unknown }
+    weight_shares?: Record<string, number>
+    notes?: string[]
+    [k: string]: unknown
+  } | null
+  field_ids: string[]
+  objective_weights: Record<string, number> | null
+  scenario: Record<string, unknown> | null
+  engine_version: string
+  warnings: unknown[]
+  not_evaluated: Array<{ code: string; reason: string }>
+  checksum_sha256: string | null
+  created_at: string | null
+  allocations: Array<{
+    field_id: string
+    season_label: string
+    season_index: number
+    crop_code: string
+    area_ha: number
+    family_key: string | null
+    status: string
+  }>
+}

@@ -23,6 +23,12 @@ import {
   Sparkles,
   Sprout,
   Target,
+  Satellite,
+  CloudSun,
+  Layers3,
+  Flame,
+  Lightbulb,
+  Globe2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -45,6 +51,12 @@ import Decisions from '@/components/croptwist/decisions'
 import AiInsights from '@/components/croptwist/ai-insights'
 import DigitalTwin from '@/components/croptwist/digital-twin'
 import RobustPlan from '@/components/croptwist/robust-plan'
+import { SatelliteIntelligence } from '@/components/croptwist/satellite'
+import { ClimateForecast } from '@/components/croptwist/forecast'
+import { SoilMemory } from '@/components/croptwist/soil-memory'
+import { FailureLab } from '@/components/croptwist/failure-lab'
+import { AdaptiveEvidence } from '@/components/croptwist/adaptive-evidence'
+import { FarmPortfolio } from '@/components/croptwist/portfolio'
 import { useHealth } from '@/hooks/use-croptwist'
 import { getMe, logout } from '@/lib/api'
 import { useCropTwistUi, type WorkspaceTab } from '@/lib/store'
@@ -69,6 +81,12 @@ const TAB_ITEMS: { value: WorkspaceTab; icon: React.ReactNode }[] = [
   { value: 'aiinsights', icon: <Sparkles className="h-4 w-4" aria-hidden /> },
   { value: 'digitaltwin', icon: <Network className="h-4 w-4" aria-hidden /> },
   { value: 'passport', icon: <ClipboardCheck className="h-4 w-4" aria-hidden /> },
+  { value: 'satellite', icon: <Satellite className="h-4 w-4" aria-hidden /> },
+  { value: 'forecast', icon: <CloudSun className="h-4 w-4" aria-hidden /> },
+  { value: 'soilmemory', icon: <Layers3 className="h-4 w-4" aria-hidden /> },
+  { value: 'failurelab', icon: <Flame className="h-4 w-4" aria-hidden /> },
+  { value: 'adaptiveevidence', icon: <Lightbulb className="h-4 w-4" aria-hidden /> },
+  { value: 'portfolio', icon: <Globe2 className="h-4 w-4" aria-hidden /> },
 ]
 
 const TAB_IDS = TAB_ITEMS.map((item) => item.value)
@@ -334,6 +352,24 @@ export function Workspace() {
           </TabsContent>
           <TabsContent value="passport" className="mt-4">
             <DataPassport />
+          </TabsContent>
+          <TabsContent value="satellite" className="mt-4">
+            <SatelliteIntelligence />
+          </TabsContent>
+          <TabsContent value="forecast" className="mt-4">
+            <ClimateForecast />
+          </TabsContent>
+          <TabsContent value="soilmemory" className="mt-4">
+            <SoilMemory />
+          </TabsContent>
+          <TabsContent value="failurelab" className="mt-4">
+            <FailureLab />
+          </TabsContent>
+          <TabsContent value="adaptiveevidence" className="mt-4">
+            <AdaptiveEvidence />
+          </TabsContent>
+          <TabsContent value="portfolio" className="mt-4">
+            <FarmPortfolio />
           </TabsContent>
         </Tabs>
       </main>

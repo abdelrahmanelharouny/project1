@@ -64,6 +64,25 @@ import type {
   ScenarioVerifyResponse,
   ScenarioVersionsResponse,
   ObservationManifest,
+  VegetationSummary,
+  SatelliteScenesResponse,
+  ClimateCapabilities,
+  ForecastWindowResponse,
+  ForecastRisksResponse,
+  ForecastVerificationResponse,
+  ProjectionsResponse,
+  SoilSnapshotDetail,
+  SoilTimelineResponse,
+  SoilAlert,
+  SoilChangeEstimateResponse,
+  StressPack,
+  RotationStressRun,
+  EvidenceGapsResponse,
+  EvidenceAction,
+  EvidenceApplyReport,
+  StalenessReport,
+  PortfolioConstraintsInfo,
+  PortfolioRun,
 } from './types'
 
 /**
@@ -1469,4 +1488,137 @@ export function recordRecommendationFeedback(
       body: { state, reason: reason || null },
     },
   )
+}
+
+// -------------------------------------------------------------
+// P2 endpoints (satellite, climate, soil memory, failure lab, evidence, portfolio)
+// -------------------------------------------------------------
+
+export async function getVegetationSummary(fieldId: string, index = 'ndvi'): Promise<VegetationSummary> {
+  return request<VegetationSummary>(`/api/v1/fields/${fieldId}/vegetation/summary?index=${encodeURIComponent(index)}`)
+}
+
+export async function getVegetationScenes(fieldId: string): Promise<SatelliteScenesResponse> {
+  return request<SatelliteScenesResponse>(`/api/v1/fields/${fieldId}/vegetation/scenes`)
+}
+
+export async function getClimateCapabilities(): Promise<ClimateCapabilities> {
+  return request<ClimateCapabilities>('/api/v1/climate/forecast/capabilities')
+}
+
+export async function ingestForecast(fieldId: string, body: { variables?: string[]; model?: string; forecast_days?: number }): Promise<{ stored: { inserted: number; skipped_existing: number }; response_meta: Record<string, unknown> }> {
+  return request(`/api/v1/fields/${fieldId}/forecasts/ingest`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function getForecastWindow(fieldId: string, variableCode: string): Promise<ForecastWindowResponse> {
+  return request<ForecastWindowResponse>(
+    `/api/v1/fields/${fieldId}/forecasts?variable_code=${encodeURIComponent(variableCode)}`,
+  )
+}
+
+export async function getForecastRisks(fieldId: string): Promise<ForecastRisksResponse> {
+  return request<ForecastRisksResponse>(`/api/v1/fields/${fieldId}/forecast-risks`)
+}
+
+export async function verifyForecasts(fieldId: string): Promise<ForecastVerificationResponse> {
+  return request<ForecastVerificationResponse>(`/api/v1/fields/${fieldId}/forecast-verifications`, { method: 'POST' })
+}
+
+export async function getClimateProjections(fieldId: string): Promise<ProjectionsResponse> {
+  return request<ProjectionsResponse>(`/api/v1/fields/${fieldId}/climate-projections`)
+}
+
+export async function createSoilSnapshot(fieldId: string, asOf: string): Promise<SoilSnapshotDetail> {
+  return request(`/api/v1/fields/${fieldId}/soil-memory/snapshots`, { method: 'POST', body: JSON.stringify({ as_of: asOf }) })
+}
+
+export async function getSoilTimeline(fieldId: string): Promise<SoilTimelineResponse> {
+  return request<SoilTimelineResponse>(`/api/v1/fields/${fieldId}/soil-memory/timeline`)
+}
+
+export async function getSoilAlerts(fieldId: string): Promise<{ field_id: string; alerts: SoilAlert[]; note: string }> {
+  return request(`/api/v1/fields/${fieldId}/soil-memory/alerts`)
+}
+
+export async function createSoilChangeEstimate(fieldId: string, startSnapshotId: string, endSnapshotId: string): Promise<SoilChangeEstimateResponse> {
+  return request(`/api/v1/fields/${fieldId}/soil-memory/change-estimates`, {
+    method: 'POST',
+    body: JSON.stringify({ start_snapshot_id: startSnapshotId, end_snapshot_id: endSnapshotId }),
+  })
+}
+
+export async function getStressPacks(): Promise<{ packs: StressPack[]; [k: string]: unknown }> {
+  return request('/api/v1/failure-lab/packs')
+}
+
+export async function createRotationStressRun(
+  fieldId: string,
+  body: { packs: Array<string | Record<string, unknown>>; candidates?: string[]; idempotency_key?: string },
+): Promise<RotationStressRun> {
+  return request(`/api/v1/fields/${fieldId}/rotation-stress-runs`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function getRotationStressRuns(fieldId: string): Promise<{ field_id: string; runs: RotationStressRun[] }> {
+  return request(`/api/v1/fields/${fieldId}/rotation-stress-runs`)
+}
+
+export async function getRotationStressRun(runId: string): Promise<RotationStressRun> {
+  return request(`/api/v1/rotation-stress-runs/${runId}`)
+}
+
+export async function getEvidenceGaps(fieldId: string): Promise<EvidenceGapsResponse> {
+  return request(`/api/v1/fields/${fieldId}/evidence-gaps`)
+}
+
+export async function getStaleness(fieldId: string): Promise<StalenessReport> {
+  return request(`/api/v1/fields/${fieldId}/evidence/staleness`)
+}
+
+export async function getEvidenceActions(fieldId: string): Promise<{ field_id: string; actions: EvidenceAction[] }> {
+  return request(`/api/v1/fields/${fieldId}/evidence-actions`)
+}
+
+export async function createEvidenceAction(fieldId: string, body: { gap_code: string; action_type: string; title: string; plan?: Record<string, unknown> }): Promise<EvidenceAction> {
+  return request(`/api/v1/fields/${fieldId}/evidence-actions`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function transitionEvidenceAction(fieldId: string, actionId: string, toStatus: string, note?: string): Promise<EvidenceAction> {
+  return request(`/api/v1/evidence-actions/${actionId}/transition?field_id=${fieldId}`, {
+    method: 'POST',
+    body: JSON.stringify({ to_status: toStatus, note }),
+  })
+}
+
+export async function applyEvidence(fieldId: string, body: { ref_kind: string; ref_id?: string; action_id?: string; note?: string }): Promise<EvidenceApplyReport> {
+  return request(`/api/v1/fields/${fieldId}/evidence/apply`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function getPortfolioConstraints(): Promise<PortfolioConstraintsInfo> {
+  return request<PortfolioConstraintsInfo>('/api/v1/portfolio/constraints')
+}
+
+export async function createPortfolioRun(
+  farmId: string,
+  body: {
+    season_count?: number
+    objective_weights?: Record<string, number>
+    mode?: string
+    constraints?: Record<string, number | null>
+    scenario?: Record<string, unknown> | null
+    idempotency_key?: string
+  },
+): Promise<PortfolioRun> {
+  return request(`/api/v1/farms/${farmId}/portfolio-runs`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function getPortfolioRuns(farmId: string): Promise<{ farm_id: string; runs: Array<{ id: string; status: string; created_at: string | null; scenario: Record<string, unknown> | null }> }> {
+  return request(`/api/v1/farms/${farmId}/portfolio-runs`)
+}
+
+export async function getPortfolioRun(runId: string): Promise<PortfolioRun> {
+  return request(`/api/v1/portfolio-runs/${runId}`)
+}
+
+export async function verifyPortfolioRun(runId: string): Promise<{ run_id: string; valid: boolean; stored_checksum: string | null; recomputed_checksum: string | null }> {
+  return request(`/api/v1/portfolio-runs/${runId}/verify`, { method: 'POST' })
 }

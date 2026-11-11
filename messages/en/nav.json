@@ -20,5 +20,11 @@
   "footerNote": "CropTwist — decision support, not an autonomous agronomist.",
   "footerSynthetic": "Synthetic data is always labelled.",
   "apiStatus": "API status…",
-  "apiVersion": "API v{version}"
+  "apiVersion": "API v{version}",
+  "satellite": "Satellite",
+  "forecast": "Forecast",
+  "soilmemory": "Soil Memory",
+  "failurelab": "Failure Lab",
+  "adaptiveevidence": "Adaptive Evidence",
+  "portfolio": "Portfolio"
 }
