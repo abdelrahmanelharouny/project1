@@ -242,6 +242,74 @@ def main() -> int:
         check("A10 locale does not change recommendation ids", ar_ids == ids2,
               f"diff={len(ar_ids ^ ids2)}")
 
+    # --- 8g. P2 satellite ingestion + vegetation summary ---------------------
+    r = httpx.post(f"{BASE}/fields/{field['id']}/data-jobs", headers=headers, timeout=120,
+                   json={"provider_code": "satellite_sim", "variables": ["ndvi"],
+                         "start_date": "2019-01-01", "end_date": "2021-12-31",
+                         "options": {"profile": "stress_declining", "seed": 7}})
+    check("P2 satellite job 202", r.status_code == 202, f"got {r.status_code}")
+    if r.status_code == 202:
+        job = r.json()
+        for _ in range(120):
+            jr = httpx.get(f"{BASE}/jobs/{job['job_id']}", headers=headers, timeout=30).json()
+            if jr.get("status") in ("succeeded", "failed"):
+                break
+            time.sleep(0.5)
+        check("P2 satellite job succeeded", jr.get("status") == "succeeded", str(jr.get("error_summary")))
+
+    r = httpx.get(f"{BASE}/fields/{field['id']}/vegetation/summary?index=ndvi", headers=headers, timeout=60)
+    check("P2 vegetation summary 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        vs = r.json()
+        check("P2 vegetation has observations", vs.get("observation_counts", {}).get("valid", 0) > 0,
+              str(vs.get("observation_counts")))
+        check("P2 vegetation NDVI formula label", str(vs.get("formula", "")).startswith("NDVI"),
+              str(vs.get("formula")))
+
+    # --- 8h. P2 evidence gaps + staleness + forecast capabilities -------------
+    r = httpx.get(f"{BASE}/fields/{field['id']}/evidence-gaps", headers=headers, timeout=60)
+    check("P2 evidence gaps 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        gaps = r.json()
+        codes = {g["gap_code"] for g in gaps.get("gaps", [])}
+        check("P2 gap has soil decision linkage", all(g.get("affected_decisions") for g in gaps.get("gaps", [])) if gaps.get("gaps") else True,
+              str(len(codes)))
+        check("P2 VoI never monetary", all("monetary" in g["voi"]["honesty_note"] for g in gaps.get("gaps", [])) if gaps.get("gaps") else True, "")
+
+    r = httpx.get(f"{BASE}/fields/{field['id']}/evidence/staleness", headers=headers, timeout=60)
+    check("P2 staleness report 200", r.status_code == 200, f"got {r.status_code}")
+
+    r = httpx.get(f"{BASE}/climate/forecast/capabilities", headers=headers, timeout=30)
+    check("P2 forecast capabilities 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        providers = {p["provider_code"] for p in r.json().get("capability_matrix", [])}
+        check("P2 capability matrix declares blocked CMIP6", "cmip6_projection" in providers, str(providers))
+
+    # --- 8i. P2 soil memory + failure lab + portfolio -------------------------
+    r = httpx.post(f"{BASE}/fields/{field['id']}/soil-memory/snapshots", headers=headers, timeout=60,
+                   json={"as_of": "2026-01-01"})
+    check("P2 soil snapshot 200", r.status_code == 200, f"got {r.status_code}")
+
+    r = httpx.get(f"{BASE}/fields/{field['id']}/rotation-runs", headers=headers, timeout=30)
+    has_rotation = r.status_code == 200 and r.json().get("items")
+    if has_rotation:
+        r = httpx.post(f"{BASE}/fields/{field['id']}/rotation-stress-runs", headers=headers, timeout=300,
+                       json={"packs": ["water_restriction"]})
+        check("P2 rotation stress run 200", r.status_code == 200, f"got {r.status_code}")
+        if r.status_code == 200:
+            check("P2 stress run succeeded", r.json().get("status") == "succeeded", str(r.json().get("status")))
+
+    r = httpx.post(f"{BASE}/farms/{farm['id']}/portfolio-runs", headers=headers, timeout=300,
+                   json={"season_count": 1, "constraints": {"water_allocation_m3": 5000.0}})
+    check("P2 portfolio run 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        check("P2 portfolio succeeded", r.json().get("status") == "succeeded",
+              str(r.json().get("not_evaluated"))[:200])
+        if r.json().get("id"):
+            rv = httpx.post(f"{BASE}/portfolio-runs/{r.json()['id']}/verify", headers=headers, timeout=60)
+            check("P2 portfolio verify ok", rv.status_code == 200 and rv.json().get("valid") is True,
+                  str(rv.json().get("valid")))
+
     # --- 9. error handling: unknown field must 404, not 500 ------------------
     r = httpx.get(f"{BASE}/fields/00000000-0000-0000-0000-000000000000/recommendations",
                   headers=headers, timeout=30)

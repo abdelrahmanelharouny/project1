@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from app.evaluation import runner as eval_runner
+from app.evaluation.p2_cases import run_p2_deterministic_eval
 from app.intelligence.metrics import snapshot_ai
 
 logger = logging.getLogger("croptwist.evaluation.report")
@@ -33,17 +34,23 @@ REPORT_DIR = Path(__file__).resolve().parents[2] / "evaluation_reports"
 
 def build_report(*, with_llm: bool = False) -> dict[str, Any]:
     deterministic = eval_runner.run_deterministic_eval()
+    p2 = run_p2_deterministic_eval()
     llm = eval_runner.run_llm_eval(with_judge=with_llm) if with_llm else None
     report: dict[str, Any] = {
         "generated_at": datetime.now(UTC).isoformat(),
-        "framework_version": "p1-1",
+        "framework_version": "p2-1",
         "deterministic": deterministic,
+        "p2_deterministic": p2,
         "llm": llm,
         "runtime_metrics_snapshot": snapshot_ai(),
         "limitations": [
             "Golden cases verify generator RULES against fixed synthetic "
             "evidence; they do not validate the upstream agronomic engines "
             "(those have their own suites).",
+            "P2 golden cases verify the ALGORITHMIC contracts of the new "
+            "decision cores (formulas, thresholds, honesty labeling, "
+            "checksum stability) over synthetic fixtures — they are NOT "
+            "real-world agronomic validation and are never reported as such.",
             "LLM narrative criteria are heuristic (numeric subset, locale "
             "script, length); a bridge-based judge is supplementary and never "
             "the source of truth. No calibrated quality scores exist.",
@@ -76,6 +83,14 @@ def summary(report: dict[str, Any]) -> str:
             f"    {domain}: {stats['passed']}/{stats['cases']} cases, "
             f"{stats['checks_passed']}/{stats['checks']} checks"
         )
+    p2 = report.get("p2_deterministic")
+    if p2:
+        lines.append(
+            f"  p2_deterministic: {p2['passed_checks']}/{p2['total_checks']} checks passed "
+            f"(pass_rate={p2['pass_rate']})"
+        )
+        for domain, stats in p2["coverage_by_domain"].items():
+            lines.append(f"    {domain}: {stats['passed']}/{stats['cases']} checks")
     if report.get("llm"):
         metrics = report["llm"]["metrics"]
         lines.append(f"  llm: {metrics['cases_with_narratives']} cases with narratives")

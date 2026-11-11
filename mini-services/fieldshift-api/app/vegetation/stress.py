@@ -58,7 +58,9 @@ def _climate_context_for_month(
             metric_by_code.setdefault(code, metric)
     for finding in anomalies:
         metric = finding.get("metric") or ""
-        if month is not None and (finding.get("period") or {}).get("month") not in (None, month):
+        period = finding.get("period")
+        period_month = period.get("month") if isinstance(period, dict) else None
+        if month is not None and period_month not in (None, month):
             continue
         if finding.get("kind") == "anomaly" and metric.startswith("air_temperature"):
             context.append(
