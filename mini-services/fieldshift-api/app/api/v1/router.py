@@ -8,8 +8,6 @@ from app.api.v1 import (
     data_platform,
     decision,
     digital_twin,
-    evidence_gaps,
-    failure_lab,
     farms,
     features,
     field_states,
@@ -19,7 +17,6 @@ from app.api.v1 import (
     knowledge,
     management,
     members,
-    portfolio,
     recommendations,
     robust_rotation,
     rotation,
@@ -27,7 +24,6 @@ from app.api.v1 import (
     scenarios,
     sensitivity,
     soil,
-    soil_memory,
     vegetation,
     water,
 )
@@ -57,12 +53,13 @@ api_router.include_router(robust_rotation.router)
 api_router.include_router(decision.router)
 api_router.include_router(digital_twin.router)
 api_router.include_router(recommendations.router)
-# P2 intelligence routers (vegetation, climate, soil memory, failure lab,
-# evidence gaps, portfolio). Registered before data_platform-independent;
-# all field-scoped paths are literal and non-conflicting.
+# P2 intelligence routers (vegetation, climate). Registered before
+# data_platform-independent; all field-scoped paths are literal and
+# non-conflicting.
+# NOTE: soil_memory / failure_lab / evidence_gaps / portfolio routers are
+# registered once their modules are implemented (see migration 0019 and
+# app/db/models_p2.py for their data contracts). They were removed here
+# only because the committed tree references modules that do not exist,
+# which prevented the API from booting (ImportError at startup).
 api_router.include_router(vegetation.router)
 api_router.include_router(climate.router)
-api_router.include_router(soil_memory.router)
-api_router.include_router(failure_lab.router)
-api_router.include_router(evidence_gaps.router)
-api_router.include_router(portfolio.router)
