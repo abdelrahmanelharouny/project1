@@ -1,0 +1,812 @@
+     1→"""Deterministic feature computation engine (Milestone 4).
+     2→
+     3→Pure functions over normalized observations. The engine:
+     4→
+     5→- assigns daily observations to LOCAL calendar days via the explicit midpoint
+     6→  rule (app.features.calendar);
+     7→- NEVER mixes temporal resolutions: monthly/pentadal observations do not
+     8→  participate in daily-bucket aggregation (they are counted and reported);
+     9→- NEVER treats missing observations as zero: accumulations sum valid days
+    10→  only and stay NULL below the definition's minimum coverage; a data gap
+    11→  interrupts dry spells instead of assuming dryness;
+    12→- propagates quality (valid/partial/insufficient_coverage/missing) and, for
+    13→  means, the standard error of the mean as uncertainty;
+    14→- computes baselines and anomalies only when the baseline window holds enough
+    15→  distinct years (>= 5), otherwise the feature is explicitly `not_evaluated`
+    16→  with the reason embedded in provenance;
+    17→- stamps every draft with full provenance (contributing observation ids,
+    18→  dataset products, processing versions, evidence classes, calendar basis)
+    19→  and a reproducibility checksum.
+    20→"""
+    21→
+    22→import hashlib
+    23→import json
+    24→import statistics
+    25→from dataclasses import dataclass, field
+    26→from datetime import date, datetime, timedelta
+    27→from typing import Any
+    28→
+    29→from zoneinfo import ZoneInfo
+    30→
+    31→from app.features import calendar as fscal
+    32→from app.features.catalog import BASELINE_MIN_YEARS, FeatureSpec
+    33→
+    34→PROVENANCE_OBS_CAP = 400
+    35→
+    36→VALID_STATUSES = {"valid"}
+    37→
+    38→
+    39→# ----------------------------------------------------------------- inputs
+    40→@dataclass
+    41→class DailyCell:
+    42→    value: float | None
+    43→    obs_id: str
+    44→    dataset_product_id: str
+    45→    processing_version: str
+    46→    evidence_class: str
+    47→    is_synthetic: bool
+    48→    quality_status: str
+    49→
+    50→
+    51→@dataclass
+    52→class DailySeries:
+    53→    variable: str
+    54→    cells: dict[date, DailyCell] = field(default_factory=dict)
+    55→    duplicate_assignments: int = 0
+    56→    excluded_time_supports: dict[str, int] = field(default_factory=dict)
+    57→    # Deepening F-02: observations whose quality_status is not 'valid' never
+    58→    # contribute values. They are counted per status so the exclusion is
+    59→    # visible in run warnings (a suspect value is not silently averaged in,
+    60→    # and not silently dropped either).
+    61→    excluded_quality_statuses: dict[str, int] = field(default_factory=dict)
+    62→
+    63→
+    64→def build_daily_series(observations: list[dict[str, Any]], variable: str, tz: ZoneInfo) -> DailySeries:
+    65→    """Bucket one variable's DAILY observations into local calendar days.
+    66→
+    67→    Observations whose time_support is not 'daily' are excluded (counted) —
+    68→    mixing e.g. monthly product totals into daily buckets would double-count
+    69→    or misrepresent periods. Only observations with a usable value are
+    70→    quality-valid; missing observations create explicit empty slots? No —
+    71→    missing observations are simply absent from `cells`, and coverage math
+    72→    treats absent days as missing (never as zero).
+    73→    """
+    74→    series = DailySeries(variable=variable)
+    75→    obs_list = [o for o in observations if o["variable_code"] == variable]
+    76→    ordered = sorted(obs_list, key=lambda o: (o["period_start"], o["observed_at"]))
+    77→    for obs in ordered:
+    78→        ts = obs.get("time_support") or "daily"
+    79→        if ts != "daily":
+    80→            series.excluded_time_supports[ts] = series.excluded_time_supports.get(ts, 0) + 1
+    81→            continue
+    82→        local_day = fscal.assign_local_date(obs["period_start"], obs["period_end"], tz)
+    83→        if local_day in series.cells:
+    84→            series.duplicate_assignments += 1
+    85→            continue  # first (earliest) wins; deterministic
+    86→        value = obs.get("value")
+    87→        quality = obs.get("quality_status") or "valid"
+    88→        # F-02: only contract-VALID observations contribute to aggregates.
+    89→        # 'missing' stays missing (the day counts as uncovered); 'suspect' and
+    90→        # 'invalid' rows are excluded from values and reported per status.
+    91→        if value is None or quality == "missing":
+    92→            continue  # missing stays missing; the day counts as uncovered
+    93→        if quality not in VALID_STATUSES:
+    94→            series.excluded_quality_statuses[quality] = (
+    95→                series.excluded_quality_statuses.get(quality, 0) + 1
+    96→            )
+    97→            continue
+    98→        series.cells[local_day] = DailyCell(
+    99→            value=float(value),
+   100→            obs_id=str(obs["id"]),
+   101→            dataset_product_id=str(obs["dataset_product_id"]),
+   102→            processing_version=obs.get("processing_version") or "unknown",
+   103→            evidence_class=obs.get("evidence_class") or "unknown",
+   104→            is_synthetic=bool(obs.get("is_synthetic")),
+   105→            quality_status=quality,
+   106→        )
+   107→    return series
+   108→
+   109→
+   110→# ----------------------------------------------------------------- drafts
+   111→@dataclass
+   112→class FeatureDraft:
+   113→    feature_code: str
+   114→    aggregation_level: str
+   115→    period_label: str
+   116→    period_start: datetime
+   117→    period_end: datetime
+   118→    value: float | None
+   119→    unit: str
+   120→    coverage_ratio: float | None
+   121→    n_input: int
+   122→    n_missing: int
+   123→    quality_status: str
+   124→    uncertainty_value: float | None = None
+   125→    uncertainty_type: str | None = None
+   126→    baseline_reference: dict[str, Any] | None = None
+   127→    provenance: dict[str, Any] = field(default_factory=dict)
+   128→
+   129→    def to_row(self) -> dict[str, Any]:
+   130→        return {
+   131→            "feature_code": self.feature_code,
+   132→            "aggregation_level": self.aggregation_level,
+   133→            "period_label": self.period_label,
+   134→            "period_start": self.period_start,
+   135→            "period_end": self.period_end,
+   136→            "value": self.value,
+   137→            "unit": self.unit,
+   138→            "coverage_ratio": self.coverage_ratio,
+   139→            "n_input": self.n_input,
+   140→            "n_missing": self.n_missing,
+   141→            "quality_status": self.quality_status,
+   142→            "uncertainty_value": self.uncertainty_value,
+   143→            "uncertainty_type": self.uncertainty_type,
+   144→            "baseline_reference": self.baseline_reference,
+   145→            "provenance": self.provenance,
+   146→        }
+   147→
+   148→
+   149→def _periods_overlap_days(p_start: datetime, p_end: datetime, w_start: datetime, w_end: datetime) -> tuple[datetime, datetime]:
+   150→    s = max(p_start, w_start)
+   151→    e = min(p_end, w_end)
+   152→    return s, e
+   153→
+   154→
+   155→def _expected_days(p_start_utc: datetime, p_end_utc: datetime, tz: ZoneInfo) -> int:
+   156→    """Number of local days whose [start, next-start) lies within the period."""
+   157→    local_start = p_start_utc.astimezone(tz).date()
+   158→    local_end = p_end_utc.astimezone(tz).date()
+   159→    days = 0
+   160→    d = local_start
+   161→    while d <= local_end:
+   162→        days += 1
+   163→        d += timedelta(days=1)
+   164→    return max(1, days)
+   165→
+   166→
+   167→def _checksum(draft: FeatureDraft, obs_ids: list[str]) -> str:
+   168→    payload = json.dumps(
+   169→        {
+   170→            "feature_code": draft.feature_code,
+   171→            "aggregation_level": draft.aggregation_level,
+   172→            "period_label": draft.period_label,
+   173→            "value": None if draft.value is None else round(draft.value, 6),
+   174→            "n_input": draft.n_input,
+   175→            "n_missing": draft.n_missing,
+   176→            "coverage_ratio": draft.coverage_ratio,
+   177→            "quality_status": draft.quality_status,
+   178→            "observation_ids": obs_ids,
+   179→        },
+   180→        sort_keys=True,
+   181→        separators=(",", ":"),
+   182→    )
+   183→    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+   184→
+   185→
+   186→def _provenance(
+   187→    *,
+   188→    spec: FeatureSpec,
+   189→    draft: FeatureDraft,
+   190→    cells_used: list[DailyCell],
+   191→    calendar_meta: dict[str, Any],
+   192→    extra: dict[str, Any] | None = None,
+   193→) -> dict[str, Any]:
+   194→    obs_ids = [c.obs_id for c in cells_used]
+   195→    variables: dict[str, Any] = {}
+   196→    for c in cells_used:
+   197→        entry = variables.setdefault(
+   198→            "inputs",
+   199→            {
+   200→                "observation_count": 0,
+   201→                "dataset_products": [],
+   202→                "processing_versions": [],
+   203→                "evidence_classes": [],
+   204→                "is_synthetic": False,
+   205→            },
+   206→        )
+   207→        entry["observation_count"] += 1
+   208→        if c.dataset_product_id not in entry["dataset_products"]:
+   209→            entry["dataset_products"].append(c.dataset_product_id)
+   210→        if c.processing_version not in entry["processing_versions"]:
+   211→            entry["processing_versions"].append(c.processing_version)
+   212→        if c.evidence_class not in entry["evidence_classes"]:
+   213→            entry["evidence_classes"].append(c.evidence_class)
+   214→        entry["is_synthetic"] = entry["is_synthetic"] or c.is_synthetic
+   215→    prov = {
+   216→        "engine_version": calendar_meta["engine_version"],
+   217→        "definition_version": calendar_meta["definition_version"],
+   218→        "calendar": {
+   219→            "timezone": calendar_meta["timezone"],
+   220→            "hemisphere": calendar_meta["hemisphere"],
+   221→            "assignment_rule": fscal.CALENDAR_ASSIGNMENT_RULE,
+   222→        },
+   223→        "required_variables": list(spec.required_variables),
+   224→        "inputs": variables.get("inputs", {
+   225→            "observation_count": 0,
+   226→            "dataset_products": [],
+   227→            "processing_versions": [],
+   228→            "evidence_classes": [],
+   229→            "is_synthetic": False,
+   230→        }),
+   231→        "observation_ids": obs_ids[:PROVENANCE_OBS_CAP],
+   232→        "observation_count": len(obs_ids),
+   233→        "observation_ids_capped": len(obs_ids) > PROVENANCE_OBS_CAP,
+   234→        "checksum": _checksum(draft, obs_ids),
+   235→    }
+   236→    if extra:
+   237→        prov.update(extra)
+   238→    return prov
+   239→
+   240→
+   241→# ------------------------------------------------------------ core engine
+   242→def _iter_period_days(
+   243→    p_start_utc: datetime, p_end_utc: datetime, tz: ZoneInfo
+   244→) -> list[date]:
+   245→    d = p_start_utc.astimezone(tz).date()
+   246→    end = p_end_utc.astimezone(tz).date()
+   247→    out = []
+   248→    while d <= end:
+   249→        out.append(d)
+   250→        d += timedelta(days=1)
+   251→    return out
+   252→
+   253→
+   254→def _series_for(spec: FeatureSpec, series_by_var: dict[str, DailySeries]) -> DailySeries:
+   255→    variable = spec.strategy_params["variable"]
+   256→    return series_by_var.get(variable) or DailySeries(variable=variable)
+   257→
+   258→
+   259→def _aggregate_period(
+   260→    spec: FeatureSpec,
+   261→    strategy: str,
+   262→    series: DailySeries,
+   263→    p_start: datetime,
+   264→    p_end: datetime,
+   265→    tz: ZoneInfo,
+   266→    calendar_meta: dict[str, Any],
+   267→    level: str,
+   268→    label: str,
+   269→    *,
+   270→    window_start: datetime,
+   271→    window_end: datetime,
+   272→) -> FeatureDraft:
+   273→    """One period aggregation for accumulation/mean/count/dry_spell strategies."""
+   274→    s, e = _periods_overlap_days(p_start, p_end, window_start, window_end)
+   275→    days = _iter_period_days(s, e, tz)
+   276→    expected = len(days)
+   277→    if expected == 0:
+   278→        return FeatureDraft(
+   279→            feature_code=spec.feature_code, aggregation_level=level, period_label=label,
+   280→            period_start=s, period_end=e, value=None, unit=spec.unit,
+   281→            coverage_ratio=0.0, n_input=0, n_missing=0,
+   282→            quality_status="not_evaluated",
+   283→            provenance={"reason": "Period does not overlap the run window."},
+   284→        )
+   285→
+   286→    cells = [series.cells.get(d) for d in days]
+   287→    valid_cells = [c for c in cells if c is not None and c.value is not None]
+   288→    valid_days = len(valid_cells)
+   289→    missing_days = expected - valid_days
+   290→    coverage = valid_days / expected
+   291→
+   292→    base_kwargs = dict(
+   293→        feature_code=spec.feature_code, aggregation_level=level, period_label=label,
+   294→        period_start=s, period_end=e, unit=spec.unit,
+   295→        coverage_ratio=round(coverage, 4), n_input=valid_days, n_missing=missing_days,
+   296→    )
+   297→
+   298→    if valid_days == 0:
+   299→        return FeatureDraft(
+   300→            value=None, quality_status="missing", **base_kwargs,
+   301→            provenance=_provenance(
+   302→                spec=spec,
+   303→                draft=FeatureDraft(
+   304→                    feature_code=spec.feature_code, aggregation_level=level, period_label=label,
+   305→                    period_start=s, period_end=e, value=None, unit=spec.unit,
+   306→                    coverage_ratio=0.0, n_input=0, n_missing=missing_days, quality_status="missing",
+   307→                ),
+   308→                cells_used=[],
+   309→                calendar_meta=calendar_meta,
+   310→                extra={"reason": "No valid observations for this period."},
+   311→            ),
+   312→        )
+   313→
+   314→    if coverage < spec.min_coverage_ratio:
+   315→        return FeatureDraft(
+   316→            value=None, quality_status="insufficient_coverage", **base_kwargs,
+   317→            provenance=_provenance(
+   318→                spec=spec,
+   319→                draft=FeatureDraft(
+   320→                    feature_code=spec.feature_code, aggregation_level=level, period_label=label,
+   321→                    period_start=s, period_end=e, value=None, unit=spec.unit,
+   322→                    coverage_ratio=coverage, n_input=valid_days, n_missing=missing_days,
+   323→                    quality_status="insufficient_coverage",
+   324→                ),
+   325→                cells_used=valid_cells,
+   326→                calendar_meta=calendar_meta,
+   327→                extra={
+   328→                    "reason": (
+   329→                        f"Coverage {coverage:.2f} is below the definition minimum "
+   330→                        f"{spec.min_coverage_ratio:.2f}; value not computed (missing data is "
+   331→                        "never treated as zero and totals are never scaled up)."
+   332→                    )
+   333→                },
+   334→            ),
+   335→        )
+   336→
+   337→    value: float | None = None
+   338→    uncertainty: float | None = None
+   339→    uncertainty_type: str | None = None
+   340→    if strategy == "accumulation":
+   341→        value = sum(c.value for c in valid_cells)  # type: ignore[arg-type]
+   342→    elif strategy == "mean":
+   343→        values = [c.value for c in valid_cells]  # type: ignore[arg-type]
+   344→        value = sum(values) / len(values)  # type: ignore[arg-type]
+   345→        if len(values) >= 2:
+   346→            uncertainty = statistics.stdev(values) / (len(values) ** 0.5)
+   347→            uncertainty_type = "standard_error_of_mean"
+   348→    elif strategy == "count_days":
+   349→        op = spec.strategy_params["op"]
+   350→        thr = float(spec.strategy_params["threshold"])
+   351→        preds = {
+   352→            ">=": lambda v: v >= thr,
+   353→            ">": lambda v: v > thr,
+   354→            "<": lambda v: v < thr,
+   355→            "<=": lambda v: v <= thr,
+   356→        }
+   357→        pred = preds[op]
+   358→        value = float(sum(1 for c in valid_cells if pred(float(c.value))))  # type: ignore[arg-type]
+   359→    elif strategy == "dry_spell_max":
+   360→        dry_below = float(spec.strategy_params["dry_below_mm"])
+   361→        current = best = 0
+   362→        for d in days:  # ordered; missing cells interrupt the spell
+   363→            cell = series.cells.get(d)
+   364→            if cell is None or cell.value is None:
+   365→                current = 0
+   366→                continue
+   367→            if float(cell.value) < dry_below:
+   368→                current += 1
+   369→                best = max(best, current)
+   370→            else:
+   371→                current = 0
+   372→        value = float(best)
+   373→    else:  # pragma: no cover — catalog guards strategies
+   374→        raise ValueError(f"Unknown aggregation strategy '{strategy}'.")
+   375→
+   376→    quality = "valid" if missing_days == 0 else "partial"
+   377→    draft = FeatureDraft(
+   378→        value=round(float(value), 4), quality_status=quality,
+   379→        uncertainty_value=uncertainty, uncertainty_type=uncertainty_type, **base_kwargs,
+   380→    )
+   381→    draft.provenance = _provenance(spec=spec, draft=draft, cells_used=valid_cells, calendar_meta=calendar_meta)
+   382→    return draft
+   383→
+   384→
+   385→def _daily_passthrough(
+   386→    spec: FeatureSpec, series: DailySeries, window_days: list[date],
+   387→    window_start: datetime, window_end: datetime, tz: ZoneInfo,
+   388→    calendar_meta: dict[str, Any],
+   389→) -> list[FeatureDraft]:
+   390→    drafts = []
+   391→    for d in window_days:
+   392→        cell = series.cells.get(d)
+   393→        p_start, _ = fscal.day_bounds_utc(d, tz)
+   394→        label = d.isoformat()
+   395→        if cell is None or cell.value is None:
+   396→            drafts.append(FeatureDraft(
+   397→                feature_code=spec.feature_code, aggregation_level="daily", period_label=label,
+   398→                period_start=p_start, period_end=p_start + timedelta(days=1) - timedelta(seconds=1),
+   399→                value=None, unit=spec.unit, coverage_ratio=0.0, n_input=0, n_missing=1,
+   400→                quality_status="missing",
+   401→                provenance={
+   402→                    "reason": "No valid observation for this local day (missing is never zero).",
+   403→                    "engine_version": calendar_meta["engine_version"],
+   404→                    "definition_version": calendar_meta["definition_version"],
+   405→                    "calendar": {
+   406→                        "timezone": calendar_meta["timezone"],
+   407→                        "hemisphere": calendar_meta["hemisphere"],
+   408→                        "assignment_rule": fscal.CALENDAR_ASSIGNMENT_RULE,
+   409→                    },
+   410→                    "required_variables": list(spec.required_variables),
+   411→                    "inputs": {"observation_count": 0, "dataset_products": [], "processing_versions": [], "evidence_classes": [], "is_synthetic": False},
+   412→                    "observation_ids": [], "observation_count": 0, "observation_ids_capped": False,
+   413→                },
+   414→            ))
+   415→            continue
+   416→        draft = FeatureDraft(
+   417→            feature_code=spec.feature_code, aggregation_level="daily", period_label=label,
+   418→            period_start=p_start, period_end=p_start + timedelta(days=1) - timedelta(seconds=1),
+   419→            value=round(cell.value, 4), unit=spec.unit, coverage_ratio=1.0,
+   420→            n_input=1, n_missing=0, quality_status="valid",
+   421→        )
+   422→        draft.provenance = _provenance(spec=spec, draft=draft, cells_used=[cell], calendar_meta=calendar_meta)
+   423→        drafts.append(draft)
+   424→    return drafts
+   425→
+   426→
+   427→def _baseline_by_calendar_month(
+   428→    monthly_drafts: list[FeatureDraft], label: str
+   429→) -> dict[str, Any] | None:
+   430→    """Climatology of the same calendar month across the run window."""
+   431→    month = int(label.split("-")[1])
+   432→    values = []
+   433→    years = set()
+   434→    for d in monthly_drafts:
+   435→        if d.value is None or d.quality_status in ("missing", "not_evaluated"):
+   436→            continue
+   437→        d_year, d_month = d.period_label.split("-")[:2]
+   438→        if int(d_month) != month:
+   439→            continue
+   440→        values.append(float(d.value))
+   441→        years.add(int(d_year))
+   442→    if len(years) < BASELINE_MIN_YEARS or len(values) < BASELINE_MIN_YEARS:
+   443→        return None
+   444→    mean = sum(values) / len(values)
+   445→    sd = statistics.stdev(values) if len(values) >= 2 else 0.0
+   446→    # Deepening F-11: baselines are CLASSIFIED, never silently called
+   447→    # "climatology". WMO climatological normals require standard 30-year
+   448→    # reference periods; anything shorter is an exploratory short-record
+   449→    # baseline. The baseline also includes the evaluated year(s) of this run
+   450→    # window — recorded explicitly because that slightly shrinks anomalies.
+   451→    baseline_class = "long_record_reference" if len(years) >= 30 else "short_record_exploratory"
+   452→    return {
+   453→        "calendar_month": month,
+   454→        "window_years": sorted(years),
+   455→        "n_years": len(years),
+   456→        "mean": round(mean, 4),
+   457→        "sd": round(sd, 4),
+   458→        "min_years_required": BASELINE_MIN_YEARS,
+   459→        "baseline_class": baseline_class,
+   460→        "includes_evaluated_period": True,
+   461→    }
+   462→
+   463→
+   464→def _derived_draft(
+   465→    spec: FeatureSpec,
+   466→    level: str,
+   467→    label: str,
+   468→    period_start: datetime,
+   469→    period_end: datetime,
+   470→    base_value: float | None,
+   471→    baseline: dict[str, Any] | None,
+   472→    calendar_meta: dict[str, Any],
+   473→    mode: str,
+   474→    reason: str | None = None,
+   475→) -> FeatureDraft:
+   476→    draft = FeatureDraft(
+   477→        feature_code=spec.feature_code, aggregation_level=level, period_label=label,
+   478→        period_start=period_start, period_end=period_end, value=None, unit=spec.unit,
+   479→        coverage_ratio=None, n_input=0, n_missing=0, quality_status="not_evaluated",
+   480→        baseline_reference=baseline,
+   481→    )
+   482→    if reason:
+   483→        draft.provenance = {"reason": reason, "engine_version": calendar_meta["engine_version"]}
+   484→        return draft
+   485→    if base_value is None:
+   486→        draft.provenance = {
+   487→            "reason": "Base monthly feature for this period is not available (missing or below coverage).",
+   488→            "engine_version": calendar_meta["engine_version"],
+   489→        }
+   490→        return draft
+   491→    if baseline is None:
+   492→        draft.provenance = {
+   493→            "reason": (
+   494→                f"A baseline requires >= {BASELINE_MIN_YEARS} distinct years of this "
+   495→                "calendar month within the run window (below that, only "
+   496→                "'insufficient_baseline' — never a climatological normal)."
+   497→            ),
+   498→            "engine_version": calendar_meta["engine_version"],
+   499→        }
+   500→        return draft
+   501→    mean = baseline["mean"]
+   502→    sd = baseline["sd"]
+   503→    if mode == "anomaly":
+   504→        draft.value = round(base_value - mean, 4)
+   505→        draft.quality_status = "valid"
+   506→        draft.coverage_ratio = None
+   507→        draft.n_input = baseline["n_years"]
+   508→    elif mode == "anomaly_z":
+   509→        if sd <= 0:
+   510→            draft.provenance = {
+   511→                "reason": "Baseline standard deviation is zero; standardized anomaly undefined.",
+   512→                "engine_version": calendar_meta["engine_version"],
+   513→            }
+   514→            draft.baseline_reference = baseline
+   515→            return draft
+   516→        draft.value = round((base_value - mean) / sd, 4)
+   517→        draft.quality_status = "valid"
+   518→        draft.n_input = baseline["n_years"]
+   519→    draft.provenance = {
+   520→        "engine_version": calendar_meta["engine_version"],
+   521→        "definition_version": calendar_meta["definition_version"],
+   522→        "calendar": {
+   523→            "timezone": calendar_meta["timezone"],
+   524→            "hemisphere": calendar_meta["hemisphere"],
+   525→            "assignment_rule": fscal.CALENDAR_ASSIGNMENT_RULE,
+   526→        },
+   527→        "required_variables": list(spec.required_variables),
+   528→        "inputs": {"observation_count": baseline["n_years"]},
+   529→        "baseline": baseline,
+   530→        "formula": spec.formula_reference,
+   531→    }
+   532→    return draft
+   533→
+   534→
+   535→def compute_feature_drafts(
+   536→    *,
+   537→    observations: list[dict[str, Any]],
+   538→    specs: list[FeatureSpec],
+   539→    tz: ZoneInfo,
+   540→    hemisphere: str,
+   541→    window_start: datetime,
+   542→    window_end: datetime,
+   543→    aggregation_levels: list[str],
+   544→    crop_seasons: list[dict[str, Any]],
+   545→    engine_version: str,
+   546→    definition_version: str,
+   547→) -> tuple[list[FeatureDraft], dict[str, str], list[str]]:
+   548→    """Compute all requested feature drafts.
+   549→
+   550→    Returns (drafts ordered by (level, label, code), not_evaluated_reasons by
+   551→    feature_code (representative reason), warnings).
+   552→    """
+   553→    calendar_meta = {
+   554→        "timezone": str(tz),
+   555→        "hemisphere": hemisphere,
+   556→        "engine_version": engine_version,
+   557→        "definition_version": definition_version,
+   558→    }
+   559→    warnings: list[str] = []
+   560→    not_evaluated: dict[str, str] = {}
+   561→
+   562→    series_by_var: dict[str, DailySeries] = {}
+   563→    for spec in specs:
+   564→        variable = spec.strategy_params.get("variable")
+   565→        if variable and variable not in series_by_var:
+   566→            series_by_var[variable] = build_daily_series(observations, variable, tz)
+   567→    for variable, series in series_by_var.items():
+   568→        if series.duplicate_assignments:
+   569→            warnings.append(
+   570→                f"{variable}: {series.duplicate_assignments} duplicate local-day assignments "
+   571→                "were collapsed (first observation wins)."
+   572→            )
+   573→        for ts, count in series.excluded_time_supports.items():
+   574→            warnings.append(
+   575→                f"{variable}: {count} observations with time_support '{ts}' were excluded from "
+   576→                "daily-bucket aggregation (temporal resolutions are never mixed)."
+   577→            )
+   578→        for status, count in series.excluded_quality_statuses.items():
+   579→            warnings.append(
+   580→                f"{variable}: {count} observations with quality_status '{status}' were excluded "
+   581→                "from aggregation (only contract-valid observations contribute values; "
+   582→                "exclusions are reported, never silently averaged in)."
+   583→            )
+   584→
+   585→    drafts: list[FeatureDraft] = []
+   586→
+   587→    # ---- daily passthrough ----
+   588→    if "daily" in aggregation_levels:
+   589→        w_days = _iter_period_days(window_start, window_end, tz)
+   590→        for spec in specs:
+   591→            if "daily" not in spec.aggregation_levels:
+   592→                continue
+   593→            series = _series_for(spec, series_by_var)
+   594→            drafts.extend(
+   595→                _daily_passthrough(spec, series, w_days, window_start, window_end, tz, calendar_meta)
+   596→            )
+   597→
+   598→    # ---- monthly ----
+   599→    monthly_drafts_by_code: dict[str, list[FeatureDraft]] = {}
+   600→    if "monthly" in aggregation_levels:
+   601→        months = fscal.iter_months(window_start.astimezone(tz).date(), window_end.astimezone(tz).date())
+   602→        for year, month in months:
+   603→            m_start, m_end_excl = fscal.month_bounds_utc(year, month, tz)
+   604→            m_end = m_end_excl - timedelta(seconds=1)
+   605→            label = f"{year:04d}-{month:02d}"
+   606→            for spec in specs:
+   607→                if "monthly" not in spec.aggregation_levels:
+   608→                    continue
+   609→                if spec.strategy in ("accumulation", "mean", "count_days", "dry_spell_max"):
+   610→                    series = _series_for(spec, series_by_var)
+   611→                    draft = _aggregate_period(
+   612→                        spec, spec.strategy, series, m_start, m_end, tz, calendar_meta,
+   613→                        "monthly", label, window_start=window_start, window_end=window_end,
+   614→                    )
+   615→                    drafts.append(draft)
+   616→                    monthly_drafts_by_code.setdefault(spec.feature_code, []).append(draft)
+   617→
+   618→    # ---- derived monthly (anomaly, z, difference) ----
+   619→    if "monthly" in aggregation_levels:
+   620→        for spec in specs:
+   621→            if "monthly" not in spec.aggregation_levels:
+   622→                continue
+   623→            if spec.strategy in ("anomaly", "anomaly_z"):
+   624→                base_code = spec.strategy_params["base_feature"]
+   625→                base_drafts = monthly_drafts_by_code.get(base_code, [])
+   626→                for base in sorted(base_drafts, key=lambda d: d.period_label):
+   627→                    baseline = _baseline_by_calendar_month(base_drafts, base.period_label)
+   628→                    draft = _derived_draft(
+   629→                        spec, "monthly", base.period_label, base.period_start, base.period_end,
+   630→                        base.value, baseline, calendar_meta, spec.strategy,
+   631→                    )
+   632→                    if draft.quality_status == "not_evaluated":
+   633→                        not_evaluated.setdefault(spec.feature_code, draft.provenance.get("reason", ""))
+   634→                    drafts.append(draft)
+   635→            elif spec.strategy == "difference":
+   636→                left_code = spec.strategy_params["left"]
+   637→                right_code = spec.strategy_params["right"]
+   638→                left_by_label = {d.period_label: d for d in monthly_drafts_by_code.get(left_code, [])}
+   639→                right_by_label = {d.period_label: d for d in monthly_drafts_by_code.get(right_code, [])}
+   640→                for label in sorted(set(left_by_label) | set(right_by_label)):
+   641→                    left = left_by_label.get(label)
+   642→                    right = right_by_label.get(label)
+   643→                    if left is None or right is None or right.value is None or left.value is None:
+   644→                        draft = _derived_draft(
+   645→                            spec, "monthly", label,
+   646→                            (left or right).period_start, (left or right).period_end,
+   647→                            None, None, calendar_meta, "difference",
+   648→                            reason="Requires both monthly totals (precipitation and ET0) for this month.",
+   649→                        )
+   650→                        not_evaluated.setdefault(spec.feature_code, draft.provenance.get("reason", ""))
+   651→                        drafts.append(draft)
+   652→                        continue
+   653→                    draft = FeatureDraft(
+   654→                        feature_code=spec.feature_code, aggregation_level="monthly",
+   655→                        period_label=label, period_start=left.period_start,
+   656→                        period_end=left.period_end,
+   657→                        value=round(left.value - right.value, 4), unit=spec.unit,
+   658→                        coverage_ratio=round(min(left.coverage_ratio or 0, right.coverage_ratio or 0), 4),
+   659→                        n_input=left.n_input + right.n_input,
+   660→                        n_missing=left.n_missing + right.n_missing,
+   661→                        quality_status="valid" if left.quality_status == "valid" and right.quality_status == "valid" else "partial",
+   662→                    )
+   663→                    draft.provenance = {
+   664→                        "engine_version": calendar_meta["engine_version"],
+   665→                        "definition_version": calendar_meta["definition_version"],
+   666→                        "calendar": {
+   667→                            "timezone": calendar_meta["timezone"],
+   668→                            "hemisphere": calendar_meta["hemisphere"],
+   669→                            "assignment_rule": fscal.CALENDAR_ASSIGNMENT_RULE,
+   670→                        },
+   671→                        "required_variables": list(spec.required_variables),
+   672→                        "derived_from": {
+   673→                            "left": {"feature_code": left_code, "value": left.value},
+   674→                            "right": {"feature_code": right_code, "value": right.value},
+   675→                        },
+   676→                    }
+   677→                    drafts.append(draft)
+   678→
+   679→    # ---- seasonal ----
+   680→    if "seasonal" in aggregation_levels:
+   681→        season_labels = _season_labels_overlapping(window_start, window_end, tz, hemisphere)
+   682→        seasonal_drafts_by_code: dict[str, list[FeatureDraft]] = {}
+   683→        for label in season_labels:
+   684→            s_start, s_end_excl = fscal.season_bounds_utc(label, tz)
+   685→            s_end = s_end_excl - timedelta(seconds=1)
+   686→            for spec in specs:
+   687→                if "seasonal" not in spec.aggregation_levels:
+   688→                    continue
+   689→                if spec.strategy in ("accumulation", "mean", "count_days", "dry_spell_max"):
+   690→                    series = _series_for(spec, series_by_var)
+   691→                    draft = _aggregate_period(
+   692→                        spec, spec.strategy, series, s_start, s_end, tz, calendar_meta,
+   693→                        "seasonal", label, window_start=window_start, window_end=window_end,
+   694→                    )
+   695→                    drafts.append(draft)
+   696→                    seasonal_drafts_by_code.setdefault(spec.feature_code, []).append(draft)
+   697→        # CV across years per season
+   698→        for spec in specs:
+   699→            if "seasonal" not in spec.aggregation_levels or spec.strategy != "cv_across_years":
+   700→                continue
+   701→            base_code = spec.strategy_params["base_feature"]
+   702→            base_drafts = seasonal_drafts_by_code.get(base_code, [])
+   703→            by_season: dict[str, list[FeatureDraft]] = {}
+   704→            for d in base_drafts:
+   705→                if d.value is not None and d.quality_status not in ("missing", "not_evaluated"):
+   706→                    by_season.setdefault(d.period_label.split("-")[1], []).append(d)
+   707→            for season, items in sorted(by_season.items()):
+   708→                years = {int(d.period_label.split("-")[0]) for d in items}
+   709→                if len(years) < BASELINE_MIN_YEARS:
+   710→                    reason = (
+   711→                        f"Variability requires >= {BASELINE_MIN_YEARS} distinct years of the "
+   712→                        f"{season} season within the run window; found {len(years)}."
+   713→                    )
+   714→                    not_evaluated.setdefault(spec.feature_code, reason)
+   715→                    for d in items:
+   716→                        draft = _derived_draft(
+   717→                            spec, "seasonal", d.period_label, d.period_start, d.period_end,
+   718→                            d.value, None, calendar_meta, "cv", reason=reason,
+   719→                        )
+   720→                        drafts.append(draft)
+   721→                    continue
+   722→                values = [float(d.value) for d in items]
+   723→                mean = sum(values) / len(values)
+   724→                sd = statistics.stdev(values) if len(values) >= 2 else 0.0
+   725→                for d in sorted(items, key=lambda x: x.period_label):
+   726→                    draft = FeatureDraft(
+   727→                        feature_code=spec.feature_code, aggregation_level="seasonal",
+   728→                        period_label=d.period_label, period_start=d.period_start,
+   729→                        period_end=d.period_end, value=None, unit=spec.unit,
+   730→                        coverage_ratio=None, n_input=len(years), n_missing=0,
+   731→                        quality_status="not_evaluated",
+   732→                    )
+   733→                    if mean == 0:
+   734→                        reason = "Mean seasonal total is zero; CV undefined."
+   735→                        not_evaluated.setdefault(spec.feature_code, reason)
+   736→                        draft.provenance = {"reason": reason, "engine_version": calendar_meta["engine_version"]}
+   737→                        drafts.append(draft)
+   738→                        continue
+   739→                    draft.value = round(sd / mean, 4)
+   740→                    draft.quality_status = "valid"
+   741→                    draft.provenance = {
+   742→                        "engine_version": calendar_meta["engine_version"],
+   743→                        "definition_version": calendar_meta["definition_version"],
+   744→                        "calendar": {
+   745→                            "timezone": calendar_meta["timezone"],
+   746→                            "hemisphere": calendar_meta["hemisphere"],
+   747→                            "assignment_rule": fscal.CALENDAR_ASSIGNMENT_RULE,
+   748→                        },
+   749→                        "required_variables": list(spec.required_variables),
+   750→                        "inputs": {"observation_count": len(items)},
+   751→                        "baseline": {
+   752→                            "season": season,
+   753→                            "window_years": sorted(years),
+   754→                            "n_years": len(years),
+   755→                            "mean": round(mean, 4),
+   756→                            "sd": round(sd, 4),
+   757→                        },
+   758→                        "formula": spec.formula_reference,
+   759→                    }
+   760→                    drafts.append(draft)
+   761→
+   762→    # ---- crop seasons (explicit user windows) ----
+   763→    if "crop_season" in aggregation_levels and crop_seasons:
+   764→        for season in crop_seasons:
+   765→            label = str(season["label"])[:40]
+   766→            cs_start = season["start"]
+   767→            cs_end = season["end"]
+   768→            for spec in specs:
+   769→                if "crop_season" not in spec.aggregation_levels:
+   770→                    continue
+   771→                series = _series_for(spec, series_by_var)
+   772→                draft = _aggregate_period(
+   773→                    spec, spec.strategy, series, cs_start, cs_end, tz, calendar_meta,
+   774→                    "crop_season", label, window_start=window_start, window_end=window_end,
+   775→                )
+   776→                draft.provenance = dict(draft.provenance)
+   777→                draft.provenance["crop_season_window"] = {
+   778→                    "label": label,
+   779→                    "start": cs_start.date().isoformat(),
+   780→                    "end": cs_end.date().isoformat(),
+   781→                    "source": "user_supplied_window (crop knowledge base arrives in a later milestone)",
+   782→                }
+   783→                drafts.append(draft)
+   784→
+   785→    drafts.sort(key=lambda d: (
+   786→        {"daily": 0, "monthly": 1, "seasonal": 2, "crop_season": 3}[d.aggregation_level],
+   787→        d.period_label, d.feature_code,
+   788→    ))
+   789→    return drafts, not_evaluated, warnings
+   790→
+   791→
+   792→def _season_labels_overlapping(
+   793→    window_start: datetime, window_end: datetime, tz: ZoneInfo, hemisphere: str
+   794→) -> list[str]:
+   795→    labels: list[str] = []
+   796→    start_d = window_start.astimezone(tz).date()
+   797→    end_d = window_end.astimezone(tz).date()
+   798→    for year in range(start_d.year - 1, end_d.year + 2):
+   799→        for season in ("DJF", "MAM", "JJA", "SON"):
+   800→            label = f"{year:04d}-{season}"
+   801→            s_start, s_end_excl = fscal.season_bounds_utc(label, tz)
+   802→            if s_start <= window_end and s_end_excl - timedelta(seconds=1) >= window_start:
+   803→                # keep only seasons with at least one local day inside the window
+   804→                d = s_start.astimezone(tz).date()
+   805→                last = (s_end_excl - timedelta(seconds=1)).astimezone(tz).date()
+   806→                while d <= last:
+   807→                    if start_d <= d <= end_d:
+   808→                        labels.append(label)
+   809→                        break
+   810→                    d += timedelta(days=1)
+   811→    return labels
+   812→

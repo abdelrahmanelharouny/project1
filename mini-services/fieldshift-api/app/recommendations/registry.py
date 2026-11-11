@@ -87,17 +87,22 @@ class RecommendationRegistry:
             return len(self._generators.get(domain, []))
         return sum(len(fns) for fns in self._generators.values())
 
-    def run_all(self, db: Session, field: Any) -> list[Recommendation]:
-        """Build the context ONCE, then run every registered generator.
-
-        Returns the flattened recommendation list (severities/order preserved:
-        domain order, then registration order within a domain).
-        """
-        ctx = RecommendationContext(
+    def build_context(self, db: Session, field: Any) -> RecommendationContext:
+        """Build the shared context ONCE (evidence + seasonal anomalies)."""
+        return RecommendationContext(
             field=field,
             evidence=build_field_evidence(db, field),
             anomalies=detect_feature_anomalies(db, field.id),
         )
+
+    def build_context_evidence(self, db: Session, field: Any) -> dict[str, Any]:
+        """Just the evidence pack (cache-key material for the refresh path)."""
+        return build_field_evidence(db, field)
+
+    def run_with_context(
+        self, db: Session, field: Any, ctx: RecommendationContext
+    ) -> list[Recommendation]:
+        """Run every registered generator against a PREBUILT context."""
         out: list[Recommendation] = []
         for domain in DOMAINS:
             for fn in self._generators[domain]:
@@ -116,8 +121,20 @@ class RecommendationRegistry:
                             getattr(fn, "__name__", fn), rec.domain, domain,
                         )
                         rec.domain = domain
+                    if not rec.generator:
+                        rec.generator = f"{domain}.{getattr(fn, '__name__', fn.__class__.__name__)}"
                     out.append(rec)
         return out
+
+    def run_all(self, db: Session, field: Any) -> list[Recommendation]:
+        """Build the context ONCE, then run every registered generator.
+
+        Returns the flattened recommendation list (severities/order preserved:
+        domain order, then registration order within a domain). Each rec is
+        stamped with its generator's identity (A4 fingerprint material).
+        """
+        ctx = self.build_context(db, field)
+        return self.run_with_context(db, field, ctx)
 
 
 registry = RecommendationRegistry()

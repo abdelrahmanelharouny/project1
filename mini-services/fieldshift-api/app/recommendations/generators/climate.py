@@ -13,6 +13,10 @@ from typing import Any
 
 from app.intelligence.anomaly import Z_THRESHOLD
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
+from app.recommendations.evidence_quality import (
+    assess_evidence_quality,
+    evidence_backed_confidence,
+)
 from app.recommendations.registry import RecommendationContext, registry
 
 logger = logging.getLogger("croptwist.recommendations.climate")
@@ -59,7 +63,12 @@ def climate_data_gap(db, field, ctx: RecommendationContext) -> list[Recommendati
                 "(POST /api/v1/fields/{id}/feature-runs).",
             ],
             confidence=0.95,
-            confidence_basis="deterministic: absence of a succeeded feature_run row for the field",
+            confidence_kind="deterministic_rule",
+            confidence_basis=(
+                "deterministic: absence of a succeeded feature_run row for the "
+                "field is a verifiable fact — the constant states trigger "
+                "certainty, not statistical calibration"
+            ),
         )
     ]
 
@@ -75,6 +84,7 @@ def dry_spell_advisory(db, field, ctx: RecommendationContext) -> list[Recommenda
     if value < DRY_SPELL_ADVISORY_DAYS:
         return []
     run_id = (section.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "climate", expected_sections=("climate",))
     return [
         Recommendation(
             domain="climate",
@@ -98,11 +108,15 @@ def dry_spell_advisory(db, field, ctx: RecommendationContext) -> list[Recommenda
                 "Check the water plan's deficit windows against this dry spell.",
                 "Prioritise moisture conservation (mulch/residue cover) ahead of the dry season.",
             ],
-            confidence=0.75,
+            confidence=evidence_backed_confidence(quality),
+            confidence_kind="evidence_quality",
             confidence_basis=(
-                f"deterministic: engine metric {metric.get('code')} >= "
-                f"{DRY_SPELL_ADVISORY_DAYS}-day screening threshold"
+                f"heuristic threshold (engine metric {metric.get('code')} >= "
+                f"{DRY_SPELL_ADVISORY_DAYS} days) screened over evidence of "
+                f"documented quality — NOT a calibrated probability: "
+                f"{quality.get('summary')}"
             ),
+            evidence_quality=quality,
         )
     ]
 
@@ -118,6 +132,7 @@ def hot_days_advisory(db, field, ctx: RecommendationContext) -> list[Recommendat
     if value < HOT_DAYS_ADVISORY_COUNT:
         return []
     run_id = (section.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "climate", expected_sections=("climate",))
     return [
         Recommendation(
             domain="climate",
@@ -141,11 +156,15 @@ def hot_days_advisory(db, field, ctx: RecommendationContext) -> list[Recommendat
                 "Shift field operations away from peak-heat hours.",
                 "Re-check crop suitability and sowing window for heat escape.",
             ],
-            confidence=0.7,
+            confidence=evidence_backed_confidence(quality),
+            confidence_kind="evidence_quality",
             confidence_basis=(
-                f"deterministic: engine metric {metric.get('code')} >= "
-                f"{HOT_DAYS_ADVISORY_COUNT}-day screening threshold"
+                f"heuristic threshold (engine metric {metric.get('code')} >= "
+                f"{HOT_DAYS_ADVISORY_COUNT} days) screened over evidence of "
+                f"documented quality — NOT a calibrated probability: "
+                f"{quality.get('summary')}"
             ),
+            evidence_quality=quality,
         )
     ]
 
@@ -161,6 +180,7 @@ def precipitation_anomaly_advisory(db, field, ctx: RecommendationContext) -> lis
     if abs(value) < PRECIP_Z_STRONG:
         return []
     run_id = (section.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "climate", expected_sections=("climate",))
     direction = "above" if value > 0 else "below"
     return [
         Recommendation(
@@ -191,10 +211,14 @@ def precipitation_anomaly_advisory(db, field, ctx: RecommendationContext) -> lis
                     else "Review irrigation adequacy for the dry anomaly."
                 ),
             ],
-            confidence=0.7,
+            confidence=evidence_backed_confidence(quality),
+            confidence_kind="evidence_quality",
             confidence_basis=(
-                f"deterministic: engine z-feature |{metric.get('code')}| >= {PRECIP_Z_STRONG:g}"
+                f"engine z-feature |{metric.get('code')}| >= {PRECIP_Z_STRONG:g} "
+                f"screened over evidence of documented quality — NOT a "
+                f"calibrated probability: {quality.get('summary')}"
             ),
+            evidence_quality=quality,
         )
     ]
 
@@ -205,6 +229,7 @@ def statistical_anomaly_advisories(db, field, ctx: RecommendationContext) -> lis
     out: list[Recommendation] = []
     section = ctx.section("climate") or {}
     run_id = (section.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "climate", expected_sections=("climate",))
     covered_prefixes = ("dry_spell_max_days", "hot_days_35c_count", "precipitation_anomaly_z")
     for finding in ctx.anomalies:
         if len(out) >= MAX_ANOMALY_RECS:
@@ -212,6 +237,8 @@ def statistical_anomaly_advisories(db, field, ctx: RecommendationContext) -> lis
         code = str(finding.get("metric", ""))
         if any(code.startswith(p) for p in covered_prefixes):
             continue  # already covered by the dedicated rules above
+        if finding.get("kind") not in ("anomaly", "trend"):
+            continue  # seasonal_variation / insufficient_baseline are not advice triggers
         if finding.get("kind") == "trend":
             title = (
                 f"{code} is trending {finding.get('direction')} its usual range"
@@ -242,11 +269,14 @@ def statistical_anomaly_advisories(db, field, ctx: RecommendationContext) -> lis
                 actions=[
                     "Open the feature-run values for this period and verify the record.",
                 ],
-                confidence=0.6,
+                confidence=evidence_backed_confidence(quality),
+                confidence_kind="evidence_quality",
                 confidence_basis=(
-                    f"deterministic: per-series z-score |z| >= {Z_THRESHOLD:g} "
-                    f"(population σ, minimum 5 periods)"
+                    f"z-score screening |z| >= {Z_THRESHOLD:g} over the same-month "
+                    f"baseline (population σ) — NOT a calibrated probability: "
+                    f"{quality.get('summary')}"
                 ),
+                evidence_quality=quality,
             )
         )
     return out

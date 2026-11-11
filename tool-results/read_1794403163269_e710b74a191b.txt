@@ -1,0 +1,716 @@
+     1→"""Identity domain: registration, login, token auth, tenant authorization.
+     2→
+     3→Tenant rule (Master rule 17 / §17.1): every farm/field/data resource access is
+     4→authorized against the requesting user's organization membership.
+     5→
+     6→Auth hardening (P0-2): account lockout after repeated failed logins, email
+     7→verification gate, refresh-token rotation with family reuse detection,
+     8→single-use credential challenge tokens (password reset / email verification)
+     9→and role-based membership management (viewer < agronomist < manager < owner).
+    10→"""
+    11→
+    12→import uuid
+    13→from datetime import UTC, datetime, timedelta
+    14→from typing import Any
+    15→
+    16→from fastapi import Depends, Request
+    17→from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+    18→from sqlalchemy import func, select
+    19→from sqlalchemy.orm import Session
+    20→
+    21→from app.core.config import settings
+    22→from app.core.database import get_db
+    23→from app.core.errors import (
+    24→    AccountLocked,
+    25→    Conflict,
+    26→    EmailNotVerified,
+    27→    Forbidden,
+    28→    NotFound,
+    29→    Unauthorized,
+    30→    ValidationFailed,
+    31→)
+    32→from app.core.security import (
+    33→    generate_refresh_token,
+    34→    generate_token,
+    35→    hash_password,
+    36→    hash_token,
+    37→    verify_password,
+    38→)
+    39→from app.db.models import (
+    40→    AuthToken,
+    41→    AuditEvent,
+    42→    CredentialToken,
+    43→    Farm,
+    44→    Membership,
+    45→    Organization,
+    46→    User,
+    47→)
+    48→
+    49→bearer_scheme = HTTPBearer(auto_error=False)
+    50→
+    51→# HttpOnly cookie carrying the access token for browser sessions (see
+    52→# get_principal). The refresh token lives in a sibling cookie handled by the
+    53→# Next.js /api/auth/* route handlers and is never read by this backend.
+    54→SESSION_COOKIE_NAME = "fs_token"
+    55→
+    56→# RBAC hierarchy (Master §17): the numeric order defines "at least as
+    57→# privileged as" comparisons for role gates.
+    58→ROLE_ORDER: dict[str, int] = {"viewer": 0, "agronomist": 1, "manager": 2, "owner": 3}
+    59→
+    60→
+    61→def role_at_least(role_code: str, minimum: str) -> bool:
+    62→    """True when `role_code` grants at least the privileges of `minimum`."""
+    63→    if role_code not in ROLE_ORDER or minimum not in ROLE_ORDER:
+    64→        return False
+    65→    return ROLE_ORDER[role_code] >= ROLE_ORDER[minimum]
+    66→
+    67→
+    68→class Principal:
+    69→    """Authenticated user + their memberships, resolved once per request."""
+    70→
+    71→    def __init__(self, user: User, memberships: list[Membership]) -> None:
+    72→        self.user = user
+    73→        self.memberships = memberships
+    74→        self._org_ids = {m.organization_id for m in memberships if m.status == "active"}
+    75→
+    76→    @property
+    77→    def id(self) -> uuid.UUID:
+    78→        return self.user.id
+    79→
+    80→    def is_member_of(self, organization_id: uuid.UUID) -> bool:
+    81→        return organization_id in self._org_ids
+    82→
+    83→    def require_member_of(self, organization_id: uuid.UUID) -> None:
+    84→        if not self.is_member_of(organization_id):
+    85→            raise Forbidden("You do not have access to this organization's resources.")
+    86→
+    87→    def org_ids(self) -> set[uuid.UUID]:
+    88→        return set(self._org_ids)
+    89→
+    90→    def membership_in(self, organization_id: uuid.UUID) -> Membership | None:
+    91→        """The principal's ACTIVE membership in the organization, or None."""
+    92→        for membership in self.memberships:
+    93→            if membership.organization_id == organization_id and membership.status == "active":
+    94→                return membership
+    95→        return None
+    96→
+    97→    def require_org_role(self, organization_id: uuid.UUID, minimum: str) -> Membership:
+    98→        """Return the active membership after verifying the minimum role."""
+    99→        membership = self.membership_in(organization_id)
+   100→        if membership is None:
+   101→            raise Forbidden("You do not have access to this organization's resources.")
+   102→        if not role_at_least(membership.role_code, minimum):
+   103→            raise Forbidden(
+   104→                f"This action requires the '{minimum}' role or higher on this organization."
+   105→            )
+   106→        return membership
+   107→
+   108→    def require_any_org_role(self, minimum: str) -> Membership:
+   109→        """Role gate for GLOBAL-context mutations (no single organization
+   110→        scope, e.g. platform-level knowledge packs): require at least one
+   111→        active membership with the minimum role in ANY of the principal's
+   112→        organizations. Tenant-scoped endpoints should use require_org_role
+   113→        or require_farm_role instead."""
+   114→        for membership in self.memberships:
+   115→            if membership.status == "active" and role_at_least(membership.role_code, minimum):
+   116→                return membership
+   117→        raise Forbidden(
+   118→            f"This action requires the '{minimum}' role or higher on at least one organization."
+   119→        )
+   120→
+   121→
+   122→def get_principal(
+   123→    request: Request,
+   124→    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+   125→    db: Session = Depends(get_db),
+   126→) -> Principal:
+   127→    """Resolve the caller's principal from an access token.
+   128→
+   129→    Accepted credential transports (P1 server-side sessions):
+   130→      1. ``Authorization: Bearer <token>`` header (API clients);
+   131→      2. ``fs_token`` HttpOnly cookie (browser session set by the Next.js
+   132→         auth route handlers — the token itself never touches JS-readable
+   133→         storage).
+   134→    """
+   135→    token_value: str | None = None
+   136→    if credentials is not None and credentials.scheme.lower() == "bearer":
+   137→        token_value = credentials.credentials
+   138→    if not token_value:
+   139→        token_value = request.cookies.get(SESSION_COOKIE_NAME)
+   140→    if not token_value:
+   141→        raise Unauthorized("Missing bearer token.")
+   142→    token_hash = hash_token(token_value)
+   143→    row = db.execute(
+   144→        select(AuthToken, User)
+   145→        .join(User, AuthToken.user_id == User.id)
+   146→        .where(AuthToken.token_hash == token_hash, AuthToken.kind == "access")
+   147→    ).first()
+   148→    if row is None:
+   149→        raise Unauthorized("Invalid or expired token.")
+   150→    token, user = row
+   151→    now = datetime.now(UTC)
+   152→    if token.revoked_at is not None or token.expires_at < now:
+   153→        raise Unauthorized("Token expired or revoked.")
+   154→    if not user.is_active:
+   155→        raise Unauthorized("Account disabled.")
+   156→    memberships = list(
+   157→        db.scalars(select(Membership).where(Membership.user_id == user.id)).all()
+   158→    )
+   159→    return Principal(user=user, memberships=memberships)
+   160→
+   161→
+   162→# ---------------------------------------------------------------- audit
+   163→def record_auth_audit(
+   164→    db: Session,
+   165→    *,
+   166→    actor_id: uuid.UUID | None,
+   167→    organization_id: uuid.UUID | None = None,
+   168→    action: str,
+   169→    entity_type: str = "auth",
+   170→    entity_id: str | None = None,
+   171→    meta: dict[str, Any] | None = None,
+   172→) -> None:
+   173→    """Append an audit event for an auth/membership action. Caller commits."""
+   174→    db.add(
+   175→        AuditEvent(
+   176→            actor_id=actor_id,
+   177→            organization_id=organization_id,
+   178→            entity_type=entity_type,
+   179→            entity_id=entity_id,
+   180→            action=action,
+   181→            after_snapshot=meta,
+   182→        )
+   183→    )
+   184→
+   185→
+   186→# ------------------------------------------------------- credential tokens
+   187→def _issue_credential_token(db: Session, user_id: uuid.UUID, kind: str) -> tuple[str, datetime]:
+   188→    """Create a single-use CredentialToken row; returns (plain_token, expires_at).
+   189→
+   190→    Only the SHA-256 hash is stored; the plaintext is delivered out-of-band
+   191→    by the caller (email in production, dev convenience field in sandboxes).
+   192→    """
+   193→    ttl = (
+   194→        settings.password_reset_ttl_seconds
+   195→        if kind == "password_reset"
+   196→        else settings.email_verification_ttl_seconds
+   197→    )
+   198→    plain, token_hash, expires_at = generate_token(ttl_seconds=ttl)
+   199→    db.add(
+   200→        CredentialToken(user_id=user_id, kind=kind, token_hash=token_hash, expires_at=expires_at)
+   201→    )
+   202→    return plain, expires_at
+   203→
+   204→
+   205→def _issue_token_pair(db: Session, user_id: uuid.UUID, family_id: uuid.UUID | None) -> tuple[str, datetime, str, datetime]:
+   206→    """Issue an access+refresh AuthToken pair; returns (access, access_exp, refresh, refresh_exp)."""
+   207→    access, access_hash, access_expires_at = generate_token()
+   208→    db.add(
+   209→        AuthToken(
+   210→            user_id=user_id,
+   211→            token_hash=access_hash,
+   212→            expires_at=access_expires_at,
+   213→            kind="access",
+   214→            family_id=family_id,
+   215→        )
+   216→    )
+   217→    refresh, refresh_hash, refresh_expires_at = generate_refresh_token()
+   218→    db.add(
+   219→        AuthToken(
+   220→            user_id=user_id,
+   221→            token_hash=refresh_hash,
+   222→            expires_at=refresh_expires_at,
+   223→            kind="refresh",
+   224→            family_id=family_id,
+   225→        )
+   226→    )
+   227→    return access, access_expires_at, refresh, refresh_expires_at
+   228→
+   229→
+   230→def _revoke_family(db: Session, family_id: uuid.UUID | None, now: datetime) -> None:
+   231→    """Revoke every not-yet-revoked token in a refresh rotation family."""
+   232→    if family_id is None:
+   233→        return
+   234→    rows = db.scalars(
+   235→        select(AuthToken).where(
+   236→            AuthToken.family_id == family_id, AuthToken.revoked_at.is_(None)
+   237→        )
+   238→    ).all()
+   239→    for token in rows:
+   240→        token.revoked_at = now
+   241→
+   242→
+   243→def register_user(
+   244→    db: Session, *, email: str, password: str, display_name: str
+   245→) -> tuple[User, Organization, str, datetime, str, datetime]:
+   246→    """Create a user + personal organization and issue an access/refresh pair.
+   247→
+   248→    Returns (user, org, access_token, access_expires_at, refresh_token,
+   249→    refresh_expires_at). When NOT dev_mode an email-verification challenge is
+   250→    created; its plaintext token is never returned to clients.
+   251→    """
+   252→    email_normalized = email.strip().lower()
+   253→    existing = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
+   254→    if existing is not None:
+   255→        raise Conflict("An account with this email already exists.")
+   256→    user = User(
+   257→        email=email_normalized,
+   258→        password_hash=hash_password(password),
+   259→        display_name=display_name.strip() or email_normalized.split("@")[0],
+   260→        email_verified=settings.dev_mode,
+   261→    )
+   262→    db.add(user)
+   263→    org = Organization(name=f"{user.display_name}'s organization")
+   264→    db.add(org)
+   265→    db.flush()
+   266→    db.add(Membership(organization_id=org.id, user_id=user.id, role_code="owner", status="active"))
+   267→    db.flush()
+   268→    family_id = uuid.uuid4()
+   269→    access, access_expires_at, refresh, refresh_expires_at = _issue_token_pair(
+   270→        db, user.id, family_id
+   271→    )
+   272→    if not settings.dev_mode:
+   273→        # Unverified deployments: create the verification challenge. The plain
+   274→        # token goes out-of-band (email); it is NEVER returned to clients.
+   275→        _issue_credential_token(db, user.id, "email_verification")
+   276→    record_auth_audit(
+   277→        db,
+   278→        actor_id=user.id,
+   279→        organization_id=org.id,
+   280→        action="auth.register",
+   281→        entity_id=str(user.id),
+   282→        meta={"email": user.email, "email_verified": user.email_verified},
+   283→    )
+   284→    db.commit()
+   285→    return user, org, access, access_expires_at, refresh, refresh_expires_at
+   286→
+   287→
+   288→def login_user(
+   289→    db: Session, *, email: str, password: str
+   290→) -> tuple[User, str, datetime, str, datetime]:
+   291→    """Authenticate a user; returns (user, access, access_exp, refresh, refresh_exp).
+   292→
+   293→    Hardening: temporary lockout after `auth_max_failed_logins` consecutive
+   294→    failures, email-verification gate, audit trail on every outcome.
+   295→    """
+   296→    email_normalized = email.strip().lower()
+   297→    user = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
+   298→    now = datetime.now(UTC)
+   299→    if user is not None and user.locked_until is not None and user.locked_until > now:
+   300→        retry_after = max(int((user.locked_until - now).total_seconds()), 1)
+   301→        record_auth_audit(
+   302→            db,
+   303→            actor_id=user.id,
+   304→            action="auth.login.locked",
+   305→            entity_id=email_normalized,
+   306→            meta={"retry_after_seconds": retry_after},
+   307→        )
+   308→        db.commit()
+   309→        raise AccountLocked(
+   310→            "Account temporarily locked due to failed sign-in attempts.",
+   311→            retry_after_seconds=retry_after,
+   312→        )
+   313→    if user is None or not verify_password(password, user.password_hash):
+   314→        if user is not None:
+   315→            user.failed_login_count = (user.failed_login_count or 0) + 1
+   316→            if user.failed_login_count >= settings.auth_max_failed_logins:
+   317→                user.locked_until = now + timedelta(seconds=settings.auth_lockout_seconds)
+   318→                user.failed_login_count = 0
+   319→            record_auth_audit(
+   320→                db,
+   321→                actor_id=user.id,
+   322→                action="auth.login.failure",
+   323→                entity_id=email_normalized,
+   324→            )
+   325→        else:
+   326→            # Unknown email: audit with no actor (no account enumeration side
+   327→            # channel — identical client-visible response either way).
+   328→            record_auth_audit(
+   329→                db,
+   330→                actor_id=None,
+   331→                action="auth.login.failure",
+   332→                entity_id=email_normalized,
+   333→            )
+   334→        db.commit()
+   335→        raise Unauthorized("Invalid email or password.")
+   336→    # Correct credentials: reset the lockout counters.
+   337→    user.failed_login_count = 0
+   338→    user.locked_until = None
+   339→    if not user.is_active:
+   340→        db.commit()
+   341→        raise Unauthorized("Account disabled.")
+   342→    if not user.email_verified:
+   343→        record_auth_audit(
+   344→            db,
+   345→            actor_id=user.id,
+   346→            action="auth.login.unverified",
+   347→            entity_id=email_normalized,
+   348→        )
+   349→        db.commit()
+   350→        raise EmailNotVerified("Verify your email before signing in.")
+   351→    family_id = uuid.uuid4()
+   352→    access, access_expires_at, refresh, refresh_expires_at = _issue_token_pair(
+   353→        db, user.id, family_id
+   354→    )
+   355→    first_membership = db.scalar(
+   356→        select(Membership)
+   357→        .where(Membership.user_id == user.id, Membership.status == "active")
+   358→        .order_by(Membership.created_at)
+   359→    )
+   360→    record_auth_audit(
+   361→        db,
+   362→        actor_id=user.id,
+   363→        organization_id=first_membership.organization_id if first_membership else None,
+   364→        action="auth.login.success",
+   365→        entity_id=str(user.id),
+   366→    )
+   367→    db.commit()
+   368→    return user, access, access_expires_at, refresh, refresh_expires_at
+   369→
+   370→
+   371→def rotate_refresh_token(
+   372→    db: Session, refresh_plain: str
+   373→) -> tuple[User, str, datetime, str, datetime]:
+   374→    """Rotate a refresh token: returns (user, access, access_exp, refresh, refresh_exp).
+   375→
+   376→    Reuse of an already-revoked refresh token is treated as a compromised
+   377→    session family: every token in the family is revoked and the request is
+   378→    rejected. Refresh tokens never authenticate API calls (kind=access filter
+   379→    in get_principal) — they only mint new token pairs here.
+   380→    """
+   381→    token_hash = hash_token(refresh_plain)
+   382→    token = db.scalar(
+   383→        select(AuthToken).where(
+   384→            AuthToken.token_hash == token_hash, AuthToken.kind == "refresh"
+   385→        )
+   386→    )
+   387→    if token is None:
+   388→        raise Unauthorized("Invalid refresh token.")
+   389→    user = db.get(User, token.user_id)
+   390→    if user is None:  # pragma: no cover — FK guarantees the user row
+   391→        raise Unauthorized("Invalid refresh token.")
+   392→    now = datetime.now(UTC)
+   393→    if token.revoked_at is not None:
+   394→        # REUSE DETECTED: a rotated (revoked) token came back. Revoke the
+   395→        # whole family — all tokens minted from this login/rotation chain.
+   396→        _revoke_family(db, token.family_id, now)
+   397→        record_auth_audit(
+   398→            db,
+   399→            actor_id=user.id,
+   400→            action="auth.token.reuse_detected",
+   401→            entity_id=str(token.family_id) if token.family_id else None,
+   402→        )
+   403→        db.commit()
+   404→        raise Unauthorized("Refresh token reuse detected — session family revoked.")
+   405→    if token.expires_at < now:
+   406→        token.revoked_at = now
+   407→        db.commit()
+   408→        raise Unauthorized("Refresh token expired.")
+   409→    family_id = token.family_id or uuid.uuid4()
+   410→    token.revoked_at = now
+   411→    access, access_expires_at, refresh, refresh_expires_at = _issue_token_pair(
+   412→        db, user.id, family_id
+   413→    )
+   414→    record_auth_audit(
+   415→        db,
+   416→        actor_id=user.id,
+   417→        action="auth.token.refresh",
+   418→        entity_id=str(family_id),
+   419→    )
+   420→    db.commit()
+   421→    return user, access, access_expires_at, refresh, refresh_expires_at
+   422→
+   423→
+   424→# ------------------------------------------------------- password reset
+   425→def request_password_reset(db: Session, email: str) -> str | None:
+   426→    """Create a password-reset challenge; returns the plaintext token or None.
+   427→
+   428→    Unknown emails return None WITHOUT creating a token or audit row — no
+   429→    account enumeration side channel. The audit trail only records that a
+   430→    reset was requested for an existing account.
+   431→    """
+   432→    email_normalized = email.strip().lower()
+   433→    user = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
+   434→    if user is None:
+   435→        return None
+   436→    plain, _expires_at = _issue_credential_token(db, user.id, "password_reset")
+   437→    record_auth_audit(
+   438→        db,
+   439→        actor_id=user.id,
+   440→        action="auth.password.reset_requested",
+   441→        entity_id=email_normalized,
+   442→    )
+   443→    db.commit()
+   444→    return plain
+   445→
+   446→
+   447→def confirm_password_reset(db: Session, token_plain: str, new_password: str) -> User:
+   448→    """Consume a password-reset challenge, set the new password and revoke
+   449→    every live session token of the user."""
+   450→    token_hash = hash_token(token_plain)
+   451→    row = db.scalar(
+   452→        select(CredentialToken).where(
+   453→            CredentialToken.token_hash == token_hash,
+   454→            CredentialToken.kind == "password_reset",
+   455→        )
+   456→    )
+   457→    now = datetime.now(UTC)
+   458→    if row is None or row.used_at is not None or row.expires_at < now:
+   459→        raise ValidationFailed("Invalid or expired reset token.")
+   460→    row.used_at = now
+   461→    user = db.get(User, row.user_id)
+   462→    user.password_hash = hash_password(new_password)
+   463→    live_tokens = db.scalars(
+   464→        select(AuthToken).where(
+   465→            AuthToken.user_id == user.id, AuthToken.revoked_at.is_(None)
+   466→        )
+   467→    ).all()
+   468→    for token in live_tokens:
+   469→        token.revoked_at = now
+   470→    record_auth_audit(
+   471→        db,
+   472→        actor_id=user.id,
+   473→        action="auth.password.reset_confirmed",
+   474→        entity_id=str(user.id),
+   475→    )
+   476→    db.commit()
+   477→    return user
+   478→
+   479→
+   480→# ---------------------------------------------------- email verification
+   481→def request_email_verification(db: Session, email: str) -> str | None:
+   482→    """Create an email-verification challenge; returns the plaintext token.
+   483→
+   484→    Unknown emails and already-verified accounts return None (no new
+   485→    challenge, no enumeration side channel).
+   486→    """
+   487→    email_normalized = email.strip().lower()
+   488→    user = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
+   489→    if user is None or user.email_verified:
+   490→        return None
+   491→    plain, _expires_at = _issue_credential_token(db, user.id, "email_verification")
+   492→    record_auth_audit(
+   493→        db,
+   494→        actor_id=user.id,
+   495→        action="auth.email.verification_requested",
+   496→        entity_id=email_normalized,
+   497→    )
+   498→    db.commit()
+   499→    return plain
+   500→
+   501→
+   502→def confirm_email_verification(db: Session, token_plain: str) -> User:
+   503→    """Consume an email-verification challenge and mark the account verified."""
+   504→    token_hash = hash_token(token_plain)
+   505→    row = db.scalar(
+   506→        select(CredentialToken).where(
+   507→            CredentialToken.token_hash == token_hash,
+   508→            CredentialToken.kind == "email_verification",
+   509→        )
+   510→    )
+   511→    now = datetime.now(UTC)
+   512→    if row is None or row.used_at is not None or row.expires_at < now:
+   513→        raise ValidationFailed("Invalid or expired verification token.")
+   514→    row.used_at = now
+   515→    user = db.get(User, row.user_id)
+   516→    user.email_verified = True
+   517→    record_auth_audit(
+   518→        db,
+   519→        actor_id=user.id,
+   520→        action="auth.email.verified",
+   521→        entity_id=str(user.id),
+   522→    )
+   523→    db.commit()
+   524→    return user
+   525→
+   526→
+   527→def revoke_token(db: Session, principal: Principal, token_plain: str) -> None:
+   528→    token_hash = hash_token(token_plain)
+   529→    row = db.scalar(select(AuthToken).where(AuthToken.token_hash == token_hash))
+   530→    if row is not None:
+   531→        row.revoked_at = datetime.now(UTC)
+   532→        db.commit()
+   533→
+   534→
+   535→# ------------------------------------------------- membership management
+   536→def require_farm_role(db: Session, principal: Principal, farm: Farm, minimum: str) -> Membership:
+   537→    """Role gate scoped to a farm's organization (farm is already tenant-resolved)."""
+   538→    return principal.require_org_role(farm.organization_id, minimum)
+   539→
+   540→
+   541→def list_members(db: Session, principal: Principal, farm: Farm) -> list[dict[str, Any]]:
+   542→    """All memberships of the farm's organization (manager+), with status."""
+   543→    require_farm_role(db, principal, farm, "manager")
+   544→    rows = db.execute(
+   545→        select(Membership, User)
+   546→        .join(User, Membership.user_id == User.id)
+   547→        .where(Membership.organization_id == farm.organization_id)
+   548→        .order_by(Membership.created_at)
+   549→    ).all()
+   550→    return [
+   551→        {
+   552→            "id": str(m.id),
+   553→            "user_id": str(u.id),
+   554→            "email": u.email,
+   555→            "display_name": u.display_name,
+   556→            "role_code": m.role_code,
+   557→            "status": m.status,
+   558→            "created_at": m.created_at.isoformat(),
+   559→        }
+   560→        for m, u in rows
+   561→    ]
+   562→
+   563→
+   564→def _count_other_active_owners(
+   565→    db: Session, organization_id: uuid.UUID, excluded_membership_id: uuid.UUID
+   566→) -> int:
+   567→    return int(
+   568→        db.scalar(
+   569→            select(func.count())
+   570→            .select_from(Membership)
+   571→            .where(
+   572→                Membership.organization_id == organization_id,
+   573→                Membership.role_code == "owner",
+   574→                Membership.status == "active",
+   575→                Membership.id != excluded_membership_id,
+   576→            )
+   577→        )
+   578→        or 0
+   579→    )
+   580→
+   581→
+   582→def add_member(
+   583→    db: Session, principal: Principal, farm: Farm, *, email: str, role_code: str
+   584→) -> Membership:
+   585→    """Add an existing CropTwist account to the farm's organization (owner-only)."""
+   586→    require_farm_role(db, principal, farm, "owner")
+   587→    email_normalized = email.strip().lower()
+   588→    user = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
+   589→    if user is None:
+   590→        raise NotFound("No CropTwist account exists with this email.")
+   591→    existing = db.scalar(
+   592→        select(Membership).where(
+   593→            Membership.organization_id == farm.organization_id,
+   594→            Membership.user_id == user.id,
+   595→        )
+   596→    )
+   597→    if existing is not None:
+   598→        raise Conflict("This user is already a member of this organization.")
+   599→    if role_code not in ROLE_ORDER:
+   600→        raise ValidationFailed(
+   601→            f"Unknown role '{role_code}'.",
+   602→            details=[{"field": "role_code", "reason": role_code}],
+   603→        )
+   604→    membership = Membership(
+   605→        organization_id=farm.organization_id,
+   606→        user_id=user.id,
+   607→        role_code=role_code,
+   608→        status="active",
+   609→    )
+   610→    db.add(membership)
+   611→    db.flush()
+   612→    record_auth_audit(
+   613→        db,
+   614→        actor_id=principal.id,
+   615→        organization_id=farm.organization_id,
+   616→        action="membership.create",
+   617→        entity_type="membership",
+   618→        entity_id=str(membership.id),
+   619→        meta={"user_id": str(user.id), "email": user.email, "role_code": role_code},
+   620→    )
+   621→    db.commit()
+   622→    return membership
+   623→
+   624→
+   625→def update_member_role(
+   626→    db: Session, principal: Principal, farm: Farm, membership_id: uuid.UUID, new_role: str
+   627→) -> Membership:
+   628→    """Change a member's role (owner-only) with a last-owner guard."""
+   629→    require_farm_role(db, principal, farm, "owner")
+   630→    if new_role not in ROLE_ORDER:
+   631→        raise ValidationFailed(
+   632→            f"Unknown role '{new_role}'.",
+   633→            details=[{"field": "role_code", "reason": new_role}],
+   634→        )
+   635→    membership = db.scalar(
+   636→        select(Membership).where(
+   637→            Membership.id == membership_id,
+   638→            Membership.organization_id == farm.organization_id,
+   639→        )
+   640→    )
+   641→    if membership is None:
+   642→        raise NotFound("Membership not found.")
+   643→    # LAST-OWNER GUARD: the organization must always keep at least one
+   644→    # active owner, otherwise no one could manage members again.
+   645→    if membership.role_code == "owner" and new_role != "owner":
+   646→        if _count_other_active_owners(db, farm.organization_id, membership.id) < 1:
+   647→            raise Conflict(
+   648→                "Cannot demote the last owner of this organization — promote another "
+   649→                "member to owner first."
+   650→            )
+   651→    membership.role_code = new_role
+   652→    record_auth_audit(
+   653→        db,
+   654→        actor_id=principal.id,
+   655→        organization_id=farm.organization_id,
+   656→        action="membership.update",
+   657→        entity_type="membership",
+   658→        entity_id=str(membership.id),
+   659→        meta={"user_id": str(membership.user_id), "new_role": new_role},
+   660→    )
+   661→    db.commit()
+   662→    return membership
+   663→
+   664→
+   665→def remove_member(db: Session, principal: Principal, farm: Farm, membership_id: uuid.UUID) -> None:
+   666→    """Remove a member from the farm's organization (owner-only, last-owner guard)."""
+   667→    require_farm_role(db, principal, farm, "owner")
+   668→    membership = db.scalar(
+   669→        select(Membership).where(
+   670→            Membership.id == membership_id,
+   671→            Membership.organization_id == farm.organization_id,
+   672→        )
+   673→    )
+   674→    if membership is None:
+   675→        raise NotFound("Membership not found.")
+   676→    if membership.role_code == "owner":
+   677→        if _count_other_active_owners(db, farm.organization_id, membership.id) < 1:
+   678→            raise Conflict(
+   679→                "Cannot remove the last owner of this organization — promote another "
+   680→                "member to owner first."
+   681→            )
+   682→    audit_meta = {"user_id": str(membership.user_id), "role_code": membership.role_code}
+   683→    db.delete(membership)
+   684→    record_auth_audit(
+   685→        db,
+   686→        actor_id=principal.id,
+   687→        organization_id=farm.organization_id,
+   688→        action="membership.delete",
+   689→        entity_type="membership",
+   690→        entity_id=str(membership_id),
+   691→        meta=audit_meta,
+   692→    )
+   693→    db.commit()
+   694→
+   695→
+   696→# ------------------------------------------------- tenant authorization
+   697→def get_farm_for_principal(db: Session, principal: Principal, farm_id: uuid.UUID) -> Farm:
+   698→    farm = db.get(Farm, farm_id)
+   699→    if farm is None:
+   700→        raise NotFound("Farm not found.")
+   701→    principal.require_member_of(farm.organization_id)
+   702→    return farm
+   703→
+   704→
+   705→def get_field_for_principal(db: Session, principal: Principal, field_id: uuid.UUID) -> Any:
+   706→    from app.db.models import Field
+   707→
+   708→    field = db.get(Field, field_id)
+   709→    if field is None:
+   710→        raise NotFound("Field not found.")
+   711→    farm = db.get(Farm, field.farm_id)
+   712→    if farm is None:  # pragma: no cover — FK guarantees farm
+   713→        raise NotFound("Field has no farm.")
+   714→    principal.require_member_of(farm.organization_id)
+   715→    return field
+   716→

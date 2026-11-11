@@ -3260,6 +3260,13 @@ export type RecommendationDomain = 'climate' | 'water' | 'soil' | 'rotation' | '
 export interface AiEngineInfo {
   mode: string
   model: string | null
+  /** A6: structured | text (advisor responses). */
+  response_format?: string
+  rejected_citations?: string[]
+  numeric_validation?: { unsupported_count: number; supported_count: number }
+  limitations?: string[]
+  uncertainty_notes?: string[]
+  follow_up_suggestions?: string[]
 }
 
 export interface RecommendationEvidence {
@@ -3268,6 +3275,25 @@ export interface RecommendationEvidence {
   label: string
   detail: string | null
 }
+
+/** A5: honest confidence semantics — the value's basis kind. */
+export type ConfidenceKind = 'deterministic_rule' | 'evidence_quality'
+
+/** A5: component-wise evidence-quality report attached to recommendations. */
+export interface EvidenceQuality {
+  score: number | null
+  components: Record<string, { value: number | null; basis: string }>
+  summary: string
+}
+
+/** A12: feedback lifecycle states (latest transition per recommendation). */
+export type FeedbackState =
+  | 'pending'
+  | 'accepted'
+  | 'dismissed'
+  | 'implemented'
+  | 'not_applicable'
+  | 'deferred'
 
 export interface Recommendation {
   id: string
@@ -3279,11 +3305,18 @@ export interface Recommendation {
   evidence: RecommendationEvidence[]
   actions: string[]
   confidence: number | null
+  confidence_kind: ConfidenceKind | null
   confidence_basis: string | null
+  evidence_quality: EvidenceQuality | null
+  generator: string | null
   status: string
   generated_by: string
   created_at: string
   narrative: string | null
+  /** A4: stable material fingerprint (SHA-256 hex) — informational. */
+  fingerprint?: string | null
+  /** A12: latest feedback state (None = no feedback recorded yet). */
+  feedback_state: FeedbackState | null
 }
 
 export interface RecommendationsResponse {
@@ -3296,6 +3329,8 @@ export interface RecommendationsResponse {
     by_severity: Partial<Record<RecommendationSeverity, number>>
   }
   recommendations: Recommendation[]
+  /** A3: narrative cache outcome of the last refresh (hit | miss | null). */
+  narrative_cache?: 'hit' | 'miss' | null
 }
 
 export interface FieldInsightItem {
@@ -3308,6 +3343,16 @@ export interface FieldInsightItem {
   z: number | null
   direction: 'above' | 'below' | 'flat' | null
   severity: RecommendationSeverity
+  /** A1: same-month baseline provenance (monthly findings only). */
+  baseline?: {
+    calendar_month: number
+    window_years: number[]
+    n_years: number
+    mean: number
+    sd: number
+    class: string
+    includes_evaluated_period: boolean
+  } | null
 }
 
 export interface FieldInsightsResponse {
@@ -3326,6 +3371,8 @@ export interface AdvisorEvidence {
 
 export interface AdvisorQueryResponse {
   field_id: string
+  /** A8: stable advisor session id (reuse for multi-turn context). */
+  session_id: string
   question: string
   answer: string
   evidence_used: AdvisorEvidence[]
@@ -3338,11 +3385,39 @@ export interface AdvisorHistoryMessage {
   role: 'user' | 'assistant'
   question: string | null
   answer: string | null
+  session_id: string | null
   created_at: string
 }
 
 export interface AdvisorHistoryResponse {
+  session_id: string | null
   messages: AdvisorHistoryMessage[]
+}
+
+// -------------------------------------------------------------
+// A12: recommendation feedback
+// -------------------------------------------------------------
+
+export interface FeedbackTransitionResponse {
+  id: string
+  recommendation_id: string
+  state: FeedbackState
+  reason: string | null
+  outcome: string | null
+  created_at: string
+}
+
+export interface FeedbackHistoryResponse {
+  recommendation_id: string
+  state: FeedbackState
+  history: Array<{
+    id: string
+    state: FeedbackState
+    reason: string | null
+    outcome: string | null
+    user_id: string
+    created_at: string
+  }>
 }
 
 // The recovered management.tsx references `CoverPlan` without importing it

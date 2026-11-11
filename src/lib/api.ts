@@ -31,6 +31,8 @@ import type {
   FeatureRunCreateInput,
   FeatureRunListResponse,
   FeatureValueListResponse,
+  FeedbackState,
+  FeedbackTransitionResponse,
   Field,
   FieldCreateInput,
   FieldCreateResponse,
@@ -1376,40 +1378,95 @@ export function listTwinValidations(fieldId: string): Promise<TwinValidationList
 }
 
 // =============================================================
-// AI Insights — recommendations, field insights, advisor
+// AI Insights — recommendations, field insights, advisor, feedback
 // =============================================================
 
-/** Stored recommendations for a field. `refresh=true` also regenerates inline. */
-export function getRecommendations(fieldId: string, refresh = false): Promise<RecommendationsResponse> {
+export type AiLocale = 'en' | 'ar'
+
+/** Stored recommendations for a field. `refresh` regenerates inline; `force`
+ * bypasses the narrative cache (A3). `locale` selects the narrative language (A10). */
+export function getRecommendations(
+  fieldId: string,
+  refresh = false,
+  options: { force?: boolean; locale?: AiLocale } = {},
+): Promise<RecommendationsResponse> {
+  const params = new URLSearchParams()
+  if (refresh) params.set('refresh', 'true')
+  if (options.force) params.set('force', 'true')
+  if (options.locale) params.set('locale', options.locale)
+  const query = params.toString()
   return request<RecommendationsResponse>(
-    `/api/v1/fields/${fieldId}/recommendations${refresh ? '?refresh=true' : ''}`,
+    `/api/v1/fields/${fieldId}/recommendations${query ? `?${query}` : ''}`,
   )
 }
 
 /** Regenerate recommendations through the AI pipeline (same shape as GET). */
-export function refreshRecommendations(fieldId: string): Promise<RecommendationsResponse> {
-  return request<RecommendationsResponse>(`/api/v1/fields/${fieldId}/recommendations/refresh`, {
-    method: 'POST',
-    body: {},
-  })
+export function refreshRecommendations(
+  fieldId: string,
+  options: { force?: boolean; locale?: AiLocale } = {},
+): Promise<RecommendationsResponse> {
+  const params = new URLSearchParams()
+  if (options.force) params.set('force', 'true')
+  if (options.locale) params.set('locale', options.locale)
+  const query = params.toString()
+  return request<RecommendationsResponse>(
+    `/api/v1/fields/${fieldId}/recommendations/refresh${query ? `?${query}` : ''}`,
+    {
+      method: 'POST',
+      body: {},
+    },
+  )
 }
 
-/** Anomaly/trend insights plus the short AI field brief. */
-export function getFieldInsights(fieldId: string): Promise<FieldInsightsResponse> {
-  return request<FieldInsightsResponse>(`/api/v1/fields/${fieldId}/insights`)
+/** Anomaly/trend insights plus the short AI field brief (locale-aware). */
+export function getFieldInsights(fieldId: string, locale?: AiLocale): Promise<FieldInsightsResponse> {
+  const query = locale ? `?locale=${locale}` : ''
+  return request<FieldInsightsResponse>(`/api/v1/fields/${fieldId}/insights${query}`)
 }
 
-/** Ask the AI agronomist a question grounded in CropTwist engine outputs. */
-export function queryAdvisor(fieldId: string, question: string): Promise<AdvisorQueryResponse> {
-  return request<AdvisorQueryResponse>(`/api/v1/fields/${fieldId}/advisor/query`, {
-    method: 'POST',
-    body: { question },
-  })
+/** Ask the AI agronomist; pass `sessionId` to continue a conversation (A8). */
+export function queryAdvisor(
+  fieldId: string,
+  question: string,
+  options: { sessionId?: string | null; locale?: AiLocale } = {},
+): Promise<AdvisorQueryResponse> {
+  const params = new URLSearchParams()
+  if (options.locale) params.set('locale', options.locale)
+  const query = params.toString()
+  return request<AdvisorQueryResponse>(
+    `/api/v1/fields/${fieldId}/advisor/query${query ? `?${query}` : ''}`,
+    {
+      method: 'POST',
+      body: { question, session_id: options.sessionId ?? null },
+    },
+  )
 }
 
-/** Recent advisor conversation, oldest first (user/assistant pairs). */
-export function getAdvisorHistory(fieldId: string, limit = 20): Promise<AdvisorHistoryResponse> {
+/** Advisor transcript, oldest first; scoped to a session when given (A8). */
+export function getAdvisorHistory(
+  fieldId: string,
+  limit = 20,
+  sessionId?: string | null,
+): Promise<AdvisorHistoryResponse> {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  if (sessionId) params.set('session_id', sessionId)
   return request<AdvisorHistoryResponse>(
-    `/api/v1/fields/${fieldId}/advisor/history?limit=${limit}`,
+    `/api/v1/fields/${fieldId}/advisor/history?${params.toString()}`,
+  )
+}
+
+/** A12: record one feedback transition (append-only server-side). */
+export function recordRecommendationFeedback(
+  recommendationId: string,
+  state: FeedbackState,
+  reason?: string,
+): Promise<FeedbackTransitionResponse> {
+  return request<FeedbackTransitionResponse>(
+    `/api/v1/recommendations/${recommendationId}/feedback`,
+    {
+      method: 'POST',
+      body: { state, reason: reason || null },
+    },
   )
 }

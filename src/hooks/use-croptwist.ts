@@ -517,6 +517,7 @@ export function useSoilMethods(): UseQueryResult<SoilMethodsResponse> {
 
 // =============================================================
 // Milestone 8 — AI insights: recommendations, field brief, advisor
+// P1: locale-aware (A10), cache-aware (A3), sessions (A8), feedback (A12)
 // =============================================================
 
 import {
@@ -524,21 +525,30 @@ import {
   getFieldInsights,
   getRecommendations,
   queryAdvisor,
+  recordRecommendationFeedback,
   refreshRecommendations,
 } from '@/lib/api'
 import type {
   AdvisorHistoryResponse,
+  FeedbackState,
   FieldInsightsResponse,
   RecommendationsResponse,
 } from '@/lib/types'
+import { useLocale } from 'next-intl'
+import type { AiLocale } from '@/lib/api'
+
+function toAiLocale(locale: string): AiLocale {
+  return locale === 'ar' ? 'ar' : 'en'
+}
 
 /** Stored domain recommendations (rules + LLM narrative). */
 export function useFieldRecommendations(
   fieldId: string | null,
 ): UseQueryResult<RecommendationsResponse> {
+  const locale = useLocale()
   return useQuery({
-    queryKey: ['recommendations', fieldId],
-    queryFn: () => getRecommendations(fieldId as string),
+    queryKey: ['recommendations', fieldId, locale],
+    queryFn: () => getRecommendations(fieldId as string, false, { locale: toAiLocale(locale) }),
     enabled: !!fieldId,
     staleTime: 60_000,
   })
@@ -547,8 +557,13 @@ export function useFieldRecommendations(
 /** Regenerate recommendations through the AI pipeline; syncs insights too. */
 export function useRefreshRecommendations(fieldId: string | null) {
   const queryClient = useQueryClient()
+  const locale = useLocale()
   return useMutation({
-    mutationFn: () => refreshRecommendations(fieldId as string),
+    mutationFn: (options: { force?: boolean } = {}) =>
+      refreshRecommendations(fieldId as string, {
+        force: options.force,
+        locale: toAiLocale(locale),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recommendations'] })
       queryClient.invalidateQueries({ queryKey: ['field-insights'] })
@@ -558,9 +573,10 @@ export function useRefreshRecommendations(fieldId: string | null) {
 
 /** Anomaly/trend insights plus the short AI field brief. */
 export function useFieldInsights(fieldId: string | null): UseQueryResult<FieldInsightsResponse> {
+  const locale = useLocale()
   return useQuery({
-    queryKey: ['field-insights', fieldId],
-    queryFn: () => getFieldInsights(fieldId as string),
+    queryKey: ['field-insights', fieldId, locale],
+    queryFn: () => getFieldInsights(fieldId as string, toAiLocale(locale)),
     enabled: !!fieldId,
     staleTime: 60_000,
   })
@@ -570,10 +586,11 @@ export function useFieldInsights(fieldId: string | null): UseQueryResult<FieldIn
 export function useAdvisorHistory(
   fieldId: string | null,
   limit = 20,
+  sessionId?: string | null,
 ): UseQueryResult<AdvisorHistoryResponse> {
   return useQuery({
-    queryKey: ['advisor-history', fieldId, limit],
-    queryFn: () => getAdvisorHistory(fieldId as string, limit),
+    queryKey: ['advisor-history', fieldId, limit, sessionId ?? null],
+    queryFn: () => getAdvisorHistory(fieldId as string, limit, sessionId),
     enabled: !!fieldId,
   })
 }
@@ -581,10 +598,27 @@ export function useAdvisorHistory(
 /** Ask the AI agronomist; the answer is persisted server-side into history. */
 export function useAdvisorQuery(fieldId: string | null) {
   const queryClient = useQueryClient()
+  const locale = useLocale()
   return useMutation({
-    mutationFn: (question: string) => queryAdvisor(fieldId as string, question),
+    mutationFn: (input: { question: string; sessionId: string | null }) =>
+      queryAdvisor(fieldId as string, input.question, {
+        sessionId: input.sessionId,
+        locale: toAiLocale(locale),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['advisor-history'] })
+    },
+  })
+}
+
+/** A12: record one feedback transition; refreshes the recommendations view. */
+export function useRecommendationFeedback(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { recommendationId: string; state: FeedbackState; reason?: string }) =>
+      recordRecommendationFeedback(input.recommendationId, input.state, input.reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recommendations', fieldId] })
     },
   })
 }

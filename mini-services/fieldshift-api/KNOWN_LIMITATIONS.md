@@ -78,3 +78,42 @@ exists it is named; nothing in this list is simulated elsewhere in the code.
   does (documented in the compose files).
 - Single-database, single-region. No replication, point-in-time recovery
   config, or backup automation ships with the repository.
+
+## P1 AI Intelligence, Performance & Trust (known limits)
+
+- **Narrative locale is fixed at refresh time.** The LLM narrative is a
+  persisted artifact generated for the locale requested by THAT refresh
+  (`?locale=ar|en`); rows keep it until the next refresh. Switching the UI
+  locale does not retroactively translate existing narratives — press
+  "Regenerate" (or refresh with the new locale) to rewrite them. Rules-layer
+  text (titles/summaries/rationales) stays canonical English by design;
+  localization happens through narratives + UI labels.
+- **Evidence-quality components are heuristic, not calibrated.** A5 computes
+  completeness/recency/coverage/source-reliability/data-gap components with
+  documented bands; spatial resolution and cross-source agreement are
+  declared `null` until such metadata reaches the evidence pack. No
+  probability is manufactured anywhere.
+- **Numeric-consistency validation is screening-grade.** It uses explicit
+  tolerances (1.5% relative, ±0.15 z, ±1.0 percentage points) and a small
+  conversion table (mm/cm/m, °C/°F, %↔fraction, kg/ha↔Mg/ha). Derived values
+  the model legitimately computes from evidence (e.g. NIR minus effective
+  rain) can still be flagged; the consequence is one constrained
+  regeneration, then the deterministic fallback — never silent acceptance.
+- **Circuit breaker and narrative cache are in-process.** Same trade-off as
+  the rate limiter and job queue (single-process sandbox); multi-replica
+  deployments swap the store/coordinates behind the same interfaces.
+- **Streaming is intentionally not implemented** — citation validation and
+  numeric consistency need the complete response before rendering
+  (`mini-services/llm-bridge/README.md` documents the decision).
+- **The evaluation framework verifies generator RULES, not upstream engine
+  science.** Golden cases run the real generators over fixed synthetic
+  contexts (62 checks, deterministic, no network). LLM-narrative criteria are
+  heuristic; the optional bridge judge is supplementary and never decisive.
+- **Bridge auth is off by default** (loopback-only dev). Production must set
+  `BRIDGE_TOKEN` on the bridge and the same value in
+  `CROPTWIST_LLM_BRIDGE_TOKEN` on the backend — see
+  `mini-services/llm-bridge/README.md`.
+- **Advisor answers for fields without engine runs** are honest data-gap
+  reports (the model is constrained to the evidence pack, which lists only
+  gaps) — an answer like "I cannot determine X, data is missing" IS the
+  correct behavior, not a failure.

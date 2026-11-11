@@ -76,6 +76,22 @@ class Settings(BaseSettings):
     provider_probe_cache_seconds: int = 120
     max_import_file_bytes: int = 32_000_000  # 32 MB upload guard for CSV/GeoTIFF imports
 
+    # P2.A — Sentinel-2 via STAC (Copernicus Data Space Ecosystem).
+    # Credentials are optional: without them, anonymous STAC search is tried
+    # and protected asset reads fail loudly (never fabricated).
+    sentinel2_stac_base_url: str = "https://catalogue.dataspace.copernicus.eu/stac"
+    sentinel2_timeout_seconds: float = 30.0
+    sentinel2_default_max_cloud_cover: float = 80.0
+    cdse_username: str = ""
+    cdse_password: str = ""
+    cdse_token_url: str = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
+
+    # P2.B — Open-Meteo forecast API (free, no key; separate from archive).
+    open_meteo_forecast_base_url: str = "https://api.open-meteo.com/v1/forecast"
+    open_meteo_forecast_timeout_seconds: float = 20.0
+    open_meteo_forecast_days: int = 16
+    forecast_freshness_max_age_hours: float = 12.0
+
 
 @lru_cache
 def get_settings() -> Settings:

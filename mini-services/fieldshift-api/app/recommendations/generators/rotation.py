@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
+from app.recommendations.evidence_quality import assess_evidence_quality
 from app.recommendations.registry import RecommendationContext, registry
 
 logger = logging.getLogger("croptwist.recommendations.rotation")
@@ -49,7 +50,11 @@ def rotation_data_gap(db, field, ctx: RecommendationContext) -> list[Recommendat
                 "(POST /api/v1/fields/{id}/rotation-runs).",
             ],
             confidence=0.95,
-            confidence_basis="deterministic: absence of a succeeded rotation_run row for the field",
+            confidence_kind="deterministic_rule",
+            confidence_basis=(
+                "deterministic: absence of a succeeded rotation_run row is a "
+                "verifiable fact — trigger certainty, not calibration"
+            ),
         )
     ]
 
@@ -67,6 +72,7 @@ def planting_recommendations(db, field, ctx: RecommendationContext) -> list[Reco
         return []
     run_id = (section.get("source") or {}).get("id")
     strategy_id = strategy.get("id")
+    quality = assess_evidence_quality(ctx, "rotation", expected_sections=("rotation", "climate"))
     out: list[Recommendation] = []
     for entry in section.get("assignment") or []:
         season, crop = entry.get("season"), entry.get("crop")
@@ -107,10 +113,13 @@ def planting_recommendations(db, field, ctx: RecommendationContext) -> list[Reco
                     "Check seed/planting-resource availability before committing.",
                 ],
                 confidence=0.85,
+                confidence_kind="deterministic_rule",
                 confidence_basis=(
-                    "deterministic: CP-SAT strategy on the Pareto front with "
-                    "solver status optimal/feasible"
+                    "deterministic: CP-SAT strategy on the Pareto front with solver "
+                    "status optimal/feasible (rule-trigger certainty, not calibration; "
+                    f"evidence quality separately reported: {quality.get('summary')})"
                 ),
+                evidence_quality=quality,
             )
         )
     return out
@@ -123,6 +132,7 @@ def water_evidence_gap(db, field, ctx: RecommendationContext) -> list[Recommenda
     if count < WATER_UNEVALUATED_ADVISORY_COUNT:
         return []
     run_id = (section.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "rotation", expected_sections=("rotation", "climate"))
     examples = section.get("unevaluated_examples") or []
     example_labels = ", ".join(
         f"{e.get('crop')} ({e.get('season')})" for e in examples[:3] if e.get("crop")
@@ -170,9 +180,12 @@ def water_evidence_gap(db, field, ctx: RecommendationContext) -> list[Recommenda
                 "Re-run the rotation to widen the evaluable candidate pool.",
             ],
             confidence=0.75,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
                 "deterministic: rotation-run not_evaluated ledger lists crop-season "
-                "pairs with unevaluated dimensions"
+                "pairs with unevaluated dimensions (trigger certainty, not calibration; "
+                f"evidence quality separately reported: {quality.get('summary')})"
             ),
+            evidence_quality=quality,
         )
     ]

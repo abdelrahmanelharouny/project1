@@ -12,11 +12,23 @@ Severity ladder — aligned with app/knowledge/contracts.py
 - required     — an engine output shows a binding shortfall/violation that
                  must be addressed (e.g. NIR exceeds the water allocation).
 
-Every Recommendation carries its evidence (engine output ids + values), an
-explicit confidence with a `confidence_basis` string describing the
-DETERMINISTIC basis (rule thresholds + engine versions), and provenance
-(`generated_by`, `model`). The LLM never fills numeric fields — it may only
-add `narrative` text grounded in the given facts.
+Every Recommendation carries its evidence (engine output ids + values), a
+confidence with an explicit `confidence_kind` and a `confidence_basis`
+string describing the DETERMINISTIC basis (rule thresholds + engine
+versions), an optional component-wise `evidence_quality` report, and
+provenance (`generator`, `generated_by`, `model`). The LLM never fills
+numeric fields — it may only add `narrative` text grounded in the given
+facts.
+
+A5 semantics (P1): severity ≠ confidence ≠ evidence quality.
+- `confidence` is populated only when honestly justified:
+    * confidence_kind="deterministic_rule" — the trigger is a fact about
+      stored engine outputs (presence/absence); the constant IS the honest
+      statement "this rule's trigger is certain".
+    * confidence_kind="evidence_quality" — derived from the evidence-quality
+      components (documented heuristic, not calibration); used for threshold
+      screenings where a bare constant would imply statistical calibration.
+- `confidence_basis` never presents a heuristic as a measured probability.
 """
 
 from __future__ import annotations
@@ -62,7 +74,23 @@ class Recommendation(BaseModel):
     evidence: list[dict[str, Any]] = Field(default_factory=list)
     actions: list[str] = Field(default_factory=list)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    confidence_kind: str | None = Field(
+        default=None,
+        description=(
+            "deterministic_rule | evidence_quality — the honest basis kind of "
+            "the confidence value (A5); None when confidence is None"
+        ),
+    )
     confidence_basis: str | None = None
+    evidence_quality: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Component-wise evidence-quality report {score, components, "
+            "summary} from app/recommendations/evidence_quality.py"
+        ),
+    )
+    # Generator identity stamped by the registry (A4 fingerprint material).
+    generator: str | None = None
     status: str = "active"
     generated_by: str = "rules"
     model: str | None = None

@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
+from app.recommendations.evidence_quality import assess_evidence_quality
 from app.recommendations.registry import RecommendationContext, registry
 
 logger = logging.getLogger("croptwist.recommendations.water")
@@ -48,7 +49,11 @@ def water_data_gap(db, field, ctx: RecommendationContext) -> list[Recommendation
                 "(POST /api/v1/fields/{id}/water-plans).",
             ],
             confidence=0.95,
-            confidence_basis="deterministic: absence of a succeeded water_plan row for the field",
+            confidence_kind="deterministic_rule",
+            confidence_basis=(
+                "deterministic: absence of a succeeded water_plan row is a "
+                "verifiable fact — trigger certainty, not calibration"
+            ),
         )
     ]
 
@@ -67,6 +72,7 @@ def allocation_shortfall(db, field, ctx: RecommendationContext) -> list[Recommen
     if volumes is None:
         return []
     deficit_m3, ratio = volumes
+    quality = assess_evidence_quality(ctx, "water", expected_sections=("water",))
     rec_evidence = [evidence_item(
         type="water_plan", id=plan_id, label="water",
         detail=(
@@ -102,10 +108,13 @@ def allocation_shortfall(db, field, ctx: RecommendationContext) -> list[Recommen
                 "Re-run the water plan with the adjusted allocation to confirm coverage.",
             ],
             confidence=0.9,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
-                "deterministic: water-plan allocation check status 'deficit' "
-                "(engine-computed shortfall volume)"
+                "deterministic: water-plan allocation check status 'deficit' is "
+                "the engine's own computed shortfall (rule-trigger certainty; "
+                f"evidence quality separately reported: {quality.get('summary')})"
             ),
+            evidence_quality=quality,
         )
     ]
 
@@ -141,6 +150,7 @@ def stress_window_timing(db, field, ctx: RecommendationContext) -> list[Recommen
     max_dr = first.get("max_dr_mm")
     long_window = isinstance(days, (int, float)) and days >= LONG_STRESS_WINDOW_DAYS
     severity = Severity.RECOMMENDED if long_window else Severity.ADVISORY
+    quality = assess_evidence_quality(ctx, "water", expected_sections=("water",))
     window_label = (
         f"{first.get('start_date')} → {first.get('end_date')}"
         if first.get("start_date") and first.get("end_date")
@@ -178,10 +188,14 @@ def stress_window_timing(db, field, ctx: RecommendationContext) -> list[Recommen
                 f"Schedule irrigation to close the deficit before {first.get('start_date')}.",
                 "Check the plan's month-by-month balance for the cheapest timing.",
             ],
-            confidence=0.8 if not long_window else 0.85,
+            confidence=0.85 if long_window else 0.75,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
                 "deterministic: water-plan daily balance reports Dr > RAW windows "
-                f"(escalated to recommended at >= {LONG_STRESS_WINDOW_DAYS}-day windows)"
+                f"(escalated to recommended at >= {LONG_STRESS_WINDOW_DAYS}-day windows; "
+                "the ladder encodes window duration, not a calibrated probability; "
+                f"evidence quality separately reported: {quality.get('summary')})"
             ),
+            evidence_quality=quality,
         )
     ]

@@ -1,16 +1,20 @@
 'use client'
 
 /**
- * AI Insights (M8) — one tab that ties the AI layer together:
+ * AI Insights (M8 + P1) — one tab that ties the AI layer together:
  *
  * 1. Overview card  — engine mode/model, severity counts, regenerate action.
- * 2. Recommendations — domain-grouped, evidence-linked, expandable rationale.
- * 3. Insights strip — anomaly/trend cards and the short AI field brief.
- * 4. Advisor chat   — grounded Q&A over the stored advisor history.
+ * 2. Recommendations — domain-grouped, evidence-linked, expandable rationale,
+ *    honest confidence/evidence-quality display (A5) and the feedback
+ *    lifecycle actions (A12).
+ * 3. Insights strip — seasonal-aware anomaly/trend cards (A1) and the short
+ *    AI field brief.
+ * 4. Advisor chat   — grounded multi-turn Q&A with stable sessions (A8).
  *
  * Honesty rules carried over from the rest of the workspace: every
  * recommendation shows the evidence it is based on, confidence is stated with
- * its basis, and the advisor answer always sits next to the disclaimer.
+ * its basis kind (never a naked percentage), and the advisor answer always
+ * sits next to the disclaimer.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -21,15 +25,22 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  CircleSlash2,
   FileText,
+  GitBranch,
+  History,
   Info,
   MessageCircleQuestion,
   Minus,
   RefreshCw,
   Send,
   Sparkles,
+  SquareCheck,
+  ThumbsDown,
+  ThumbsUp,
   TrendingDown,
   TrendingUp,
+  Wrench,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
@@ -45,11 +56,14 @@ import {
   useAdvisorQuery,
   useFieldInsights,
   useFieldRecommendations,
+  useRecommendationFeedback,
   useRefreshRecommendations,
 } from '@/hooks/use-croptwist'
 import { useCropTwistUi } from '@/lib/store'
 import type {
   AdvisorEvidence,
+  EvidenceQuality,
+  FeedbackState,
   FieldInsightItem,
   Recommendation,
   RecommendationDomain,
@@ -104,6 +118,39 @@ const DOMAIN_KEY: Record<RecommendationDomain, string> = {
   soil: 'domainSoil',
   rotation: 'domainRotation',
   management: 'domainManagement',
+}
+
+/** A12: feedback lifecycle display metadata (icon + tone). */
+const FEEDBACK_META: Partial<Record<FeedbackState, { icon: LucideIcon; badge: string }>> = {
+  accepted: {
+    icon: ThumbsUp,
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  },
+  implemented: {
+    icon: Wrench,
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  },
+  dismissed: {
+    icon: ThumbsDown,
+    badge: 'border-stone-200 bg-stone-50 text-stone-600',
+  },
+  not_applicable: {
+    icon: CircleSlash2,
+    badge: 'border-stone-200 bg-stone-50 text-stone-600',
+  },
+  deferred: {
+    icon: History,
+    badge: 'border-amber-200 bg-amber-50 text-amber-900',
+  },
+}
+
+const FEEDBACK_KEY: Partial<Record<FeedbackState, string>> = {
+  accepted: 'feedbackAccepted',
+  implemented: 'feedbackImplemented',
+  dismissed: 'feedbackDismissed',
+  not_applicable: 'feedbackNotApplicable',
+  deferred: 'feedbackDeferred',
+  pending: 'feedbackPending',
 }
 
 function severityMeta(severity: string): SeverityMeta {
@@ -219,7 +266,7 @@ function OverviewCard({ fieldId }: { fieldId: string }) {
 
   const handleRefresh = () => {
     setRefreshError(null)
-    refresh.mutate(undefined, {
+    refresh.mutate({}, {
       onError: () => setRefreshError(t('loadErrorTitle')),
     })
   }
@@ -380,7 +427,7 @@ function RecommendationsSection({ fieldId }: { fieldId: string }) {
             <Button
               size="sm"
               className="mt-3 min-h-11 sm:min-h-9"
-              onClick={() => refresh.mutate()}
+              onClick={() => refresh.mutate({})}
               disabled={refresh.isPending}
             >
               <RefreshCw
@@ -422,6 +469,141 @@ function RecommendationsSection({ fieldId }: { fieldId: string }) {
   )
 }
 
+/** A5: evidence-quality summary line — never a naked probability. */
+function EvidenceQualityLine({ quality }: { quality: EvidenceQuality }) {
+  const t = useTranslations('aiinsights')
+  const computable = Object.entries(quality.components ?? {}).filter(
+    ([, c]) => c?.value !== null && c?.value !== undefined,
+  )
+  if (computable.length === 0) return null
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] font-semibold text-stone-500">
+        {t('evidenceQualityLabel')}
+      </span>
+      {computable.slice(0, 4).map(([name, component]) => (
+        <span
+          key={name}
+          title={`${component.basis} (${t('evidenceQualityComponent')}: ${component.value})`}
+          className="inline-flex max-w-44 items-center gap-1 rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-[11px] text-stone-600"
+        >
+          <GitBranch className="h-3 w-3 shrink-0 text-stone-400" aria-hidden />
+          <span className="truncate">{t(`eqComponent_${name}`)}</span>
+        </span>
+      ))}
+      {quality.score !== null && (
+        <span className="text-[11px] text-stone-500">
+          {t('evidenceQualityScore', { score: Math.round(quality.score * 100) })}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** A12: compact feedback row — accept / implement / defer / dismiss / N/A. */
+function FeedbackRow({ rec }: { rec: Recommendation }) {
+  const t = useTranslations('aiinsights')
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+  const feedback = useRecommendationFeedback(selectedField?.id ?? null)
+  const [reasonOpen, setReasonOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState(false)
+
+  const send = (state: FeedbackState, withReason?: string) => {
+    setError(false)
+    feedback.mutate(
+      { recommendationId: rec.id, state, reason: withReason || undefined },
+      { onError: () => setError(true) },
+    )
+    setReasonOpen(false)
+    setReason('')
+  }
+
+  const actions: Array<{ state: FeedbackState; icon: LucideIcon; label: string }> = [
+    { state: 'accepted', icon: ThumbsUp, label: t('feedbackAccept') },
+    { state: 'implemented', icon: Wrench, label: t('feedbackImplement') },
+    { state: 'deferred', icon: History, label: t('feedbackDefer') },
+    { state: 'not_applicable', icon: CircleSlash2, label: t('feedbackNotApplicableAction') },
+    { state: 'dismissed', icon: ThumbsDown, label: t('feedbackDismiss') },
+  ]
+  const current = rec.feedback_state
+  const currentMeta = current ? FEEDBACK_META[current] : null
+  const CurrentIcon = currentMeta?.icon
+
+  return (
+    <div className="mt-2 border-t border-stone-100 pt-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] font-semibold text-stone-500">
+          {t('feedbackLabel')}
+        </span>
+        {actions.map(({ state, icon: Icon, label }) => {
+          const active = current === state
+          return (
+            <button
+              key={state}
+              type="button"
+              onClick={() => (state === 'dismissed' && !reasonOpen ? setReasonOpen(true) : send(state))}
+              aria-pressed={active}
+              aria-label={label}
+              title={label}
+              disabled={feedback.isPending}
+              className={`inline-flex min-h-8 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors sm:min-h-0 ${
+                active
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                  : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
+              } disabled:opacity-50`}
+            >
+              <Icon className="h-3 w-3" aria-hidden />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          )
+        })}
+        {current && CurrentIcon && (
+          <Badge variant="outline" className={`gap-1 font-normal ${currentMeta?.badge ?? ''}`}>
+            <CurrentIcon className="h-3 w-3" aria-hidden />
+            {t(FEEDBACK_KEY[current] ?? 'feedbackPending')}
+          </Badge>
+        )}
+        <button
+          type="button"
+          onClick={() => setReasonOpen((prev) => !prev)}
+          aria-expanded={reasonOpen}
+          className="ms-auto inline-flex min-h-8 items-center text-[11px] font-medium text-emerald-800 hover:text-emerald-900 sm:min-h-0"
+        >
+          {reasonOpen ? t('feedbackReasonHide') : t('feedbackReasonAdd')}
+        </button>
+      </div>
+      {reasonOpen && (
+        <div className="mt-1.5 flex items-end gap-2">
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder={t('feedbackReasonPlaceholder')}
+            rows={1}
+            aria-label={t('feedbackReasonAdd')}
+            className="min-h-9 flex-1 resize-none text-xs"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-9"
+            onClick={() => send('dismissed', reason)}
+            disabled={feedback.isPending}
+          >
+            {t('feedbackSubmit')}
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-1 flex items-center gap-1 text-[11px] text-red-800">
+          <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+          {t('feedbackError')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function RecommendationCard({ rec }: { rec: Recommendation }) {
   const t = useTranslations('aiinsights')
   const [open, setOpen] = useState(false)
@@ -429,6 +611,7 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
   const SeverityIcon = meta.icon
   const evidence: RecommendationEvidence[] = Array.isArray(rec.evidence) ? rec.evidence : []
   const actions = Array.isArray(rec.actions) ? rec.actions : []
+  const isEvidenceQuality = rec.confidence_kind === 'evidence_quality'
 
   return (
     <article className="rounded-lg border border-stone-200 bg-white p-3">
@@ -487,7 +670,7 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
         </div>
       )}
 
-      {(evidence.length > 0 || rec.confidence !== null) && (
+      {(evidence.length > 0 || rec.confidence !== null || rec.evidence_quality) && (
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-stone-100 pt-2">
           {evidence.length > 0 && (
             <div className="flex min-w-0 flex-wrap items-center gap-1">
@@ -506,12 +689,13 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
               ))}
             </div>
           )}
-          {rec.confidence !== null && rec.confidence !== undefined && (
+          {rec.confidence !== null && rec.confidence !== undefined && !isEvidenceQuality && (
             <span className="text-[11px] text-stone-500">
               {t('confidence')}: {Math.round(rec.confidence * 100)}%
               {rec.confidence_basis ? <span> · {rec.confidence_basis}</span> : null}
             </span>
           )}
+          {rec.evidence_quality && <EvidenceQualityLine quality={rec.evidence_quality} />}
           {rec.status && rec.status !== 'active' && (
             <Badge variant="outline" className="font-normal text-stone-500">
               {rec.status}
@@ -519,6 +703,9 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
           )}
         </div>
       )}
+
+      {/* A12: feedback lifecycle (active recs only — history stays readable). */}
+      {rec.status === 'active' && <FeedbackRow rec={rec} />}
     </article>
   )
 }
@@ -542,6 +729,8 @@ function directionLabelKey(direction: string | null | undefined): string {
 function kindLabelKey(kind: string): string {
   if (kind === 'anomaly') return 'kindAnomaly'
   if (kind === 'trend') return 'kindTrend'
+  if (kind === 'seasonal_variation') return 'kindSeasonal'
+  if (kind === 'insufficient_baseline') return 'kindInsufficient'
   return kind
 }
 
@@ -642,7 +831,7 @@ function InsightsStrip({ fieldId }: { fieldId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// d) Advisor chat — grounded Q&A over stored history
+// d) Advisor chat — grounded multi-turn Q&A with stable sessions (A8)
 // ---------------------------------------------------------------------------
 
 interface ChatMessage {
@@ -657,7 +846,8 @@ function AdvisorChat({ fieldId }: { fieldId: string }) {
   const t = useTranslations('aiinsights')
   const locale = useLocale()
   const queryClient = useQueryClient()
-  const history = useAdvisorHistory(fieldId)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const history = useAdvisorHistory(fieldId, 20, sessionId)
   const ask = useAdvisorQuery(fieldId)
   const [draft, setDraft] = useState('')
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([])
@@ -688,35 +878,48 @@ function AdvisorChat({ fieldId }: { fieldId: string }) {
       created_at: new Date().toISOString(),
     }
     setOptimistic([userMessage])
-    ask.mutate(question, {
-      onSuccess: async (response) => {
-        setLastDisclaimer(response.disclaimer ?? null)
-        setOptimistic([
-          userMessage,
-          {
-            role: 'assistant',
-            question: null,
-            answer: response.answer,
-            created_at: response.created_at || new Date().toISOString(),
-            evidence: Array.isArray(response.evidence_used) ? response.evidence_used : [],
-          },
-        ])
-        // The hook already invalidated the history; wait for the refetch to
-        // land, then let the persisted messages replace the optimistic ones.
-        try {
-          await queryClient.invalidateQueries({ queryKey: ['advisor-history'] })
-        } catch {
-          // Refetch failed — keep the optimistic answer visible.
-          return
-        }
-        setOptimistic([])
+    ask.mutate(
+      { question, sessionId },
+      {
+        onSuccess: async (response) => {
+          setLastDisclaimer(response.disclaimer ?? null)
+          // The server issues/reuses the stable session id (A8).
+          if (response.session_id) setSessionId(response.session_id)
+          setOptimistic([
+            userMessage,
+            {
+              role: 'assistant',
+              question: null,
+              answer: response.answer,
+              created_at: response.created_at || new Date().toISOString(),
+              evidence: Array.isArray(response.evidence_used) ? response.evidence_used : [],
+            },
+          ])
+          // The hook already invalidated the history; wait for the refetch to
+          // land, then let the persisted messages replace the optimistic ones.
+          try {
+            await queryClient.invalidateQueries({ queryKey: ['advisor-history'] })
+          } catch {
+            // Refetch failed — keep the optimistic answer visible.
+            return
+          }
+          setOptimistic([])
+        },
+        onError: () => {
+          setOptimistic([])
+          setDraft(question) // never lose the farmer's question
+          setError(true)
+        },
       },
-      onError: () => {
-        setOptimistic([])
-        setDraft(question) // never lose the farmer's question
-        setError(true)
-      },
-    })
+    )
+  }
+
+  const startNewConversation = () => {
+    setSessionId(null)
+    setOptimistic([])
+    setLastDisclaimer(null)
+    setError(false)
+    setDraft('')
   }
 
   return (
@@ -803,9 +1006,23 @@ function AdvisorChat({ fieldId }: { fieldId: string }) {
           </Button>
         </div>
 
-        <p className="text-[11px] leading-relaxed text-stone-500">
-          {lastDisclaimer ?? t('disclaimer')}
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] leading-relaxed text-stone-500">
+            {lastDisclaimer ?? t('disclaimer')}
+          </p>
+          {sessionId && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={startNewConversation}
+              disabled={ask.isPending}
+              className="min-h-8 shrink-0 text-[11px] text-stone-600"
+            >
+              <SquareCheck className="me-1 h-3 w-3" aria-hidden />
+              {t('advisorNewConversation')}
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   )

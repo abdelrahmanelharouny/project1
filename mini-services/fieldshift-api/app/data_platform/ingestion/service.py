@@ -34,6 +34,61 @@ from app.db.models import (
 logger = logging.getLogger("croptwist.ingestion")
 
 
+def _record_satellite_scenes(db: Session, job: IngestionJob, field: Field, result) -> int:
+    """Record scene-level provenance for satellite providers (P2.A).
+
+    Index VALUES go through the normal observation path; this only captures
+    the scene dimension (id, acquisition time, cloud cover, resolution, asset
+    refs) that many observations share. Idempotent per
+    (field, provider, scene_id); scenes referenced by failed/missing rows are
+    still recorded — the scene existed even if the index retrieval failed.
+    """
+    from sqlalchemy import select as _select
+
+    from app.db.models_p2 import SatelliteScene
+
+    scenes: dict[tuple[str, str], dict] = {}
+    for obs in result.observations:
+        meta = obs.metadata or {}
+        scene_id = meta.get("scene_id")
+        if not scene_id:
+            continue
+        key = (job.provider_code, str(scene_id))
+        if key in scenes:
+            continue
+        scenes[key] = {
+            "scene_id": str(scene_id)[:255],
+            "acquired_at": obs.observed_at,
+            "cloud_cover_pct": meta.get("cloud_cover_pct"),
+            "spatial_resolution_m": meta.get("spatial_resolution_m") or obs.spatial_resolution_m,
+            "band_mapping": meta.get("band_mapping"),
+            "asset_refs": meta.get("asset_refs"),
+            "coverage_fraction": (meta.get("zonal") or {}).get("coverage_fraction"),
+            "is_synthetic": bool(obs.is_synthetic),
+            "processing_version": obs.processing_version,
+            "metadata_json": {
+                "product_code": result.provenance.product_code,
+                "platform": meta.get("platform"),
+                "processing_baseline": meta.get("processing_baseline"),
+                "provider_code": job.provider_code,
+            },
+        }
+    recorded = 0
+    for key, payload in scenes.items():
+        exists = db.scalar(
+            _select(SatelliteScene.id).where(
+                SatelliteScene.field_id == field.id,
+                SatelliteScene.provider_code == job.provider_code,
+                SatelliteScene.scene_id == payload["scene_id"],
+            )
+        )
+        if exists is not None:
+            continue
+        db.add(SatelliteScene(field_id=field.id, product_code=payload["metadata_json"].get("product_code") or "", **payload))
+        recorded += 1
+    return recorded
+
+
 def _product_for_provider(
     db: Session,
     provider_code: str,
@@ -341,6 +396,17 @@ def _persist_result(db: Session, job: IngestionJob, *, field: Field, result) -> 
         job.records_rejected = rejected
         job.warnings = warnings[:100]
         job.completed_at = datetime.now(UTC)
+        try:
+            scenes_recorded = _record_satellite_scenes(db, job, field, result)
+            db.commit()
+            if scenes_recorded:
+                logger.info(
+                    "satellite scenes recorded",
+                    extra={"job_id": str(job.id), "scenes": scenes_recorded},
+                )
+        except Exception:  # noqa: BLE001 — scene provenance must never fail the job
+            db.rollback()
+            logger.exception("satellite scene recording failed", extra={"job_id": str(job.id)})
         db.commit()
     except Exception as exc:
         db.rollback()

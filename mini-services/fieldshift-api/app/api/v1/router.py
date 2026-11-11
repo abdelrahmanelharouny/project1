@@ -4,9 +4,12 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     auth,
+    climate,
     data_platform,
     decision,
     digital_twin,
+    evidence_gaps,
+    failure_lab,
     farms,
     features,
     field_states,
@@ -16,6 +19,7 @@ from app.api.v1 import (
     knowledge,
     management,
     members,
+    portfolio,
     recommendations,
     robust_rotation,
     rotation,
@@ -23,6 +27,8 @@ from app.api.v1 import (
     scenarios,
     sensitivity,
     soil,
+    soil_memory,
+    vegetation,
     water,
 )
 
@@ -51,3 +57,12 @@ api_router.include_router(robust_rotation.router)
 api_router.include_router(decision.router)
 api_router.include_router(digital_twin.router)
 api_router.include_router(recommendations.router)
+# P2 intelligence routers (vegetation, climate, soil memory, failure lab,
+# evidence gaps, portfolio). Registered before data_platform-independent;
+# all field-scoped paths are literal and non-conflicting.
+api_router.include_router(vegetation.router)
+api_router.include_router(climate.router)
+api_router.include_router(soil_memory.router)
+api_router.include_router(failure_lab.router)
+api_router.include_router(evidence_gaps.router)
+api_router.include_router(portfolio.router)

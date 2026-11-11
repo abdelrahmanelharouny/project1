@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-DATA_DICTIONARY_VERSION = "2026.11.0-slice2"
+DATA_DICTIONARY_VERSION = "2026.12.0-p2"
 
 
 class VariableDefinition(BaseModel):
@@ -129,6 +129,54 @@ VARIABLE_CATALOG: dict[str, VariableDefinition] = {
             typical_time_support="instant",
             description="Predicted fine-earth bulk density for the 0-5 cm depth from SoilGrids (static snapshot).",
             evidence_class_hint="global_soil_prediction",
+        ),
+        # --- Vegetation indices from satellite imagery (P2.A) ---
+        VariableDefinition(
+            code="ndvi",
+            name="Normalized Difference Vegetation Index",
+            unit="index",
+            typical_time_support="instant",
+            description=(
+                "NDVI = (NIR-Red)/(NIR+Red) per satellite scene, field-masked. "
+                "Observed vegetation greenness proxy — never a disease or "
+                "yield measure on its own."
+            ),
+            evidence_class_hint="satellite_derived_estimate",
+        ),
+        VariableDefinition(
+            code="evi",
+            name="Enhanced Vegetation Index",
+            unit="index",
+            typical_time_support="instant",
+            description=(
+                "EVI = 2.5*(NIR-Red)/(NIR+6*Red-7.5*Blue+1) with documented "
+                "MODIS/Landsat coefficients; needs a blue band."
+            ),
+            evidence_class_hint="satellite_derived_estimate",
+        ),
+        VariableDefinition(
+            code="savi",
+            name="Soil-Adjusted Vegetation Index",
+            unit="index",
+            typical_time_support="instant",
+            description="SAVI with L=0.5, reducing soil-background effects at low biomass.",
+            evidence_class_hint="satellite_derived_estimate",
+        ),
+        VariableDefinition(
+            code="ndmi",
+            name="Normalized Difference Moisture Index",
+            unit="index",
+            typical_time_support="instant",
+            description="NDMI = (NIR-SWIR1)/(NIR+SWIR1); canopy moisture proxy (20 m SWIR band).",
+            evidence_class_hint="satellite_derived_estimate",
+        ),
+        VariableDefinition(
+            code="ndwi",
+            name="Normalized Difference Water Index (McFeeters)",
+            unit="index",
+            typical_time_support="instant",
+            description="NDWI = (Green-NIR)/(Green+NIR); open-water/flood detection aid.",
+            evidence_class_hint="satellite_derived_estimate",
         ),
     ]
 }

@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
+from app.recommendations.evidence_quality import assess_evidence_quality
 from app.recommendations.registry import RecommendationContext, registry
 
 logger = logging.getLogger("croptwist.recommendations.management")
@@ -60,9 +61,11 @@ def management_data_gap(db, field, ctx: RecommendationContext) -> list[Recommend
                 "(POST /api/v1/fields/{id}/erosion-assessments).",
             ],
             confidence=0.95,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
                 "deterministic: absence of cover records and succeeded "
-                "erosion_assessment_run rows"
+                "erosion_assessment_run rows is a verifiable fact — trigger "
+                "certainty, not calibration"
             ),
         )
     ]
@@ -76,6 +79,7 @@ def erosion_factors_missing(db, field, ctx: RecommendationContext) -> list[Recom
         return []
     missing = list(erosion.get("missing_factors") or [])
     run_id = (erosion.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "management", expected_sections=("management",))
     labels = ", ".join(_FACTOR_LABELS.get(f, str(f)) for f in missing) or "all factors"
     return [
         Recommendation(
@@ -106,10 +110,13 @@ def erosion_factors_missing(db, field, ctx: RecommendationContext) -> list[Recom
                 "Re-run the erosion assessment once the factors are recorded.",
             ],
             confidence=0.9,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
                 "deterministic: erosion run reports rusle.status 'not_evaluated' "
-                "and names its missing factors"
+                "and names its missing factors (trigger certainty, not calibration; "
+                f"evidence quality separately reported: {quality.get('summary')})"
             ),
+            evidence_quality=quality,
         )
     ]
 
@@ -122,6 +129,7 @@ def erosion_concerns(db, field, ctx: RecommendationContext) -> list[Recommendati
     if not concerns:
         return []
     run_id = (erosion.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "management", expected_sections=("management",))
     return [
         Recommendation(
             domain="management",
@@ -146,9 +154,13 @@ def erosion_concerns(db, field, ctx: RecommendationContext) -> list[Recommendati
                 "Check the conservation alternatives the run proposes for this field.",
             ],
             confidence=0.7,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
-                "deterministic: erosion-run qualitative screening concerns > 0"
+                "deterministic: erosion-run qualitative screening concerns > 0 "
+                "(susceptibility evidence, not a soil-loss probability; "
+                f"evidence quality separately reported: {quality.get('summary')})"
             ),
+            evidence_quality=quality,
         )
     ]
 
@@ -160,6 +172,7 @@ def low_soil_cover(db, field, ctx: RecommendationContext) -> list[Recommendation
     fraction = cover.get("protective_cover_fraction")
     if fraction is None or float(fraction) >= COVER_FRACTION_LOW:
         return []
+    quality = assess_evidence_quality(ctx, "management", expected_sections=("management",))
     bare = cover.get("days_known_bare")
     longest = cover.get("longest_bare_interval_days")
     window = cover.get("window") or {}
@@ -197,9 +210,12 @@ def low_soil_cover(db, field, ctx: RecommendationContext) -> list[Recommendation
                 "Retain residue after harvest instead of removing it.",
             ],
             confidence=0.6,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
-                f"deterministic comparison against a disclosed screening heuristic "
-                f"(protective fraction < {COVER_FRACTION_LOW:g}); no validated local threshold exists"
+                f"disclosed screening heuristic (protective fraction < {COVER_FRACTION_LOW:g}) "
+                "— no validated local threshold exists, so the value states screening "
+                f"strength only, NOT a probability: {quality.get('summary')}"
             ),
+            evidence_quality=quality,
         )
     ]

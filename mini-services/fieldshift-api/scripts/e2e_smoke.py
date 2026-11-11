@@ -183,6 +183,65 @@ def main() -> int:
                   headers=headers, timeout=30)
     check("advisor history 200", r.status_code == 200, f"got {r.status_code}")
 
+    # --- 8. P1 additions ------------------------------------------------------
+    # 8a. A4 fingerprint no-churn: a second refresh must keep the same active
+    # recommendation ids (unchanged evidence -> unchanged fingerprints).
+    r2 = httpx.post(f"{BASE}/fields/{field['id']}/recommendations/refresh",
+                    headers=headers, timeout=300)
+    check("second refresh 200", r2.status_code == 200, f"got {r2.status_code}")
+    payload2 = r2.json() if r2.status_code == 200 else {}
+    items2 = payload2.get("recommendations", [])
+    ids1 = {i.get("id") for i in items}
+    ids2 = {i.get("id") for i in items2}
+    check("A4 no-churn: unchanged refresh keeps active ids",
+          ids1 == ids2, f"removed={len(ids1 - ids2)} added={len(ids2 - ids1)}")
+
+    # 8b. A5 confidence semantics: every rec states its confidence kind.
+    kinds = {i.get("confidence_kind") for i in items2}
+    check("A5 confidence kinds honest",
+          kinds <= {None, "deterministic_rule", "evidence_quality"},
+          str(kinds))
+
+    # 8c. A3 narrative cache outcome present on refresh payloads.
+    check("A3 narrative_cache contract",
+          payload2.get("narrative_cache") in (None, "hit", "miss"),
+          str(payload2.get("narrative_cache")))
+
+    # 8d. A8 advisor session id + reuse.
+    session_id = advisor.get("session_id")
+    check("A8 advisor returns session_id", bool(session_id), str(session_id))
+    if session_id:
+        r = httpx.post(
+            f"{BASE}/fields/{field['id']}/advisor/query",
+            headers=headers,
+            json={"question": "Follow-up question.", "session_id": session_id},
+            timeout=300,
+        )
+        check("A8 session reuse 200", r.status_code == 200, f"got {r.status_code}")
+        check("A8 session id stable", r.json().get("session_id") == session_id,
+              str(r.json().get("session_id")))
+
+    # 8e. A12 feedback lifecycle on the first recommendation.
+    if items2:
+        rec_id = items2[0]["id"]
+        r = httpx.post(f"{BASE}/recommendations/{rec_id}/feedback",
+                       headers=headers, json={"state": "accepted"}, timeout=30)
+        check("A12 feedback accepted 201", r.status_code == 201, f"got {r.status_code}")
+        r = httpx.get(f"{BASE}/recommendations/{rec_id}/feedback",
+                      headers=headers, timeout=30)
+        check("A12 feedback history 200", r.status_code == 200, f"got {r.status_code}")
+        check("A12 feedback current state", r.json().get("state") == "accepted",
+              str(r.json().get("state")))
+
+    # 8f. A10 Arabic refresh: locale=ar accepted, ids unchanged.
+    r = httpx.post(f"{BASE}/fields/{field['id']}/recommendations/refresh?locale=ar",
+                   headers=headers, timeout=300)
+    check("A10 Arabic refresh 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        ar_ids = {i.get("id") for i in r.json().get("recommendations", [])}
+        check("A10 locale does not change recommendation ids", ar_ids == ids2,
+              f"diff={len(ar_ids ^ ids2)}")
+
     # --- 9. error handling: unknown field must 404, not 500 ------------------
     r = httpx.get(f"{BASE}/fields/00000000-0000-0000-0000-000000000000/recommendations",
                   headers=headers, timeout=30)

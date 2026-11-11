@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from app.recommendations.contracts import Recommendation, Severity, evidence_item
+from app.recommendations.evidence_quality import assess_evidence_quality
 from app.recommendations.registry import RecommendationContext, registry
 
 logger = logging.getLogger("croptwist.recommendations.soil")
@@ -50,9 +51,10 @@ def soil_data_gap(db, field, ctx: RecommendationContext) -> list[Recommendation]
                 "Run a soil assessment, a nutrient budget or a SOC stock run.",
             ],
             confidence=0.95,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
-                "deterministic: absence of succeeded soil_assessment_run, "
-                "nutrient_budget_run and soc_stock_run rows"
+                "deterministic: absence of the three soil run rows is a "
+                "verifiable fact — trigger certainty, not calibration"
             ),
         )
     ]
@@ -65,6 +67,7 @@ def negative_nutrient_balance(db, field, ctx: RecommendationContext) -> list[Rec
     balances = budget.get("cumulative_balance_kg_ha") or {}
     budget_id = (budget.get("source") or {}).get("id")
     out: list[Recommendation] = []
+    quality = assess_evidence_quality(ctx, "soil", expected_sections=("soil",))
     for nutrient in NUTRIENTS:
         value = balances.get(nutrient)
         if value is None or value >= 0:
@@ -98,10 +101,14 @@ def negative_nutrient_balance(db, field, ctx: RecommendationContext) -> list[Rec
                     "Cross-check high-removal seasons against actual yields.",
                 ],
                 confidence=0.8,
+                confidence_kind="deterministic_rule",
                 confidence_basis=(
                     "deterministic: nutrient-budget cumulative balance < 0 kg/ha "
-                    "(engine-computed from recorded flows)"
+                    "(engine-computed from recorded flows; the ladder encodes the "
+                    "accounting statement, not a calibrated probability; "
+                    f"evidence quality separately reported: {quality.get('summary')})"
                 ),
+                evidence_quality=quality,
             )
         )
     return out
@@ -115,6 +122,7 @@ def low_soc_stock(db, field, ctx: RecommendationContext) -> list[Recommendation]
     if stock is None or float(stock) >= SOC_STOCK_LOW_MG_HA:
         return []
     soc_id = (soc.get("source") or {}).get("id")
+    quality = assess_evidence_quality(ctx, "soil", expected_sections=("soil",))
     return [
         Recommendation(
             domain="soil",
@@ -140,10 +148,13 @@ def low_soc_stock(db, field, ctx: RecommendationContext) -> list[Recommendation]
                 "Re-sample SOC on a fixed schedule to establish a trend.",
             ],
             confidence=0.55,
+            confidence_kind="deterministic_rule",
             confidence_basis=(
-                f"deterministic comparison against a disclosed screening heuristic "
-                f"({SOC_STOCK_LOW_MG_HA:g} Mg C/ha); no validated local reference exists"
+                f"disclosed screening heuristic ({SOC_STOCK_LOW_MG_HA:g} Mg C/ha) — "
+                "no validated local reference exists, so the value states screening "
+                f"strength only, NOT a probability: {quality.get('summary')}"
             ),
+            evidence_quality=quality,
         )
     ]
 
@@ -164,6 +175,7 @@ def soil_data_collection(db, field, ctx: RecommendationContext) -> list[Recommen
         for row in (assessment.get("domains") or [])
         if isinstance(row, dict) and (row.get("missing_count") or 0) > 0
     ]
+    quality = assess_evidence_quality(ctx, "soil", expected_sections=("soil",))
     if missing_domains:
         total_missing = sum(int(d["missing"]) for d in missing_domains)
         domain_labels = ", ".join(str(d["domain"]) for d in missing_domains[:3])
@@ -200,9 +212,12 @@ def soil_data_collection(db, field, ctx: RecommendationContext) -> list[Recommen
                     "Prioritise measurements that unblock decisions (pH, bulk density, P).",
                 ],
                 confidence=0.9,
+                confidence_kind="deterministic_rule",
                 confidence_basis=(
-                    "deterministic: soil-assessment domain rows report missing_count > 0"
+                    "deterministic: soil-assessment domain rows report missing_count > 0 "
+                    "(trigger certainty, not calibration)"
                 ),
+                evidence_quality=quality,
             )
         )
     budget = section.get("nutrient_budget") or {}
@@ -231,7 +246,12 @@ def soil_data_collection(db, field, ctx: RecommendationContext) -> list[Recommen
                     "Re-run the nutrient budget after recording flows.",
                 ],
                 confidence=0.9,
-                confidence_basis="deterministic: budget cumulative reports 0 evaluable seasons",
+                confidence_kind="deterministic_rule",
+                confidence_basis=(
+                    "deterministic: budget cumulative reports 0 evaluable seasons "
+                    "(trigger certainty, not calibration)"
+                ),
+                evidence_quality=quality,
             )
         )
     return out

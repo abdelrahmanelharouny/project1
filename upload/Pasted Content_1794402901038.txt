@@ -1,0 +1,1331 @@
+# CropTwist P2 — Advanced Agricultural Intelligence
+## Full-Scale Implementation, Integration & Verification
+
+You are acting as a Principal Agricultural AI Architect, Geospatial Intelligence Engineer, Climate Data Scientist, Optimization Engineer, and Senior Full-Stack Developer.
+
+Your mission is to implement the complete P2 Advanced Agricultural Intelligence roadmap in CropTwist.
+
+This is a major product and engineering expansion.
+
+Do not produce a proposal-only response. Inspect the repository, understand the existing implementation, implement the features, integrate them, run tests, and document actual results.
+
+The goal is to transform CropTwist from an evidence-grounded agricultural recommendation platform into an adaptive agricultural decision-intelligence system capable of understanding environmental change, anticipating risks, stress-testing crop rotations, identifying missing evidence, and optimizing decisions across multiple fields.
+
+---
+
+# 1. CURRENT PROJECT CONTEXT
+
+Product: CropTwist
+
+Reported current branch: `p1-ai-intelligence-trust`
+
+Reported starting commit: `52005c4`
+
+P1 introduced:
+
+- Seasonal-aware anomaly intelligence.
+- Async LLM bridge and circuit breaker.
+- Evidence-aware narrative caching.
+- Stable recommendation fingerprinting.
+- Evidence quality and confidence semantics.
+- Structured LLM responses and citation validation.
+- Prompt injection and numeric consistency guards.
+- Multi-turn advisor sessions.
+- Bridge authentication and resource budgets.
+- Arabic and English AI narratives.
+- Golden-case evaluation framework.
+- Append-only recommendation feedback lifecycle.
+
+The architecture contains five main layers:
+
+1. Data Processing.
+2. Deterministic Agronomic Engines.
+3. Evidence and Intelligence.
+4. Centralized Recommendation System.
+5. Presentation and Farmer Decision Support.
+
+The fundamental principle remains:
+
+**Real data informs. Agronomic engines calculate. Evidence validates. Intelligence explores. AI explains. Farmers decide.**
+
+The LLM must never replace deterministic calculations or invent agricultural measurements.
+
+P2 must extend the existing architecture instead of creating competing systems.
+
+## Mandatory first step
+
+Before implementation:
+
+- Inspect the current Git branch, commit, and working tree.
+- Verify P1 is actually present.
+- Inspect existing provider adapters and evidence contracts.
+- Inspect climate, soil, vegetation, scenario, digital-twin, and recommendation modules.
+- Inspect database migrations and migration heads.
+- Inspect current frontend tabs and localization namespaces.
+- Review `KNOWN_LIMITATIONS.md`.
+- Identify existing incomplete implementations and reuse suitable components.
+- Identify all existing provider integrations and their actual temporal/spatial capabilities.
+
+Do not assume that a previously reported feature is implemented simply because it appears in documentation.
+
+If the repository does not match the reported P1 baseline, report the discrepancy and reconcile it before proceeding.
+
+Create a dedicated branch:
+
+`p2-advanced-agricultural-intelligence`
+
+Never overwrite unrelated working-tree changes.
+
+---
+
+# 2. GLOBAL ENGINEERING RULES
+
+These rules apply to every workstream.
+
+## Evidence integrity
+
+Every observation must retain:
+
+- Source/provider.
+- Acquisition timestamp.
+- Observation or forecast period.
+- Spatial resolution.
+- Units.
+- Geographic coverage.
+- Processing method.
+- Quality flags.
+- Missing-data status.
+- Provenance.
+- Whether the value is observed, derived, forecast, projected, estimated, or synthetic.
+
+Never mix observed, forecast, projected, and synthetic data without explicit classification.
+
+Synthetic data must never be represented as real satellite or climate observations.
+
+## Scientific integrity
+
+- Use established scientific methods and documented formulas.
+- Preserve original measurements.
+- Record assumptions and uncertainty.
+- Never invent missing observations.
+- Do not infer field-level precision beyond source resolution.
+- Distinguish correlation from causation.
+- Never claim a model is scientifically validated without independent validation.
+- Make unsupported outputs unavailable rather than presenting false precision.
+
+## Architecture
+
+Preserve:
+
+Data Providers → Normalization → Evidence Store → Feature Engine → Agronomic Engines → Scenario Intelligence → Recommendation Registry → Presentation → Feedback.
+
+Every recommendation must continue flowing through the centralized registry.
+
+## Database safety
+
+- All migrations must be additive and carefully reversible where appropriate.
+- Preserve existing farm, field, observation, recommendation, scenario, and feedback data.
+- Never reset the active database.
+- Never drop production tables.
+- Do not perform destructive migrations.
+- Test migrations on isolated databases.
+- Verify migration upgrade and downgrade behavior.
+- Preserve tenant isolation.
+
+## Implementation quality
+
+- Reuse existing services and schemas.
+- Avoid duplicate providers.
+- Avoid unnecessary dependencies.
+- Avoid monolithic modules.
+- Maintain strict typing.
+- Add meaningful tests.
+- Preserve API compatibility where possible.
+- Update English and Arabic translations.
+- Keep the UI consistent with the existing design system.
+
+---
+
+# 3. WORKSTREAM A — P2.1 SATELLITE INTELLIGENCE
+
+Priority: Critical
+
+## Objective
+
+Introduce reliable vegetation intelligence that allows CropTwist to understand crop condition and vegetation changes over time.
+
+The platform should be able to identify vegetation patterns, stress signals, seasonal changes, and spatial variability while respecting the limitations of satellite observations.
+
+## A. Data Provider Architecture
+
+Inspect existing Earth observation providers before implementation.
+
+Support suitable sources such as:
+
+- Sentinel-2.
+- Landsat 8/9.
+- MODIS, where temporal resolution is more useful than spatial resolution.
+- Other compatible public Earth observation products where justified.
+
+Prefer authoritative provider APIs and documented data products.
+
+Potential access methods include:
+
+- Copernicus Data Space Ecosystem.
+- Microsoft Planetary Computer.
+- Google Earth Engine, only when its authentication and deployment requirements are explicitly configured.
+- Other documented public APIs or STAC-compatible sources.
+
+Do not introduce multiple providers that produce redundant data without a clear advantage.
+
+Build a reusable provider interface supporting:
+
+- Search by field geometry.
+- Date-range queries.
+- Cloud coverage filtering.
+- Product metadata.
+- Spatial resolution metadata.
+- Acquisition timestamps.
+- Asset retrieval.
+- Provider-specific error handling.
+- Rate limiting.
+- Retry policies.
+- Caching.
+- Provenance.
+
+## B. Vegetation Indices
+
+Implement scientifically correct calculations for:
+
+### NDVI
+
+\[
+NDVI = \frac{NIR-Red}{NIR+Red}
+\]
+
+### EVI
+
+\[
+EVI = G\frac{NIR-Red}{NIR+C_1 Red-C_2 Blue+L}
+\]
+
+Use documented coefficients for the selected sensor/product.
+
+Also evaluate whether additional indices are useful:
+
+- SAVI.
+- NDMI.
+- NDWI.
+- NBR where relevant.
+
+Do not implement indices without the necessary spectral bands.
+
+Handle:
+
+- NoData.
+- Cloud contamination.
+- Shadow contamination.
+- Invalid pixels.
+- Division by zero.
+- Sensor-specific band mappings.
+- Reflectance scaling.
+- Geospatial reprojection.
+
+Preserve the original raster metadata.
+
+## C. Temporal Vegetation Intelligence
+
+Build time-series capabilities:
+
+- Field-level NDVI/EVI statistics.
+- Monthly and seasonal summaries.
+- Vegetation trajectories.
+- Historical baselines.
+- Anomaly detection.
+- Trend detection.
+- Spatial distribution summaries.
+- Missing-observation awareness.
+
+Use seasonal baselines rather than naive comparisons across different months.
+
+Distinguish:
+
+- Genuine vegetation decline.
+- Seasonal dormancy.
+- Harvest-related changes.
+- Cloud-related gaps.
+- Insufficient observation history.
+
+Never classify low NDVI alone as a crop disease.
+
+## D. Field-Level Spatial Intelligence
+
+Support:
+
+- Field boundary masking.
+- Pixel-level validity masks.
+- Field-level zonal statistics.
+- Percentile distributions.
+- Spatial variability summaries.
+- Sub-field zone identification where resolution supports it.
+
+Respect the source resolution.
+
+A 10-meter satellite product cannot justify arbitrary centimeter-level field predictions.
+
+Avoid false precision for small fields.
+
+## E. Vegetation Stress Intelligence
+
+Build evidence-based vegetation stress signals.
+
+Combine vegetation indices with relevant environmental context where available:
+
+- Temperature.
+- Rainfall.
+- Soil moisture.
+- Water availability.
+- Evapotranspiration.
+- Crop growth stage.
+- Planting and harvest dates.
+
+Distinguish observed vegetation change from inferred possible causes.
+
+Do not claim drought, disease, nutrient deficiency, or irrigation failure from NDVI alone.
+
+## F. Frontend
+
+Add or extend Satellite Intelligence within CropTwist.
+
+Provide:
+
+- Field map overlays.
+- NDVI/EVI time series.
+- Observation dates.
+- Cloud-quality indicators.
+- Source and resolution details.
+- Historical comparisons.
+- Spatial variability visualization.
+- Missing-data explanations.
+
+Arabic and English support is mandatory.
+
+---
+
+# 4. WORKSTREAM B — P2.2 CLIMATE FORECASTING AND PROJECTIONS
+
+Priority: Critical
+
+## Objective
+
+Allow CropTwist to assess future climate conditions and their implications for agricultural decisions.
+
+Historical reanalysis must never be mislabeled as a forecast.
+
+Climate projections must never be presented as deterministic predictions.
+
+## A. Provider Capability Matrix
+
+Inspect and classify existing providers.
+
+Separate:
+
+1. Historical observations.
+2. Reanalysis.
+3. Short-range weather forecasts.
+4. Seasonal forecasts.
+5. Long-term climate projections.
+
+Potential providers include:
+
+- Open-Meteo Forecast APIs.
+- ECMWF products where accessible.
+- NASA POWER for appropriate historical and climatological use cases.
+- CMIP6-based datasets for climate projections.
+- Other validated providers when they add real value.
+
+For each provider document:
+
+- Temporal horizon.
+- Spatial resolution.
+- Variables.
+- Update frequency.
+- Historical availability.
+- Forecast or projection type.
+- Licensing.
+- Authentication.
+- Known limitations.
+
+Do not claim a provider supports a capability unless its actual product does.
+
+## B. Forecast Data Model
+
+Create a normalized forecast evidence contract.
+
+Support variables where available:
+
+- Temperature.
+- Minimum and maximum temperature.
+- Precipitation.
+- Wind.
+- Relative humidity.
+- Solar radiation.
+- Soil moisture, only if actually supplied.
+- Evapotranspiration, only where supported.
+
+Every forecast must contain:
+
+- Issue timestamp.
+- Valid time.
+- Forecast horizon.
+- Provider.
+- Model identifier where available.
+- Ensemble member or summary type.
+- Units.
+- Spatial resolution.
+- Quality and uncertainty metadata.
+
+Never overwrite historical observations with forecast values.
+
+## C. Forecast Intelligence
+
+Implement:
+
+- Forecast ingestion.
+- Forecast validation.
+- Forecast caching.
+- Forecast versioning.
+- Forecast freshness checks.
+- Historical forecast verification where data permits.
+- Forecast confidence and uncertainty representation.
+
+Support forecast-based agricultural risk screening:
+
+- Extreme heat.
+- Heavy precipitation.
+- Frost.
+- Dry spells.
+- Planting-window risk.
+- Harvest-window risk.
+
+Use crop-specific thresholds only when supported by the CropTwist knowledge base or documented agronomic sources.
+
+## D. Climate Projection Intelligence
+
+For long-term projections:
+
+- Support scenario and model identifiers.
+- Support baseline and future periods.
+- Support appropriate CMIP6 scenarios.
+- Preserve model ensemble information.
+- Distinguish raw model output from bias-corrected data.
+- Represent uncertainty ranges.
+- Avoid treating individual climate model output as certain future weather.
+
+Do not use short-range forecast APIs as long-term climate projection sources.
+
+## E. Forecast Validation
+
+Build a framework to compare archived forecasts against later observations.
+
+Track:
+
+- Temperature error.
+- Precipitation error.
+- Bias.
+- MAE/RMSE where appropriate.
+- Forecast horizon.
+- Geographic region.
+- Provider/model.
+
+Do not report validation metrics without actual paired forecast-observation data.
+
+## F. Frontend
+
+Introduce:
+
+- Forecast timeline.
+- Forecast horizon selection.
+- Climate scenario comparison.
+- Risk indicators.
+- Confidence and uncertainty displays.
+- Historical versus forecast versus projection labels.
+- Data freshness indicators.
+
+---
+
+# 5. WORKSTREAM C — P2.3 SOIL MEMORY
+
+Priority: High
+
+## Objective
+
+Create a longitudinal model of soil health that captures how soil properties evolve across seasons and management decisions.
+
+CropTwist should not treat soil as a static collection of values.
+
+## A. Soil State History
+
+Inspect existing soil tables and models.
+
+Create a versioned soil-state history that can combine:
+
+- Laboratory measurements.
+- Field sampling.
+- SoilGrids estimates.
+- Management records.
+- Crop rotation history.
+- Nutrient applications.
+- Organic matter additions.
+- Cover-crop history.
+- Irrigation and water management.
+- Erosion estimates.
+
+Preserve source and measurement depth.
+
+Never overwrite historical measurements.
+
+## B. Soil State Variables
+
+Support where evidence exists:
+
+- Soil organic carbon.
+- Organic matter.
+- Nitrogen.
+- Phosphorus.
+- Potassium.
+- pH.
+- Electrical conductivity.
+- Texture.
+- Bulk density.
+- Water-holding capacity.
+- Available water capacity.
+- Soil depth.
+- Erosion risk.
+
+Distinguish measured values from estimated values and model projections.
+
+## C. Soil Change Modeling
+
+Develop conservative soil change models.
+
+Support:
+
+- Nutrient budgets.
+- Organic carbon trajectory estimates.
+- Soil cover effects.
+- Residue management.
+- Cover-crop contributions.
+- Erosion-related losses.
+- Nutrient removal by harvested crops.
+
+Use explicit mass-balance logic where appropriate.
+
+Record:
+
+- Initial state.
+- Inputs.
+- Outputs.
+- Assumptions.
+- Uncertainty.
+- Model version.
+- Resulting estimated state.
+
+Do not imply that estimated soil carbon changes are measured field improvements.
+
+## D. Soil Memory Timeline
+
+Build a timeline that shows:
+
+- Initial soil state.
+- Measurements over time.
+- Management interventions.
+- Crop sequences.
+- Estimated changes.
+- Missing evidence.
+- Confidence and uncertainty.
+
+Allow comparison between seasons.
+
+## E. Soil Health Alerts
+
+Generate evidence-based signals for:
+
+- Nutrient depletion.
+- Salinity concerns.
+- Low organic carbon.
+- Erosion risk.
+- Decreasing water-holding capacity where data supports it.
+
+Avoid unsupported universal thresholds.
+
+Use regional and crop-specific context when available.
+
+## F. Frontend
+
+Add a Soil Memory experience with:
+
+- Historical soil profiles.
+- Nutrient balance charts.
+- Carbon trajectory.
+- Management timeline.
+- Measurement versus estimate distinctions.
+- Data gaps.
+- Depth-aware comparisons.
+
+---
+
+# 6. WORKSTREAM D — P2.4 ROTATION FAILURE LAB
+
+Priority: Critical
+
+## Objective
+
+Introduce a rigorous scenario stress-testing system that evaluates how crop rotations behave under adverse conditions.
+
+The system should answer:
+
+"What could make this rotation fail, how severe could the impact be, and which alternative is more resilient?"
+
+This is not a simple what-if calculator.
+
+## A. Scenario Engine
+
+Inspect existing scenario, digital twin, robustness, and sensitivity modules.
+
+Extend rather than duplicate them.
+
+Support configurable stress scenarios:
+
+- Severe drought.
+- Heatwave.
+- Delayed planting.
+- Heavy rainfall.
+- Water restrictions.
+- Nutrient price increases.
+- Fertilizer availability constraints.
+- Labor shortages.
+- Equipment constraints.
+- Market-price shocks.
+- Combined climate and operational stress.
+
+Each scenario must have explicit parameters, provenance, and assumptions.
+
+## B. Rotation Stress Testing
+
+Evaluate multiple candidate rotations under the same conditions.
+
+Compare:
+
+- Water demand.
+- Water availability.
+- Nutrient balance.
+- Soil organic carbon trajectory.
+- Erosion risk.
+- Crop timing.
+- Operational feasibility.
+- Yield estimates only when a validated yield model exists.
+- Economic outcomes only when adequate market and cost evidence exists.
+
+Do not invent yields or profits.
+
+If a variable cannot be estimated reliably, label it unavailable.
+
+## C. Robustness Metrics
+
+Implement scientifically and mathematically defined metrics:
+
+- Worst-case outcome.
+- Mean scenario outcome.
+- Scenario variance.
+- Downside risk.
+- Feasibility rate.
+- Constraint violation frequency.
+- Sensitivity to parameter changes.
+- Regret relative to the best alternative in each scenario.
+
+Define all formulas and units.
+
+Do not combine unrelated metrics into an arbitrary overall score.
+
+## D. Scenario Comparison
+
+Compare at least:
+
+- Existing rotation.
+- Recommended rotation.
+- Alternative resilient rotation.
+
+Use the same baseline assumptions.
+
+Explain why each alternative performs differently.
+
+## E. Failure Explanation
+
+Every detected failure must explain:
+
+- What failed.
+- Which constraint was violated.
+- Which evidence supports the conclusion.
+- Under which scenario.
+- Severity.
+- Whether it is certain, estimated, or conditional.
+- Potential mitigation.
+
+## F. Frontend
+
+Build an interactive Rotation Failure Lab.
+
+Support:
+
+- Scenario selection.
+- Parameter adjustment.
+- Rotation comparison.
+- Risk breakdown.
+- Robustness visualization.
+- Constraint violations.
+- Evidence-linked explanations.
+- Scenario reproducibility.
+
+---
+
+# 7. WORKSTREAM E — P2.5 ADAPTIVE EVIDENCE ACQUISITION
+
+Priority: Critical
+
+## Objective
+
+Make CropTwist capable of identifying missing information that could materially change an agricultural decision.
+
+Instead of simply saying "data unavailable", it should explain what information is missing, why it matters, and what the farmer can do to obtain it.
+
+This is a major product differentiator.
+
+## A. Evidence Gap Detection
+
+Inspect all existing evidence packs and feature requirements.
+
+Build a structured evidence-gap model.
+
+Potential gaps include:
+
+- Missing soil samples.
+- Stale weather observations.
+- Insufficient satellite coverage.
+- Missing planting dates.
+- Missing crop history.
+- Missing irrigation records.
+- Missing fertilizer application history.
+- Missing field geometry.
+- Missing operational constraints.
+- Missing market information.
+
+Each gap must include:
+
+- Affected decision.
+- Required evidence.
+- Current evidence status.
+- Importance.
+- Freshness requirement.
+- Spatial relevance.
+- Potential impact.
+
+## B. Value of Information
+
+Implement a decision-aware Value of Information framework.
+
+Estimate whether obtaining a missing piece of evidence could change the recommended decision.
+
+Use available scenario and sensitivity infrastructure.
+
+The framework should consider:
+
+- Current candidate decisions.
+- Uncertainty.
+- Sensitivity to missing variables.
+- Expected change in decision ranking.
+- Cost and effort of collecting evidence.
+- Time sensitivity.
+
+Do not assign fake monetary values to information.
+
+If collection cost is unknown, use qualitative cost categories.
+
+## C. Evidence Acquisition Plans
+
+Generate actionable acquisition suggestions:
+
+- Collect a soil sample.
+- Record the planting date.
+- Upload historical irrigation records.
+- Obtain a new satellite observation.
+- Verify field boundaries.
+- Record fertilizer applications.
+- Confirm available water.
+- Provide machinery or labor constraints.
+
+Each suggestion must explain:
+
+1. What is missing.
+2. Why it matters.
+3. Which decision it affects.
+4. How to obtain it.
+5. Whether it is urgent.
+6. What uncertainty it could reduce.
+
+## D. Decision Recalculation
+
+When new evidence is submitted:
+
+- Validate it.
+- Preserve provenance.
+- Update the relevant evidence pack.
+- Recalculate affected engines.
+- Reevaluate recommendations.
+- Preserve previous versions.
+- Record which decision changed and why.
+
+Do not regenerate the entire system unnecessarily when only one evidence domain changed.
+
+## E. Frontend
+
+Add an Adaptive Evidence panel.
+
+Show:
+
+- Evidence completeness.
+- Critical missing inputs.
+- Suggested data collection actions.
+- Decision sensitivity.
+- Evidence acquisition history.
+- Recommendations affected by newly submitted evidence.
+
+---
+
+# 8. WORKSTREAM F — P2.6 FARM PORTFOLIO INTELLIGENCE
+
+Priority: High
+
+## Objective
+
+Move beyond optimizing individual fields independently.
+
+Farmers often manage multiple fields with shared resources and operational constraints.
+
+CropTwist should help optimize the farm as a coordinated portfolio.
+
+## A. Farm-Level Optimization
+
+Inspect the current CP-SAT rotation and operations scheduling infrastructure.
+
+Extend the existing optimizer.
+
+Support multiple fields with shared constraints:
+
+- Water availability.
+- Labor capacity.
+- Machinery.
+- Planting windows.
+- Harvest windows.
+- Storage capacity where available.
+- Crop-family diversification.
+- Operational budgets where actual data exists.
+
+## B. Portfolio Objectives
+
+Evaluate competing objectives:
+
+- Water efficiency.
+- Soil health.
+- Rotation diversity.
+- Operational feasibility.
+- Risk diversification.
+- Resource utilization.
+
+Do not silently collapse objectives into one arbitrary score.
+
+Use explicit weights, Pareto optimization, or clearly defined lexicographic objectives.
+
+Allow users to understand trade-offs.
+
+## C. Cross-Field Coordination
+
+Support:
+
+- Staggered planting.
+- Harvest scheduling.
+- Shared machinery utilization.
+- Water allocation.
+- Labor allocation.
+- Rotation diversification across the farm.
+- Avoidance of excessive concentration in one crop or crop family.
+
+## D. Farm-Level Scenario Analysis
+
+Evaluate portfolio resilience under:
+
+- Water shortages.
+- Labor shortages.
+- Equipment failure.
+- Extreme weather.
+- Crop price changes where supported by evidence.
+
+Compare portfolio-level outcomes against independent field optimization.
+
+## E. Explainability
+
+Every portfolio recommendation must explain:
+
+- Which fields are affected.
+- Which shared constraint matters.
+- What trade-off was made.
+- Which objectives improved or worsened.
+- Which assumptions were used.
+- Why the portfolio differs from independent field recommendations.
+
+## F. Frontend
+
+Add a Farm Portfolio Intelligence view.
+
+Include:
+
+- Multi-field overview.
+- Resource utilization.
+- Crop allocation.
+- Planting and harvest schedules.
+- Portfolio trade-offs.
+- Risk diversification.
+- Scenario comparison.
+
+---
+
+# 9. CROSS-WORKSTREAM INTEGRATION
+
+The six workstreams must not become six isolated features.
+
+Build an integrated intelligence flow.
+
+Example:
+
+1. Satellite Intelligence detects declining vegetation relative to the correct seasonal baseline.
+2. Climate Intelligence identifies recent heat and rainfall anomalies.
+3. Soil Memory provides historical soil water and nutrient context.
+4. Adaptive Evidence Acquisition identifies missing irrigation records.
+5. Rotation Failure Lab tests whether candidate rotations remain feasible under water stress.
+6. Farm Portfolio Intelligence evaluates the best allocation across all fields.
+7. The Recommendation Registry generates evidence-backed recommendations.
+8. The advisor explains the result using validated evidence citations.
+9. Farmer feedback is preserved for future evaluation.
+
+Implement appropriate event or dependency mechanisms so changes in one evidence domain invalidate only the downstream computations that actually depend on it.
+
+Avoid unnecessary full-pipeline recomputation.
+
+Preserve evidence versioning and reproducibility.
+
+---
+
+# 10. DATABASE AND DATA CONTRACTS
+
+Review existing schemas before adding new ones.
+
+Potential additions include:
+
+- Satellite observation products.
+- Vegetation index time series.
+- Forecast evidence.
+- Climate projection records.
+- Soil state snapshots.
+- Soil transition events.
+- Rotation stress scenarios.
+- Scenario evaluation runs.
+- Evidence gaps.
+- Evidence acquisition actions.
+- Farm portfolio scenarios.
+- Portfolio optimization results.
+
+These are conceptual requirements, not mandatory table names.
+
+Design normalized schemas based on actual query patterns.
+
+Requirements:
+
+- Tenant-aware ownership.
+- Proper indexes.
+- Spatial indexes where appropriate.
+- Temporal indexes for time series.
+- Immutable provenance where practical.
+- Explicit model and algorithm versions.
+- Idempotent ingestion.
+- Duplicate detection.
+- Data retention policy.
+- Reproducible scenario inputs.
+- Appropriate foreign keys.
+
+Avoid storing large raster files directly in PostgreSQL unless the existing architecture explicitly requires it.
+
+Use object storage or existing raster storage infrastructure where available.
+
+---
+
+# 11. API AND BACKGROUND PROCESSING
+
+For every workstream:
+
+- Implement clear API contracts.
+- Validate all inputs.
+- Enforce authorization.
+- Enforce tenant isolation.
+- Provide pagination for historical data.
+- Support date and spatial filters.
+- Handle provider failures gracefully.
+- Return meaningful errors.
+- Expose job status for expensive processing.
+
+For long-running operations:
+
+- Reuse existing background processing infrastructure if available.
+- Do not introduce Celery, Redis, or another queue unless necessary.
+- Make operations idempotent.
+- Support retries safely.
+- Preserve job provenance.
+- Prevent duplicate concurrent execution.
+
+---
+
+# 12. FRONTEND AND USER EXPERIENCE
+
+Integrate the new capabilities into the existing CropTwist design system.
+
+Do not build disconnected dashboards.
+
+Create a consistent experience across:
+
+- Satellite Intelligence.
+- Climate Forecasting.
+- Soil Memory.
+- Rotation Failure Lab.
+- Adaptive Evidence.
+- Farm Portfolio Intelligence.
+
+Requirements:
+
+- Arabic and English localization.
+- Correct RTL layout.
+- Responsive design.
+- Accessible chart labels.
+- Loading and error states.
+- Empty states with meaningful explanations.
+- Data provenance.
+- Observation versus forecast distinctions.
+- Uncertainty visualization.
+- Clear units.
+- Interactive charts and maps where useful.
+
+Avoid excessive information density.
+
+The interface should make complicated agricultural intelligence understandable to farmers without hiding scientific limitations.
+
+---
+
+# 13. TESTING AND SCIENTIFIC VALIDATION
+
+Create comprehensive test suites.
+
+## Satellite
+
+- NDVI/EVI formula correctness.
+- Band mapping.
+- Reflectance scaling.
+- Cloud masks.
+- NoData handling.
+- Field geometry masking.
+- Zonal statistics.
+- Seasonal baselines.
+- Temporal anomalies.
+- Spatial resolution limitations.
+
+## Climate
+
+- Forecast versus historical classification.
+- Valid time and issue time.
+- Provider normalization.
+- Forecast freshness.
+- Forecast uncertainty.
+- Projection scenario identity.
+- Missing forecast handling.
+- Forecast verification calculations.
+
+## Soil Memory
+
+- Depth-aware comparisons.
+- Unit conversions.
+- Nutrient mass balance.
+- Historical immutability.
+- Measurement versus estimate.
+- Model reproducibility.
+- Uncertainty propagation where implemented.
+
+## Rotation Failure Lab
+
+- Deterministic scenario execution.
+- Stress parameter validation.
+- Constraint violations.
+- Worst-case calculations.
+- Scenario variance.
+- Regret calculation.
+- Missing evidence.
+- Reproducibility.
+
+## Adaptive Evidence
+
+- Evidence gap identification.
+- Decision dependency tracking.
+- Value of information behavior.
+- Sensitivity analysis.
+- Evidence acquisition lifecycle.
+- Downstream recalculation.
+- Version preservation.
+
+## Farm Portfolio
+
+- Shared resource constraints.
+- Multi-field optimization.
+- Infeasible cases.
+- Pareto trade-offs.
+- Schedule consistency.
+- Resource allocation.
+- Portfolio versus independent-field comparison.
+
+## Integration
+
+Test at least three complete cross-workstream workflows.
+
+Every workflow must use traceable inputs and reproducible outputs.
+
+Do not use live external APIs as the sole basis for ordinary CI tests.
+
+Use mocked provider contracts for deterministic tests and separate live integration tests when credentials and network access are available.
+
+---
+
+# 14. EVALUATION FRAMEWORK
+
+Extend the existing P1 evaluation infrastructure.
+
+Create golden cases for:
+
+- Satellite vegetation stress.
+- Seasonal vegetation behavior.
+- Forecast-based risk.
+- Soil state transitions.
+- Rotation stress testing.
+- Evidence acquisition decisions.
+- Multi-field portfolio optimization.
+
+Track:
+
+- Data provenance completeness.
+- Data freshness.
+- Scientific formula correctness.
+- Scenario reproducibility.
+- Constraint satisfaction.
+- Evidence traceability.
+- Recommendation stability.
+- Missing-data behavior.
+- Forecast verification metrics where actual paired observations exist.
+- Decision sensitivity.
+
+Separate:
+
+- Unit correctness.
+- Algorithmic correctness.
+- Scientific validation.
+- Decision usefulness.
+- Real-world field validation.
+
+Never represent passing synthetic golden cases as real-world agronomic validation.
+
+Generate machine-readable evaluation reports.
+
+---
+
+# 15. OBSERVABILITY AND PERFORMANCE
+
+Extend the current observability infrastructure.
+
+Track:
+
+- Provider request latency.
+- Provider error rates.
+- Satellite ingestion throughput.
+- Raster processing duration.
+- Forecast freshness.
+- Soil state calculation duration.
+- Scenario execution time.
+- Portfolio optimization time.
+- Cache hit rates.
+- Background job failures.
+- Evidence gap counts.
+- Recommendation recalculation frequency.
+
+Add correlation IDs and structured logs.
+
+Avoid logging sensitive farm data or credentials.
+
+Introduce resource limits for expensive raster and optimization operations.
+
+Prevent unbounded memory usage.
+
+---
+
+# 16. EXECUTION STRATEGY
+
+Implement the six workstreams in parallel where safe.
+
+Use six coordinated workstreams:
+
+A. Satellite Intelligence.
+B. Climate Forecasting.
+C. Soil Memory.
+D. Rotation Failure Lab.
+E. Adaptive Evidence Acquisition.
+F. Farm Portfolio Intelligence.
+
+However, parallel development must not create architectural fragmentation.
+
+## Integration rules
+
+- Agree on shared evidence contracts before implementing dependent modules.
+- Coordinate database schema changes.
+- Avoid conflicting edits to shared files.
+- Integrate frequently.
+- Run cross-workstream tests.
+- Keep a clear dependency map.
+- Preserve existing P0 and P1 behavior.
+- Do not merge unverified code.
+
+Prioritize the shared data contracts and provider capabilities before dependent intelligence features.
+
+If a real provider requires credentials or external access that are unavailable, implement the adapter and contract tests, document the required configuration, and clearly mark live integration as BLOCKED.
+
+Do not substitute synthetic data and call the provider integration complete.
+
+---
+
+# 17. FINAL ACCEPTANCE CRITERIA
+
+P2 is complete only when:
+
+1. Satellite ingestion and vegetation index calculations are implemented and tested.
+2. Vegetation time-series and seasonal analysis work.
+3. Climate forecast evidence is separate from historical and projected data.
+4. Forecast ingestion and risk analysis work with verified provider capabilities.
+5. Climate projection support preserves model and scenario uncertainty.
+6. Soil Memory tracks historical states and management events.
+7. Soil transitions use documented, reproducible calculations.
+8. Rotation Failure Lab evaluates multiple rotations under consistent scenarios.
+9. Robustness metrics are mathematically defined and tested.
+10. Adaptive Evidence identifies actionable evidence gaps.
+11. Value of Information uses actual decision sensitivity rather than invented values.
+12. New evidence triggers appropriate downstream recalculation.
+13. Farm Portfolio Intelligence optimizes multiple fields with shared constraints.
+14. Cross-field explanations are evidence-grounded.
+15. All six workstreams integrate with the recommendation registry.
+16. Arabic and English interfaces work.
+17. Tenant isolation and data integrity are verified.
+18. Database migrations are verified.
+19. Full regression suites pass.
+20. Evaluation reports accurately distinguish synthetic tests from scientific validation.
+
+---
+
+# 18. FINAL REPORT
+
+At completion provide:
+
+## A. Repository Status
+
+- Starting commit.
+- Final commit.
+- Branch.
+- Working tree status.
+- Migration head.
+
+## B. Workstream Status
+
+For each of the six workstreams:
+
+- DONE.
+- IMPLEMENTED.
+- BLOCKED.
+- NOT STARTED.
+
+Include concrete evidence.
+
+## C. Implementation Summary
+
+- Modules created.
+- Modules modified.
+- Database migrations.
+- API endpoints.
+- Frontend pages/components.
+- Provider adapters.
+- New algorithms.
+- Evaluation cases.
+
+## D. Verification
+
+- Exact test commands.
+- Actual test counts.
+- Failed and skipped tests.
+- Migration verification.
+- E2E results.
+- Performance measurements.
+- Scientific validation limitations.
+
+## E. Provider Status
+
+For every external data provider:
+
+- Adapter implemented.
+- Contract tests passed.
+- Live connection verified or blocked.
+- Credentials required.
+- Coverage limitations.
+- Licensing and usage constraints.
+
+## F. Remaining Work
+
+List all incomplete features and blockers.
+
+Do not hide unavailable providers or missing validation data.
+
+## G. Production Readiness
+
+State whether CropTwist is:
+
+- Development-ready.
+- Integration-ready.
+- Pilot-ready.
+- Production-ready.
+
+Justify the classification.
+
+Use only actual evidence.
+
+---
+
+# FINAL DIRECTIVE
+
+Implement P2 as a unified agricultural intelligence system, not as six disconnected feature modules.
+
+Prioritize scientific correctness, evidence provenance, reproducibility, resource safety, and farmer decision usefulness.
+
+Do not modify deterministic engine formulas without a documented scientific reason and dedicated regression tests.
+
+Do not fabricate data, provider capabilities, benchmark results, forecast accuracy, yield predictions, or economic benefits.
+
+If a feature cannot be completed due to unavailable credentials, data, or validation requirements, implement the safe foundation and report the exact blocker.
+
+**Execute the work, integrate all six workstreams, run the tests, verify the result, and provide the final engineering report.**

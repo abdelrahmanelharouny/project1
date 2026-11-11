@@ -15,6 +15,7 @@ from app.db.models import Base
 # DROPPING them. Import every model module here so target_metadata always
 # mirrors the full schema.
 import app.db.models_ai  # noqa: F401  (side-effect: registers AI tables)
+import app.db.models_p2  # noqa: F401  (side-effect: registers P2 tables)
 
 config = context.config
 if config.config_file_name is not None:

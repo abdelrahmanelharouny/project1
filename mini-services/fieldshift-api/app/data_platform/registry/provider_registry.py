@@ -25,8 +25,66 @@ from app.data_platform.providers.chirps.registry_info import (
     stub_fetch_message as chirps_stub_message,
 )
 from app.data_platform.providers.open_meteo.provider import OpenMeteoProvider, health_probe as om_probe
+from app.data_platform.providers.open_meteo_forecast.provider import OpenMeteoForecastProvider
+from app.data_platform.providers.satellite_sim.provider import SatelliteSimProvider
+from app.data_platform.providers.sentinel2.provider import Sentinel2StacProvider
 from app.data_platform.providers.soilgrids.provider import SoilGridsProvider, health_probe as sg_probe
 from app.data_platform.providers.synthetic.provider import SyntheticProvider
+
+
+def _sentinel2_probe() -> dict[str, Any]:
+    """Best-effort STAC reachability probe (never raises, never blocks)."""
+    import httpx
+
+    from app.core.config import settings as s
+
+    started = time.time()
+    try:
+        response = httpx.get(
+            s.sentinel2_stac_base_url.rstrip("/"),
+            timeout=s.provider_probe_timeout_seconds,
+        )
+        latency = int((time.time() - started) * 1000)
+        if response.status_code < 500:
+            return {"status": "ok", "latency_ms": latency, "detail": f"STAC responded HTTP {response.status_code}"}
+        return {"status": "degraded", "latency_ms": latency, "detail": f"HTTP {response.status_code}"}
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "unreachable",
+            "latency_ms": int((time.time() - started) * 1000),
+            "detail": f"external network unavailable: {exc}",
+        }
+
+
+def _forecast_probe() -> dict[str, Any]:
+    """Best-effort forecast API probe (1-day request)."""
+    import httpx
+
+    from app.core.config import settings as s
+
+    started = time.time()
+    try:
+        response = httpx.get(
+            s.open_meteo_forecast_base_url,
+            params={
+                "latitude": 31.05,
+                "longitude": 31.1,
+                "daily": "temperature_2m_max",
+                "forecast_days": 1,
+                "timezone": "UTC",
+            },
+            timeout=s.provider_probe_timeout_seconds,
+        )
+        latency = int((time.time() - started) * 1000)
+        if response.status_code == 200 and not response.json().get("error"):
+            return {"status": "ok", "latency_ms": latency, "detail": "forecast API responded"}
+        return {"status": "degraded", "latency_ms": latency, "detail": f"HTTP {response.status_code}"}
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "unreachable",
+            "latency_ms": int((time.time() - started) * 1000),
+            "detail": f"external network unavailable: {exc}",
+        }
 
 
 class _ChirpsImportStub:
@@ -231,6 +289,62 @@ def get_provider_registry() -> ProviderRegistry:
                 "workflow": "POST /fields/{field_id}/imports/observations-csv",
                 "evidence_class": "farmer_reported_record",
             },
+        )
+
+        # ------------------------------------------------ P2.A satellite
+        sim = SatelliteSimProvider()
+        registry.register(
+            sim,
+            kind="synthetic",
+            status="active",
+            details={
+                "profiles": sim.profiles(),
+                "is_synthetic": True,
+                "variables": sim.supported_variables(),
+                "note": (
+                    "Synthetic satellite scene fixture for tests/demos. "
+                    "Never real-world data."
+                ),
+            },
+        )
+
+        s2 = Sentinel2StacProvider()
+        registry.register(
+            s2,
+            kind="api_stac",
+            status="optional",
+            details={
+                "collections": s2.collections(),
+                "variables": s2.supported_variables(),
+                "is_synthetic": False,
+                "note": (
+                    "Sentinel-2 L2A via STAC (Copernicus Data Space). "
+                    "Requires external network; CDSE credentials optional "
+                    "for asset reads. Live availability BLOCKED in this "
+                    "sandbox deployment."
+                ),
+            },
+            probe=_sentinel2_probe,
+        )
+
+        # ------------------------------------------------ P2.B forecast
+        omf = OpenMeteoForecastProvider()
+        registry.register(
+            omf,
+            kind="api_forecast",
+            status="optional",
+            details={
+                "models": omf.models(),
+                "variables": omf.supported_variables(),
+                "forecast_class": "short_range_forecast",
+                "is_synthetic": False,
+                "note": (
+                    "Short-range deterministic forecast (<=16 days). Stored in "
+                    "weather_forecasts with issue/valid separation; never "
+                    "blended into observations."
+                ),
+            },
+            probe=_forecast_probe,
         )
 
         _registry = registry

@@ -70,3 +70,6 @@ public/*.zip
 
 # CropTwist sandbox DB dumps (backup cron, never commit)
 /backups/
+
+# P1 AI evaluation reports (generated artifacts, regenerable via scripts/run_evaluation.py)
+mini-services/fieldshift-api/evaluation_reports/
