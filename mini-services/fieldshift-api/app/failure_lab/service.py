@@ -17,6 +17,7 @@ Idempotency, run lifecycle and failure accounting follow the rotation module
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,6 +29,7 @@ from app.db import models as dbm
 from app.db.models_p2 import RotationStressRun
 from app.failure_lab import contracts as fl_contracts
 from app.failure_lab import engine as fl_engine
+from app.failure_lab import metrics as fl_metrics
 from app.field_state.manifest import sha256_of_document
 from app.knowledge.service import load_knowledge
 from app.rotation import candidates as candidates_mod
@@ -152,17 +154,11 @@ def run_checksum(request_parameters: dict[str, Any], result: dict[str, Any] | No
         "kind": "rotation_stress_run",
         "engine_version": fl_contracts.FAILURE_LAB_ENGINE_VERSION,
         "packs_version": fl_contracts.STRESS_PACKS_VERSION,
-        "metrics_version": metrics_version(),
+        "metrics_version": fl_metrics.ROBUSTNESS_METRICS_VERSION,
         "request_parameters": request_parameters,
         "result": result,
     }
     return sha256_of_document(payload)
-
-
-def metrics_version() -> str:
-    from app.failure_lab import metrics as fl_metrics
-
-    return fl_metrics.ROBUSTNESS_METRICS_VERSION
 
 
 def start_rotation_stress_run(
@@ -240,7 +236,7 @@ def start_rotation_stress_run(
         water_allocation = farm.water_allocation_m3
         allocation_source = "farm_constraints" if water_allocation is not None else None
     farm = (
-        farm.__class__(**{**farm.__dict__, "water_allocation_m3": water_allocation})
+        replace(farm, water_allocation_m3=water_allocation)
         if water_allocation != farm.water_allocation_m3
         else farm
     )
@@ -370,7 +366,7 @@ def start_rotation_stress_run(
             "engine_versions": {
                 "failure_lab": fl_contracts.FAILURE_LAB_ENGINE_VERSION,
                 "stress_packs": fl_contracts.STRESS_PACKS_VERSION,
-                "metrics": metrics_version(),
+                "metrics": fl_metrics.ROBUSTNESS_METRICS_VERSION,
                 "rotation_engine": ROTATION_ENGINE_VERSION,
                 "solver_name": SOLVER_NAME,
                 "solver_version": solver_version(),
@@ -388,15 +384,10 @@ def start_rotation_stress_run(
             **engine_result,
             "reference_run_id": str(reference_run.id),
         }
-        warnings = list(warnings) + [
-            note
-            for note in engine_result.get("assumptions", [])
-            if note.startswith("no farmer-supplied") or "not applied" in note
-        ]
         not_evaluated = not_evaluated + list(engine_result.get("not_evaluated", []))
 
         run.result = result
-        run.warnings = warnings
+        run.warnings = list(warnings)
         run.not_evaluated = not_evaluated
         run.checksum_sha256 = run_checksum(run.request_parameters, result)
         run.status = "succeeded"

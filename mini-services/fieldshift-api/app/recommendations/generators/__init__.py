@@ -12,5 +12,6 @@ from app.recommendations.generators import (  # noqa: F401
     management,
     rotation,
     soil,
+    vegetation,
     water,
 )

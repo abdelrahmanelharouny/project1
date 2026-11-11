@@ -280,3 +280,128 @@ def statistical_anomaly_advisories(db, field, ctx: RecommendationContext) -> lis
             )
         )
     return out
+
+
+@registry.generator("climate")
+def forecast_risk_advisories(db, field, ctx: RecommendationContext) -> list[Recommendation]:
+    """P2.B: convert the forecast risk screening into recommendations.
+
+    Reads the LIVE forecast window (weather_forecasts — never blended into
+    observations). When no forecast has been ingested the generator emits
+    nothing: forecast absence is a data gap reported by the forecast surface,
+    not a fabricated advisory. Thresholds are the documented generic ETCCDI/
+    WMO definitions reused by the risk screener (no crop-specific critical
+    thresholds are invented)."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.climate.risk import screen_forecast_risks
+    from app.climate.service import forecasts_in_window
+    from app.db.models_p2 import WeatherForecast
+    from sqlalchemy import func, select as _select
+
+    try:
+        count = db.scalar(
+            _select(func.count(WeatherForecast.id)).where(WeatherForecast.field_id == field.id)
+        )
+        if (count or 0) == 0:
+            return []
+        start = datetime.now(UTC) - timedelta(days=1)
+        end = datetime.now(UTC) + timedelta(days=16)
+        flat_rows: list[dict[str, Any]] = []
+        for vcode in ("air_temperature_max", "air_temperature_min", "precipitation"):
+            rows = forecasts_in_window(db, field.id, variable_code=vcode, start=start, end=end)
+            flat_rows.extend(
+                {"variable_code": vcode, "value": r.value, "valid_time": r.valid_time}
+                for r in rows
+            )
+        crop_windows = _climate_crop_windows(db, field.id)
+        risks = screen_forecast_risks(forecast_rows=flat_rows, crop_windows=crop_windows)
+    except Exception as exc:  # noqa: BLE001 — forecast hiccups never break the refresh
+        logger.warning("forecast risk screening skipped: %s", exc)
+        return []
+
+    quality = assess_evidence_quality(ctx, "climate", expected_sections=("climate",))
+    out: list[Recommendation] = []
+    severity_map = {
+        "info": Severity.INFO,
+        "advisory": Severity.ADVISORY,
+        "recommended": Severity.RECOMMENDED,
+        "required": Severity.REQUIRED,
+    }
+    for risk in risks[:3]:
+        out.append(
+            Recommendation(
+                domain="climate",
+                severity=severity_map.get(risk.severity, Severity.ADVISORY),
+                title=risk.title,
+                summary=risk.detail,
+                rationale=(
+                    f"Screening of the CURRENT FORECAST window (issue/valid-time "
+                    f"separated, never mixed with observations) against the "
+                    f"documented threshold: {risk.threshold} ({risk.threshold_source}). "
+                    f"{risk.affected_days} of {risk.forecast_days_total} forecast day(s) "
+                    f"are affected. Basis: {risk.basis}."
+                ),
+                evidence=[evidence_item(
+                    type="weather_forecast", id=None, label="climate",
+                    detail=(
+                        f"Forecast window {risk.window_start} .. {risk.window_end}; "
+                        f"threshold {risk.threshold} ({risk.threshold_source})"
+                    ),
+                )],
+                actions=[{
+                    "title": "Check the forecast timeline before field operations",
+                    "detail": "Horizon-resolved values and freshness are on the Climate Forecasting tab.",
+                }],
+                confidence=evidence_backed_confidence(quality),
+                confidence_kind="evidence_quality",
+                confidence_basis=(
+                    "Deterministic threshold screening over a single-model "
+                    f"forecast whose skill degrades with horizon; {quality.get('summary')}"
+                ),
+                evidence_quality=quality,
+            )
+        )
+    return out
+
+
+def _climate_crop_windows(db, field) -> list[dict[str, Any]]:
+    """Crop calendar windows (MM-DD) for the crops that grew on this field."""
+    from app.db import models as dbm
+    from sqlalchemy import select as _select
+
+    history = list(
+        db.scalars(_select(dbm.CropHistory).where(dbm.CropHistory.field_id == field.id))
+    )
+    crop_ids = [h.crop_id for h in history if h.crop_id is not None]
+    if not crop_ids:
+        return []
+    windows = list(
+        db.scalars(
+            _select(dbm.CropCalendarWindow).where(dbm.CropCalendarWindow.crop_id.in_(crop_ids))
+        )
+    )
+    out: list[dict[str, Any]] = []
+    for w in windows:
+        for window_type, raw_start, raw_end in (
+            ("planting", w.planting_start, w.planting_end),
+            ("harvest", w.harvest_start, w.harvest_end),
+        ):
+            if not raw_start or not raw_end:
+                continue
+            try:
+                sm, sd = int(raw_start.split("-")[0]), int(raw_start.split("-")[1])
+                em, ed = int(raw_end.split("-")[0]), int(raw_end.split("-")[1])
+            except (ValueError, AttributeError):
+                continue
+            out.append(
+                {
+                    "crop_code": None,
+                    "window_type": window_type,
+                    "start_month": sm,
+                    "start_day": sd,
+                    "end_month": em,
+                    "end_day": ed,
+                }
+            )
+    return out

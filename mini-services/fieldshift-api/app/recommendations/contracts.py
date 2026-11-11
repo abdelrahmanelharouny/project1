@@ -48,7 +48,9 @@ class Severity(str, Enum):
 
 
 # Domain order is also the presentation order of the payload.
-DOMAINS: list[str] = ["climate", "water", "soil", "rotation", "management"]
+# P2 adds "vegetation" (satellite intelligence) — additive: the DB column is
+# an unconstrained VARCHAR(32) and the registry accepts any registered domain.
+DOMAINS: list[str] = ["climate", "vegetation", "water", "soil", "rotation", "management"]
 
 SEVERITY_ORDER: dict[str, int] = {
     Severity.INFO.value: 0,
