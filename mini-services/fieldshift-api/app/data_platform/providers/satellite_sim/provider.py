@@ -40,6 +40,7 @@ from app.data_platform.contracts.observations import (
     ProviderFetchResult,
     QualityStatus,
     SourceProvenance,
+    SpatialSupportType,
     TimeSupport,
 )
 from app.vegetation.indices import compute_indices, supported_indices

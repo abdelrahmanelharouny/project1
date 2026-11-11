@@ -242,6 +242,7 @@ def detect_temporal_findings(
         # Normalized slope signal in sd-of-residuals per year (exploratory).
         slope_signal = slope / sd_res
         if abs(slope_signal) >= TREND_Z_THRESHOLD:
+            trend_direction = "declining" if slope < 0 else "increasing"
             findings.append(
                 {
                     "kind": "trend",
@@ -249,10 +250,10 @@ def detect_temporal_findings(
                     "period": {"month": month},
                     "slope_per_year": round(slope, 5),
                     "slope_signal": round(slope_signal, 3),
-                    "direction": "declining" if slope < 0 else "increasing",
+                    "direction": trend_direction,
                     "n_years": len({s.year for s in series}),
                     "detail": (
-                        f"Exploratory {index.upper()} {direction if slope < 0 else 'increase'} "
+                        f"Exploratory {index.upper()} {trend_direction} "
                         f"trend of {slope:+.4f}/yr for calendar month {month} across "
                         f"{len({s.year for s in series})} years. Descriptive only — "
                         "not a causal diagnosis."

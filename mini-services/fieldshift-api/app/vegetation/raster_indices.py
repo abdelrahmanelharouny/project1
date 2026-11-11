@@ -55,10 +55,11 @@ def compute_index_arrays(
         valid = (a >= REFLECTANCE_MIN) & (a <= REFLECTANCE_MAX_INVALID) & np.isfinite(a)
         clean[surface] = np.where(valid, a, np.nan)
 
-    def _ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    def _diff_ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """(a - b) / (a + b), NaN-safe, zero-denominator -> NaN."""
         denom = a + b
         with np.errstate(invalid="ignore", divide="ignore"):
-            out = np.where(np.abs(denom) >= _EPS, a / denom, np.nan)
+            out = np.where(np.abs(denom) >= _EPS, (a - b) / denom, np.nan)
         return out
 
     out: dict[str, np.ndarray] = {}
@@ -69,7 +70,7 @@ def compute_index_arrays(
             out[index] = np.full(shape, np.nan)
             continue
         if index == "ndvi":
-            value = _ratio(clean["nir"], clean["red"])
+            value = _diff_ratio(clean["nir"], clean["red"])
         elif index == "evi":
             nir, red, blue = clean["nir"], clean["red"], clean["blue"]
             denom = nir + 6.0 * red - 7.5 * blue + 1.0
@@ -81,9 +82,9 @@ def compute_index_arrays(
             with np.errstate(invalid="ignore", divide="ignore"):
                 value = np.where(np.abs(denom) >= _EPS, 1.5 * (nir - red) / denom, np.nan)
         elif index == "ndmi":
-            value = _ratio(clean["nir"], clean["swir1"])
+            value = _diff_ratio(clean["nir"], clean["swir1"])
         else:  # ndwi
-            value = _ratio(clean["green"], clean["nir"])
+            value = _diff_ratio(clean["green"], clean["nir"])
         value = np.asarray(value, dtype="float64")
         lo, hi = INDEX_VALID_RANGE[index]
         value = np.where(np.isfinite(value) & (value >= lo) & (value <= hi), value, np.nan)

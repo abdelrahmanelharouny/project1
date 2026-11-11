@@ -30,7 +30,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as dbm
-from app.db.models_m6bc_m7 import SoilMeasurement, SoilSamplingEvent
+from app.db.models_m6bc_m7 import (
+    NutrientApplication,
+    NutrientRemoval,
+    SoilMeasurement,
+    SoilSamplingEvent,
+)
 from app.db.models_p2 import SatelliteScene
 
 EVIDENCE_GAPS_VERSION = "evidence-gaps-1.0.0"

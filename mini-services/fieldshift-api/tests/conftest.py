@@ -131,6 +131,16 @@ class _FakeResponse:
 
 
 def _fake_open_meteo_archive(params: dict) -> dict:
+    # Forecast-style requests (api.open-meteo.com/v1/forecast) carry
+    # `forecast_days` and no start/end — synthesize a deterministic window
+    # from today so the P2 forecast provider contract stays network-free.
+    if "start_date" not in params:
+        forecast_days = int(params.get("forecast_days") or 7)
+        start = _dt.date.today()
+        end = start + _dt.timedelta(days=max(1, forecast_days) - 1)
+        params = dict(params)
+        params["start_date"] = start.isoformat()
+        params["end_date"] = end.isoformat()
     start = _dt.date.fromisoformat(str(params["start_date"]))
     end = _dt.date.fromisoformat(str(params["end_date"]))
     days: list[str] = []

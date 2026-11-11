@@ -107,6 +107,7 @@ def ingest_forecast(
             details=[{"reason": str(exc)}],
         ) from exc
     counts = persist_forecast_evidence(db, field.id, evidence)
+    db.commit()
     return {
         "field_id": str(field.id),
         "stored": counts,

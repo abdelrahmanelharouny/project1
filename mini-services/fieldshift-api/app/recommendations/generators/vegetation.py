@@ -145,14 +145,13 @@ def vegetation_stress_advisories(db, field, ctx: RecommendationContext) -> list[
                 confidence_kind="evidence_quality",
                 confidence_basis="Evidence-quality heuristic (completeness/recency of climate + vegetation streams).",
                 evidence_quality=quality,
-                actions=[{
-                    "title": "Ground-truth the affected area",
-                    "detail": (
+                actions=[
+                    (
                         "Walk the field during the next window and compare against the "
                         "scene metadata (date, cloud cover); record irrigation and "
                         "crop-stage context."
-                    ),
-                }],
+                    )
+                ],
             )
         )
 
@@ -181,10 +180,9 @@ def vegetation_stress_advisories(db, field, ctx: RecommendationContext) -> list[
                 confidence_kind="deterministic_rule",
                 confidence_basis="Record length is directly observable.",
                 evidence_quality=quality,
-                actions=[{
-                    "title": "Keep ingesting scenes",
-                    "detail": "Seasonal baselines form automatically once >= 2 years of scenes accumulate.",
-                }],
+                actions=[
+                    "Keep ingesting scenes: seasonal baselines form automatically once >= 2 years accumulate.",
+                ],
             )
         )
 

@@ -6,6 +6,7 @@ durable source of truth.
 """
 
 import logging
+import statistics
 import time
 from contextlib import contextmanager
 from typing import Any, Iterator
@@ -91,7 +92,7 @@ def render_prometheus() -> str:
         if not samples:
             continue
         total = sum(samples)
-        median = sorted(samples)[len(samples) // 2]
+        median = statistics.median(samples)
         _prom = _prom_name(name)
         lines.append(f"# HELP {_prom}_seconds CropTwist latency {name}")
         lines.append(f"# TYPE {_prom}_seconds summary")

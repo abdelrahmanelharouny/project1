@@ -84,7 +84,14 @@ def _record_satellite_scenes(db: Session, job: IngestionJob, field: Field, resul
         )
         if exists is not None:
             continue
-        db.add(SatelliteScene(field_id=field.id, product_code=payload["metadata_json"].get("product_code") or "", **payload))
+        db.add(
+            SatelliteScene(
+                field_id=field.id,
+                provider_code=job.provider_code,
+                product_code=payload["metadata_json"].get("product_code") or "",
+                **payload,
+            )
+        )
         recorded += 1
     return recorded
 
@@ -396,6 +403,10 @@ def _persist_result(db: Session, job: IngestionJob, *, field: Field, result) -> 
         job.records_rejected = rejected
         job.warnings = warnings[:100]
         job.completed_at = datetime.now(UTC)
+        # Commit the terminal job state FIRST, independently of scene
+        # provenance: scene-recording problems must never roll the job back
+        # to 'running' (the observations themselves are already durable).
+        db.commit()
         try:
             scenes_recorded = _record_satellite_scenes(db, job, field, result)
             db.commit()
@@ -407,7 +418,6 @@ def _persist_result(db: Session, job: IngestionJob, *, field: Field, result) -> 
         except Exception:  # noqa: BLE001 — scene provenance must never fail the job
             db.rollback()
             logger.exception("satellite scene recording failed", extra={"job_id": str(job.id)})
-        db.commit()
     except Exception as exc:
         db.rollback()
         job.status = "failed"

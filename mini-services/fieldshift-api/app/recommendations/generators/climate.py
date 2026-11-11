@@ -349,10 +349,9 @@ def forecast_risk_advisories(db, field, ctx: RecommendationContext) -> list[Reco
                         f"threshold {risk.threshold} ({risk.threshold_source})"
                     ),
                 )],
-                actions=[{
-                    "title": "Check the forecast timeline before field operations",
-                    "detail": "Horizon-resolved values and freshness are on the Climate Forecasting tab.",
-                }],
+                actions=[
+                    "Check the forecast timeline (horizon-resolved values and freshness) before field operations.",
+                ],
                 confidence=evidence_backed_confidence(quality),
                 confidence_kind="evidence_quality",
                 confidence_basis=(

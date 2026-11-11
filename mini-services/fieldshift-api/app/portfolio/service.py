@@ -295,9 +295,8 @@ def start_portfolio_run(
                     }
                 )
 
-        allocations = [
-            a for a in solution.allocations if a.get("status") == optimizer.ASSIGNED_STATUS
-        ]
+        allocations = list(solution.allocations)  # assigned + fallow rows (the
+        # allocation table documents every field-season, fallow included)
         checksum = contracts.canonical_checksum(
             contracts.run_checksum_payload(
                 engine_version=contracts.PORTFOLIO_ENGINE_VERSION,

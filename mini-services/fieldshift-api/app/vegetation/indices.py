@@ -212,13 +212,15 @@ def compute_indices(
             flags.append(f"{surface}_above_unity")
         scaled[surface] = value
 
-    def _ratio(a: float | None, b: float | None) -> float | None:
+    def _diff_ratio(a: float | None, b: float | None) -> float | None:
+        """(a - b) / (a + b) with a zero-denominator guard — the shape of
+        NDVI/NDMI/NDWI (difference normalized by sum)."""
         if a is None or b is None:
             return None
         denom = a + b
         if abs(denom) < 1e-9:
             return None
-        return a / denom
+        return (a - b) / denom
 
     for index in wanted:
         required = INDEX_REQUIREMENTS[index]
@@ -234,7 +236,7 @@ def compute_indices(
         swir1 = scaled.get("swir1")
         value: float | None
         if index == "ndvi":
-            value = _ratio(nir, red)
+            value = _diff_ratio(nir, red)
         elif index == "evi":
             denom = nir + 6.0 * red - 7.5 * blue + 1.0
             value = 2.5 * (nir - red) / denom if abs(denom) >= 1e-9 else None
@@ -242,9 +244,9 @@ def compute_indices(
             denom = nir + red + 0.5
             value = 1.5 * (nir - red) / denom if abs(denom) >= 1e-9 else None
         elif index == "ndmi":
-            value = _ratio(nir, swir1)
+            value = _diff_ratio(nir, swir1)
         else:  # ndwi
-            value = _ratio(green, nir)
+            value = _diff_ratio(green, nir)
         if value is not None and not math.isfinite(value):
             values[index] = None
             flags.append(f"{index}_nonfinite")
