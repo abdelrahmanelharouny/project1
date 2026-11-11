@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.billing import entitlements
 from app.core.errors import Forbidden
 from app.db.models import AuditEvent, Farm, Field, FieldBoundaryVersion, Observation
 from app.geospatial.validation import (
@@ -45,6 +46,22 @@ def create_farm(db: Session, principal: Any, payload: dict[str, Any]) -> Farm:
     active.sort(key=lambda m: (m.created_at or datetime.now(UTC), m.organization_id))
     target_org_id = active[0].organization_id
     principal.require_org_role(target_org_id, "manager")
+    # P3 enforcement gate (Task 3): max_farms entitlement. Applied ONLY when
+    # the target organization has a live subscription — org-less / legacy
+    # personal accounts (P1/P2 golden flows, seed/demo users) pass through
+    # untouched so existing behavior is 100% preserved.
+    if entitlements.get_live_subscription(db, target_org_id) is not None:
+        existing_farms = int(
+            db.scalar(
+                select(func.count())
+                .select_from(Farm)
+                .where(Farm.organization_id == target_org_id)
+            )
+            or 0
+        )
+        entitlements.assert_within_limit(
+            db, target_org_id, entitlements.KEY_MAX_FARMS, existing_farms
+        )
     farm = Farm(
         organization_id=target_org_id,
         name=payload["name"].strip(),
@@ -117,6 +134,23 @@ def create_field(
     geometry: Any,
     change_reason: str | None = None,
 ) -> dict[str, Any]:
+    # P3 enforcement gate (Task 3): max_fields entitlement. Applied ONLY when
+    # the farm's organization has a live subscription — org-less / legacy
+    # personal accounts (P1/P2 golden flows, seed/demo users) pass through
+    # untouched so existing behavior is 100% preserved.
+    if entitlements.get_live_subscription(db, farm.organization_id) is not None:
+        existing_fields = int(
+            db.scalar(
+                select(func.count())
+                .select_from(Field)
+                .join(Farm, Field.farm_id == Farm.id)
+                .where(Farm.organization_id == farm.organization_id)
+            )
+            or 0
+        )
+        entitlements.assert_within_limit(
+            db, farm.organization_id, entitlements.KEY_MAX_FIELDS, existing_fields
+        )
     validation = validate_boundary_geojson(geometry)
     area_ha = _ha(validation.area_m2_geodesic)
     field = Field(

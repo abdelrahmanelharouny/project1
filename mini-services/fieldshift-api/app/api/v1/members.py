@@ -3,6 +3,11 @@
 All routes are farm-scoped: the farm is resolved through
 get_farm_for_principal first (tenant check), then the role gate is enforced
 inside the identity service (GET manager+, mutations owner-only).
+
+P3 (migration 0020): the role set was widened to the full 7-role model
+(owner / org_admin / manager / operator / agronomist / analyst / viewer).
+The Pydantic request models now accept every ROLE_ORDER code — the identity
+service remains the authority for which roles each caller may grant.
 """
 
 import uuid
@@ -25,14 +30,19 @@ from app.domains.identity.service import (
 
 router = APIRouter(tags=["members"])
 
+# Full 7-role set (P3, migration 0020). Mirrors ROLE_ORDER in
+# app/domains/identity/service.py — org_admin / operator / analyst added to
+# the historical owner/manager/agronomist/viewer codes.
+_ROLE_PATTERN = "^(owner|org_admin|manager|operator|agronomist|analyst|viewer)$"
+
 
 class MemberAdd(BaseModel):
     email: str = Field(min_length=5, max_length=320)
-    role_code: str = Field(pattern="^(owner|manager|agronomist|viewer)$")
+    role_code: str = Field(pattern=_ROLE_PATTERN)
 
 
 class MemberPatch(BaseModel):
-    role_code: str = Field(pattern="^(owner|manager|agronomist|viewer)$")
+    role_code: str = Field(pattern=_ROLE_PATTERN)
 
 
 def _member_payload(membership: Membership) -> dict[str, Any]:

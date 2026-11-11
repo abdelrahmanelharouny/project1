@@ -43,7 +43,13 @@ async def lifespan(app: FastAPI):
         db.commit()
     finally:
         db.close()
+    # P3 W5/W6: periodic maintenance scheduler (report queue, webhook
+    # retries, subscription expiry, retention sweeps).
+    from app.core import scheduler as maintenance_scheduler
+
+    maintenance_scheduler.start_scheduler()
     yield
+    maintenance_scheduler.stop_scheduler()
     background_jobs.shutdown_workers()
 
 

@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # and keeps the legacy inline-in-request execution (used by tests).
     job_workers: int = 2
 
+    # P3 W5/W6: periodic maintenance scheduler (report queue, webhook
+    # retries, subscription expiry, retention sweeps). Disable in unit
+    # tests via CROPTWIST_SCHEDULER_ENABLED=false.
+    scheduler_enabled: bool = True
+
     # Dev conveniences. Secure-by-default: false unless explicitly enabled.
     # The sandbox runs with CROPTWIST_DEV_MODE=true via .env (gitignored);
     # docker-compose and production set false. MUST be false in production
@@ -91,6 +96,28 @@ class Settings(BaseSettings):
     open_meteo_forecast_timeout_seconds: float = 20.0
     open_meteo_forecast_days: int = 16
     forecast_freshness_max_age_hours: float = 12.0
+
+    # P3 — billing (W2). Only the sandbox provider is wired; a real provider
+    # adapter must supply verified credentials via the secret manager before
+    # any live processing is claimed. The webhook secret signs/verifies
+    # provider callbacks; rotation restarts acceptance (replay window).
+    billing_provider: str = "sandbox"
+    billing_webhook_secret: str = "sandbox-billing-webhook-secret-change-me"
+    billing_grace_seconds: int = 3 * 24 * 3600  # past_due → grace window
+    billing_max_webhook_payload_bytes: int = 262_144
+
+    # P3 — public API keys (W6). Plaintext keys are shown once at creation.
+    api_key_prefix: str = "ctk_"
+
+    # P3 — outgoing webhooks (W6): signing secret rotation and delivery.
+    webhook_max_attempts: int = 5
+    webhook_backoff_seconds: list[int] = [30, 120, 600, 3600, 21600]
+    webhook_max_endpoints_per_org: int = 20
+
+    # P3 — reports (W5): storage root for generated artifacts + retention.
+    reports_dir: str = "/home/z/my-project/mini-services/fieldshift-api/reports_storage"
+    report_retention_days: int = 30
+    report_max_per_month_free: int = 3
 
 
 @lru_cache

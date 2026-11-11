@@ -49,6 +49,8 @@ export const messageNamespaces = [
   'failurelab',
   'adaptiveevidence',
   'portfolio',
+  'p3',
+  'p3b',
   'system',
 ] as const
 

@@ -3,10 +3,14 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    activity,
+    analytics,
     auth,
+    billing,
     climate,
     data_platform,
     decision,
+    developer,
     digital_twin,
     evidence_gaps,
     failure_lab,
@@ -20,8 +24,14 @@ from app.api.v1 import (
     management,
     members,
     metrics,
+    notifications,
+    onboarding,
+    orgs,
     portfolio,
+    preferences,
+    public_v1,
     recommendations,
+    reports,
     robust_rotation,
     rotation,
     scenario_executions,
@@ -69,3 +79,18 @@ api_router.include_router(portfolio.router)
 # Prometheus exposition (unauthenticated by design — loopback bind +
 # route-template labels only; see app/api/v1/metrics.py).
 api_router.include_router(metrics.router)
+
+# P3 SaaS platform routers — all prefixes are literal and non-conflicting
+# with the routers above (orgs/billing/onboarding/notifications/analytics/
+# preferences/reports/developer/public). Registered last; /public/v1 carries
+# its own API-key authentication rather than the bearer Principal flow.
+api_router.include_router(orgs.router)
+api_router.include_router(billing.router)
+api_router.include_router(onboarding.router)
+api_router.include_router(notifications.router)
+api_router.include_router(analytics.router)
+api_router.include_router(preferences.router)
+api_router.include_router(activity.router)
+api_router.include_router(reports.router)
+api_router.include_router(developer.router)
+api_router.include_router(public_v1.router)

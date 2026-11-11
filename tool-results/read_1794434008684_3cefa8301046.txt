@@ -1,0 +1,793 @@
+     1→"""Subscription lifecycle + billing webhooks (P3 §4.3 / §4.4).
+     2→
+     3→State machine (single live subscription per organization):
+     4→
+     5→    (none) ──start──▶ trialing ──trial_end──▶ active ──period_end──▶ (renew)
+     6→                        │                        │
+     7→                        └─────────▶ active ──────┘
+     8→    active ──payment_failed──▶ past_due ──grace_deadline──▶ grace
+     9→    past_due/grace ──payment_ok──▶ active
+    10→    any live ──cancel──▶ canceled (at period end) ──expire──▶ canceled/expired
+    11→
+    12→Every transition appends a SubscriptionEvent (audit) and an activity event;
+    13→payment events append billing events with provider-level idempotency
+    14→(unique provider_event_id). Invoice rows are created on activation/renewal.
+    15→NO real payment processing is claimed — provider="sandbox" only (P3 §4.3).
+    16→"""
+    17→
+    18→import uuid
+    19→from datetime import UTC, datetime, timedelta
+    20→from typing import Any
+    21→
+    22→from sqlalchemy import func, select
+    23→from sqlalchemy.orm import Session
+    24→
+    25→from app.activity import service as activity
+    26→from app.billing import entitlements
+    27→from app.billing.provider import SandboxBillingProvider, get_provider, grace_deadline, period_bounds
+    28→from app.core.config import settings
+    29→from app.core.errors import Conflict, NotFound, ValidationFailed
+    30→from app.db.models_p3 import (
+    31→    BillingEvent,
+    32→    Invoice,
+    33→    Plan,
+    34→    PlanEntitlement,
+    35→    PlanPrice,
+    36→    Subscription,
+    37→    SubscriptionEvent,
+    38→)
+    39→from app.domains.identity.service import Principal
+    40→
+    41→LIVE_STATUSES = ("trialing", "active", "past_due", "grace")
+    42→
+    43→
+    44→def get_plan_by_code(db: Session, code: str) -> Plan | None:
+    45→    return db.scalar(select(Plan).where(Plan.code == code, Plan.is_active.is_(True)))
+    46→
+    47→
+    48→def get_plan_by_id(db: Session, plan_id: uuid.UUID) -> Plan | None:
+    49→    return db.get(Plan, plan_id)
+    50→
+    51→
+    52→def list_public_plans(db: Session) -> list[dict[str, Any]]:
+    53→    """Plan catalog for the pricing page (public plans with prices +
+    54→    entitlement summaries). Prices are catalog DATA; None = contact sales."""
+    55→    plans = list(
+    56→        db.scalars(
+    57→            select(Plan)
+    58→            .where(Plan.is_public.is_(True), Plan.is_active.is_(True))
+    59→            .order_by(Plan.sort_order)
+    60→        ).all()
+    61→    )
+    62→    out = []
+    63→    for plan in plans:
+    64→        prices = list(db.scalars(select(PlanPrice).where(PlanPrice.plan_id == plan.id)).all())
+    65→        ents = list(
+    66→            db.scalars(select(PlanEntitlement).where(PlanEntitlement.plan_id == plan.id)).all()
+    67→        )
+    68→        entitlement_map: dict[str, Any] = {}
+    69→        for e in ents:
+    70→            entitlement_map[e.key] = e.value_int if e.value_int is not None else bool(e.value_bool)
+    71→        out.append(
+    72→            {
+    73→                "id": str(plan.id),
+    74→                "code": plan.code,
+    75→                "name": plan.name,
+    76→                "description": plan.description,
+    77→                "trial_days": plan.trial_days,
+    78→                "prices": [
+    79→                    {
+    80→                        "billing_period": p.billing_period,
+    81→                        "amount_cents": p.amount_cents,
+    82→                        "currency_code": p.currency_code,
+    83→                    }
+    84→                    for p in prices
+    85→                    if p.is_active
+    86→                ],
+    87→                "entitlements": entitlement_map,
+    88→            }
+    89→        )
+    90→    return out
+    91→
+    92→
+    93→def _record_transition(
+    94→    db: Session,
+    95→    *,
+    96→    subscription: Subscription,
+    97→    event_type: str,
+    98→    to_status: str | None,
+    99→    actor_user_id: uuid.UUID | None,
+   100→    details: dict[str, Any] | None = None,
+   101→) -> None:
+   102→    db.add(
+   103→        SubscriptionEvent(
+   104→            subscription_id=subscription.id,
+   105→            event_type=event_type,
+   106→            from_status=subscription.status,
+   107→            to_status=to_status,
+   108→            details=details or {},
+   109→            actor_user_id=actor_user_id,
+   110→        )
+   111→    )
+   112→    if to_status is not None:
+   113→        subscription.status = to_status
+   114→    activity.record_event(
+   115→        db,
+   116→        organization_id=subscription.organization_id,
+   117→        event_type=activity.EVENT_SUBSCRIPTION_CHANGED,
+   118→        summary=f"Subscription {event_type}" + (f" → {to_status}" if to_status else ""),
+   119→        actor_user_id=actor_user_id,
+   120→        entity_kind="subscription",
+   121→        entity_id=str(subscription.id),
+   122→        details=details or {},
+   123→    )
+   124→    # P3 W6: direct lifecycle transitions (start/change/cancel/resume/renew)
+   125→    # also notify subscribed webhooks — same event the provider-webhook path
+   126→    # emits. Emission must never fail the billing transition.
+   127→    try:
+   128→        from app.publicapi.emitters import emit_event
+   129→
+   130→        emit_event(
+   131→            db,
+   132→            subscription.organization_id,
+   133→            "subscription.updated",
+   134→            payload_id=str(subscription.id),
+   135→            data={
+   136→                "billing_event": event_type,
+   137→                "subscription_status": to_status or subscription.status,
+   138→                "plan_code": getattr(subscription, "plan_code", None),
+   139→            },
+   140→        )
+   141→    except Exception:  # noqa: BLE001
+   142→        pass
+   143→
+   144→
+   145→def _create_invoice(
+   146→    db: Session,
+   147→    *,
+   148→    subscription: Subscription,
+   149→    period_start: datetime,
+   150→    period_end: datetime,
+   151→    amount_cents: int,
+   152→    currency_code: str,
+   153→) -> Invoice:
+   154→    number = f"CT-{period_end.strftime('%Y%m')}-{uuid.uuid4().hex[:8].upper()}"
+   155→    invoice = Invoice(
+   156→        organization_id=subscription.organization_id,
+   157→        subscription_id=subscription.id,
+   158→        number=number,
+   159→        status="paid" if amount_cents == 0 else "open",
+   160→        amount_cents=amount_cents,
+   161→        currency_code=currency_code,
+   162→        period_start=period_start.date(),
+   163→        period_end=period_end.date(),
+   164→        issued_at=datetime.now(UTC),
+   165→        paid_at=datetime.now(UTC) if amount_cents == 0 else None,
+   166→        provider_ref=subscription.provider_subscription_ref,
+   167→    )
+   168→    db.add(invoice)
+   169→    return invoice
+   170→
+   171→
+   172→def _price_for(db: Session, plan: Plan, billing_period: str) -> tuple[int | None, str]:
+   173→    price = db.scalar(
+   174→        select(PlanPrice).where(
+   175→            PlanPrice.plan_id == plan.id,
+   176→            PlanPrice.billing_period == billing_period,
+   177→            PlanPrice.is_active.is_(True),
+   178→        )
+   179→    )
+   180→    if price is None:
+   181→        return None, "USD"
+   182→    return price.amount_cents, price.currency_code
+   183→
+   184→
+   185→# ---------------------------------------------------------------- lifecycle
+   186→def start_subscription(
+   187→    db: Session,
+   188→    principal: Principal,
+   189→    *,
+   190→    organization_id: uuid.UUID,
+   191→    plan_id: uuid.UUID,
+   192→    billing_period: str,
+   193→    actor: str = "self",
+   194→) -> dict[str, Any]:
+   195→    """Start a trial or paid subscription for the organization.
+   196→
+   197→    Owner/org_admin only. Creates the checkout session via the provider
+   198→    (sandbox) and, for plans with a trial, activates a trialing subscription
+   199→    immediately; paid-without-trial starts 'active' with a $0-truth invoice
+   200→    in the sandbox (test mode — no money moves).
+   201→    """
+   202→    principal.require_org_role(organization_id, "org_admin")
+   203→    if billing_period not in ("monthly", "yearly"):
+   204→        raise ValidationFailed("billing_period must be 'monthly' or 'yearly'.")
+   205→    existing = entitlements.get_live_subscription(db, organization_id)
+   206→    if existing is not None:
+   207→        raise Conflict("This organization already has a live subscription.")
+   208→    plan = db.get(Plan, plan_id)
+   209→    if plan is None or not plan.is_active:
+   210→        raise NotFound("Plan not found.")
+   211→
+   212→    provider = get_provider(settings.billing_provider)
+   213→    checkout = provider.create_checkout(
+   214→        organization_id=organization_id,
+   215→        plan_code=plan.code,
+   216→        billing_period=billing_period,
+   217→        success_url="/billing?checkout=success",
+   218→        cancel_url="/pricing?checkout=cancelled",
+   219→    )
+   220→    now = datetime.now(UTC)
+   221→    start, end = period_bounds(start=now, billing_period=billing_period)
+   222→    trial_ends = (
+   223→        now + timedelta(days=plan.trial_days) if plan.trial_days and plan.trial_days > 0 else None
+   224→    )
+   225→    status = "trialing" if trial_ends is not None else "active"
+   226→    amount, currency = _price_for(db, plan, billing_period)
+   227→    subscription = Subscription(
+   228→        organization_id=organization_id,
+   229→        plan_id=plan.id,
+   230→        status=status,
+   231→        billing_period=billing_period,
+   232→        provider=provider.name,
+   233→        provider_customer_ref=provider.create_customer(
+   234→            organization_id=organization_id,
+   235→            email=principal.user.email,
+   236→            name=principal.user.display_name,
+   237→        ),
+   238→        provider_subscription_ref=f"sub_sandbox_{subscription_ref_suffix(checkout.session_id)}",
+   239→        current_period_start=start,
+   240→        current_period_end=end if trial_ends is None else (now + timedelta(days=plan.trial_days)),
+   241→        trial_ends_at=trial_ends,
+   242→    )
+   243→    db.add(subscription)
+   244→    db.flush()
+   245→    _record_transition(
+   246→        db,
+   247→        subscription=subscription,
+   248→        event_type="subscription.started",
+   249→        to_status=status,
+   250→        actor_user_id=principal.id,
+   251→        details={
+   252→            "plan_code": plan.code,
+   253→            "billing_period": billing_period,
+   254→            "provider": provider.name,
+   255→            "mode": provider.mode,
+   256→            "checkout_session": checkout.session_id,
+   257→            "actor": actor,
+   258→        },
+   259→    )
+   260→    if status == "active":
+   261→        _create_invoice(
+   262→            db,
+   263→            subscription=subscription,
+   264→            period_start=start,
+   265→            period_end=end,
+   266→            amount_cents=amount or 0,
+   267→            currency_code=currency,
+   268→        )
+   269→    activity.record_event(
+   270→        db,
+   271→        organization_id=organization_id,
+   272→        event_type=activity.EVENT_PLAN_CHANGED,
+   273→        summary=f"Subscribed to the {plan.name} plan ({billing_period}, sandbox test mode)",
+   274→        actor_user_id=principal.id,
+   275→        entity_kind="subscription",
+   276→        entity_id=str(subscription.id),
+   277→        details={"plan_code": plan.code, "mode": provider.mode},
+   278→    )
+   279→    db.commit()
+   280→    db.refresh(subscription)
+   281→    return {"subscription": subscription, "checkout": checkout}
+   282→
+   283→
+   284→def subscription_ref_suffix(session_id: str) -> str:
+   285→    return hashlib_short(session_id)
+   286→
+   287→
+   288→def hashlib_short(value: str) -> str:
+   289→    import hashlib
+   290→
+   291→    return hashlib.sha256(value.encode()).hexdigest()[:16]
+   292→
+   293→
+   294→def change_plan(
+   295→    db: Session,
+   296→    principal: Principal,
+   297→    *,
+   298→    organization_id: uuid.UUID,
+   299→    new_plan_id: uuid.UUID,
+   300→    billing_period: str | None = None,
+   301→) -> Subscription:
+   302→    """Upgrade/downgrade effective immediately (sandbox semantics: proration
+   303→    is NOT simulated; the next invoice reflects the new plan price)."""
+   304→    principal.require_org_role(organization_id, "org_admin")
+   305→    subscription = entitlements.get_live_subscription(db, organization_id)
+   306→    if subscription is None:
+   307→        raise Conflict("No live subscription to change.")
+   308→    plan = db.get(Plan, new_plan_id)
+   309→    if plan is None or not plan.is_active:
+   310→        raise NotFound("Plan not found.")
+   311→    old_plan = db.get(Plan, subscription.plan_id)
+   312→    period = billing_period or subscription.billing_period
+   313→    if period not in ("monthly", "yearly"):
+   314→        raise ValidationFailed("billing_period must be 'monthly' or 'yearly'.")
+   315→    subscription.plan_id = plan.id
+   316→    if billing_period and billing_period != subscription.billing_period:
+   317→        subscription.billing_period = billing_period
+   318→        start, end = period_bounds(start=subscription.current_period_end, billing_period=period)
+   319→        subscription.current_period_start = subscription.current_period_end
+   320→        subscription.current_period_end = end
+   321→    _record_transition(
+   322→        db,
+   323→        subscription=subscription,
+   324→        event_type="subscription.plan_changed",
+   325→        to_status=None,
+   326→        actor_user_id=principal.id,
+   327→        details={
+   328→            "from_plan": old_plan.code if old_plan else None,
+   329→            "to_plan": plan.code,
+   330→            "billing_period": period,
+   331→        },
+   332→    )
+   333→    activity.record_event(
+   334→        db,
+   335→        organization_id=organization_id,
+   336→        event_type=activity.EVENT_PLAN_CHANGED,
+   337→        summary=f"Plan changed to {plan.name} (sandbox test mode)",
+   338→        actor_user_id=principal.id,
+   339→        entity_kind="subscription",
+   340→        entity_id=str(subscription.id),
+   341→        details={"to_plan": plan.code},
+   342→    )
+   343→    db.commit()
+   344→    db.refresh(subscription)
+   345→    return subscription
+   346→
+   347→
+   348→def cancel_subscription(
+   349→    db: Session,
+   350→    principal: Principal,
+   351→    *,
+   352→    organization_id: uuid.UUID,
+   353→    at_period_end: bool = True,
+   354→) -> Subscription:
+   355→    principal.require_org_role(organization_id, "org_admin")
+   356→    subscription = entitlements.get_live_subscription(db, organization_id)
+   357→    if subscription is None:
+   358→        raise Conflict("No live subscription to cancel.")
+   359→    now = datetime.now(UTC)
+   360→    if at_period_end:
+   361→        subscription.cancel_at_period_end = True
+   362→        _record_transition(
+   363→            db,
+   364→            subscription=subscription,
+   365→            event_type="subscription.cancel_scheduled",
+   366→            to_status=None,
+   367→            actor_user_id=principal.id,
+   368→            details={"effective_at": subscription.current_period_end.isoformat()},
+   369→        )
+   370→    else:
+   371→        subscription.canceled_at = now
+   372→        _record_transition(
+   373→            db,
+   374→            subscription=subscription,
+   375→            event_type="subscription.canceled",
+   376→            to_status="canceled",
+   377→            actor_user_id=principal.id,
+   378→        )
+   379→        from app.notifications import service as notifications
+   380→
+   381→        notifications.create_notification(
+   382→            db,
+   383→            organization_id=organization_id,
+   384→            category="subscription",
+   385→            severity="warning",
+   386→            title="Subscription canceled",
+   387→            body="Your subscription is now canceled. Plan limits apply.",
+   388→            dedupe_key=f"subscription:canceled:{subscription.id}",
+   389→        )
+   390→    db.commit()
+   391→    db.refresh(subscription)
+   392→    return subscription
+   393→
+   394→
+   395→def resume_subscription(
+   396→    db: Session, principal: Principal, *, organization_id: uuid.UUID
+   397→) -> Subscription:
+   398→    """Undo a scheduled period-end cancellation."""
+   399→    principal.require_org_role(organization_id, "org_admin")
+   400→    subscription = entitlements.get_live_subscription(db, organization_id)
+   401→    if subscription is None:
+   402→        raise Conflict("No live subscription.")
+   403→    if not subscription.cancel_at_period_end:
+   404→        raise Conflict("Cancellation is not scheduled.")
+   405→    subscription.cancel_at_period_end = False
+   406→    _record_transition(
+   407→        db,
+   408→        subscription=subscription,
+   409→        event_type="subscription.resume",
+   410→        to_status=None,
+   411→        actor_user_id=principal.id,
+   412→    )
+   413→    db.commit()
+   414→    db.refresh(subscription)
+   415→    return subscription
+   416→
+   417→
+   418→# -------------------------------------------------------- webhook pipeline
+   419→def process_billing_webhook(
+   420→    db: Session,
+   421→    *,
+   422→    provider: str,
+   423→    event_type: str,
+   424→    provider_event_id: str,
+   425→    payload: dict[str, Any],
+   426→    signature_valid: bool,
+   427→) -> BillingEvent:
+   428→    """Idempotent billing webhook ingestion (P3 §4.4).
+   429→
+   430→    - Signature-invalid events are REJECTED (status 'failed') and never
+   431→      processed.
+   432→    - (provider, provider_event_id) unique: replays return the original row
+   433→      with status 'duplicate' and never double-process (no duplicate
+   434→      invoices/transactions).
+   435→    - Handled event types: payment.succeeded, payment.declined,
+   436→      subscription.renewal_due, subscription.expired.
+   437→    """
+   438→    from app.core.errors import Forbidden
+   439→
+   440→    if not signature_valid:
+   441→        event = BillingEvent(
+   442→            provider=provider,
+   443→            event_type=event_type[:80],
+   444→            provider_event_id=provider_event_id[:200],
+   445→            signature_valid=False,
+   446→            status="failed",
+   447→            error="invalid webhook signature",
+   448→            payload={},
+   449→        )
+   450→        db.add(event)
+   451→        db.commit()
+   452→        raise Forbidden("Webhook signature verification failed.")
+   453→
+   454→    existing = db.scalar(
+   455→        select(BillingEvent).where(
+   456→            BillingEvent.provider == provider, BillingEvent.provider_event_id == provider_event_id
+   457→        )
+   458→    )
+   459→    if existing is not None:
+   460→        existing.status = "duplicate" if existing.status == "processed" else existing.status
+   461→        db.commit()
+   462→        return existing
+   463→
+   464→    event = BillingEvent(
+   465→        provider=provider,
+   466→        event_type=event_type[:80],
+   467→        provider_event_id=provider_event_id[:200],
+   468→        signature_valid=True,
+   469→        status="received",
+   470→        payload=payload,
+   471→    )
+   472→    db.add(event)
+   473→    db.flush()
+   474→
+   475→    org_ref = payload.get("organization_id")
+   476→    try:
+   477→        if not isinstance(org_ref, str) or not org_ref:
+   478→            raise ValidationFailed("payload.organization_id is required.")
+   479→        organization_id = uuid.UUID(org_ref)
+   480→        subscription = entitlements.get_live_subscription(db, organization_id)
+   481→        if subscription is None:
+   482→            raise NotFound("No live subscription for this organization.")
+   483→
+   484→        if event_type == "payment.succeeded":
+   485→            amount = int(payload.get("amount_cents") or 0)
+   486→            _settle_payment(db, subscription=subscription, amount_cents=amount)
+   487→        elif event_type == "payment.declined":
+   488→            _enter_past_due(db, subscription=subscription)
+   489→        elif event_type == "subscription.renewal_due":
+   490→            _renew(db, subscription=subscription, paid=payload.get("simulate_outcome") != "declined")
+   491→        elif event_type == "subscription.ended":
+   492→            _record_transition(
+   493→                db,
+   494→                subscription=subscription,
+   495→                event_type="subscription.ended",
+   496→                to_status="canceled",
+   497→                actor_user_id=None,
+   498→                details={"source": "provider_webhook"},
+   499→            )
+   500→        else:
+   501→            raise ValidationFailed(f"Unhandled billing event type '{event_type}'.")
+   502→        event.status = "processed"
+   503→        event.processed_at = datetime.now(UTC)
+   504→    except Exception as exc:
+   505→        event.status = "failed"
+   506→        event.error = f"{type(exc).__name__}: {exc}"[:2000]
+   507→        db.commit()
+   508→        raise
+   509→    db.commit()
+   510→    # P3 W6: surface subscription lifecycle changes to subscribed webhooks.
+   511→    try:
+   512→        from app.publicapi.emitters import emit_event
+   513→
+   514→        if isinstance(org_ref, str) and org_ref:
+   515→            emit_event(
+   516→                db,
+   517→                uuid.UUID(org_ref),
+   518→                "subscription.updated",
+   519→                payload_id=str(event.id),
+   520→                data={
+   521→                    "billing_event": event_type,
+   522→                    "subscription_status": subscription.status
+   523→                    if subscription is not None
+   524→                    else None,
+   525→                },
+   526→            )
+   527→            db.commit()
+   528→    except Exception:  # noqa: BLE001 — emission must not fail billing intake
+   529→        db.rollback()
+   530→    db.refresh(event)
+   531→    return event
+   532→
+   533→
+   534→def _settle_payment(db: Session, *, subscription: Subscription, amount_cents: int) -> None:
+   535→    """Payment success: clear past_due/grace, open invoice → paid."""
+   536→    now = datetime.now(UTC)
+   537→    open_invoice = db.scalar(
+   538→        select(Invoice)
+   539→        .where(
+   540→            Invoice.organization_id == subscription.organization_id,
+   541→            Invoice.status == "open",
+   542→        )
+   543→        .order_by(Invoice.issued_at.desc())
+   544→        .limit(1)
+   545→    )
+   546→    if open_invoice is not None:
+   547→        open_invoice.status = "paid"
+   548→        open_invoice.paid_at = now
+   549→    if subscription.status in ("past_due", "grace"):
+   550→        _record_transition(
+   551→            db,
+   552→            subscription=subscription,
+   553→            event_type="payment.succeeded",
+   554→            to_status="active",
+   555→            actor_user_id=None,
+   556→            details={"amount_cents": amount_cents},
+   557→        )
+   558→        subscription.grace_ends_at = None
+   559→    from app.notifications import service as notifications
+   560→
+   561→    notifications.create_notification(
+   562→        db,
+   563→        organization_id=subscription.organization_id,
+   564→        category="billing",
+   565→        severity="info",
+   566→        title="Payment received",
+   567→        body="Your latest invoice has been paid. Thank you.",
+   568→        dedupe_key=f"billing:paid:{subscription.id}:{now.date().isoformat()}",
+   569→    )
+   570→
+   571→
+   572→def _enter_past_due(db: Session, *, subscription: Subscription) -> None:
+   573→    now = datetime.now(UTC)
+   574→    if subscription.status == "past_due":
+   575→        return
+   576→    _record_transition(
+   577→        db,
+   578→        subscription=subscription,
+   579→        event_type="payment.declined",
+   580→        to_status="past_due",
+   581→        actor_user_id=None,
+   582→    )
+   583→    subscription.grace_ends_at = grace_deadline(now)
+   584→    from app.notifications import service as notifications
+   585→
+   586→    notifications.create_notification(
+   587→        db,
+   588→        organization_id=subscription.organization_id,
+   589→        category="billing",
+   590→        severity="critical",
+   591→        title="Payment failed",
+   592→        body="Your latest payment failed. Update your payment method to avoid service limits.",
+   593→        dedupe_key=f"billing:failed:{subscription.id}:{now.date().isoformat()}",
+   594→    )
+   595→
+   596→
+   597→def _renew(db: Session, *, subscription: Subscription, paid: bool) -> None:
+   598→    """Period rollover: honor cancel_at_period_end, expire trials, renew."""
+   599→    now = datetime.now(UTC)
+   600→    if subscription.cancel_at_period_end:
+   601→        subscription.canceled_at = now
+   602→        _record_transition(
+   603→            db,
+   604→            subscription=subscription,
+   605→            event_type="subscription.canceled",
+   606→            to_status="canceled",
+   607→            actor_user_id=None,
+   608→            details={"reason": "cancel_at_period_end"},
+   609→        )
+   610→        return
+   611→    # Trial expiry without payment setup → active (sandbox) unless declined.
+   612→    plan = db.get(Plan, subscription.plan_id)
+   613→    amount, currency = _price_for(db, plan, subscription.billing_period) if plan else (0, "USD")
+   614→    start, end = period_bounds(start=subscription.current_period_end, billing_period=subscription.billing_period)
+   615→    subscription.current_period_start = start
+   616→    subscription.current_period_end = end
+   617→    if subscription.status == "trialing":
+   618→        _record_transition(
+   619→            db,
+   620→            subscription=subscription,
+   621→            event_type="trial.ended",
+   622→            to_status="active" if paid else "past_due",
+   623→            actor_user_id=None,
+   624→        )
+   625→        if not paid:
+   626→            subscription.grace_ends_at = grace_deadline(now)
+   627→            return
+   628→    _create_invoice(
+   629→        db,
+   630→        subscription=subscription,
+   631→        period_start=start,
+   632→        period_end=end,
+   633→        amount_cents=amount or 0,
+   634→        currency_code=currency,
+   635→    )
+   636→    if not paid:
+   637→        _enter_past_due(db, subscription=subscription)
+   638→
+   639→
+   640→def expire_stale_subscriptions(db: Session) -> int:
+   641→    """Scheduler sweep: cancel_at_period_end subscriptions past period end
+   642→    and grace windows that lapsed → 'expired'/'canceled'."""
+   643→    now = datetime.now(UTC)
+   644→    changed = 0
+   645→    rows = list(
+   646→        db.scalars(select(Subscription).where(Subscription.status.in_(LIVE_STATUSES))).all()
+   647→    )
+   648→    for sub in rows:
+   649→        if sub.cancel_at_period_end and sub.current_period_end < now:
+   650→            sub.canceled_at = now
+   651→            _record_transition(
+   652→                db,
+   653→                subscription=sub,
+   654→                event_type="subscription.canceled",
+   655→                to_status="canceled",
+   656→                actor_user_id=None,
+   657→                details={"reason": "period_ended_after_cancel_request"},
+   658→            )
+   659→            changed += 1
+   660→        elif sub.status == "past_due" and sub.grace_ends_at is not None and sub.grace_ends_at < now:
+   661→            _record_transition(
+   662→                db,
+   663→                subscription=sub,
+   664→                event_type="subscription.grace_ended",
+   665→                to_status="grace",
+   666→                actor_user_id=None,
+   667→                details={"note": "grace window lapsed — paid capabilities locked"},
+   668→            )
+   669→            changed += 1
+   670→    if changed:
+   671→        db.commit()
+   672→    return changed
+   673→
+   674→
+   675→# ------------------------------------------------------------ sandbox sims
+   676→def simulate_sandbox_payment(
+   677→    db: Session,
+   678→    principal: Principal,
+   679→    *,
+   680→    organization_id: uuid.UUID,
+   681→    outcome: str,
+   682→) -> dict[str, Any]:
+   683→    """TEST-MODE ONLY: simulate the provider payment webhook for the org's
+   684→    live subscription (success or decline). Requires org_admin and the
+   685→    sandbox provider; the generated webhook is processed through the same
+   686→    idempotent pipeline as a real callback."""
+   687→    principal.require_org_role(organization_id, "org_admin")
+   688→    subscription = entitlements.get_live_subscription(db, organization_id)
+   689→    if subscription is None:
+   690→        raise Conflict("No live subscription.")
+   691→    if subscription.provider != "sandbox":
+   692→        raise ValidationFailed("Payment simulation is only available for the sandbox provider.")
+   693→    provider = get_provider("sandbox")
+   694→    assert isinstance(provider, SandboxBillingProvider)
+   695→    plan = db.get(Plan, subscription.plan_id)
+   696→    amount, currency = _price_for(db, plan, subscription.billing_period) if plan else (0, "USD")
+   697→    result = provider.simulate_payment(
+   698→        outcome=outcome,
+   699→        subscription_ref=subscription.provider_subscription_ref or "",
+   700→        amount_cents=amount or 0,
+   701→        currency=currency,
+   702→    )
+   703→    payload = {
+   704→        "organization_id": str(organization_id),
+   705→        "event_id": result.provider_event_id,
+   706→        "outcome": result.outcome,
+   707→        **result.details,
+   708→    }
+   709→    event = process_billing_webhook(
+   710→        db,
+   711→        provider="sandbox",
+   712→        event_type="payment.succeeded" if outcome == "succeeded" else "payment.declined",
+   713→        provider_event_id=result.provider_event_id,
+   714→        payload=payload,
+   715→        signature_valid=True,  # simulated in-process; signing verified in unit tests
+   716→    )
+   717→    db.refresh(subscription)
+   718→    return {"billing_event_id": str(event.id), "status": event.status, "outcome": result.outcome}
+   719→
+   720→
+   721→def subscription_snapshot(db: Session, principal: Principal, *, organization_id: uuid.UUID) -> dict[str, Any]:
+   722→    """Billing dashboard payload: subscription, plan, usage, invoices."""
+   723→    principal.require_member_of(organization_id)
+   724→    subscription = entitlements.get_live_subscription(db, organization_id)
+   725→    plan = subscription.plan if subscription else None
+   726→    invoices = list(
+   727→        db.scalars(
+   728→            select(Invoice)
+   729→            .where(Invoice.organization_id == organization_id)
+   730→            .order_by(Invoice.issued_at.desc())
+   731→            .limit(24)
+   732→        ).all()
+   733→    )
+   734→    events = []
+   735→    if subscription is not None:
+   736→        rows = list(
+   737→            db.scalars(
+   738→                select(SubscriptionEvent)
+   739→                .where(SubscriptionEvent.subscription_id == subscription.id)
+   740→                .order_by(SubscriptionEvent.created_at.desc())
+   741→                .limit(20)
+   742→            ).all()
+   743→        )
+   744→        events = [
+   745→            {
+   746→                "id": str(e.id),
+   747→                "event_type": e.event_type,
+   748→                "from_status": e.from_status,
+   749→                "to_status": e.to_status,
+   750→                "details": e.details,
+   751→                "created_at": e.created_at.isoformat(),
+   752→            }
+   753→            for e in rows
+   754→        ]
+   755→    return {
+   756→        "subscription": (
+   757→            {
+   758→                "id": str(subscription.id),
+   759→                "status": subscription.status,
+   760→                "billing_period": subscription.billing_period,
+   761→                "provider": subscription.provider,
+   762→                "provider_mode": get_provider(subscription.provider).mode,
+   763→                "current_period_start": subscription.current_period_start.isoformat(),
+   764→                "current_period_end": subscription.current_period_end.isoformat(),
+   765→                "trial_ends_at": subscription.trial_ends_at.isoformat() if subscription.trial_ends_at else None,
+   766→                "cancel_at_period_end": subscription.cancel_at_period_end,
+   767→                "grace_ends_at": subscription.grace_ends_at.isoformat() if subscription.grace_ends_at else None,
+   768→                "plan": (
+   769→                    {"id": str(plan.id), "code": plan.code, "name": plan.name} if plan else None
+   770→                ),
+   771→            }
+   772→            if subscription
+   773→            else None
+   774→        ),
+   775→        "usage": entitlements.usage_snapshot(db, organization_id),
+   776→        "resource_counts": entitlements.resource_counts(db, organization_id),
+   777→        "invoices": [
+   778→            {
+   779→                "id": str(i.id),
+   780→                "number": i.number,
+   781→                "status": i.status,
+   782→                "amount_cents": i.amount_cents,
+   783→                "currency_code": i.currency_code,
+   784→                "period_start": i.period_start.isoformat(),
+   785→                "period_end": i.period_end.isoformat(),
+   786→                "issued_at": i.issued_at.isoformat(),
+   787→                "paid_at": i.paid_at.isoformat() if i.paid_at else None,
+   788→            }
+   789→            for i in invoices
+   790→        ],
+   791→        "events": events,
+   792→    }
+   793→

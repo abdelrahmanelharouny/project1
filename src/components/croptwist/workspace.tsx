@@ -29,6 +29,11 @@ import {
   Flame,
   Lightbulb,
   Globe2,
+  Users,
+  CreditCard,
+  BarChart3,
+  FileText,
+  Code2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -57,6 +62,13 @@ import { SoilMemory } from '@/components/croptwist/soil-memory'
 import { FailureLab } from '@/components/croptwist/failure-lab'
 import { AdaptiveEvidence } from '@/components/croptwist/adaptive-evidence'
 import { FarmPortfolio } from '@/components/croptwist/portfolio'
+import TeamTab from '@/components/croptwist/p3/team-tab'
+import OnboardingWizard from '@/components/croptwist/p3/onboarding-wizard'
+import NotificationsBell from '@/components/croptwist/p3/notifications-bell'
+import BillingTab from '@/components/croptwist/p3/billing-tab'
+import InsightsTab from '@/components/croptwist/p3/insights-tab'
+import ReportsTab from '@/components/croptwist/p3/reports-tab'
+import DeveloperTab from '@/components/croptwist/p3/developer-tab'
 import { useHealth } from '@/hooks/use-croptwist'
 import { getMe, logout } from '@/lib/api'
 import { useCropTwistUi, type WorkspaceTab } from '@/lib/store'
@@ -87,6 +99,11 @@ const TAB_ITEMS: { value: WorkspaceTab; icon: React.ReactNode }[] = [
   { value: 'failurelab', icon: <Flame className="h-4 w-4" aria-hidden /> },
   { value: 'adaptiveevidence', icon: <Lightbulb className="h-4 w-4" aria-hidden /> },
   { value: 'portfolio', icon: <Globe2 className="h-4 w-4" aria-hidden /> },
+  { value: 'team', icon: <Users className="h-4 w-4" aria-hidden /> },
+  { value: 'insights', icon: <BarChart3 className="h-4 w-4" aria-hidden /> },
+  { value: 'reports', icon: <FileText className="h-4 w-4" aria-hidden /> },
+  { value: 'billing', icon: <CreditCard className="h-4 w-4" aria-hidden /> },
+  { value: 'developer', icon: <Code2 className="h-4 w-4" aria-hidden /> },
 ]
 
 const TAB_IDS = TAB_ITEMS.map((item) => item.value)
@@ -185,7 +202,15 @@ function CheckingScreen() {
   )
 }
 
-function SessionHeader({ session, onSignOut }: { session: MeResponse; onSignOut: () => void }) {
+function SessionHeader({
+  session,
+  onSignOut,
+  onOpenOnboarding,
+}: {
+  session: MeResponse
+  onSignOut: () => void
+  onOpenOnboarding: () => void
+}) {
   const t = useTranslations('nav')
   const tCommon = useTranslations('common')
 
@@ -211,6 +236,17 @@ function SessionHeader({ session, onSignOut }: { session: MeResponse; onSignOut:
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onOpenOnboarding}
+            className="h-8 gap-1.5 text-stone-600 hover:text-stone-900"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">{t('getStarted')}</span>
+            <span className="sr-only">{t('getStarted')}</span>
+          </Button>
+          <NotificationsBell />
           <Button
             variant="ghost"
             size="icon"
@@ -244,6 +280,7 @@ export function Workspace() {
   // automatically; tokens are never readable from JS).
   const [phase, setPhase] = useState<Phase>('checking')
   const [session, setSession] = useState<MeResponse | null>(null)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
   const activeTab = useCropTwistUi((s) => s.activeTab)
   const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
   const resetSelections = useCropTwistUi((s) => s.setSelectedField)
@@ -290,7 +327,12 @@ export function Workspace() {
 
   return (
     <div className="flex min-h-screen flex-col bg-stone-100">
-      <SessionHeader session={session} onSignOut={handleSignOut} />
+      <SessionHeader
+        session={session}
+        onSignOut={handleSignOut}
+        onOpenOnboarding={() => setOnboardingOpen(true)}
+      />
+      <OnboardingWizard open={onboardingOpen} onOpenChange={setOnboardingOpen} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as WorkspaceTab)}>
@@ -370,6 +412,21 @@ export function Workspace() {
           </TabsContent>
           <TabsContent value="portfolio" className="mt-4">
             <FarmPortfolio />
+          </TabsContent>
+          <TabsContent value="team" className="mt-4">
+            <TeamTab />
+          </TabsContent>
+          <TabsContent value="insights" className="mt-4">
+            <InsightsTab />
+          </TabsContent>
+          <TabsContent value="reports" className="mt-4">
+            <ReportsTab />
+          </TabsContent>
+          <TabsContent value="billing" className="mt-4">
+            <BillingTab />
+          </TabsContent>
+          <TabsContent value="developer" className="mt-4">
+            <DeveloperTab />
           </TabsContent>
         </Tabs>
       </main>

@@ -70,6 +70,12 @@ class User(Base, TimestampMixin):
     email_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text_("true")
     )
+    # P3 enterprise readiness: platform-level administrator (support/ops
+    # role, granted out-of-band — never self-service). Server default keeps
+    # pre-P3 rows valid.
+    is_platform_admin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text_("false")
+    )
 
     memberships: Mapped[list["Membership"]] = relationship(back_populates="user")
     tokens: Mapped[list["AuthToken"]] = relationship(back_populates="user")
@@ -109,8 +115,13 @@ class Membership(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("organization_id", "user_id", name="uq_membership_org_user"),
         Index("ix_memberships_user", user_id),
+        # P3: role set widened with org_admin (owner-level administration
+        # minus ownership transfer), operator (manager-level field ops) and
+        # analyst (agronomist-level read/analytics). ROLE_ORDER in the
+        # identity service maps every code to a privilege rank.
         CheckConstraint(
-            "role_code IN ('owner','manager','agronomist','viewer')", name="ck_membership_role"
+            "role_code IN ('owner','manager','agronomist','viewer',"
+            "'org_admin','operator','analyst')", name="ck_membership_role"
         ),
     )
 

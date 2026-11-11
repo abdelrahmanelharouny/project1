@@ -123,3 +123,45 @@ Honest record of what this slice does NOT do. Nothing here is claimed to work.
   dedicated water planner computes the full ladder.
 - The Kc curve holds the late-stage (end) Kc for season windows longer than
   the digitized curve (M5-consistent convention, documented).
+
+## P3 additions (commercial SaaS platform)
+
+- **No real payments exist.** The only wired billing provider is `sandbox`
+  (test mode): checkouts carry `url=None`, and `/billing/sandbox/pay`
+  simulates success/decline through the same HMAC-verified webhook pipeline a
+  real provider callback would use. No card data, no live payment processing,
+  no proration — plan changes are immediate and the next invoice reflects the
+  new price.
+- **Email/SMS delivery does not exist.** The only notification channel is
+  `LoggingEmailChannel`, which logs the message and reports `sent=False`;
+  `email_enabled` preferences are recorded but produce no outbound mail.
+  Invitation tokens are delivered out-of-band by design (plaintext shown once).
+- **Entitlement enforcement is partial.** Enforced: max_farms/max_fields
+  (creation-time), reports quota + exports flag, scenario runs/month, per-key
+  API rate limit. Seeded but NOT enforced: max_org_members,
+  ai_messages_per_day, advanced_analysis, satellite_access, analytics_access,
+  api_enabled (informational only). All count gates pass through untouched for
+  organizations without a live subscription (legacy/P1/P2 flows preserved).
+- **Webhook event coverage is 2 of 7.** The outgoing-webhook catalog declares
+  7 event types, but only `report.ready` and `subscription.updated` are emitted
+  today; farm/field edit events have no emitters yet.
+- **No MFA** (no factor model, no UI), **no SSO/SCIM**, no teams sub-group
+  tables, no invoice line items / tax / VAT fields, no usage-based billing
+  beyond counters (no metered invoicing), no plans admin API or platform-admin
+  surface (`is_platform_admin` exists but is unused).
+- **Benchmarking is within-org only** (farm-vs-farm / field-vs-field);
+  cross-org anonymized aggregates are returned as `provenance: "missing"`.
+- **Scheduler and counters are single-process**: the 6 periodic tasks, the
+  per-key rate limiter and daily usage counters are in-process by design;
+  multi-replica deployments need a shared store / leader election (documented
+  trade-offs in the module docstrings).
+- **Reports**: PDF table rows capped at 300; Arabic PDFs require an
+  Arabic-capable system font (Noto Naskh Arabic searched) and degrade to a
+  Latin transliteration otherwise; artifacts live on local disk under
+  `reports_storage` with 30-day retention — no object storage.
+- **Public API surface** is read-only (9 GET endpoints); webhook egress has
+  URL validation but no SSRF/private-IP blocklist beyond the localhost rule;
+  rate limiting applies to API keys only, not session-authenticated routes.
+- **Commercial metrics honesty**: water cost derives solely from the
+  user-supplied price (echoed in `assumptions`); `cost_per_hectare` and
+  `yield` are always `missing` — the platform never estimates prices or yields.

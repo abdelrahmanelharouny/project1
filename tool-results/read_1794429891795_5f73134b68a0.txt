@@ -1,0 +1,255 @@
+     1→     1→# P3 Foundation Contracts — fieldshift-api (SaaS platform backend)
+     2→     2→
+     3→     3→Research snapshot of the existing P3 backend foundation. Use these exact identifiers in后续 implementation. All service code is **synchronous** (`def`, SQLAlchemy `Session`) — there are **no `async def`** service functions in any P3 module.
+     4→     4→
+     5→     5→Root: `mini-services/fieldshift-api/`
+     6→     6→
+     7→     7→---
+     8→     8→
+     9→     9→## 1. DB models — `app/db/models_p3.py` (584 lines)
+    10→    10→
+    11→    11→Design rules in module docstring: every tenant-scoped table carries `organization_id` FK+index; idempotency via unique keys; no raw card data; money = integer minor units + ISO currency. All PKs are `UUID(as_uuid=True)` with `default=_uuid`. `TimestampMixin` = `created_at`/`updated_at` (tz-aware, server_default now / onupdate now). Imports `Base, Organization, TimestampMixin, User, _uuid` from `app.db.models`.
+    12→    12→
+    13→    13→| Class | `__tablename__` | Key columns (name, type) | Constraints / FKs |
+    14→    14→|---|---|---|---|
+    15→    15→| `Plan` | `plans` | code String(40), name String(100), description Text(default ""), is_public Bool(T), is_active Bool(T), sort_order Int, trial_days Int(0) | `uq_plans_code` (code); rels: prices, entitlements |
+    16→    16→| `PlanPrice` | `plan_prices` | plan_id UUID FK→plans.id CASCADE, billing_period String(20), amount_cents Int NULL, currency_code String(3) "USD", is_active Bool(T) | `uq_plan_price`(plan_id,billing_period,currency_code); `ck_plan_price_period` IN(monthly,yearly); `ck_plan_price_amount` NULL-or->=0. amount_cents NULL = "contact sales" |
+    17→    17→| `PlanEntitlement` | `plan_entitlements` | plan_id UUID FK→plans.id CASCADE, key String(60), value_int Int NULL, value_bool Bool NULL | `uq_plan_entitlement`(plan_id,key); `ck_plan_entitlement_one_value` exactly one of value_int/value_bool |
+    18→    18→| `Subscription` | `subscriptions` | organization_id UUID FK→organizations.id CASCADE, plan_id UUID FK→plans.id RESTRICT, status String(20) "trialing", billing_period String(20) "monthly", provider String(30) "sandbox", provider_customer_ref/provider_subscription_ref String(200) NULL, current_period_start/end TZ, trial_ends_at, cancel_at_period_end Bool(F), canceled_at, grace_ends_at | `ck_subscription_status` IN(trialing,active,past_due,grace,canceled,expired); `ck_subscription_period`; **partial unique index** `uq_subscription_live_per_org` on organization_id WHERE status IN(trialing,active,past_due,grace); `ix_subscriptions_org` |
+    19→    19→| `SubscriptionEvent` | `subscription_events` | subscription_id UUID FK→subscriptions.id CASCADE, event_type String(60), from_status/to_status String(20) NULL, details JSONB, actor_user_id UUID NULL, created_at | `ix_subscription_events_sub` |
+    20→    20→| `Invoice` | `invoices` | organization_id UUID FK→organizations.id CASCADE, subscription_id UUID FK→subscriptions.id SET NULL, number String(60), status String(20) "open", amount_cents Int, currency_code String(3), period_start/period_end Date, issued_at TZ, paid_at NULL, provider_ref NULL | `uq_invoice_number`; `ck_invoice_status` IN(draft,open,paid,void,uncollectible); `ck_invoice_amount` >=0; `ix_invoices_org` |
+    21→    21→| `BillingEvent` | `billing_events` | provider String(30), event_type String(80), provider_event_id String(200), signature_valid Bool(F), status String(20) "received", error Text NULL, payload JSONB, processed_at NULL, created_at | `uq_billing_event_provider_id`(provider,provider_event_id); `ck_billing_event_status` IN(received,processed,failed,duplicate); `ix_billing_events_created` |
+    22→    22→| `UsageCounter` | `usage_counters` | organization_id UUID FK→organizations.id CASCADE, key String(60), period_start Date, used_value Int(0), updated_at | `uq_usage_counter`(organization_id,key,period_start); `ix_usage_counters_org` |
+    23→    23→| `Invitation` | `invitations` | organization_id UUID FK→organizations.id CASCADE, email String(320), role_code String(40), token_hash String(64), status String(20) "pending", invited_by UUID NULL, expires_at TZ, accepted_at/revoked_at NULL | `uq_invitations_token_hash` (unique idx); `ix_invitations_org_email`; `ck_invitation_status` IN(pending,accepted,revoked,expired) |
+    24→    24→| `ActivityEvent` | `activity_events` | organization_id UUID FK→organizations.id CASCADE, farm_id UUID NULL, actor_user_id UUID NULL, event_type String(80), entity_kind String(60) NULL, entity_id String(64) NULL, summary String(500), details JSONB, created_at | `ix_activity_org_created`(org, created_at DESC); `ix_activity_farm`. Append-only (no app-level update/delete) |
+    25→    25→| `Notification` | `notifications` | organization_id UUID NULL FK→organizations.id CASCADE, user_id UUID NULL FK→users.id CASCADE, category String(40), severity String(20) "info", title String(300), body Text, link_kind String(60) NULL, link_id String(64) NULL, dedupe_key String(200) NULL, read_at NULL, expires_at NULL, created_at | `ck_notification_severity` IN(info,advisory,warning,critical); **partial unique** `uq_notification_dedupe`(organization_id,dedupe_key) WHERE dedupe_key IS NOT NULL; `ix_notifications_org_created`; `ix_notifications_user` |
+    26→    26→| `NotificationPreference` | `notification_preferences` | user_id UUID FK→users.id CASCADE, category String(40), in_app_enabled Bool(T), email_enabled Bool(F) | `uq_notification_pref`(user_id,category); `ck_notification_pref_category` IN(agronomic_alert,data_freshness,recommendation_update,report_ready,invitation,subscription,billing,system) |
+    27→    27→| `ReportJob` | `report_jobs` | organization_id UUID FK→organizations.id CASCADE, farm_id UUID NULL, requested_by UUID NULL, report_type String(60), output_format String(10), locale String(10) "en", date_from/date_to Date, status String(20) "queued", file_path Text NULL, file_size_bytes Int NULL, error Text NULL, retention_until NULL, interval_days Int NULL, next_run_at NULL, background_job_id UUID NULL | `ck_report_format` IN(pdf,xlsx,csv); `ck_report_status` IN(queued,running,succeeded,failed,expired); `ck_report_locale` IN(en,ar); `ck_report_period` date_to>=date_from; `ix_report_jobs_org_created`; `ix_report_jobs_due`(next_run_at) |
+    28→    28→| `ApiKey` | `api_keys` | organization_id UUID FK→organizations.id CASCADE, name String(120), prefix String(16), key_hash String(64), scopes JSONB (list), status String(20) "active", rate_limit_per_minute Int(60), created_by UUID NULL, last_used_at/revoked_at/expires_at NULL | `uq_api_keys_prefix`; `uq_api_keys_hash`; `ck_api_key_status` IN(active,revoked); `ck_api_key_rate` >0 |
+    29→    29→| `ApiKeyUsage` | `api_key_usage` | api_key_id UUID FK→api_keys.id CASCADE, day Date, request_count Int(0) | `uq_api_key_usage`(api_key_id,day) |
+    30→    30→| `WebhookEndpoint` | `webhook_endpoints` | organization_id UUID FK→organizations.id CASCADE, url String(1000), secret String(120) (shown once), event_types JSONB (list), status String(20) "active", description String(300), consecutive_failures Int(0), disabled_reason Text NULL | `ck_webhook_endpoint_status` IN(active,disabled); `ix_webhook_endpoints_org` |
+    31→    31→| `WebhookDelivery` | `webhook_deliveries` | endpoint_id UUID FK→webhook_endpoints.id CASCADE, organization_id UUID FK→organizations.id CASCADE, event_type String(80), event_id String(80), payload JSONB, attempt Int(0), status String(20) "pending", next_retry_at NULL, delivered_at NULL, last_status_code Int NULL, last_error Text NULL, created_at | `uq_webhook_delivery_event`(endpoint_id,event_id); `ck_webhook_delivery_status` IN(pending,delivered,failed,dead); `ix_webhook_deliveries_due`(status,next_retry_at); `ix_webhook_deliveries_org_created` |
+    32→    32→| `OnboardingProgress` | `onboarding_progress` | user_id UUID FK→users.id CASCADE, account_type String(40) NULL, steps JSONB (dict), current_step String(60) "account", completed_at NULL, dismissed Bool(F), created_at | `uq_onboarding_user`(user_id); `ck_onboarding_account_type` NULL-or-IN(individual,business,farm_org) |
+    33→    33→| `UserPreference` | `user_preferences` | user_id UUID FK→users.id CASCADE (**PK**), locale String(10) "en", timezone String(60) "UTC", unit_system String(20) "metric", currency_code String(3) "USD", country_code String(2) NULL, week_start String(10) "monday", agricultural_calendar String(60) NULL, notify_in_app Bool(T), notify_email Bool(F), updated_at | `ck_user_pref_units` IN(metric,imperial); `ck_user_pref_locale` IN(en,ar); `ck_user_pref_week` IN(monday,sunday,saturday) |
+    34→    34→
+    35→    35→**Presence check vs. a full SaaS platform:**
+    36→    36→- EXISTS: organizations (in `models.py`), subscriptions, plans + plan config **in DB** (seeded data, editable at runtime), plan_prices, plan_entitlements, invoices, usage_counters (usage records), notifications, report_jobs, api_keys, webhook_endpoints/webhook_deliveries, activity_events, onboarding_progress, preferences, invitations, audit_log (= `audit_events` in `models.py`, written via `record_auth_audit`).
+    37→    37→- **MISSING from models**: **teams** (no team/team_member tables anywhere); seats/seat assignment; tax/VAT & billing address fields on Invoice/Organization; coupons/discounts/credit notes; invoice line items; org-level settings table (org profile fields live on `organizations` only: name/organization_type/country_code); `user_id` on subscriptions (only org-scoped); no `personal_org` flag on organizations (personal org inferred by convention); no multi-currency per-org default (defaults to USD).
+    38→    38→
+    39→    39→---
+    40→    40→
+    41→    41→## 2. Service layer — public function signatures (all sync; `Session` = `sqlalchemy.orm.Session`; `Principal` = `app.domains.identity.service.Principal`)
+    42→    42→
+    43→    43→### `app/orgs/service.py`
+    44→    44→- `create_invitation(db, principal, *, organization_id: uuid.UUID, email: str, role_code: str) -> tuple[Invitation, str]` — org_admin gate; owner invites only for role owner; rejects already-member / pending invite; returns (invitation, plaintext token once); SHA-256 hash stored; TTL `INVITATION_TTL_SECONDS = 7*24*3600`; writes auth audit + activity event.
+    45→    45→- `list_invitations(db, principal, *, organization_id: uuid.UUID, status: str | None = None) -> list[Invitation]` — org_admin; filter pending/accepted/revoked/expired; max 200 newest first.
+    46→    46→- `revoke_invitation(db, principal, *, organization_id: uuid.UUID, invitation_id: uuid.UUID) -> Invitation` — org_admin; pending only; sets revoked/revoked_at; audited.
+    47→    47→- `accept_invitation(db, principal, *, token: str) -> Membership` — requires authenticated caller whose `user.email` == invite email; reactivates/reactivates-or-creates Membership with invite role; marks accepted; audited + activity.
+    48→    48→- `list_org_members(db, principal, *, organization_id: uuid.UUID) -> list[dict[str, Any]]` — any active member; joins Membership+User; dicts with id/user_id/email/display_name/role_code/joined_at.
+    49→    49→- `update_org_member_role(db, principal, *, organization_id: uuid.UUID, membership_id: uuid.UUID, new_role: str) -> dict[str, Any]` — org_admin; only owner grants owner/org_admin; last-owner guard; audited + activity.
+    50→    50→- `remove_org_member(db, principal, *, organization_id: uuid.UUID, membership_id: uuid.UUID) -> None` — org_admin; cannot remove self or last owner; only owner removes owner; deletes Membership; audited + activity.
+    51→    51→- `transfer_ownership(db, principal, *, organization_id: uuid.UUID, target_membership_id: uuid.UUID) -> dict[str, Any]` — owner-only; target must be active member; previous owner becomes `org_admin`; audited + activity.
+    52→    52→- `update_organization(db, principal, *, organization_id: uuid.UUID, name=None, organization_type=None, country_code=None) -> Organization` — org_admin; validates name 1–200, type in ("individual","business","farm_org"), country 2-letter; audited + activity.
+    53→    53→- `list_org_farms(db, principal, *, organization_id: uuid.UUID, limit: int = 100, offset: int = 0) -> tuple[list[Farm], int]` — any member; farm directory + total.
+    54→    54→- `create_organization_for_user(db, principal, *, name: str, organization_type: str, country_code: str | None) -> Organization` — creates org + owner Membership for caller; audited + activity.
+    55→    55→
+    56→    56→### `app/billing/service.py`
+    57→    57→- `get_plan_by_code(db, code: str) -> Plan | None`
+    58→    58→- `get_plan_by_id(db, plan_id: uuid.UUID) -> Plan | None`
+    59→    59→- `list_public_plans(db) -> list[dict[str, Any]]` — pricing-page catalog: public+active plans with active prices and entitlement map (value_int or bool).
+    60→    60→- `start_subscription(db, principal, *, organization_id: uuid.UUID, plan_id: uuid.UUID, billing_period: str, actor: str = "self") -> dict[str, Any]` — org_admin; one live sub per org (Conflict otherwise); creates provider checkout; trialing if plan.trial_days>0 else active; invoice on activation; returns `{"subscription", "checkout"}`.
+    61→    61→- `change_plan(db, principal, *, organization_id: uuid.UUID, new_plan_id: uuid.UUID, billing_period: str | None = None) -> Subscription` — org_admin; immediate plan switch (proration NOT simulated); period switch resets period window.
+    62→    62→- `cancel_subscription(db, principal, *, organization_id: uuid.UUID, at_period_end: bool = True) -> Subscription` — org_admin; at_period_end sets flag + `subscription.cancel_scheduled`; immediate → canceled + warning notification.
+    63→    63→- `resume_subscription(db, principal, *, organization_id: uuid.UUID) -> Subscription` — org_admin; undo scheduled cancel.
+    64→    64→- `process_billing_webhook(db, *, provider: str, event_type: str, provider_event_id: str, payload: dict, signature_valid: bool) -> BillingEvent` — idempotent ingestion; invalid signature → row status "failed" + raise Forbidden; replay of (provider, provider_event_id) → status "duplicate"; handles `payment.succeeded`, `payment.declined`, `subscription.renewal_due`, `subscription.ended`; else ValidationFailed.
+    65→    65→- `simulate_sandbox_payment(db, principal, *, organization_id: uuid.UUID, outcome: str) -> dict[str, Any]` — TEST-MODE ONLY; org_admin + provider=="sandbox"; runs through the same webhook pipeline; returns `{"billing_event_id", "status", "outcome"}`.
+    66→    66→- `subscription_snapshot(db, principal, *, organization_id: uuid.UUID) -> dict[str, Any]` — billing dashboard: subscription (+provider_mode), usage (entitlements.usage_snapshot), resource_counts, last 24 invoices, last 20 events.
+    67→    67→- `expire_stale_subscriptions(db) -> int` — scheduler sweep: cancel_at_period_end past period end → canceled; lapsed grace on past_due → status "grace" (locked).
+    68→    68→- Public helpers: `subscription_ref_suffix(session_id: str) -> str`, `hashlib_short(value: str) -> str`.
+    69→    69→- Private: `_record_transition`, `_create_invoice` (number `CT-YYYYMM-XXXXXXXX`; $0 → status "paid"), `_price_for(db, plan, billing_period) -> tuple[int|None, str]`, `_settle_payment`, `_enter_past_due`, `_renew`. Invoice number format: `CT-{period_end:%Y%m}-{8 hex upper}`.
+    70→    70→
+    71→    71→### `app/billing/entitlements.py` (see §3 for keys/semantics)
+    72→    72→- `get_live_subscription(db, organization_id: uuid.UUID) -> Subscription | None`
+    73→    73→- `is_billing_active(subscription: Subscription | None) -> bool`
+    74→    74→- `resolve_entitlements(db, organization_id: uuid.UUID) -> dict[str, Any]` — `{key: {"value","kind","unlimited","plan_code"}}`; no live sub → free-plan floor; no catalog → deny-by-default; missing keys filled deny-by-default.
+    75→    75→- `require_flag(db, organization_id: uuid.UUID, key: str, *, expected: bool = True) -> None` — raises Forbidden.
+    76→    76→- `limit_for(db, organization_id: uuid.UUID, key: str) -> int` — -1 = unlimited.
+    77→    77→- `current_usage(db, organization_id: uuid.UUID, key: str) -> int`
+    78→    78→- `increment_usage(db, organization_id: uuid.UUID, key: str, *, amount: int = 1) -> int`
+    79→    79→- `check_quota(db, organization_id: uuid.UUID, key: str) -> int` — raises `PaymentRequired` when used >= limit.
+    80→    80→- `assert_within_limit(db, organization_id: uuid.UUID, key: str, current_count: int) -> None` — for farms/fields/members counts.
+    81→    81→- `require_active_billing(db, organization_id: uuid.UUID, *, capability: str) -> Subscription` — raises PaymentRequired.
+    82→    82→- `usage_snapshot(db, organization_id: uuid.UUID) -> list[dict[str, Any]]` — meter list {key,limit,unlimited,used,plan_code}.
+    83→    83→- `resource_counts(db, organization_id: uuid.UUID) -> dict[str, int]` — `{"farms","fields","members"}` live counts.
+    84→    84→
+    85→    85→### `app/onboarding/service.py`
+    86→    86→- `get_or_create_progress(db, user_id: uuid.UUID) -> OnboardingProgress` — seeds `steps={"account":{"done":True,...}}`, current_step="account_type".
+    87→    87→- `set_account_type(db, user_id: uuid.UUID, *, account_type: str) -> OnboardingProgress` — validates individual/business/farm_org.
+    88→    88→- `complete_step(db, user_id: uuid.UUID, *, step: str, data: dict | None = None) -> OnboardingProgress` — unknown step → ValidationFailed; sets current_step to next id; auto-completes when all required done.
+    89→    89→- `skip_step(db, user_id: uuid.UUID, *, step: str) -> OnboardingProgress` — required steps cannot be skipped.
+    90→    90→- `dismiss_tour(db, user_id: uuid.UUID) -> OnboardingProgress`
+    91→    91→- `progress_payload(row: OnboardingProgress) -> dict[str, Any]` — steps_state list with id/required/done/skipped/at.
+    92→    92→
+    93→    93→### `app/notifications/service.py`
+    94→    94→- `create_notification(db, *, organization_id: uuid.UUID | None, category: str, title: str, body: str = "", severity: str = "info", user_id: uuid.UUID | None = None, link_kind=None, link_id=None, dedupe_key=None, expires_at=None, commit: bool = True) -> Notification | None` — category/severity validated (ValueError); user-scoped rows gated by NotificationPreference.in_app_enabled (default on); DB-level dedupe, IntegrityError → existing row returned (idempotent).
+    95→    95→- `list_notifications(db, principal, *, organization_id: uuid.UUID, unread_only: bool = False, category: str | None = None, limit: int = 50, offset: int = 0) -> tuple[list[Notification], int, int]` — org rows + rows addressed to caller; returns (rows, total, unread).
+    96→    96→- `mark_read(db, principal, *, organization_id: uuid.UUID, notification_id: uuid.UUID, read: bool = True) -> Notification`
+    97→    97→- `mark_all_read(db, principal, *, organization_id: uuid.UUID) -> int` — returns rowcount.
+    98→    98→- `set_preference(db, user_id: uuid.UUID, *, category: str, in_app_enabled=None, email_enabled=None) -> NotificationPreference`
+    99→    99→- `get_preferences(db, user_id: uuid.UUID) -> list[NotificationPreference]` — full 8-category list, defaults in_app=True/email=False.
+   100→   100→- `purge_expired(db) -> int` — retention sweep past expires_at.
+   101→   101→- `notification_payload(n: Notification) -> dict[str, Any]`
+   102→   102→
+   103→   103→### `app/analytics/service.py`
+   104→   104→- `executive_dashboard(db, principal, *, organization_id: uuid.UUID, farm_id=None, season=None) -> dict[str, Any]` — org dashboard: farm/field counts, total_area_ha, active_crop_cycles, crop_distribution (from CropHistory), recommendations summary, adoption, data_freshness; require_member_of.
+   105→   105→- `farm_performance(db, principal, *, organization_id: uuid.UUID, farm_id: uuid.UUID, date_from: date, date_to: date) -> dict[str, Any]` — per-field rows (observations/active recs/cycles), data_coverage heuristic, water_usage.
+   106→   106→- `commercial_metrics(db, principal, *, organization_id: uuid.UUID, farm_id: uuid.UUID, date_from: date, date_to: date, water_price_per_m3: float | None = None, currency: str = "USD") -> dict[str, Any]` — water volume/cost model_derived from user-supplied price; cost_per_hectare & yield always `missing`.
+   107→   107→- `benchmark(db, principal, *, organization_id: uuid.UUID, scope: str, date_from: date, date_to: date) -> dict[str, Any]` — scope "farm"|"field" intra-org comparison; `cross_org_anonymized` always provenance `missing` (NOT implemented).
+   108→   108→- Helpers: `_metric(...)`, `_org_fields`, `_data_freshness`, `_adoption`, `_water_usage`.
+   109→   109→
+   110→   110→### `app/activity/service.py`
+   111→   111→- `record_event(db, *, organization_id: uuid.UUID, event_type: str, summary: str, farm_id=None, actor_user_id=None, entity_kind=None, entity_id=None, details=None) -> ActivityEvent` — append-only; caller owns transaction (no commit).
+   112→   112→- `list_events(db, *, organization_id: uuid.UUID, farm_id=None, event_type=None, limit: int = 50, offset: int = 0) -> tuple[list[ActivityEvent], int]` — newest first, limit clamp 1..200.
+   113→   113→- `prune_older_than(db, *, before: datetime, organization_id: uuid.UUID) -> int`
+   114→   114→- `event_payload(event) -> dict[str, Any]`
+   115→   115→- Event-type constants: `EVENT_FARM_CREATED="farm.created"`, `EVENT_FARM_UPDATED`, `EVENT_FIELD_ADDED="field.added"`, `EVENT_MEMBER_INVITED/JOINED/REMOVED`, `EVENT_MEMBER_ROLE_CHANGED="member.role_changed"`, `EVENT_OWNERSHIP_TRANSFERRED="member.ownership_transferred"`, `EVENT_RECOMMENDATION_GENERATED="recommendation.generated"`, `EVENT_REPORT_CREATED="report.created"`, `EVENT_SETTING_CHANGED="setting.changed"`, `EVENT_PLAN_CHANGED="billing.plan_changed"`, `EVENT_SUBSCRIPTION_CHANGED="billing.subscription_changed"`, `EVENT_API_KEY_CREATED/REVOKED="developer.api_key_created"/"developer.api_key_revoked"`, `EVENT_WEBHOOK_CREATED="developer.webhook_created"`, `EVENT_CROP_CYCLE_UPDATED="crop_cycle.updated"` (open set).
+   116→   116→
+   117→   117→### `app/preferences/service.py`
+   118→   118→- `get_preferences(db, user_id: uuid.UUID) -> UserPreference` — creates default row on first access.
+   119→   119→- `update_preferences(db, user_id: uuid.UUID, **changes) -> UserPreference` — allowlist of 9 fields; validates locale en/ar, unit metric/imperial, week_start monday/sunday/saturday, currency 3-letter, country 2-letter, timezone shape check (<=60 chars, no control chars).
+   120→   120→- `preferences_payload(row) -> dict[str, Any]` — includes `"notifications": {"in_app", "email"}`.
+   121→   121→
+   122→   122→---
+   123→   123→
+   124→   124→## 3. Billing specifics
+   125→   125→
+   126→   126→**Plans/limits are DB DATA, not code.** Migration 0020 seeds a default catalog (`_seed_default_plans`); docstring: "platform administrators reconfigure them via the plans admin API at any time; entitlement enforcement reads the current rows, never code constants" (note: the plans admin API is NOT yet implemented). Sandbox catalog (monthly cents; yearly = monthly×10, free→yearly NULL, enterprise → no price rows = contact sales):
+   127→   127→
+   128→   128→| Plan code | sort | trial_days | monthly_cents |
+   129→   129→|---|---|---|---|
+   130→   130→| free | 0 | 0 | 0 |
+   131→   131→| starter | 10 | 14 | 1900 |
+   132→   132→| professional | 20 | 14 | 4900 |
+   133→   133→| business | 30 | 14 | 14900 |
+   134→   134→| enterprise | 40 | 0 | NULL (contact sales) |
+   135→   135→
+   136→   136→Entitlement `value_int` per plan (order free/starter/professional/business/enterprise; **-1 = UNLIMITED**):
+   137→   137→- max_farms: 1/2/10/50/-1
+   138→   138→- max_fields: 3/10/50/250/-1
+   139→   139→- max_org_members: 1/3/15/100/-1
+   140→   140→- history_retention_years: 1/3/10/15/-1
+   141→   141→- scenario_runs_per_month: 5/25/200/1000/-1
+   142→   142→- reports_per_month: 3/15/100/500/-1
+   143→   143→- api_rate_limit_per_minute: 0/0/60/300/1000
+   144→   144→- ai_messages_per_day: 10/60/300/2000/-1
+   145→   145→
+   146→   146→Entitlement `value_bool`: advanced_analysis F/F/T/T/T; satellite_access F/T/T/T/T; api_enabled F/F/T/T/T; exports_enabled F/T/T/T/T; analytics_access F/F/T/T/T.
+   147→   147→
+   148→   148→**Entitlement key constants** (`app/billing/entitlements.py`): `KEY_MAX_FARMS`, `KEY_MAX_FIELDS`, `KEY_MAX_ORG_MEMBERS`, `KEY_HISTORY_RETENTION_YEARS`, `KEY_ADVANCED_ANALYSIS`, `KEY_SCENARIO_RUNS_PER_MONTH`, `KEY_SATELLITE_ACCESS`, `KEY_REPORTS_PER_MONTH`, `KEY_API_ENABLED`, `KEY_API_RATE_LIMIT_PER_MINUTE`, `KEY_AI_MESSAGES_PER_DAY`, `KEY_EXPORTS_ENABLED`, `KEY_ANALYTICS_ACCESS`; `UNLIMITED = -1`; tuples `ALL_INT_KEYS` (8) and `ALL_BOOL_KEYS` (5). Period for usage counters: monthly → calendar month; yearly → calendar year (`_period_start`).
+   149→   149→
+   150→   150→**Provider adapter** (`app/billing/provider.py`):
+   151→   151→- Dataclasses: `CheckoutSession(session_id, provider, url: str|None, mode: "test"|"live")`, `PaymentResult(outcome: "succeeded"|"declined", provider_event_id, details)`.
+   152→   152→- Abstract `class BillingProvider` (name="abstract", mode="live"): `create_customer(*, organization_id, email, name) -> str`; `create_checkout(*, organization_id, plan_code, billing_period, success_url, cancel_url) -> CheckoutSession`; `cancel_subscription(*, provider_subscription_ref) -> None`; `sign_webhook(*, payload: dict, secret, timestamp) -> str`; `verify_webhook(*, payload: bytes, signature, secret) -> bool`.
+   153→   153→- `class SandboxBillingProvider(BillingProvider)` (name="sandbox", mode="test"): deterministic `cus_sandbox_<sha16>` customer ref; `cs_sandbox_<hex>` checkout (url=None); `simulate_payment(*, outcome, subscription_ref, amount_cents, currency) -> PaymentResult` (`evt_sandbox_<hex>`); `sign_webhook` uses canonical JSON; **webhook verification supported**: `verify_webhook` recomputes HMAC over exact bytes; signature format `"<timestamp>.<hmac_hex>"`; `compute_signature(*, payload, secret, timestamp)` = HMAC-SHA256 over `timestamp + "." + payload`; `default_timestamp()`, `stale_timestamp(ts, max_age_seconds=600)`.
+   154→   154→- `get_provider(name: str) -> BillingProvider` — registry; **only "sandbox" wired**; anything else → ValidationFailed. `period_bounds(*, start, billing_period) -> tuple[datetime, datetime]`; `grace_deadline(failed_at) -> failed_at + settings.billing_grace_seconds`.
+   155→   155→- Honesty contract: `provider="sandbox"` is the only enabled provider; mode always "test"; no real payment processing claimed.
+   156→   156→
+   157→   157→**Config additions** (`app/core/config.py` Settings): `billing_provider="sandbox"`, `billing_webhook_secret="sandbox-billing-webhook-secret-change-me"`, `billing_grace_seconds=3*24*3600`, `billing_max_webhook_payload_bytes=262_144`, `api_key_prefix="ctk_"`, `webhook_max_attempts=5`, `webhook_backoff_seconds=[30,120,600,3600,21600]`, `webhook_max_endpoints_per_org=20`, `reports_dir=".../fieldshift-api/reports_storage"`, `report_retention_days=30`, `report_max_per_month_free=3`.
+   158→   158→
+   159→   159→**Error class**: `app/core/errors.py` adds `PaymentRequired` — status 402, code `"PAYMENT_REQUIRED"` (upgrade-flow signal). Envelope unchanged: `{"error":{"code","message","details","request_id"}}`.
+   160→   160→
+   161→   161→---
+   162→   162→
+   163→   163→## 4. Auth integration
+   164→   164→
+   165→   165→- **Users→orgs**: `User` (models.py) — id UUID, email (unique lower idx `uq_users_email_lower`), password_hash, display_name, is_active, email_verified, `is_platform_admin: Bool` (P3, server_default false — granted out-of-band, no self-service path), failed_login_count, locked_until. Orgs link via `Membership` (`memberships`): (organization_id, user_id) unique `uq_membership_org_user`, `role_code` (check `ck_membership_role` widened by 0020), `status` ("active"). No separate "account" entity — user == account; `register_user` creates a personal Organization (`"{display_name}'s organization"`) + owner Membership.
+   166→   166→- **Current-user dependency**: `from app.domains.identity.service import get_principal` → `Principal`. Endpoint pattern (used consistently in `api/v1/auth.py`, `api/v1/members.py`):
+   167→   167→  ```python
+   168→   168→  principal: Any = Depends(get_principal)
+   169→   169→  db: Session = Depends(get_db)
+   170→   170→  ```
+   171→   171→  `get_principal(request, credentials=Depends(bearer_scheme), db=Depends(get_db))` accepts `Authorization: Bearer <token>` OR the HttpOnly cookie `fs_token` (`SESSION_COOKIE_NAME = "fs_token"`, defined in identity/service.py:54); resolves `AuthToken` kind="access", checks revoked/expired/is_active, loads all Memberships → `Principal`.
+   172→   172→- **Tenant scoping pattern**: endpoints resolve a tenant object first, then gate: `farm = get_farm_for_principal(db, principal, farm_id)` (raises Forbidden unless `principal.require_member_of(farm.organization_id)`); P3 org-level services take `organization_id` explicitly and call `principal.require_member_of(organization_id)` / `principal.require_org_role(organization_id, "<role>")` internally. Principals methods: `is_member_of`, `require_member_of`, `org_ids()`, `membership_in(org_id)`, `require_org_role(org_id, minimum) -> Membership`, `require_any_org_role(minimum)` (global-context gate), `id` property. Farm-scoped gate: `require_farm_role(db, principal, farm, minimum)`.
+   173→   173→- **Audit**: `record_auth_audit(db, *, actor_id, organization_id=None, action, entity_type="auth", entity_id=None, meta=None)` → `audit_events` table (models.py). P3 actions used: `invitation.create/revoke/accept`, `membership.role_change`, `membership.remove`, `ownership.transfer`, `organization.create/update`, `auth.register`.
+   174→   174→
+   175→   175→---
+   176→   176→
+   177→   177→## 5. RBAC
+   178→   178→
+   179→   179→- `ROLE_ORDER` (identity/service.py:63): `{"viewer":0, "analyst":1, "agronomist":1, "operator":2, "manager":2, "org_admin":3, "owner":3}`. Comparison via `role_at_least(role_code, minimum)`.
+   180→   180→- `ASSIGNABLE_ROLES` (UI order): `["owner","org_admin","manager","operator","agronomist","analyst","viewer"]`.
+   181→   181→- Semantics: org_admin = owner-level administration minus ownership transfer; operator = manager-level field ops; analyst = agronomist-level read. DB check (widened): `role_code IN ('owner','manager','agronomist','viewer','org_admin','operator','analyst')`.
+   182→   182→- Checks happen **inside services** (never per-route): `principal.require_org_role` / `require_member_of` / `_require_org_admin` (minimum "org_admin") / `_require_owner` in orgs/service.py; last-owner guard in update/remove/transfer; "only owner can grant owner/org_admin".
+   183→   183→- NOTE: `api/v1/members.py` Pydantic models still restrict `role_code` to old set `^(owner|manager|agronomist|viewer)$` (farm-scoped routes only: GET/POST `/farms/{farm_id}/members`, PATCH/DELETE `/farms/{farm_id}/members/{membership_id}`) — new roles not yet accepted there.
+   184→   184→
+   185→   185→---
+   186→   186→
+   187→   187→## 6. Onboarding
+   188→   188→
+   189→   189→`app/onboarding/service.py` `STEPS` (ordered; `required` flag): 
+   190→   190→1. `account` (required, auto) → 2. `account_type` (required) → 3. `organization` (required) → 4. `org_profile` (optional) → 5. `first_farm` (required) → 6. `first_field` (optional) → 7. `crops_priorities` (optional) → 8. `review` (required) → 9. `tour` (optional).
+   191→   191→
+   192→   192→State storage: `onboarding_progress` row per user — JSONB `steps` dict `{"<step>": {"done": bool, "skipped": bool, "at": iso, "data": {...}}}`, `current_step` (next step id), `completed_at` when all required done, `dismissed` bool. Non-blocking/resumable; completion never requires external data integrations.
+   193→   193→
+   194→   194→---
+   195→   195→
+   196→   196→## 7. Notifications
+   197→   197→
+   198→   198→- Categories (8, == preference keys): `agronomic_alert, data_freshness, recommendation_update, report_ready, invitation, subscription, billing, system` (tuple `CATEGORIES`).
+   199→   199→- Severities: `info, advisory, warning, critical` (tuple `SEVERITIES`; DB check `ck_notification_severity`).
+   200→   200→- **Dedupe**: DB-level partial unique index on `(organization_id, dedupe_key)` WHERE dedupe_key IS NOT NULL; concurrent emission loser treated as "already notified" (IntegrityError → return existing row, `None` when no key).
+   201→   201→- **Read model**: `read_at` timestamp; `mark_read(read=True/False)`; `mark_all_read`; list returns (rows, total, unread).
+   202→   202→- **Expiry/retention**: `READ_RETENTION=30d`, `UNREAD_RETENTION=90d`; per-category `DEFAULT_EXPIRY_BY_CATEGORY` (data_freshness/invitation 14d; agronomic_alert/report_ready/recommendation_update 30d; subscription/billing/system 90d); `purge_expired(db)` sweep.
+   203→   203→- **Channels**: in-app implemented. **Email is a provider-adapter seam only** — docstring references `app/notifications/channels.py`, which **does not exist yet** (no file). `NotificationPreference.email_enabled` exists (default False) but is never consumed.
+   204→   204→
+   205→   205→---
+   206→   206→
+   207→   207→## 8. Analytics
+   208→   208→
+   209→   209→- Provenance flags (module constants): `PROVENANCE_OBSERVED="observed"`, `PROVENANCE_MODEL="model_derived"`, `PROVENANCE_SIMULATED="simulated"`, `PROVENANCE_MISSING="missing"`. `_metric(...)` auto-downgrades to `missing` when value is None. Honesty: no yield/profit values invented; financial metrics only from user-supplied assumptions (echoed back in `assumptions`); irrigation volumes, cost_per_hectare, yield → `missing` with explanation.
+   210→   210→- Functions: `executive_dashboard`, `farm_performance`, `commercial_metrics`, `benchmark` (§2). Benchmarking is **intra-org only** (farm-vs-farm / field-vs-field; scopes "farm"/"field"); cross-org anonymized aggregates → `{"provenance": "missing", "note": "Not implemented..."}`. Data freshness: variables precipitation/air_temperature_max/soil_moisture/ndvi with status fresh(<=3d)/stale(<=14d)/very_stale/missing. Adoption from `AIRecommendationFeedback.state` (acceptance_rate = (accepted+implemented)/total; "user behaviour, NOT agronomic correctness").
+   211→   211→
+   212→   212→---
+   213→   213→
+   214→   214→## 9. Migration `0020_p3_saas_platform.py`
+   215→   215→
+   216→   216→- `revision = "0020_p3_saas_platform"`, `down_revision = "0019_p2_intelligence"` → **current alembic head is 0020_p3_saas_platform** (highest in migrations/versions).
+   217→   217→- **Alters (additive only)**: `users.is_platform_admin` Boolean NOT NULL server_default false; drop+recreate `ck_membership_role` on `memberships` widened to 7-role superset (old codes stay valid).
+   218→   218→- **Creates 16 tables**: plans, plan_prices, plan_entitlements, subscriptions (+indexes `uq_subscription_live_per_org` partial, `ix_subscriptions_org`), subscription_events, invoices, billing_events, usage_counters, invitations (+`uq_invitations_token_hash`, `ix_invitations_org_email`, `ck_invitation_status`), activity_events, notifications (+dedupe partial unique, org_created, user idx), notification_preferences, report_jobs, api_keys (+api_key_usage), webhook_endpoints, webhook_deliveries, onboarding_progress, user_preferences. Then `_seed_default_plans()` bulk-inserts the 5-plan catalog with monthly+yearly prices and all 13 entitlement keys per plan.
+   219→   219→- **downgrade()** drops everything created in reverse order and restores `_ORIGINAL_ROLES` check (`role_code IN ('owner','manager','agronomist','viewer')`) + drops `users.is_platform_admin`.
+   220→   220→
+   221→   221→---
+   222→   222→
+   223→   223→## 10. Gaps — NOT yet implemented anywhere (checklist for后续 agents)
+   224→   224→
+   225→   225→**API routes** (no P3 routers exist in `app/api/v1/`; `router.py` registers none of these):
+   226→   226→- [ ] Org lifecycle & settings: create/update org, org member directory/role change/remove/ownership transfer (service exists — `orgs/service.py` — no routes)
+   227→   227→- [ ] Invitations: create/list/revoke/accept routes
+   228→   228→- [ ] Billing: list public plans, start/change/cancel/resume subscription, subscription snapshot, invoices, sandbox payment simulation, billing webhook receiver endpoint (`process_billing_webhook` has no HTTP entrypoint)
+   229→   229→- [ ] Entitlements/usage: entitlements view, usage snapshot route
+   230→   230→- [ ] Notifications: list/mark read/mark-all/preferences routes
+   231→   231→- [ ] Activity timeline route
+   232→   232→- [ ] Onboarding: progress/complete/skip/account-type/dismiss routes
+   233→   233→- [ ] Preferences: get/update route
+   234→   234→- [ ] Analytics: executive-dashboard / farm-performance / commercial-metrics / benchmark routes
+   235→   235→- [ ] Plans admin API (platform-admin CRUD over plans/prices/entitlements — referenced by migration comments, never written)
+   236→   236→- [ ] Platform-admin surface (no use of `is_platform_admin` anywhere outside the model/migration)
+   237→   237→
+   238→   238→**Service modules missing entirely** (models + config exist, no service code):
+   239→   239→- [ ] `app/notifications/channels.py` (email adapter seam named in docstring)
+   240→   240→- [ ] Reports generation service (report_jobs lifecycle, pdf/xlsx/csv rendering, storage under `settings.reports_dir`, retention sweep, recurring `interval_days`/`next_run_at` scheduling; only `EventReportCreated` constant exists)
+   241→   241→- [ ] Public API keys service (generate `ctk_`-prefixed keys, hash storage, scopes, `last_used_at`, ApiKeyUsage counters, key-auth dependency, per-key rate limiting using `rate_limit_per_minute`/`api_rate_limit_per_minute` entitlement)
+   242→   242→- [ ] Outgoing webhooks service (endpoint CRUD, HMAC signing with endpoint secret, delivery worker honoring `webhook_backoff_seconds`/`webhook_max_attempts`, dead-lettering, failure-disable via `consecutive_failures`/`disabled_reason`)
+   243→   243→
+   244→   244→**Scheduler/jobs**: no wiring for `expire_stale_subscriptions`, `notifications.purge_expired`, `activity.prune_older_than`, report due-queue, webhook retry-queue (`BackgroundJob` infra exists in models.py/core/jobs.py but unused by P3).
+   245→   245→
+   246→   246→**Enforcement call sites**: entitlement checks (`assert_within_limit` for farms/fields/members, `check_quota` for scenario runs/reports/AI messages, `require_flag` for satellite/advanced_analysis/exports/analytics/api) are defined but **not yet invoked** by existing domain services (farms/fields/scenarios/recommendations still have no billing gates). `members.py` still uses old 4-role Pydantic pattern.
+   247→   247→
+   248→   248→**Tests**: no P3 tests (`tests/unit/`, `tests/integration/` contain no billing/orgs/onboarding/notifications/analytics/preferences/webhooks/api-keys coverage; `test_migrations.py` predates 0020).
+   249→   249→
+   250→   250→**Frontend**: no P3 UI (no pricing/billing/settings/onboarding/notifications pages in `src/`; `messages/en|ar/*.json` contain no P3 namespaces).
+   251→   251→
+   252→   252→**Docs**: no P3 as-built/contract docs under `docs/` or `mini-services/fieldshift-api/docs/`.
+   253→   253→
+   254→   254→**Model-level odds and ends**: `Organization.organization_type` model default is `"farm"` while orgs service validates only `("individual","business","farm_org")`; no teams tables; no invoice line items / tax fields.
+   255→   255→

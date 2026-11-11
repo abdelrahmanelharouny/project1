@@ -81,6 +81,15 @@ class Conflict(CropTwistError):
     code = "CONFLICT"
 
 
+class PaymentRequired(CropTwistError):
+    """Entitlement/subscription gate (P3 W2): plan limit reached or no
+    active subscription. Maps to HTTP 402 Payment Required so clients can
+    drive the upgrade flow from a single, machine-readable signal."""
+
+    status_code = 402  # HTTP 402 Payment Required
+    code = "PAYMENT_REQUIRED"
+
+
 class AccountLocked(CropTwistError):
     """Sign-in blocked by the temporary failed-login lockout (P0-2).
 

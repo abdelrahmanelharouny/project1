@@ -55,7 +55,31 @@ SESSION_COOKIE_NAME = "fs_token"
 
 # RBAC hierarchy (Master §17): the numeric order defines "at least as
 # privileged as" comparisons for role gates.
-ROLE_ORDER: dict[str, int] = {"viewer": 0, "agronomist": 1, "manager": 2, "owner": 3}
+#
+# P3 widened the role set (migration 0020): org_admin administrates the
+# organization at owner level but cannot transfer ownership; operator works
+# at manager level for field operations; analyst reads at agronomist level.
+# Existing codes keep their historical ranks.
+ROLE_ORDER: dict[str, int] = {
+    "viewer": 0,
+    "analyst": 1,
+    "agronomist": 1,
+    "operator": 2,
+    "manager": 2,
+    "org_admin": 3,
+    "owner": 3,
+}
+
+# Role codes offered by the invitation / member-management UI (stable order).
+ASSIGNABLE_ROLES: list[str] = [
+    "owner",
+    "org_admin",
+    "manager",
+    "operator",
+    "agronomist",
+    "analyst",
+    "viewer",
+]
 
 
 def role_at_least(role_code: str, minimum: str) -> bool:

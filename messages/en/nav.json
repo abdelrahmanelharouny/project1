@@ -26,5 +26,11 @@
   "soilmemory": "Soil Memory",
   "failurelab": "Failure Lab",
   "adaptiveevidence": "Adaptive Evidence",
-  "portfolio": "Portfolio"
+  "portfolio": "Portfolio",
+  "team": "Team",
+  "billing": "Billing",
+  "insights": "Insights",
+  "reports": "Reports",
+  "developer": "Developer",
+  "getStarted": "Get started"
 }

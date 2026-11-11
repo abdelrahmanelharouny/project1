@@ -54,6 +54,7 @@ from app.scenario_execution.dependency_graph import (
 )
 from app.scenario_execution.transformations import apply_transformations
 from app.scenarios import contracts as sc
+from app.scenarios import service as scenario_service
 
 logger = logging.getLogger("croptwist.scenario_execution")
 
@@ -433,6 +434,14 @@ def start_scenario_execution(
         else:
             return existing  # idempotent replay of a live/finished run
 
+    # P3 enforcement gate (Task 3): scenario-run monthly quota. Applies ONLY
+    # when the acting principal's organization context (the farm's org, with
+    # an active membership) has a live subscription — org-less / legacy
+    # personal flows (P1/P2 golden cases, seed/demo users) pass through
+    # untouched. Idempotent replays above return existing runs and are never
+    # re-counted. Policy helper lives in app/scenarios/service.py.
+    quota_org_id = scenario_service.enforce_scenario_run_quota(db, scenario, created_by)
+
     now = datetime.now(UTC)
     run = dbm.ScenarioExecutionRun(
         field_id=scenario.field_id,
@@ -471,6 +480,18 @@ def start_scenario_execution(
         if winner is not None:
             return winner
         raise
+
+    # P3 enforcement gate (Task 3): meter the new run against the org's
+    # monthly usage counter (only when the quota gate above applied — i.e.
+    # the org has a live subscription).
+    if quota_org_id is not None:
+        from app.billing import entitlements
+
+        if entitlements.get_live_subscription(db, quota_org_id) is not None:
+            entitlements.increment_usage(
+                db, quota_org_id, entitlements.KEY_SCENARIO_RUNS_PER_MONTH
+            )
+            db.commit()
 
     _execute_run(
         db,

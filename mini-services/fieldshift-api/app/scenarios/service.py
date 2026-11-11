@@ -1145,3 +1145,65 @@ def capabilities_payload() -> dict[str, Any]:
             "simulated with synthetic substitutes."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# P3 entitlement enforcement (Task 3) — scenario-run quota
+# ---------------------------------------------------------------------------
+# The scenario RUN (execution) is created by
+# app/scenario_execution/service.start_scenario_execution; these helpers keep
+# the entitlement policy in one place. CONSTRAINT (Task 3): gates apply ONLY
+# when the acting principal's organization context has a live subscription —
+# users/flows without an organization (legacy personal accounts, P1/P2
+# golden cases, seed/demo users) pass through untouched so existing behavior
+# is 100% preserved.
+
+def quota_organization_for_run(
+    db: Session,
+    scenario: dbm.Scenario,
+    created_by: Any,
+) -> uuid_mod.UUID | None:
+    """The organization context a scenario run is billed against, or None.
+
+    It is the scenario's farm organization, and it only counts when the
+    acting user is an ACTIVE member of it (API tenant scoping guarantees
+    this; background/system runs with `created_by=None` are never gated).
+    """
+    if created_by is None:
+        return None
+    field = db.get(dbm.Field, scenario.field_id)
+    if field is None:
+        return None
+    farm = db.get(dbm.Farm, field.farm_id)
+    if farm is None:
+        return None
+    membership = db.scalar(
+        select(dbm.Membership).where(
+            dbm.Membership.organization_id == farm.organization_id,
+            dbm.Membership.user_id == created_by.id,
+            dbm.Membership.status == "active",
+        )
+    )
+    return farm.organization_id if membership is not None else None
+
+
+def enforce_scenario_run_quota(
+    db: Session,
+    scenario: dbm.Scenario,
+    created_by: Any,
+) -> uuid_mod.UUID | None:
+    """Raise PaymentRequired when the acting organization's plan quota for
+    scenario runs is exhausted. Returns the gated organization id (callers
+    increment the usage counter against it after persisting a NEW run), or
+    None when no gate applies (no acting user, no org context, or the
+    organization has no live subscription)."""
+    from app.billing import entitlements
+
+    org_id = quota_organization_for_run(db, scenario, created_by)
+    if org_id is None:
+        return None
+    # P3 gate: only organizations WITH a live subscription are metered.
+    if entitlements.get_live_subscription(db, org_id) is None:
+        return None
+    entitlements.check_quota(db, org_id, entitlements.KEY_SCENARIO_RUNS_PER_MONTH)
+    return org_id

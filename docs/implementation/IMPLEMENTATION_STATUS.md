@@ -354,3 +354,21 @@ dependency (alembic/uvicorn family, psycopg2 driver, pydantic internals).
   migration will fail CI by design.
 - LLM-bridge port is hardcoded 3035 in the bridge itself (probes configurable).
 - Playwright deliberately not introduced (see docs/operations/CI_AND_TESTING.md).
+
+## Milestone P3 — Commercial SaaS platform (foundation → global readiness)
+
+Status snapshot — full per-feature detail in `docs/p3/P3_IMPLEMENTATION_STATUS.md`, endpoint
+reference in `docs/p3/P3_API_CONTRACTS.md`, verification plan in `docs/p3/P3_TEST_AND_VERIFICATION.md`
+(results deliberately TBD until the integrator's verification pass).
+
+| Workstream | Status | Notes |
+|---|---|---|
+| W1 Commercial SaaS foundation | ✅ | 16 new tables (`app/db/models_p3.py`), migration `0020_p3_saas_platform` (head), 5-plan catalog seeded as DB data with 13 entitlement keys; `PaymentRequired` (402) added. No teams/seat tables (by design gap) |
+| W2 Subscriptions/Billing/Entitlements | ✅ (sandbox provider only) | Full subscription lifecycle + idempotent signed webhook pipeline; **no real payments — sandbox provider, test mode, HMAC-verified webhook simulation only** (`/billing/sandbox/pay`); entitlement gates live for farms/fields creation, reports quota+exports, scenario runs, per-key API rate limits (pass-through for org-less users); member caps and bool keys seeded but not enforced |
+| W3 Organizations/Teams/Farm management | ✅ | Org CRUD, 7-role RBAC enforced in services, member directory/roles, ownership transfer, SHA-256 invitation tokens (out-of-band delivery), append-only activity timeline. No team sub-groups |
+| W4 Commercial intelligence & business analytics | ✅ | Executive dashboard, farm performance, commercial metrics (only from user-supplied water price; cost/ha + yield always `missing`), within-org benchmarks (cross-org returns `provenance:"missing"`); unsupported dashboard filters refused with 400 |
+| W5 Reports/Exports/Notifications | ✅ | 10 report types × pdf/xlsx/csv × en/ar, queued + sync (csv/xlsx) execution, retention, recurrence; Arabic RTL PDF (arabic_reshaper+bidi, verified Arabic font, transliteration fallback); notification center with dedupe/preferences. **Email is a logging adapter seam only — no SMTP/SMS** |
+| W6 Public API/Developer platform | ✅ | `ctk_` API keys (hashed, scoped, per-key throttle), 9 read-only `/public/v1` endpoints (key-org tenant isolation), outgoing webhooks (signed, backoff, dead-letter, auto-disable). **Only `report.ready` + `subscription.updated` are emitted today**; farm/field edit events not yet emitted |
+| W7 Global product experience | ✅ | Onboarding (9 resumable steps), user preferences (locale/timezone/units/currency/week start/agricultural calendar), full en/ar frontend (198+324 i18n keys, RTL-safe) with billing/insights/reports/developer/team tabs + notification bell + wizard wired into the workspace. No MFA, no SSO/SCIM |
+| W8 Production infrastructure/operations | ✅ (single-process) | Periodic scheduler with 6 tasks (report queue, webhook retries, subscription expiry, notification purge, report retention/recurrence, activity prune) + ops status surface; per-key rate limiting; audit trails. In-process counters/limiter — multi-replica coordination is a production task |
+| P3 tests & verification | ⬜ | Unit tests exist for api keys (23), report renderers (17), webhook signing (28); integration/E2E/perf/security passes are structured but **TBD** in `docs/p3/P3_TEST_AND_VERIFICATION.md` |

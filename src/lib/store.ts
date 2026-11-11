@@ -25,6 +25,11 @@ export type WorkspaceTab =
   | 'failurelab'
   | 'adaptiveevidence'
   | 'portfolio'
+  | 'team'
+  | 'billing'
+  | 'insights'
+  | 'reports'
+  | 'developer'
 
 export interface SelectedField {
   id: string
