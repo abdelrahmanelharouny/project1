@@ -265,7 +265,10 @@ def transfer_ownership(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
-    # Owner-only (service gate); target must be an active member.
+    # Authorize the ACTOR first (exact owner gate), then resolve the target.
+    # Resolving the target before the gate would leak membership existence
+    # (404) to callers who must never learn anything about this org (403).
+    orgs_service._require_owner(principal, org_id)
     membership = _membership_by_user(db, org_id, payload.target_user_id)
     return orgs_service.transfer_ownership(
         db,

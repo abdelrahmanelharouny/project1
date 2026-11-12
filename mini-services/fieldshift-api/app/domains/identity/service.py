@@ -129,6 +129,17 @@ class Principal:
             )
         return membership
 
+    def require_owner(self, organization_id: uuid.UUID) -> Membership:
+        """Ownership actions (transfer, owner invitations, owner removal)
+        require the EXACT 'owner' role — org_admin shares owner's rank for
+        administrative gates but must never pass an ownership gate."""
+        membership = self.membership_in(organization_id)
+        if membership is None:
+            raise Forbidden("You do not have access to this organization's resources.")
+        if membership.role_code != "owner":
+            raise Forbidden("This action requires the organization owner role.")
+        return membership
+
     def require_any_org_role(self, minimum: str) -> Membership:
         """Role gate for GLOBAL-context mutations (no single organization
         scope, e.g. platform-level knowledge packs): require at least one
