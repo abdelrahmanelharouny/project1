@@ -1,0 +1,947 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * P3 — Billing tab: subscription card, plan catalog, usage meters,
+     5→ * entitlements, invoices and the sandbox payment simulator.
+     6→ *
+     7→ * Data honesty: everything rendered comes from the billing API (plans,
+     8→ * subscription snapshot, usage counters, entitlements, invoices). Missing
+     9→ * prices are "contact sales", never invented; sandbox test mode is labelled
+    10→ * from the subscription's provider fields.
+    11→ */
+    12→
+    13→import { useState } from 'react'
+    14→import { useLocale, useTranslations } from 'next-intl'
+    15→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+    16→import { toast } from 'sonner'
+    17→import { Check, ExternalLink, Info, X } from 'lucide-react'
+    18→import {
+    19→  AlertDialog,
+    20→  AlertDialogAction,
+    21→  AlertDialogCancel,
+    22→  AlertDialogContent,
+    23→  AlertDialogDescription,
+    24→  AlertDialogFooter,
+    25→  AlertDialogHeader,
+    26→  AlertDialogTitle,
+    27→} from '@/components/ui/alert-dialog'
+    28→import { Badge } from '@/components/ui/badge'
+    29→import { Button } from '@/components/ui/button'
+    30→import {
+    31→  Card,
+    32→  CardContent,
+    33→  CardDescription,
+    34→  CardHeader,
+    35→  CardTitle,
+    36→} from '@/components/ui/card'
+    37→import { Label } from '@/components/ui/label'
+    38→import { Progress } from '@/components/ui/progress'
+    39→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    40→import { Skeleton } from '@/components/ui/skeleton'
+    41→import { Switch } from '@/components/ui/switch'
+    42→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+    43→import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+    44→import { ApiError, describeError } from '@/lib/api'
+    45→import { formatDateTime, formatDay } from '@/lib/format'
+    46→import { useCropTwistUi } from '@/lib/store'
+    47→import {
+    48→  changeBillingSubscription,
+    49→  cancelBillingSubscription,
+    50→  getBillingEntitlements,
+    51→  getBillingSubscription,
+    52→  getBillingUsage,
+    53→  listBillingInvoices,
+    54→  listBillingPlans,
+    55→  listMyOrganizations,
+    56→  resumeBillingSubscription,
+    57→  sandboxBillingPay,
+    58→  startBillingSubscription,
+    59→  type BillingInvoice,
+    60→  type BillingSubscriptionInfo,
+    61→  type PlanCatalogItem,
+    62→  type SandboxPayOutcome,
+    63→} from '@/lib/api-p3-commercial'
+    64→
+    65→type T = ReturnType<typeof useTranslations>
+    66→
+    67→// --------------------------------------------------------------- helpers
+    68→
+    69→function money(cents: number | null, currency: string, locale: string): string {
+    70→  if (cents === null) return '—'
+    71→  try {
+    72→    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100)
+    73→  } catch {
+    74→    return `${(cents / 100).toFixed(2)} ${currency}`
+    75→  }
+    76→}
+    77→
+    78→function statusBadgeClass(status: string): string {
+    79→  switch (status) {
+    80→    case 'active':
+    81→      return 'border-emerald-300 bg-emerald-50 text-emerald-800'
+    82→    case 'trialing':
+    83→      return 'border-stone-300 bg-stone-100 text-stone-700'
+    84→    case 'past_due':
+    85→      return 'border-amber-300 bg-amber-50 text-amber-900'
+    86→    case 'grace':
+    87→      return 'border-amber-200 bg-amber-50/60 text-amber-800'
+    88→    case 'canceled':
+    89→      return 'border-red-200 bg-red-50 text-red-800'
+    90→    default:
+    91→      return 'border-stone-200 bg-stone-50 text-stone-500'
+    92→  }
+    93→}
+    94→
+    95→function statusLabel(t: T, status: string): string {
+    96→  switch (status) {
+    97→    case 'active':
+    98→      return t('billing.statusActive')
+    99→    case 'trialing':
+   100→      return t('billing.statusTrialing')
+   101→    case 'past_due':
+   102→      return t('billing.statusPastDue')
+   103→    case 'grace':
+   104→      return t('billing.statusGrace')
+   105→    case 'canceled':
+   106→      return t('billing.statusCanceled')
+   107→    default:
+   108→      return t('billing.statusUnknown')
+   109→  }
+   110→}
+   111→
+   112→function invoiceStatusLabel(t: T, status: string): string {
+   113→  switch (status) {
+   114→    case 'open':
+   115→      return t('billing.invoiceStatusOpen')
+   116→    case 'paid':
+   117→      return t('billing.invoiceStatusPaid')
+   118→    case 'void':
+   119→      return t('billing.invoiceStatusVoid')
+   120→    default:
+   121→      return status
+   122→  }
+   123→}
+   124→
+   125→const ENTITLEMENT_KEYS: { key: string; labelKey: string }[] = [
+   126→  { key: 'max_farms', labelKey: 'entMaxFarms' },
+   127→  { key: 'max_fields', labelKey: 'entMaxFields' },
+   128→  { key: 'max_org_members', labelKey: 'entMaxOrgMembers' },
+   129→  { key: 'history_retention_years', labelKey: 'entHistoryRetentionYears' },
+   130→  { key: 'scenario_runs_per_month', labelKey: 'entScenarioRunsPerMonth' },
+   131→  { key: 'reports_per_month', labelKey: 'entReportsPerMonth' },
+   132→  { key: 'api_rate_limit_per_minute', labelKey: 'entApiRateLimitPerMinute' },
+   133→  { key: 'ai_messages_per_day', labelKey: 'entAiMessagesPerDay' },
+   134→  { key: 'advanced_analysis', labelKey: 'entAdvancedAnalysis' },
+   135→  { key: 'satellite_access', labelKey: 'entSatelliteAccess' },
+   136→  { key: 'api_enabled', labelKey: 'entApiEnabled' },
+   137→  { key: 'exports_enabled', labelKey: 'entExportsEnabled' },
+   138→  { key: 'analytics_access', labelKey: 'entAnalyticsAccess' },
+   139→]
+   140→
+   141→function toastMutationError(t: T, err: unknown): void {
+   142→  if (err instanceof ApiError && err.status === 403) {
+   143→    toast.error(t('errors.forbiddenTitle'), { description: t('errors.forbiddenBody') })
+   144→    return
+   145→  }
+   146→  const d = describeError(err)
+   147→  toast.error(d.title, { description: d.description })
+   148→}
+   149→
+   150→function InlineError({ err, t }: { err: unknown; t: T }) {
+   151→  const forbidden = err instanceof ApiError && err.status === 403
+   152→  return (
+   153→    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+   154→      <p className="font-semibold">{forbidden ? t('errors.forbiddenTitle') : t('common.loadError')}</p>
+   155→      <p className="mt-1 text-xs leading-relaxed">
+   156→        {forbidden ? t('errors.forbiddenBody') : describeError(err).title}
+   157→      </p>
+   158→    </div>
+   159→  )
+   160→}
+   161→
+   162→function NoOrgEmptyState({ t }: { t: T }) {
+   163→  return (
+   164→    <Card>
+   165→      <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+   166→        <p className="text-base font-semibold text-stone-900">{t('common.noOrgTitle')}</p>
+   167→        <p className="max-w-md text-sm text-stone-500">{t('common.noOrgBody')}</p>
+   168→        <Button
+   169→          className="mt-2 bg-emerald-700 text-white hover:bg-emerald-800"
+   170→          onClick={() => useCropTwistUi.getState().setActiveTab('team')}
+   171→        >
+   172→          {t('common.noOrgCta')}
+   173→        </Button>
+   174→      </CardContent>
+   175→    </Card>
+   176→  )
+   177→}
+   178→
+   179→function StatusBadge({ t, status }: { t: T; status: string }) {
+   180→  return (
+   181→    <Badge variant="outline" className={statusBadgeClass(status)}>
+   182→      {statusLabel(t, status)}
+   183→    </Badge>
+   184→  )
+   185→}
+   186→
+   187→// --------------------------------------------------------------- component
+   188→
+   189→export default function BillingTab() {
+   190→  const t = useTranslations('p3b')
+   191→  const locale = useLocale()
+   192→  const queryClient = useQueryClient()
+   193→
+   194→  const orgsQuery = useQuery({
+   195→    queryKey: ['p3-orgs'],
+   196→    queryFn: listMyOrganizations,
+   197→    staleTime: 60_000,
+   198→    retry: 1,
+   199→  })
+   200→  const org = orgsQuery.data?.items[0] ?? null
+   201→  const orgId = org?.id ?? null
+   202→
+   203→  const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly')
+   204→  const [sandboxHidden, setSandboxHidden] = useState(false)
+   205→  const [sandboxOutcome, setSandboxOutcome] = useState<SandboxPayOutcome>('succeeded')
+   206→  const [confirmPlan, setConfirmPlan] = useState<PlanCatalogItem | null>(null)
+   207→  const [cancelOpen, setCancelOpen] = useState(false)
+   208→  const [resumeOpen, setResumeOpen] = useState(false)
+   209→
+   210→  const subQuery = useQuery({
+   211→    queryKey: ['p3-billing-subscription', orgId],
+   212→    queryFn: () => getBillingSubscription(orgId as string),
+   213→    enabled: Boolean(orgId),
+   214→    staleTime: 15_000,
+   215→    retry: 1,
+   216→  })
+   217→  const usageQuery = useQuery({
+   218→    queryKey: ['p3-billing-usage', orgId],
+   219→    queryFn: () => getBillingUsage(orgId as string),
+   220→    enabled: Boolean(orgId),
+   221→    staleTime: 15_000,
+   222→    retry: 1,
+   223→  })
+   224→  const entQuery = useQuery({
+   225→    queryKey: ['p3-billing-entitlements', orgId],
+   226→    queryFn: () => getBillingEntitlements(orgId as string),
+   227→    enabled: Boolean(orgId),
+   228→    staleTime: 60_000,
+   229→    retry: 1,
+   230→  })
+   231→  const invoicesQuery = useQuery({
+   232→    queryKey: ['p3-billing-invoices', orgId],
+   233→    queryFn: () => listBillingInvoices(orgId as string, { limit: 50 }),
+   234→    enabled: Boolean(orgId),
+   235→    staleTime: 30_000,
+   236→    retry: 1,
+   237→  })
+   238→  const plansQuery = useQuery({
+   239→    queryKey: ['p3-billing-plans'],
+   240→    queryFn: listBillingPlans,
+   241→    staleTime: 5 * 60_000,
+   242→    retry: 1,
+   243→  })
+   244→
+   245→  const subscription: BillingSubscriptionInfo | null = subQuery.data?.subscription ?? null
+   246→  const liveSubscription = subscription !== null
+   247→
+   248→  const invalidateBilling = () => {
+   249→    void queryClient.invalidateQueries({ queryKey: ['p3-billing-subscription'] })
+   250→    void queryClient.invalidateQueries({ queryKey: ['p3-billing-usage'] })
+   251→    void queryClient.invalidateQueries({ queryKey: ['p3-billing-entitlements'] })
+   252→    void queryClient.invalidateQueries({ queryKey: ['p3-billing-invoices'] })
+   253→  }
+   254→
+   255→  const startM = useMutation({
+   256→    mutationFn: startBillingSubscription,
+   257→    onSuccess: (data) => {
+   258→      toast.success(t('billing.statusActive'), { description: data.subscription.plan?.name })
+   259→      if (data.checkout?.url) window.open(data.checkout.url, '_blank', 'noopener,noreferrer')
+   260→      setConfirmPlan(null)
+   261→      invalidateBilling()
+   262→    },
+   263→    onError: (err) => toastMutationError(t, err),
+   264→  })
+   265→  const changeM = useMutation({
+   266→    mutationFn: changeBillingSubscription,
+   267→    onSuccess: () => {
+   268→      toast.success(t('billing.changeConfirmTitle'))
+   269→      setConfirmPlan(null)
+   270→      invalidateBilling()
+   271→    },
+   272→    onError: (err) => toastMutationError(t, err),
+   273→  })
+   274→  const cancelM = useMutation({
+   275→    mutationFn: cancelBillingSubscription,
+   276→    onSuccess: () => {
+   277→      toast.success(t('billing.cancelDialogTitle'))
+   278→      setCancelOpen(false)
+   279→      invalidateBilling()
+   280→    },
+   281→    onError: (err) => {
+   282→      setCancelOpen(false)
+   283→      toastMutationError(t, err)
+   284→    },
+   285→  })
+   286→  const resumeM = useMutation({
+   287→    mutationFn: resumeBillingSubscription,
+   288→    onSuccess: () => {
+   289→      toast.success(t('billing.resumeDialogTitle'))
+   290→      setResumeOpen(false)
+   291→      invalidateBilling()
+   292→    },
+   293→    onError: (err) => {
+   294→      setResumeOpen(false)
+   295→      toastMutationError(t, err)
+   296→    },
+   297→  })
+   298→  const sandboxM = useMutation({
+   299→    mutationFn: sandboxBillingPay,
+   300→    onSuccess: (data) => {
+   301→      if (data.outcome === 'succeeded') toast.success(t('billing.sandboxPaidToast'))
+   302→      else toast.info(t('billing.sandboxDeclinedToast'))
+   303→      invalidateBilling()
+   304→    },
+   305→    onError: (err) => {
+   306→      // The server is the source of truth: if it refuses (non-sandbox
+   307→      // provider / missing role), the panel disappears instead of nagging.
+   308→      if (err instanceof ApiError && (err.status === 403 || err.status === 422)) {
+   309→        setSandboxHidden(true)
+   310→        return
+   311→      }
+   312→      toastMutationError(t, err)
+   313→    },
+   314→  })
+   315→
+   316→  if (orgsQuery.isLoading) {
+   317→    return (
+   318→      <div className="space-y-4">
+   319→        <Skeleton className="h-8 w-48" />
+   320→        <Skeleton className="h-40 w-full" />
+   321→        <Skeleton className="h-64 w-full" />
+   322→      </div>
+   323→    )
+   324→  }
+   325→  if (!org) return <NoOrgEmptyState t={t} />
+   326→
+   327→  const isTestProvider =
+   328→    subscription !== null && (subscription.provider === 'sandbox' || subscription.provider_mode === 'test')
+   329→
+   330→  return (
+   331→    <div className="space-y-4">
+   332→      <header>
+   333→        <h2 className="text-lg font-semibold text-stone-900">{t('billing.title')}</h2>
+   334→        <p className="mt-0.5 text-sm text-stone-500">{t('billing.intro')}</p>
+   335→      </header>
+   336→
+   337→      {subQuery.isError ? (
+   338→        <InlineError err={subQuery.error} t={t} />
+   339→      ) : subQuery.isLoading ? (
+   340→        <Skeleton className="h-40 w-full" />
+   341→      ) : (
+   342→        <SubscriptionCard
+   343→          t={t}
+   344→          subscription={subscription}
+   345→          onCancel={() => setCancelOpen(true)}
+   346→          onResume={() => setResumeOpen(true)}
+   347→        />
+   348→      )}
+   349→
+   350→      {/* Plans */}
+   351→      <Card>
+   352→        <CardHeader className="pb-2">
+   353→          <div className="flex flex-wrap items-center justify-between gap-3">
+   354→            <div>
+   355→              <CardTitle className="text-base">{t('billing.plansTitle')}</CardTitle>
+   356→              <CardDescription className="text-sm text-stone-500">{t('billing.plansDesc')}</CardDescription>
+   357→            </div>
+   358→            <div className="flex items-center gap-2">
+   359→              <Switch
+   360→                id="p3-billing-period"
+   361→                checked={period === 'yearly'}
+   362→                onCheckedChange={(checked) => setPeriod(checked ? 'yearly' : 'monthly')}
+   363→                aria-label={period === 'yearly' ? t('billing.yearly') : t('billing.monthly')}
+   364→              />
+   365→              <Label htmlFor="p3-billing-period" className="text-xs text-stone-600">
+   366→                {period === 'yearly' ? t('billing.yearly') : t('billing.monthly')}
+   367→              </Label>
+   368→            </div>
+   369→          </div>
+   370→        </CardHeader>
+   371→        <CardContent>
+   372→          {plansQuery.isLoading ? (
+   373→            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+   374→              <Skeleton className="h-56 w-full" />
+   375→              <Skeleton className="h-56 w-full" />
+   376→              <Skeleton className="h-56 w-full" />
+   377→            </div>
+   378→          ) : plansQuery.isError ? (
+   379→            <InlineError err={plansQuery.error} t={t} />
+   380→          ) : (
+   381→            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+   382→              {(plansQuery.data?.items ?? []).map((plan) => (
+   383→                <PlanCard
+   384→                  key={plan.id}
+   385→                  t={t}
+   386→                  plan={plan}
+   387→                  period={period}
+   388→                  locale={locale}
+   389→                  isCurrent={liveSubscription && subscription?.plan?.code === plan.code}
+   390→                  hasLiveSubscription={liveSubscription}
+   391→                  busy={startM.isPending || changeM.isPending}
+   392→                  onSelect={() => setConfirmPlan(plan)}
+   393→                />
+   394→              ))}
+   395→            </div>
+   396→          )}
+   397→        </CardContent>
+   398→      </Card>
+   399→
+   400→      {/* Usage */}
+   401→      <div className="grid gap-4 lg:grid-cols-2">
+   402→        <Card>
+   403→          <CardHeader className="pb-2">
+   404→            <CardTitle className="text-base">{t('billing.usageTitle')}</CardTitle>
+   405→            <CardDescription className="text-sm text-stone-500">{t('billing.usageDesc')}</CardDescription>
+   406→          </CardHeader>
+   407→          <CardContent className="space-y-3">
+   408→            {usageQuery.isLoading ? (
+   409→              <Skeleton className="h-32 w-full" />
+   410→            ) : usageQuery.isError ? (
+   411→              <InlineError err={usageQuery.error} t={t} />
+   412→            ) : (
+   413→              <>
+   414→                {(usageQuery.data?.items ?? []).map((item) => (
+   415→                  <UsageRow key={item.key} t={t} item={item} />
+   416→                ))}
+   417→                <p className="text-xs text-stone-500">{t('billing.usageResets')}</p>
+   418→              </>
+   419→            )}
+   420→          </CardContent>
+   421→        </Card>
+   422→
+   423→        <Card>
+   424→          <CardHeader className="pb-2">
+   425→            <CardTitle className="text-base">{t('billing.entitlementsTitle')}</CardTitle>
+   426→          </CardHeader>
+   427→          <CardContent>
+   428→            {entQuery.isLoading ? (
+   429→              <Skeleton className="h-32 w-full" />
+   430→            ) : entQuery.isError ? (
+   431→              <InlineError err={entQuery.error} t={t} />
+   432→            ) : (
+   433→              <ul className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
+   434→                {ENTITLEMENT_KEYS.map(({ key, labelKey }) => {
+   435→                  const entry = entQuery.data?.entitlements[key]
+   436→                  return <EntitlementRow key={key} t={t} labelKey={labelKey} entry={entry} />
+   437→                })}
+   438→              </ul>
+   439→            )}
+   440→          </CardContent>
+   441→        </Card>
+   442→      </div>
+   443→
+   444→      {/* Invoices */}
+   445→      <Card>
+   446→        <CardHeader className="pb-2">
+   447→          <CardTitle className="text-base">{t('billing.invoicesTitle')}</CardTitle>
+   448→          <CardDescription className="text-sm text-stone-500">{t('billing.invoicesDesc')}</CardDescription>
+   449→        </CardHeader>
+   450→        <CardContent>
+   451→          {invoicesQuery.isLoading ? (
+   452→            <Skeleton className="h-32 w-full" />
+   453→          ) : invoicesQuery.isError ? (
+   454→            <InlineError err={invoicesQuery.error} t={t} />
+   455→          ) : (
+   456→            <InvoicesTable t={t} invoices={invoicesQuery.data?.items ?? []} locale={locale} />
+   457→          )}
+   458→        </CardContent>
+   459→      </Card>
+   460→
+   461→      {/* Sandbox payments (only when the provider says test mode) */}
+   462→      {isTestProvider && !sandboxHidden && (
+   463→        <Card className="border-amber-200 bg-amber-50/40">
+   464→          <CardHeader className="pb-2">
+   465→            <div className="flex flex-wrap items-center gap-2">
+   466→              <CardTitle className="text-base">{t('billing.sandboxTitle')}</CardTitle>
+   467→              <Badge variant="outline" className="border-amber-300 bg-amber-100 text-amber-900">
+   468→                {t('billing.testModeBadge')}
+   469→              </Badge>
+   470→            </div>
+   471→            <CardDescription className="text-sm text-amber-900/80">{t('billing.sandboxDesc')}</CardDescription>
+   472→          </CardHeader>
+   473→          <CardContent>
+   474→            <div className="flex flex-wrap items-end gap-3">
+   475→              <div className="flex flex-col gap-1">
+   476→                <Label className="text-xs text-stone-700" htmlFor="p3-sandbox-outcome">
+   477→                  {t('billing.sandboxOutcome')}
+   478→                </Label>
+   479→                <Select value={sandboxOutcome} onValueChange={(v) => setSandboxOutcome(v as SandboxPayOutcome)}>
+   480→                  <SelectTrigger id="p3-sandbox-outcome" className="h-9 w-40 bg-white">
+   481→                    <SelectValue />
+   482→                  </SelectTrigger>
+   483→                  <SelectContent>
+   484→                    <SelectItem value="succeeded">{t('billing.outcomeSucceeded')}</SelectItem>
+   485→                    <SelectItem value="declined">{t('billing.outcomeDeclined')}</SelectItem>
+   486→                  </SelectContent>
+   487→                </Select>
+   488→              </div>
+   489→              <Button
+   490→                variant="outline"
+   491→                disabled={sandboxM.isPending}
+   492→                onClick={() => sandboxM.mutate({ organization_id: org.id, outcome: sandboxOutcome })}
+   493→              >
+   494→                {sandboxM.isPending ? t('common.loading') : t('billing.sandboxPay')}
+   495→              </Button>
+   496→            </div>
+   497→          </CardContent>
+   498→        </Card>
+   499→      )}
+   500→
+   501→      {/* Confirmations */}
+   502→      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+   503→        <AlertDialogContent>
+   504→          <AlertDialogHeader>
+   505→            <AlertDialogTitle>{t('billing.cancelDialogTitle')}</AlertDialogTitle>
+   506→            <AlertDialogDescription>
+   507→              {t('billing.cancelDialogBody', { date: formatDay(subscription?.current_period_end ?? null) })}
+   508→            </AlertDialogDescription>
+   509→          </AlertDialogHeader>
+   510→          <AlertDialogFooter>
+   511→            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+   512→            <AlertDialogAction
+   513→              className="bg-red-700 text-white hover:bg-red-800"
+   514→              onClick={(e) => {
+   515→                e.preventDefault()
+   516→                if (orgId) cancelM.mutate({ organization_id: orgId, at_period_end: true })
+   517→              }}
+   518→            >
+   519→              {t('billing.cancelConfirm')}
+   520→            </AlertDialogAction>
+   521→          </AlertDialogFooter>
+   522→        </AlertDialogContent>
+   523→      </AlertDialog>
+   524→
+   525→      <AlertDialog open={resumeOpen} onOpenChange={setResumeOpen}>
+   526→        <AlertDialogContent>
+   527→          <AlertDialogHeader>
+   528→            <AlertDialogTitle>{t('billing.resumeDialogTitle')}</AlertDialogTitle>
+   529→            <AlertDialogDescription>{t('billing.resumeDialogBody')}</AlertDialogDescription>
+   530→          </AlertDialogHeader>
+   531→          <AlertDialogFooter>
+   532→            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+   533→            <AlertDialogAction
+   534→              onClick={(e) => {
+   535→                e.preventDefault()
+   536→                if (orgId) resumeM.mutate(orgId)
+   537→              }}
+   538→            >
+   539→              {t('billing.resumeAction')}
+   540→            </AlertDialogAction>
+   541→          </AlertDialogFooter>
+   542→        </AlertDialogContent>
+   543→      </AlertDialog>
+   544→
+   545→      <AlertDialog open={confirmPlan !== null} onOpenChange={(open) => !open && setConfirmPlan(null)}>
+   546→        <AlertDialogContent>
+   547→          <AlertDialogHeader>
+   548→            <AlertDialogTitle>
+   549→              {liveSubscription ? t('billing.changeConfirmTitle') : t('billing.startConfirmTitle')}
+   550→            </AlertDialogTitle>
+   551→            <AlertDialogDescription>
+   552→              {liveSubscription
+   553→                ? t('billing.changeConfirmBody', {
+   554→                    plan: confirmPlan?.name ?? '',
+   555→                    period: period === 'yearly' ? t('billing.periodYearly') : t('billing.periodMonthly'),
+   556→                  })
+   557→                : t('billing.startConfirmBody', {
+   558→                    plan: confirmPlan?.name ?? '',
+   559→                    period: period === 'yearly' ? t('billing.periodYearly') : t('billing.periodMonthly'),
+   560→                  })}
+   561→              {confirmPlan?.trial_days ? ` ${t('billing.startTrialNote', { days: confirmPlan.trial_days })}` : ''}
+   562→            </AlertDialogDescription>
+   563→          </AlertDialogHeader>
+   564→          <AlertDialogFooter>
+   565→            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+   566→            <AlertDialogAction
+   567→              className="bg-emerald-700 text-white hover:bg-emerald-800"
+   568→              onClick={(e) => {
+   569→                e.preventDefault()
+   570→                if (!confirmPlan || !orgId) return
+   571→                if (liveSubscription) {
+   572→                  changeM.mutate({
+   573→                    organization_id: orgId,
+   574→                    new_plan_code: confirmPlan.code,
+   575→                    billing_period: period,
+   576→                  })
+   577→                } else {
+   578→                  startM.mutate({ organization_id: orgId, plan_code: confirmPlan.code, billing_period: period })
+   579→                }
+   580→              }}
+   581→            >
+   582→              {liveSubscription ? t('billing.changeConfirm') : t('billing.startAction')}
+   583→            </AlertDialogAction>
+   584→          </AlertDialogFooter>
+   585→        </AlertDialogContent>
+   586→      </AlertDialog>
+   587→    </div>
+   588→  )
+   589→}
+   590→
+   591→// --------------------------------------------------------------- pieces
+   592→
+   593→function SubscriptionCard({
+   594→  t,
+   595→  subscription,
+   596→  onCancel,
+   597→  onResume,
+   598→}: {
+   599→  t: T
+   600→  subscription: BillingSubscriptionInfo | null
+   601→  onCancel: () => void
+   602→  onResume: () => void
+   603→}) {
+   604→  const isTest =
+   605→    subscription !== null && (subscription.provider === 'sandbox' || subscription.provider_mode === 'test')
+   606→  return (
+   607→    <Card>
+   608→      <CardHeader className="pb-2">
+   609→        <div className="flex flex-wrap items-center justify-between gap-2">
+   610→          <div className="flex flex-wrap items-center gap-2">
+   611→            <CardTitle className="text-base">{subscription?.plan?.name ?? t('billing.noSubscriptionTitle')}</CardTitle>
+   612→            {subscription ? <StatusBadge t={t} status={subscription.status} /> : null}
+   613→            {isTest ? (
+   614→              <Badge variant="outline" className="border-amber-300 bg-amber-100 text-amber-900">
+   615→                {t('billing.testModeBadge')}
+   616→              </Badge>
+   617→            ) : null}
+   618→            {subscription?.cancel_at_period_end ? (
+   619→              <Badge variant="outline" className="border-stone-300 bg-white text-stone-600">
+   620→                {t('billing.cancelScheduled')}
+   621→              </Badge>
+   622→            ) : null}
+   623→          </div>
+   624→          {subscription?.cancel_at_period_end ? (
+   625→            <Button size="sm" variant="outline" onClick={onResume}>
+   626→              {t('billing.resumeAction')}
+   627→            </Button>
+   628→          ) : subscription ? (
+   629→            <Button size="sm" variant="outline" className="text-red-700 hover:text-red-800" onClick={onCancel}>
+   630→              {t('billing.cancelAction')}
+   631→            </Button>
+   632→          ) : null}
+   633→        </div>
+   634→        <CardDescription className="text-sm text-stone-500">
+   635→          {subscription ? t('billing.intro') : t('billing.noSubscriptionBody')}
+   636→        </CardDescription>
+   637→      </CardHeader>
+   638→      {subscription ? (
+   639→        <CardContent className="grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+   640→          <Detail label={t('billing.billingPeriodLabel')} value={subscription.billing_period === 'yearly' ? t('billing.yearly') : t('billing.monthly')} />
+   641→          <Detail label={t('billing.periodStart')} value={formatDay(subscription.current_period_start)} />
+   642→          <Detail label={t('billing.periodEnd')} value={formatDay(subscription.current_period_end)} />
+   643→          {subscription.trial_ends_at ? (
+   644→            <Detail label={t('billing.trialEnds')} value={formatDateTime(subscription.trial_ends_at)} />
+   645→          ) : null}
+   646→          {subscription.grace_ends_at ? (
+   647→            <Detail label={t('billing.graceEnds')} value={formatDateTime(subscription.grace_ends_at)} />
+   648→          ) : null}
+   649→          <Detail
+   650→            label={t('billing.providerLabel')}
+   651→            value={`${subscription.provider} (${subscription.provider_mode})`}
+   652→          />
+   653→        </CardContent>
+   654→      ) : null}
+   655→      {isTest ? (
+   656→        <CardContent className="pt-0">
+   657→          <p className="text-xs text-amber-800">{t('billing.testModeNote')}</p>
+   658→        </CardContent>
+   659→      ) : null}
+   660→    </Card>
+   661→  )
+   662→}
+   663→
+   664→function Detail({ label, value }: { label: string; value: string }) {
+   665→  return (
+   666→    <p className="flex items-baseline justify-between gap-2 sm:justify-start sm:gap-3">
+   667→      <span className="text-xs text-stone-500">{label}</span>
+   668→      <span className="font-medium text-stone-900">{value}</span>
+   669→    </p>
+   670→  )
+   671→}
+   672→
+   673→function PlanCard({
+   674→  t,
+   675→  plan,
+   676→  period,
+   677→  locale,
+   678→  isCurrent,
+   679→  hasLiveSubscription,
+   680→  busy,
+   681→  onSelect,
+   682→}: {
+   683→  t: T
+   684→  plan: PlanCatalogItem
+   685→  period: 'monthly' | 'yearly'
+   686→  locale: string
+   687→  isCurrent: boolean | null
+   688→  hasLiveSubscription: boolean
+   689→  busy: boolean
+   690→  onSelect: () => void
+   691→}) {
+   692→  const price = plan.prices.find((p) => p.billing_period === period) ?? null
+   693→  const monthly = plan.prices.find((p) => p.billing_period === 'monthly')?.amount_cents ?? null
+   694→  const yearly = plan.prices.find((p) => p.billing_period === 'yearly')?.amount_cents ?? null
+   695→  let savingsPct: number | null = null
+   696→  if (monthly !== null && yearly !== null && monthly > 0 && yearly >= 0) {
+   697→    const pctValue = Math.round((1 - yearly / 12 / monthly) * 100)
+   698→    if (pctValue > 0) savingsPct = pctValue
+   699→  }
+   700→  const selfServe = price !== null && price.amount_cents !== null
+   701→
+   702→  return (
+   703→    <div
+   704→      className={`flex flex-col rounded-lg border p-4 ${
+   705→        isCurrent ? 'border-emerald-300 bg-emerald-50/40' : 'border-stone-200 bg-white'
+   706→      }`}
+   707→    >
+   708→      <div className="flex items-center justify-between gap-2">
+   709→        <p className="font-semibold text-stone-900">{plan.name}</p>
+   710→        {isCurrent ? (
+   711→          <Badge variant="outline" className="border-emerald-300 bg-white text-emerald-800">
+   712→            {t('billing.currentPlanBadge')}
+   713→          </Badge>
+   714→        ) : null}
+   715→      </div>
+   716→      {plan.description ? <p className="mt-1 text-xs leading-relaxed text-stone-500">{plan.description}</p> : null}
+   717→
+   718→      <div className="mt-3 flex items-baseline gap-2">
+   719→        {selfServe ? (
+   720→          <>
+   721→            <span className="text-xl font-semibold text-stone-900">
+   722→              {money(price?.amount_cents ?? null, price?.currency_code ?? 'USD', locale)}
+   723→            </span>
+   724→            <span className="text-xs text-stone-500">
+   725→              / {period === 'yearly' ? t('billing.yearly').toLowerCase() : t('billing.monthly').toLowerCase()}
+   726→            </span>
+   727→          </>
+   728→        ) : (
+   729→          <span className="text-sm font-medium text-stone-600">{t('billing.priceUnavailable')}</span>
+   730→        )}
+   731→      </div>
+   732→      <div className="mt-0.5 flex items-center gap-2 text-xs text-stone-500">
+   733→        {savingsPct !== null && period === 'yearly' ? (
+   734→          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+   735→            {t('billing.savings', { pct: savingsPct })}
+   736→          </Badge>
+   737→        ) : null}
+   738→        {plan.trial_days ? (
+   739→          <span>
+   740→            {plan.trial_days}d · {t('billing.statusTrialing').toLowerCase()}
+   741→          </span>
+   742→        ) : null}
+   743→      </div>
+   744→
+   745→      <ul className="mt-3 flex-1 space-y-1">
+   746→        {ENTITLEMENT_KEYS.map(({ key, labelKey }) => {
+   747→          const value = plan.entitlements[key]
+   748→          if (value === undefined) return null
+   749→          if (typeof value === 'boolean') {
+   750→            return (
+   751→              <li key={key} className="flex items-center gap-1.5 text-xs">
+   752→                {value ? (
+   753→                  <Check className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+   754→                ) : (
+   755→                  <X className="h-3.5 w-3.5 text-stone-400" aria-hidden />
+   756→                )}
+   757→                <span className={value ? 'text-stone-700' : 'text-stone-400'}>{t(`billing.${labelKey}`)}</span>
+   758→              </li>
+   759→            )
+   760→          }
+   761→          return (
+   762→            <li key={key} className="flex items-center gap-1.5 text-xs text-stone-700">
+   763→              <Check className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+   764→              <span>
+   765→                {t(`billing.${labelKey}`)}:{' '}
+   766→                <span className="font-medium">{value === -1 ? t('common.unlimited') : value}</span>
+   767→              </span>
+   768→            </li>
+   769→          )
+   770→        })}
+   771→      </ul>
+   772→
+   773→      <div className="mt-4">
+   774→        {isCurrent ? (
+   775→          <Button variant="outline" className="w-full" disabled>
+   776→            {t('billing.currentPlanBadge')}
+   777→          </Button>
+   778→        ) : selfServe ? (
+   779→          <Button
+   780→            className="w-full bg-emerald-700 text-white hover:bg-emerald-800"
+   781→            disabled={busy}
+   782→            onClick={onSelect}
+   783→          >
+   784→            {hasLiveSubscription ? t('billing.changeAction') : t('billing.startAction')}
+   785→          </Button>
+   786→        ) : (
+   787→          <Tooltip>
+   788→            <TooltipTrigger asChild>
+   789→              <a
+   790→                href="mailto:sales@croptwist.example?subject=Plan%20quote"
+   791→                className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50"
+   792→              >
+   793→                {t('billing.contactSales')}
+   794→                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+   795→              </a>
+   796→            </TooltipTrigger>
+   797→            <TooltipContent className="max-w-56">
+   798→              <p>{t('billing.contactSalesTip')}</p>
+   799→            </TooltipContent>
+   800→          </Tooltip>
+   801→        )}
+   802→      </div>
+   803→    </div>
+   804→  )
+   805→}
+   806→
+   807→function UsageRow({ t, item }: { t: T; item: { key: string; limit: number; unlimited: boolean; used: number } }) {
+   808→  const labelKey = ENTITLEMENT_KEYS.find((e) => e.key === item.key)?.labelKey
+   809→  const label = labelKey ? t(`billing.${labelKey}`) : item.key
+   810→  const pctValue =
+   811→    item.unlimited || item.limit <= 0 ? null : Math.min(100, Math.round((item.used / item.limit) * 100))
+   812→  return (
+   813→    <div>
+   814→      <div className="flex items-baseline justify-between gap-2 text-sm">
+   815→        <span className="text-stone-700">{label}</span>
+   816→        {item.unlimited ? (
+   817→          <span className="text-xs font-medium text-stone-500">{t('common.unlimited')}</span>
+   818→        ) : (
+   819→          <span className="text-xs text-stone-600">
+   820→            {t('billing.usageOf', { used: item.used, limit: item.limit })}
+   821→          </span>
+   822→        )}
+   823→      </div>
+   824→      {!item.unlimited && pctValue !== null ? <Progress className="mt-1 h-2" value={pctValue} aria-label={label} /> : null}
+   825→    </div>
+   826→  )
+   827→}
+   828→
+   829→function EntitlementRow({
+   830→  t,
+   831→  labelKey,
+   832→  entry,
+   833→}: {
+   834→  t: T
+   835→  labelKey: string
+   836→  entry: { value: number | boolean; kind: 'int' | 'bool'; unlimited: boolean } | undefined
+   837→}) {
+   838→  if (!entry) return null
+   839→  return (
+   840→    <li className="flex items-center gap-1.5 text-xs">
+   841→      {entry.kind === 'bool' ? (
+   842→        entry.value ? (
+   843→          <>
+   844→            <Check className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+   845→            <span className="text-stone-700">{t(`billing.${labelKey}`)}</span>
+   846→          </>
+   847→        ) : (
+   848→          <>
+   849→            <X className="h-3.5 w-3.5 text-stone-400" aria-hidden />
+   850→            <span className="text-stone-400">{t(`billing.${labelKey}`)}</span>
+   851→          </>
+   852→        )
+   853→      ) : (
+   854→        <>
+   855→          <Info className="h-3.5 w-3.5 text-stone-400" aria-hidden />
+   856→          <span className="text-stone-700">
+   857→            {t(`billing.${labelKey}`)}:{' '}
+   858→            <span className="font-medium">
+   859→              {entry.unlimited || entry.value === -1 ? t('common.unlimited') : entry.value}
+   860→            </span>
+   861→          </span>
+   862→        </>
+   863→      )}
+   864→    </li>
+   865→  )
+   866→}
+   867→
+   868→function InvoicesTable({
+   869→  t,
+   870→  invoices,
+   871→  locale,
+   872→}: {
+   873→  t: T
+   874→  invoices: BillingInvoice[]
+   875→  locale: string
+   876→}) {
+   877→  if (invoices.length === 0) {
+   878→    return <p className="py-6 text-center text-sm text-stone-500">{t('billing.noInvoices')}</p>
+   879→  }
+   880→  const invoiceBadge = (status: string) =>
+   881→    status === 'paid'
+   882→      ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+   883→      : status === 'open'
+   884→        ? 'border-amber-300 bg-amber-50 text-amber-900'
+   885→        : 'border-stone-300 bg-stone-100 text-stone-600'
+   886→  return (
+   887→    <>
+   888→      {/* Desktop table */}
+   889→      <div className="hidden overflow-x-auto md:block">
+   890→        <Table>
+   891→          <TableHeader>
+   892→            <TableRow>
+   893→              <TableHead>{t('billing.invoiceNumber')}</TableHead>
+   894→              <TableHead>{t('billing.invoiceIssued')}</TableHead>
+   895→              <TableHead>{t('billing.invoicePeriod')}</TableHead>
+   896→              <TableHead>{t('billing.invoiceAmount')}</TableHead>
+   897→              <TableHead>{t('billing.invoiceStatus')}</TableHead>
+   898→            </TableRow>
+   899→          </TableHeader>
+   900→          <TableBody>
+   901→            {invoices.map((inv) => (
+   902→              <TableRow key={inv.id}>
+   903→                <TableCell className="font-mono text-xs" dir="ltr">
+   904→                  {inv.number}
+   905→                </TableCell>
+   906→                <TableCell className="text-xs">{formatDay(inv.issued_at)}</TableCell>
+   907→                <TableCell className="text-xs">
+   908→                  {formatDay(inv.period_start)} — {formatDay(inv.period_end)}
+   909→                </TableCell>
+   910→                <TableCell className="text-xs font-medium">
+   911→                  {money(inv.amount_cents, inv.currency_code, locale)}
+   912→                </TableCell>
+   913→                <TableCell>
+   914→                  <Badge variant="outline" className={invoiceBadge(inv.status)}>
+   915→                    {invoiceStatusLabel(t, inv.status)}
+   916→                  </Badge>
+   917→                </TableCell>
+   918→              </TableRow>
+   919→            ))}
+   920→          </TableBody>
+   921→        </Table>
+   922→      </div>
+   923→      {/* Mobile stacked cards */}
+   924→      <div className="space-y-2 md:hidden">
+   925→        {invoices.map((inv) => (
+   926→          <div key={inv.id} className="rounded-lg border border-stone-200 bg-white p-3">
+   927→            <div className="flex items-center justify-between gap-2">
+   928→              <span className="font-mono text-xs text-stone-900" dir="ltr">
+   929→                {inv.number}
+   930→              </span>
+   931→              <Badge variant="outline" className={invoiceBadge(inv.status)}>
+   932→                {invoiceStatusLabel(t, inv.status)}
+   933→              </Badge>
+   934→            </div>
+   935→            <p className="mt-1 text-xs text-stone-600">
+   936→              {money(inv.amount_cents, inv.currency_code, locale)} · {formatDay(inv.issued_at)}
+   937→            </p>
+   938→            <p className="text-xs text-stone-500">
+   939→              {formatDay(inv.period_start)} — {formatDay(inv.period_end)}
+   940→            </p>
+   941→          </div>
+   942→        ))}
+   943→      </div>
+   944→    </>
+   945→  )
+   946→}
+   947→
