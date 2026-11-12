@@ -76,16 +76,30 @@ async function request<T>(
       const refreshed = await refreshSession()
       if (refreshed) return request<T>(path, options, true)
     }
+    const code = error?.code ?? `HTTP_${response.status}`
+    const message = error?.message ?? `Request failed with status ${response.status}.`
+    void notifyPaymentRequired(response.status, code, message)
     throw new ApiError({
       status: response.status,
-      code: error?.code ?? `HTTP_${response.status}`,
-      message: error?.message ?? `Request failed with status ${response.status}.`,
+      code,
+      message,
       details: error?.details ?? [],
       requestId: error?.request_id,
     })
   }
 
   return payload as T
+}
+
+/**
+ * P3 entitlement guard: fan 402 PAYMENT_REQUIRED out to the global
+ * listener (workspace). Same contract as api-p3-commercial.ts.
+ */
+async function notifyPaymentRequired(status: number, code: string, message: string): Promise<void> {
+  if (status !== 402 && code !== 'PAYMENT_REQUIRED') return
+  const match = /'([a-z_]+)'/.exec(message)
+  const { emitPaymentRequired } = await import('./entitlement-guard')
+  emitPaymentRequired({ entitlement: match?.[1], message })
 }
 
 /** Append defined query parameters (skips undefined/null/empty values). */

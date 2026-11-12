@@ -18,7 +18,8 @@
     "copy": "Copy",
     "copied": "Copied to clipboard",
     "never": "Never",
-    "note": "Note"
+    "note": "Note",
+    "unlimited": "Unlimited"
   },
   "provenance": {
     "observed": "Observed",
@@ -336,5 +337,10 @@
     "whDelete": "Delete",
     "whDeleteTitle": "Delete webhook?",
     "whDeleteBody": "The endpoint stops receiving events immediately. This cannot be undone."
+  },
+  "entitlement": {
+    "limitTitle": "Plan limit reached",
+    "limitBody": "Your current plan cannot perform this action. Upgrade to unlock it.",
+    "upgrade": "Upgrade"
   }
 }

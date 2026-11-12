@@ -71,6 +71,7 @@ import ReportsTab from '@/components/croptwist/p3/reports-tab'
 import DeveloperTab from '@/components/croptwist/p3/developer-tab'
 import { useHealth } from '@/hooks/use-croptwist'
 import { getMe, logout } from '@/lib/api'
+import { mountEntitlementGuard } from '@/lib/entitlement-guard'
 import { useCropTwistUi, type WorkspaceTab } from '@/lib/store'
 import type { MeResponse } from '@/lib/types'
 
@@ -284,8 +285,22 @@ export function Workspace() {
   const activeTab = useCropTwistUi((s) => s.activeTab)
   const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
   const resetSelections = useCropTwistUi((s) => s.setSelectedField)
+  const tP3b = useTranslations('p3b')
 
   useWorkspaceUrlSync()
+
+  // P3 entitlement guard: ANY server-side 402 PAYMENT_REQUIRED (plan limit)
+  // surfaces once as a toast with an Upgrade action that opens Billing.
+  useEffect(() => {
+    return mountEntitlementGuard((detail) => {
+      setActiveTab('billing')
+      toast.error(tP3b('entitlement.limitTitle'), {
+        description: detail.message ?? tP3b('entitlement.limitBody'),
+        action: { label: tP3b('entitlement.upgrade'), onClick: () => setActiveTab('billing') },
+        duration: 10000,
+      })
+    })
+  }, [tP3b, setActiveTab])
 
   useEffect(() => {
     let cancelled = false

@@ -192,15 +192,31 @@ async function authRequest<T>(path: string, body?: unknown): Promise<T> {
     const envelope = payload as ApiErrorBody | null
     const error =
       envelope && typeof envelope === 'object' && 'error' in envelope ? envelope.error : undefined
+    const code = error?.code ?? `HTTP_${response.status}`
+    const message = error?.message ?? `Request failed with status ${response.status}.`
+    void notifyPaymentRequired(response.status, code, message)
     throw new ApiError({
       status: response.status,
-      code: error?.code ?? `HTTP_${response.status}`,
-      message: error?.message ?? `Request failed with status ${response.status}.`,
+      code,
+      message,
       details: error?.details ?? [],
       requestId: error?.request_id,
     })
   }
   return payload as T
+}
+
+/**
+ * P3 entitlement guard: the backend answers 402 PAYMENT_REQUIRED when a
+ * plan limit blocks an action. Fan the signal out globally (single toast +
+ * Billing navigation) instead of every component re-implementing it.
+ * Lazy import keeps this module SSR-safe and dependency-light.
+ */
+async function notifyPaymentRequired(status: number, code: string, message: string): Promise<void> {
+  if (status !== 402 && code !== 'PAYMENT_REQUIRED') return
+  const match = /'([a-z_]+)'/.exec(message)
+  const { emitPaymentRequired } = await import('./entitlement-guard')
+  emitPaymentRequired({ entitlement: match?.[1], message })
 }
 
 interface RequestOptions {
@@ -270,10 +286,13 @@ async function request<T>(
         return request<T>(path, options, { skipAuthRetry: true })
       }
     }
+    const code = error?.code ?? `HTTP_${response.status}`
+    const message = error?.message ?? `Request failed with status ${response.status}.`
+    void notifyPaymentRequired(response.status, code, message)
     throw new ApiError({
       status: response.status,
-      code: error?.code ?? `HTTP_${response.status}`,
-      message: error?.message ?? `Request failed with status ${response.status}.`,
+      code,
+      message,
       details: error?.details ?? [],
       requestId: error?.request_id,
     })
