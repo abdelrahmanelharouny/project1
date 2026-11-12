@@ -522,3 +522,58 @@ class TestReportsQuotaAccounting:
         err = exhausted.json()["error"]
         assert err["code"] == "PAYMENT_REQUIRED"
         assert "reports_per_month" in err["message"]
+
+
+class TestOrgMemberSeatCap:
+    """max_org_members enforcement on invitation acceptance (P3 §4.2).
+
+    Same conditionality contract as farms/fields: the cap bites ONLY when
+    the organization carries a live subscription (P0/P1/P2 flows with no
+    subscription pass through untouched).
+    """
+
+    def test_seat_cap_free_plan_blocks_third_member_and_upgrade_unlocks(self, client):
+        a_headers, a = _register(client, "SeatOwner")
+        org = _org_id(a)
+        b_headers, b = _register(client, "SeatBob")
+        c_headers, c = _register(client, "SeatCarol")
+        d_headers, d = _register(client, "SeatDana")
+
+        def invite(email, role):
+            inv = client.post(
+                f"/api/v1/orgs/{org}/invitations",
+                headers=a_headers,
+                json={"email": email, "role_code": role},
+            )
+            assert inv.status_code == 201, inv.text
+            return inv.json()["token"]
+
+        def accept(headers_invitee, token):
+            return client.post(
+                "/api/v1/invitations/accept", headers=headers_invitee, json={"token": token}
+            )
+
+        # No subscription yet: pass-through (legacy behavior preserved).
+        assert accept(b_headers, invite(b["user"]["email"], "viewer")).status_code == 200
+
+        # Free plan carries max_org_members=1; A already holds the only seat.
+        _start_subscription(client, a_headers, org, "free")
+        carol_token = invite(c["user"]["email"], "viewer")
+        blocked = accept(c_headers, carol_token)
+        assert blocked.status_code == 402, blocked.text
+        err = blocked.json()["error"]
+        assert err["code"] == "PAYMENT_REQUIRED"
+        assert "max_org_members" in err["message"]
+
+        # Upgrade raises the cap to 3 (A + B + C); Carol's STILL-PENDING
+        # invitation becomes acceptable, and the 4th member is denied.
+        resp = client.post(
+            "/api/v1/billing/subscription/change",
+            headers=a_headers,
+            json={"organization_id": org, "new_plan_code": "starter"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert accept(c_headers, carol_token).status_code == 200
+        fourth = accept(d_headers, invite(d["user"]["email"], "viewer"))
+        assert fourth.status_code == 402, fourth.text
+        assert "max_org_members" in fourth.json()["error"]["message"]

@@ -73,3 +73,6 @@ public/*.zip
 
 # P1 AI evaluation reports (generated artifacts, regenerable via scripts/run_evaluation.py)
 mini-services/fieldshift-api/evaluation_reports/
+
+# P3 runtime report artifacts (generated per report job)
+mini-services/fieldshift-api/reports_storage/

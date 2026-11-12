@@ -82,6 +82,19 @@ def _migrate_test_database() -> None:
 _migrate_test_database()
 Base.metadata.create_all(bind=engine)
 
+# P3 §4.1: databases built via create_all + stamp never ran migration
+# 0020's frozen plan-catalog seeder (croptwist_test is exactly that case).
+# Ensure the catalog exists here with the same insert-missing-only module
+# the app lifespan uses at startup.
+from app.billing.catalog import ensure_plan_catalog as _ensure_plan_catalog  # noqa: E402
+
+with SessionLocal() as _seed_db:
+    try:
+        _ensure_plan_catalog(_seed_db)
+        _seed_db.commit()
+    finally:
+        _seed_db.close()
+
 
 # ---------------------------------------------------------------------------
 # P0 determinism (audit Phase 2): intercept OUTBOUND provider transport

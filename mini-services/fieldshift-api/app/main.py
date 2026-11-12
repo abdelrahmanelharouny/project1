@@ -40,6 +40,11 @@ async def lifespan(app: FastAPI):
         from app.knowledge.import_service import seed_default_packs
 
         seed_default_packs(db)
+        # P3 §4.1: seed the commercial plan catalog (idempotent, insert-
+        # missing-only — never clobbers operator adjustments).
+        from app.billing.catalog import ensure_plan_catalog
+
+        ensure_plan_catalog(db)
         db.commit()
     finally:
         db.close()

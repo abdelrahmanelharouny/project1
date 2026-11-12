@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.billing import entitlements
@@ -231,6 +231,14 @@ def list_invoices(
     db: Session = Depends(get_db),
 ) -> dict:
     _require_org_admin(principal, organization_id)
+    total = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Invoice)
+            .where(Invoice.organization_id == organization_id)
+        )
+        or 0
+    )
     rows = list(
         db.scalars(
             select(Invoice)
@@ -240,7 +248,12 @@ def list_invoices(
             .offset(offset)
         ).all()
     )
-    return {"items": [_invoice_payload(i) for i in rows], "limit": limit, "offset": offset}
+    return {
+        "items": [_invoice_payload(i) for i in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/usage")
