@@ -26,6 +26,7 @@ from app.api.v1 import (
     metrics,
     notifications,
     onboarding,
+    ops,
     orgs,
     portfolio,
     preferences,
@@ -93,4 +94,5 @@ api_router.include_router(preferences.router)
 api_router.include_router(activity.router)
 api_router.include_router(reports.router)
 api_router.include_router(developer.router)
+api_router.include_router(ops.router)
 api_router.include_router(public_v1.router)

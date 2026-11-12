@@ -36,7 +36,9 @@ class TestProvidersHealthEndpoint:
         resp = client.get("/api/v1/data/providers/health", headers=auth_headers[0])
         assert resp.status_code == 200
         providers = {p["provider_code"]: p for p in resp.json()["providers"]}
-        assert set(providers) == {"synthetic", "open_meteo", "chirps_import", "soilgrids", "farmer_csv"}
+        # P2 deepened the registry (sentinel2, climate projection providers);
+        # the milestone-3 set must remain PRESENT, later additions allowed.
+        assert {"synthetic", "open_meteo", "chirps_import", "soilgrids", "farmer_csv"} <= set(providers)
         assert providers["open_meteo"]["kind"] == "api"
         assert providers["open_meteo"]["details"]["models"]
         assert providers["soilgrids"]["status"] == "optional"

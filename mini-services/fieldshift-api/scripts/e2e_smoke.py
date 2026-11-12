@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CropTwist P0 end-to-end HTTP smoke test (Phase 6).
+"""CropTwist end-to-end HTTP smoke test (P0 Phase 6 + P3 section).
 
 Covers the primary user journey against a RUNNING stack
 (default http://127.0.0.1:3030):
@@ -7,6 +7,11 @@ Covers the primary user journey against a RUNNING stack
     login -> open farm + field -> AI insights -> load recommendations
     -> trigger recommendation refresh -> verify multi-domain output
     -> advisor query (evidence + disclaimer) -> authz/404 error handling
+    -> P1 trust contracts -> P2 intelligence surface
+    -> P3 commercial journey (fresh user): register -> onboarding ->
+       plan catalog -> free subscription -> server-side entitlement 402 ->
+       notifications -> team invite -> public API key + tenant isolation ->
+       ops health
 
 Determinism contract: assertions are STRUCTURAL only. When the LLM bridge
 is healthy the advisor/insights run with engine mode "llm" and the
@@ -315,6 +320,141 @@ def main() -> int:
                   headers=headers, timeout=30)
     check("unknown field -> 404 (not 500)", r.status_code == 404,
           f"got {r.status_code}")
+
+    # ======================================================================
+    # 10. P3 commercial SaaS journey (FRESH user — never mutates demo state)
+    #     register -> onboarding step -> billing plans -> free subscription
+    #     -> entitlement 402 -> notifications -> team invite -> public API
+    #     -> ops health. All structural; sandbox provider only, no money.
+    # ======================================================================
+    stamp = str(int(time.time()))
+    r = httpx.post(f"{BASE}/auth/register",
+                   json={"email": f"p3-e2e-{stamp}@test.local",
+                         "password": "p3-e2e-password-1",
+                         "display_name": "P3 E2E"},
+                   timeout=30)
+    check("P3 register 201", r.status_code == 201, f"got {r.status_code}")
+    if r.status_code != 201:
+        return _finish(t0)
+    reg = r.json()
+    p3_headers = {"Authorization": f"Bearer {reg['token']}"}
+    org_id = reg.get("organization", {}).get("id")
+    check("P3 register returns personal organization", bool(org_id))
+
+    # onboarding: 9-step state machine is resumable and skippable
+    r = httpx.get(f"{BASE}/onboarding/progress", headers=p3_headers, timeout=30)
+    check("P3 onboarding progress 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        steps = r.json().get("steps", [])
+        check("P3 onboarding declares 9 steps", len(steps) == 9,
+              f"got {len(steps)}")
+    r = httpx.post(f"{BASE}/onboarding/account-type", headers=p3_headers, timeout=30,
+                   json={"account_type": "individual"})
+    check("P3 onboarding account-type 200", r.status_code == 200, f"got {r.status_code}")
+
+    # billing: public catalog (anonymous), free floor, subscription lifecycle
+    r = httpx.get(f"{BASE}/billing/plans", timeout=30)
+    check("P3 plans catalog anonymous 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        codes = [p["code"] for p in r.json().get("items", [])]
+        check("P3 catalog has 5 plans in order",
+              codes == ["free", "starter", "professional", "business", "enterprise"],
+              str(codes))
+    r = httpx.get(f"{BASE}/billing/entitlements", headers=p3_headers,
+                  params={"organization_id": org_id}, timeout=30)
+    check("P3 entitlements free floor 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        ents = r.json().get("entitlements", {})
+        check("P3 free floor max_farms=1 (plan named)",
+              ents.get("max_farms", {}).get("value") == 1
+              and ents.get("max_farms", {}).get("plan_code") == "free",
+              str(ents.get("max_farms")))
+    r = httpx.post(f"{BASE}/billing/subscription", headers=p3_headers, timeout=30,
+                   json={"organization_id": org_id, "plan_code": "free",
+                         "billing_period": "monthly"})
+    check("P3 start free subscription 200", r.status_code == 200, f"got {r.status_code}")
+    r2 = httpx.post(f"{BASE}/billing/subscription", headers=p3_headers, timeout=30,
+                    json={"organization_id": org_id, "plan_code": "starter",
+                          "billing_period": "monthly"})
+    check("P3 double-start rejected 409", r2.status_code == 409, f"got {r2.status_code}")
+
+    # entitlement enforcement is SERVER-side: second farm exceeds free plan
+    r = httpx.post(f"{BASE}/farms", headers=p3_headers, timeout=30,
+                   json={"name": f"P3 E2E Farm {stamp}", "country_code": "EG",
+                         "timezone": "Africa/Cairo", "currency_code": "EGP"})
+    check("P3 first farm 201", r.status_code == 201, f"got {r.status_code}")
+    farm_id = r.json().get("id") if r.status_code == 201 else ""
+    r = httpx.post(f"{BASE}/farms", headers=p3_headers, timeout=30,
+                   json={"name": f"P3 E2E Farm Two {stamp}", "country_code": "EG",
+                         "timezone": "Africa/Cairo", "currency_code": "EGP"})
+    check("P3 second farm blocked 402 (plan limit)", r.status_code == 402,
+          f"got {r.status_code}")
+    if r.status_code == 402:
+        check("P3 402 names the entitlement", "max_farms" in r.text)
+
+    # notifications center: list + unread count are tenant-scoped and empty
+    r = httpx.get(f"{BASE}/notifications", headers=p3_headers, timeout=30)
+    check("P3 notifications list 200", r.status_code == 200, f"got {r.status_code}")
+    r = httpx.get(f"{BASE}/notifications/unread-count", headers=p3_headers, timeout=30)
+    check("P3 unread count 200", r.status_code == 200, f"got {r.status_code}")
+
+    # team: invite a viewer, member directory reflects it
+    r = httpx.post(f"{BASE}/orgs/{org_id}/invitations", headers=p3_headers, timeout=30,
+                   json={"email": f"p3-invitee-{stamp}@test.local", "role_code": "viewer"})
+    check("P3 invitation created 201", r.status_code == 201, f"got {r.status_code}")
+    r = httpx.get(f"{BASE}/orgs/{org_id}/invitations", headers=p3_headers, timeout=30)
+    check("P3 pending invitations listed", r.status_code == 200
+          and len(r.json().get("items", [])) >= 1, f"got {r.status_code}")
+
+    # developer: key created (show-once), public API requires it, tenant-scoped
+    r = httpx.post(f"{BASE}/developer/keys", headers=p3_headers, timeout=30,
+                   json={"name": "e2e smoke key",
+                         "scopes": ["org:read", "farms:read"],
+                         "organization_id": org_id})
+    check("P3 api key created 201", r.status_code == 201, f"got {r.status_code}")
+    key_secret = r.json().get("secret", "") if r.status_code == 201 else ""
+    check("P3 api key plaintext shown once", bool(key_secret))
+    r = httpx.get(f"{BASE}/public/v1/org", timeout=30)
+    check("P3 public API without key rejected 401", r.status_code == 401,
+          f"got {r.status_code}")
+    if key_secret:
+        pub_headers = {"X-API-Key": key_secret}
+        r = httpx.get(f"{BASE}/public/v1/org", headers=pub_headers, timeout=30)
+        check("P3 public API with key 200", r.status_code == 200, f"got {r.status_code}")
+        if r.status_code == 200:
+            check("P3 public API scoped to key's org", r.json().get("id") == org_id)
+        # tenant isolation: the demo org's farm is invisible to this key
+        if farm_id:
+            r = httpx.get(f"{BASE}/public/v1/farms/{farm_id}", headers=pub_headers, timeout=30)
+            check("P3 public API own farm visible", r.status_code == 200,
+                  f"got {r.status_code}")
+        demo_farm_id = ""
+        r = httpx.get(f"{BASE}/farms", headers=headers, timeout=30)
+        demo_items = r.json().get("items", []) if r.status_code == 200 else []
+        if demo_items:
+            demo_farm_id = demo_items[0]["id"]
+            r = httpx.get(f"{BASE}/public/v1/farms/{demo_farm_id}",
+                          headers=pub_headers, timeout=30)
+            check("P3 cross-tenant farm invisible 404", r.status_code == 404,
+                  f"got {r.status_code}")
+
+    # reports: free plan disables exports — structured 403, not a crash
+    r = httpx.post(f"{BASE}/reports", headers=p3_headers, timeout=30,
+                   json={"report_type": "org_executive", "format": "csv", "sync": True})
+    check("P3 free-plan report export denied 403", r.status_code == 403,
+          f"got {r.status_code}")
+
+    # ops health: aggregate surface, authenticated, no secrets
+    r = httpx.get(f"{BASE}/ops/health", headers=p3_headers, timeout=30)
+    check("P3 ops health 200", r.status_code == 200, f"got {r.status_code}")
+    if r.status_code == 200:
+        body = r.json()
+        check("P3 ops health status enum", body.get("status") in ("ok", "degraded"),
+              str(body.get("status")))
+        check("P3 ops health billing provider sandbox",
+              body.get("billing", {}).get("provider") == "sandbox"
+              and body.get("billing", {}).get("mode") == "test",
+              str(body.get("billing")))
 
     return _finish(t0)
 
