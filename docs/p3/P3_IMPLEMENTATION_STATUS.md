@@ -21,7 +21,7 @@ stated gap) · **NOT IMPLEMENTED** (honest absence).
 |---|---|---|
 | P3 DB models (16 tables) | DONE | `app/db/models_p3.py` (584 lines): plans, plan_prices, plan_entitlements, subscriptions, subscription_events, invoices, billing_events, usage_counters, invitations, activity_events, notifications, notification_preferences, report_jobs, api_keys (+api_key_usage), webhook_endpoints, webhook_deliveries, onboarding_progress, user_preferences. Tenant tables carry `organization_id` FK+index; money = integer minor units + ISO currency; no raw card data anywhere |
 | Migration | DONE | `migrations/versions/0020_p3_saas_platform.py` — alembic head. Additive: `users.is_platform_admin` (server_default false), membership role check widened to the 7-role superset (old 4-role codes stay valid); creates the 16 tables; `downgrade()` restores the original check |
-| Plan catalog as DB data | DONE | Migration `_seed_default_plans()` seeds 5 public plans: `free` (0), `starter` (1900¢/mo, 14-day trial), `professional` (4900¢/mo, 14-day trial), `business` (14900¢/mo, 14-day trial), `enterprise` (no price rows ⇒ "contact sales"). Yearly price = monthly×10. Enforcement reads current DB rows, never code constants |
+| Plan catalog as DB data | DONE | Migration `_seed_default_plans()` seeds 5 public plans: `free` (0), `starter` (1900¢/mo, 14-day trial), `professional` (4900¢/mo, 14-day trial), `business` (14900¢/mo, 14-day trial), `enterprise` (no price rows ⇒ "contact sales"). Yearly price = monthly×10. Enforcement reads current DB rows, never code constants. **Runtime parity seeder** `app/billing/catalog.py` (insert-missing-only, values identical to the migration) covers databases built via `create_all`+stamp — wired into app lifespan and conftest |
 | Entitlement keys (13) | DONE | `app/billing/entitlements.py` — 8 int keys (max_farms, max_fields, max_org_members, history_retention_years, scenario_runs_per_month, reports_per_month, api_rate_limit_per_minute, ai_messages_per_day; -1 = unlimited) + 5 bool keys (advanced_analysis, satellite_access, api_enabled, exports_enabled, analytics_access). Full per-plan matrix in the migration seed |
 | Structured error for paywalls | DONE | `app/core/errors.py`: `PaymentRequired` → HTTP 402, code `PAYMENT_REQUIRED`; error envelope unchanged |
 | Platform-admin flag | PARTIAL | Column + migration exist (`users.is_platform_admin`) but **no platform-admin surface uses it** (no plans admin API, no self-service grant path) |
@@ -126,7 +126,7 @@ stated gap) · **NOT IMPLEMENTED** (honest absence).
 | Rate limiting | PARTIAL | Per-key sliding-window limiter for the public API only (`app/publicapi/api_keys.py`); the session-authenticated surface still has no rate limiting (pre-existing limitation) |
 | Audit trail | DONE | `audit_events` via `record_auth_audit` for invitations/membership/ownership/org/api-key actions; append-only `activity_events` for the tenant timeline |
 | Secrets handling | DONE (within scope) | API keys + webhook secrets + invitation tokens stored hashed; plaintext shown once; `api_key_payload` never exposes the hash |
-| Health/ops surface for scheduler | DONE | `scheduler_status()` (tasks, intervals, last-run outcome) — exposed for ops; no dedicated P3 ops dashboard route yet (TBD how the integrator surfaces it) |
+| Health/ops surface for scheduler | DONE | `scheduler_status()` exposed via **`GET /api/v1/ops/health`** (`app/api/v1/ops.py`): DB latency + PostGIS, scheduler last-runs, background/report queue depths, webhook backlog (dead-letter count), billing provider name+mode. Aggregate-only (no tenant data, no secrets); authenticated users (every user owns a personal org, so an org-role gate would be vacuous) |
 | Real email/SMS transport | NOT IMPLEMENTED | Logging adapter only (see W5) |
 | Multi-replica safety | PARTIAL | Scheduler/rate-limiter/usage counters are single-process by design (documented trade-offs in module docstrings); a lost race between replicas costs at most a no-op pass |
 
@@ -139,8 +139,9 @@ stated gap) · **NOT IMPLEMENTED** (honest absence).
    webhook pipeline a real provider would use, and the UI labels it "Test mode".
 2. **Entitlement enforcement is live-subscription-gated and partial.** Farms/fields creation,
    report quota + exports flag, scenario-run quota and per-key API rate limits are enforced; org
-   member caps and the bool keys (analytics/satellite/advanced_analysis/api_enabled) are seeded
-   but not enforced.
+   member caps ARE enforced on invitation acceptance (2026-11-12 session, same live-subscription
+   conditionality as farms/fields); the bool keys (analytics/satellite/advanced_analysis/
+   api_enabled) are surfaced through entitlements/API status but not all have a hard backend gate yet.
 3. **Scheduler is single-process** with 6 periodic tasks; safe to lose a race, not horizontally
    scalable coordination.
 4. **Email is a seam, not a channel**: `LoggingEmailChannel` logs and reports `sent=False`. No

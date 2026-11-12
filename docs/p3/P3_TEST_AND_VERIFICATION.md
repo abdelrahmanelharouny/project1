@@ -118,3 +118,69 @@ PDF rows capped at 300.
 - [ ] Scheduler observed running with 6 tasks and clean `LAST_RUNS` (record: TBD)
 - [ ] Sandbox billing lifecycle (pay succeeded + declined) exercised through the UI (record: TBD)
 - [ ] Any deviations/bugs found filed and referenced here (TBD)
+
+---
+
+## 7. Verification session — 2026-11-12 (integrator results)
+
+All measurements below were executed against the running local stack
+(pg :5433 · api :3030 · bridge :3035 · web :3000) with commit state
+described in the git history ("P3 verification & fixes").
+
+### 7.1 Defects found and fixed during verification
+
+| # | Defect | Root cause | Fix | Evidence |
+|---|---|---|---|---|
+| 1 | 12 P3 tests failing: "Plan 'free' not found in the catalog" | `croptwist_test` was built via `create_all` + stamp, so migration 0020's frozen `_seed_default_plans()` never ran there; no runtime seeder existed | `app/billing/catalog.py` — idempotent insert-missing-only seeder with values identical to migration 0020, wired into app lifespan AND conftest | `tests/integration/test_p3_billing_entitlements.py` 22/22 green |
+| 2 | org_admin could pass the "owner" gate (both roles rank 3) then self-transfer hit a 422 | rank-based `role_at_least('org_admin','owner')` is True | `Principal.require_owner()` — exact role check for ownership actions; `_require_owner` uses it | `test_p3_orgs_lifecycle.py` green incl. `test_only_owner_can_transfer` |
+| 3 | Non-member got 404 (not 403) on ownership-transfer | router resolved the TARGET membership before authorizing the ACTOR (membership-existence leak) | authorize-then-resolve ordering in `app/api/v1/orgs.py` | `test_non_member_cannot_invite_or_transfer` green |
+| 4 | `GET /billing/invoices` response lacked `total` (contract mismatch) | endpoint returned items/limit/offset only | true `COUNT(*)` added alongside the page | `test_start_paid_plan_without_trial_is_active_with_invoice` green |
+| 5 | Pre-existing: provider-health test asserted exact milestone-3 provider set | P2 legitimately grew the registry (sentinel2, CMIP6) | subset assertion (P0 set must remain present) | `test_imports_and_coverage.py` green; verified failing on clean HEAD before fixing |
+| 6 | Frontend console: `MISSING_MESSAGE p3b.common.unlimited` (en + ar) | key used by billing/developer tabs never defined | added to `messages/{en,ar}/p3b.json` | browser console clean after reload (0 errors) |
+
+### 7.2 Test battery (measured)
+
+| Suite | Result | Notes |
+|---|---|---|
+| `tests/unit` | 144 passed, 0 failed | fresh `croptwist_test` |
+| `tests/contract` | 72 passed | |
+| `tests/integration` (all files, sliced) | all green | 1 pre-existing conditional skip; one transient failure during a timeout-killed run was residue (re-run green; also green on clean HEAD ⇒ environment, not code) |
+| P3 suites (billing/notifications-reports/orgs/publicapi-keys/renderers/webhooks) | 138 passed | was 12 failing before fixes |
+| `bun run lint` | clean | |
+| `npx tsc --noEmit` | clean | |
+
+### 7.3 Live E2E smoke (`scripts/e2e_smoke.py` against :3030)
+
+**ALL CHECKS PASSED** — includes the new P3 section (fresh user, never
+mutates demo state): register 201 → personal org → onboarding 9 steps →
+anonymous plan catalog (5 plans, order + starter $19 trial 14) → free
+floor entitlements (plan named) → free subscription start 200 →
+double-start 409 → 2nd farm **402 naming `max_farms`** → notifications
+list + unread-count → invitation 201 + pending list → API key create
+(show-once secret) → public API 401 without key / 200 with key / scoped
+to key's org / own farm 200 / **cross-tenant farm 404** → free-plan
+report export 403 → ops health 200 (provider `sandbox`, mode `test`).
+
+### 7.4 Browser verification (Agent Browser, workspace UI)
+
+- Workspace renders all 26 tabs incl. Team / Insights / Reports / Billing / Developer.
+- Billing tab: subscription card (status, period, trial, grace), usage meters vs limits,
+  plan catalog with per-plan entitlements, invoices; provider labelled "sandbox (test)".
+- **Entitlement guard UX**: synthetic 402 event → toast "Plan limit reached" with server
+  message + Upgrade action; navigates to Billing from any tab; deduped on rapid repeats.
+- PDF pipeline through the UI: Farm performance / PDF / en → queued → scheduler executed
+  → **Succeeded** → download 200 → `file(1)`: "PDF document, version 1.4, 2 page(s)".
+- Notifications: real billing-critical notification rendered ("Payment failed"),
+  mark-all-read correctly disabled when nothing unread.
+- i18n/RTL: Arabic locale flips `document.dir` to `rtl`; Reports + Billing tabs render
+  fully translated; console error-free in both locales.
+- Responsive (390×844): no horizontal overflow; tab strip scrolls; forms stack; footer present.
+
+### 7.5 Infrastructure incident during verification (recorded honestly)
+
+A 10-minute pytest run was killed by a tool timeout mid-write; Postgres
+crash-recovered (checkpointer PANIC: disk full during test-DB churn).
+Postgres recovered via WAL replay; `croptwist_test` dropped and reseeded
+by conftest; caches cleaned (~2 GB). No data loss (demo DB intact; plans
+count verified post-recovery). Operational note: **never kill pytest
+mid-run on this sandbox — always slice suites**.
