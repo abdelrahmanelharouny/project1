@@ -112,6 +112,12 @@ SECTION_KEYS: tuple[str, ...] = (
     "seasonality",
     "risk",
     "data_quality",
+    # P07 — satellite / spatial / environmental intelligence sections
+    "data_availability",
+    "satellite",
+    "spatial",
+    "environmental",
+    "methodology",
 )
 
 REPORT_TYPES: dict[str, ReportTypeSpec] = {
@@ -240,6 +246,73 @@ REPORT_TYPES: dict[str, ReportTypeSpec] = {
             requires=("farm_or_field_or_org", "observations"),
             default_sections=("overview", "field_breakdown", "recommendations"),
             primary_section="field_breakdown",
+        ),
+        # ------------------------------------------------- P07 report types
+        ReportTypeSpec(
+            key="field_intelligence",
+            title_en="Field intelligence report",
+            title_ar="تقرير ذكاء الحقل",
+            description=(
+                "Comprehensive single-field report: data availability and "
+                "observation coverage, satellite acquisition history, "
+                "vegetation index history, spatial variation and statistical "
+                "zones, quality-gated anomaly signals, environmental "
+                "context, water/soil indicators, active recommendation "
+                "evidence, limitations and a methodology/source appendix. "
+                "Generated only from actual authorized platform data; "
+                "insufficient evidence is stated, never filled."
+            ),
+            requires=("field", "observations"),
+            default_sections=(
+                "overview",
+                "data_availability",
+                "satellite",
+                "spatial",
+                "environmental",
+                "water",
+                "soil",
+                "recommendations",
+                "methodology",
+            ),
+            primary_section="satellite",
+        ),
+        ReportTypeSpec(
+            key="satellite_vegetation",
+            title_en="Satellite & vegetation report",
+            title_ar="تقرير الأقمار الصناعية والغطاء النباتي",
+            description=(
+                "Satellite-focused field report: scene acquisition history "
+                "with provenance, per-index zonal statistics, statistical "
+                "zones, coverage gaps and data quality."
+            ),
+            requires=("field", "observations"),
+            default_sections=(
+                "overview",
+                "satellite",
+                "spatial",
+                "seasonality",
+                "data_quality",
+            ),
+            primary_section="satellite",
+        ),
+        ReportTypeSpec(
+            key="spatial_anomalies",
+            title_en="Spatial anomaly report",
+            title_ar="تقرير الشذوذ المكاني",
+            description=(
+                "Quality-gated spatial anomaly signals for the scope with "
+                "their thresholds, confidence, supporting measurements and "
+                "environmental context. Signals are explicitly NOT "
+                "diagnoses; insufficient-evidence cases are listed."
+            ),
+            requires=("farm_or_field", "observations"),
+            default_sections=(
+                "overview",
+                "spatial",
+                "environmental",
+                "data_quality",
+            ),
+            primary_section="spatial",
         ),
     )
 }

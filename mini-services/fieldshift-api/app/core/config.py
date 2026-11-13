@@ -135,6 +135,13 @@ class Settings(BaseSettings):
     raster_max_field_window_mb: float = 256.0
     raster_preview_max_px: int = 512
 
+    # P07 — server-side tile rendering for the map experience. Rendered
+    # tiles are cached in a bounded in-process LRU keyed by asset checksum
+    # (no external cache dependency; safe for Vercel/API deployment where
+    # each instance caches independently).
+    raster_tile_cache_max_entries: int = 512
+    raster_tile_cache_max_mb: int = 128
+
     # P3 — billing (W2). Only the sandbox provider is wired; a real provider
     # adapter must supply verified credentials via the secret manager before
     # any live processing is claimed. The webhook secret signs/verifies

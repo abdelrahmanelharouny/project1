@@ -51,6 +51,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ApiError, describeError } from '@/lib/api'
 import { formatDateTime, formatDay } from '@/lib/format'
+import { p07ReportTypes, type ReportTypeOption } from '@/lib/analytics/p07-utils'
+import { useCropTwistUi } from '@/lib/store'
 import { useFarms } from '@/hooks/use-croptwist'
 import { InlineError, NoOrgEmptyState } from './settings-shared'
 import {
@@ -66,23 +68,19 @@ import {
 
 type T = ReturnType<typeof useTranslations>
 
-/** Mirrors app/reports/contracts.py REPORT_TYPES (fixed registry). */
-const REPORT_TYPES: { value: string; labelKey: string }[] = [
-  { value: 'farm_performance', labelKey: 'typeFarmPerformance' },
-  { value: 'field_analysis', labelKey: 'typeFieldAnalysis' },
-  { value: 'soil_health', labelKey: 'typeSoilHealth' },
-  { value: 'water', labelKey: 'typeWater' },
-  { value: 'rotation', labelKey: 'typeRotation' },
-  { value: 'seasonal', labelKey: 'typeSeasonal' },
-  { value: 'environmental_risk', labelKey: 'typeEnvironmentalRisk' },
-  { value: 'recommendations', labelKey: 'typeRecommendations' },
-  { value: 'org_executive', labelKey: 'typeOrgExecutive' },
-  { value: 'custom_range', labelKey: 'typeCustomRange' },
-]
+/**
+ * P07 W2: the report-type picker is assembled in ONE place
+ * (p07ReportTypes() — legacy registry + the 3 new P07 keys, deduped).
+ * Legacy labels live in `p3b.reports.*`, P07 labels in `p07analytics.reportTypes.*`.
+ */
+const REPORT_TYPES: ReportTypeOption[] = p07ReportTypes()
 
-function reportTypeLabel(t: T, reportType: string): string {
+function reportTypeLabel(t: T, tP07: T, reportType: string): string {
   const entry = REPORT_TYPES.find((r) => r.value === reportType)
-  return entry ? t(`reports.${entry.labelKey}`) : reportType
+  if (!entry) return reportType
+  return entry.ns === 'p07analytics'
+    ? tP07(`reportTypes.${entry.labelKey}`)
+    : t(`reports.${entry.labelKey}`)
 }
 
 function statusLabel(t: T, status: string): string {
@@ -173,7 +171,10 @@ async function saveBlob(blob: Blob, filename: string): Promise<void> {
 
 export default function ReportsTab() {
   const t = useTranslations('p3b')
+  const tP07 = useTranslations('p07analytics')
   const queryClient = useQueryClient()
+  // P07: single-field scope follows the shared field context (zustand store).
+  const selectedField = useCropTwistUi((s) => s.selectedField)
 
   const orgsQuery = useQuery({
     queryKey: ['p3-orgs'],
@@ -217,6 +218,9 @@ export default function ReportsTab() {
         format,
         locale: reportLocale,
         farm_id: scope === 'org' ? null : scope,
+        // P07 backend contract: field_id scopes single-field report types
+        // (field_intelligence / satellite_vegetation / spatial_anomalies).
+        field_id: selectedField?.id ?? null,
         date_from: dateFrom || null,
         date_to: dateTo || null,
         sync: instant && format !== 'pdf',
@@ -345,7 +349,9 @@ export default function ReportsTab() {
                 <SelectContent>
                   {REPORT_TYPES.map((r) => (
                     <SelectItem key={r.value} value={r.value}>
-                      {t(`reports.${r.labelKey}`)}
+                      {r.ns === 'p07analytics'
+                        ? tP07(`reportTypes.${r.labelKey}`)
+                        : t(`reports.${r.labelKey}`)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -496,6 +502,7 @@ export default function ReportsTab() {
                       <ReportRow
                         key={job.id}
                         t={t}
+                        tP07={tP07}
                         farmName={
                           job.farm_id
                             ? farmsQuery.data?.items.find((f) => f.id === job.farm_id)?.name ?? null
@@ -526,6 +533,7 @@ export default function ReportsTab() {
                   <ReportCardMobile
                     key={job.id}
                     t={t}
+                    tP07={tP07}
                     job={job}
                     farmName={
                       job.farm_id ? farmsQuery.data?.items.find((f) => f.id === job.farm_id)?.name ?? null : null
@@ -626,9 +634,18 @@ interface RowActions {
   onDelete: () => void
   busy: boolean
   t: T
+  tP07: T
 }
 
-function ActionButtons({ job, onDownload, onRegen, onSchedule, onDelete, busy, t }: RowActions & { job: ReportJob }) {
+function ActionButtons({
+  job,
+  onDownload,
+  onRegen,
+  onSchedule,
+  onDelete,
+  busy,
+  t,
+}: Omit<RowActions, 'tP07'> & { job: ReportJob }) {
   return (
     <div className="flex items-center justify-end gap-1">
       {job.status === 'succeeded' ? (
@@ -683,6 +700,7 @@ function ActionButtons({ job, onDownload, onRegen, onSchedule, onDelete, busy, t
 
 function ReportRow({
   t,
+  tP07,
   job,
   farmName,
   ...actions
@@ -690,7 +708,7 @@ function ReportRow({
   return (
     <TableRow>
       <TableCell className="text-sm">
-        <span className="font-medium text-stone-900">{reportTypeLabel(t, job.report_type)}</span>
+        <span className="font-medium text-stone-900">{reportTypeLabel(t, tP07, job.report_type)}</span>
         {job.interval_days ? (
           <span className="ms-2 inline-flex items-center gap-1 text-[11px] text-stone-400">
             <Repeat className="h-3 w-3" aria-hidden />
@@ -743,6 +761,7 @@ function ReportRow({
 
 function ReportCardMobile({
   t,
+  tP07,
   job,
   farmName,
   onDownload,
@@ -754,7 +773,7 @@ function ReportCardMobile({
   return (
     <div className="rounded-lg border border-stone-200 bg-white p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-stone-900">{reportTypeLabel(t, job.report_type)}</span>
+        <span className="text-sm font-medium text-stone-900">{reportTypeLabel(t, tP07, job.report_type)}</span>
         {statusBadge(t, job.status)}
       </div>
       <p className="mt-1 text-xs text-stone-600">

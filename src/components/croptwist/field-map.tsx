@@ -1,39 +1,16 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import {
-  Map as MapLibreMap,
-  NavigationControl,
-  ScaleControl,
-  setWorkerUrl,
-  type GeoJSONSource,
-  type StyleSpecification,
-} from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import { type GeoJSONSource } from 'maplibre-gl'
+import { createOfflineMap, disposeMap, type OfflineMap } from '@/lib/map/factory'
 import type { FieldMapResponse } from '@/lib/types'
 
 /**
- * Fully offline MapLibre map: the style is an inline object with a plain dark
- * background — no external tile servers, works in the sandbox without network.
- * The field boundary is drawn from the GeoJSON payload of /fields/{id}/map.
- *
- * The MapLibre worker is served from /public so webpack/Turbopack never has to
- * resolve the worker URL from the bundled ESM graph (dev-mode bundlers often
- * break it — setWorkerUrl is the officially supported escape hatch).
+ * Fully offline single-field preview map. The MapLibre bootstrap (inline
+ * style, worker URL, controls, attribution off) now comes from the shared
+ * factory (lib/map/factory) — behavior identical to the previous inline copy,
+ * including the dark stone-900 canvas and the boundary add-or-update path.
  */
-let workerConfigured = false
-function ensureWorkerConfigured() {
-  if (!workerConfigured) {
-    setWorkerUrl('/maplibre-gl-worker.mjs')
-    workerConfigured = true
-  }
-}
-const OFFLINE_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {},
-  layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#1c1917' } }],
-}
-
 const BOUNDARY_FILL = '#059669' // emerald-600
 const BOUNDARY_LINE = '#6ee7b7' // emerald-300
 
@@ -44,18 +21,12 @@ export function FieldMap({ mapData, className }: { mapData: FieldMapResponse; cl
     const container = containerRef.current
     if (!container) return
 
-    ensureWorkerConfigured()
-
     const [minx, miny, maxx, maxy] = mapData.bbox
-    const map = new MapLibreMap({
-      container,
-      style: OFFLINE_STYLE,
+    const map: OfflineMap = createOfflineMap(container, {
+      style: 'dark',
       center: [(minx + maxx) / 2, (miny + maxy) / 2],
       zoom: 10,
-      attributionControl: false,
     })
-    map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
-    map.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left')
 
     const applyBoundary = () => {
       const source = map.getSource('field-boundary') as GeoJSONSource | undefined
@@ -92,7 +63,7 @@ export function FieldMap({ mapData, className }: { mapData: FieldMapResponse; cl
     }
 
     return () => {
-      map.remove()
+      disposeMap(map)
     }
     // Recreate the map only when a different field (or fresh boundary) arrives.
   }, [mapData])

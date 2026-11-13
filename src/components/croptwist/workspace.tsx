@@ -40,6 +40,8 @@ import OnboardingWizard from '@/components/croptwist/p3/onboarding-wizard'
 import NotificationsBell from '@/components/croptwist/p3/notifications-bell'
 import BillingTab from '@/components/croptwist/p3/billing-tab'
 import InsightsTab from '@/components/croptwist/p3/insights-tab'
+// P07: unified analytics experience (Overview keeps InsightsTab; field/environmental/anomaly sections live in the hub)
+import AnalyticsHub from '@/components/croptwist/p7/analytics-hub'
 import ReportsTab from '@/components/croptwist/p3/reports-tab'
 import DeveloperTab from '@/components/croptwist/p3/developer-tab'
 import { DestinationRail } from '@/components/croptwist/navigation/destination-rail'
@@ -363,7 +365,7 @@ const SUB_PAGE_CONTENT: Record<string, React.ReactNode> = {
   'decisions:twin': <DigitalTwin />,
   // Reports & Analytics
   'reports:reports': <ReportsTab />,
-  'reports:analytics': <InsightsTab />,
+  'reports:analytics': <AnalyticsHub />,
   // Workspace & Settings
   'settings:organization': <TeamTab />,
   'settings:billing': <BillingTab />,

@@ -54,6 +54,8 @@ export const messageNamespaces = [
   'p3b',
   'system',
   'scenecatalog',
+  'p07map',
+  'p07analytics',
 ] as const
 
 export type MessageNamespace = (typeof messageNamespaces)[number]

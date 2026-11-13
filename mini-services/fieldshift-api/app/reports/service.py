@@ -67,7 +67,17 @@ _SECTION_HEADINGS: dict[str, tuple[str, str]] = {
     "seasonality": ("Seasonal observations", "الملاحظات الموسمية"),
     "risk": ("Exposure & freshness", "التعرض وحداثة البيانات"),
     "data_quality": ("Data quality", "جودة البيانات"),
+    # P07 — satellite / spatial / environmental intelligence sections
+    "data_availability": ("Data availability & coverage", "توفر البيانات والتغطية"),
+    "satellite": ("Satellite observations & vegetation indices", "المشاهدات الفضائية ومؤشرات الغطاء النباتي"),
+    "spatial": ("Spatial variation & anomaly signals", "التباين المكاني وإشارات الشذوذ"),
+    "environmental": ("Environmental observations", "المشاهدات البيئية"),
+    "methodology": ("Methodology & sources", "المنهجية والمصادر"),
 }
+
+# P07: recorded on every generated payload so consumers can trace exactly
+# which report-generation code produced a file.
+REPORT_GENERATION_VERSION = "fieldshift-reports-p07-1.0.0"
 
 _VARIABLE_FAMILY = (
     "precipitation",
@@ -91,6 +101,7 @@ def job_payload(job: ReportJob) -> dict[str, Any]:
         "id": str(job.id),
         "organization_id": str(job.organization_id),
         "farm_id": str(job.farm_id) if job.farm_id else None,
+        "field_id": str(job.field_id) if job.field_id else None,
         "requested_by": str(job.requested_by) if job.requested_by else None,
         "report_type": job.report_type,
         "output_format": job.output_format,
@@ -197,6 +208,7 @@ def create_report_job(
     job = ReportJob(
         organization_id=resolved_org_id,
         farm_id=farm.id if farm is not None else None,
+        field_id=field_id,
         requested_by=principal.id,
         report_type=report_type,
         output_format=output_format,
@@ -332,7 +344,7 @@ def _build_payload(
 ) -> dict[str, Any]:
     organization = session.get(Organization, job.organization_id)
     farm = session.get(Farm, job.farm_id) if job.farm_id else None
-    fields = _scope_fields(session, farm, job.organization_id)
+    fields = _scope_fields(session, farm, job.organization_id, job.field_id)
     locale = job.locale
     if farm is not None:
         farm_count = 1
@@ -365,6 +377,16 @@ def _build_payload(
         "data_quality": lambda: _data_quality_section(
             session, fields, job.date_from, job.date_to, locale
         ),
+        # P07 builders
+        "data_availability": lambda: _data_availability_section(
+            session, fields, job.date_from, job.date_to, locale
+        ),
+        "satellite": lambda: _satellite_section(session, fields, locale),
+        "spatial": lambda: _spatial_section(session, fields, locale),
+        "environmental": lambda: _environmental_section(
+            session, fields, job.date_from, job.date_to, locale
+        ),
+        "methodology": lambda: _methodology_section(session, fields, locale),
     }
     for key in spec.default_sections:
         if key == "overview":
@@ -407,6 +429,7 @@ def _build_payload(
         "title": spec.title_ar if locale == "ar" else spec.title_en,
         "report_type": spec.key,
         "primary_section": spec.primary_section,
+        "report_generation_version": REPORT_GENERATION_VERSION,
         "org_name": organization.name if organization else "",
         "farm_name": farm.name if farm else None,
         "generated_at": now.isoformat(),
@@ -431,9 +454,17 @@ def _build_payload(
     }
 
 
-def _scope_fields(session: Session, farm: Farm | None, organization_id: uuid.UUID) -> list[Field]:
+def _scope_fields(
+    session: Session,
+    farm: Farm | None,
+    organization_id: uuid.UUID,
+    field_id: uuid.UUID | None = None,
+) -> list[Field]:
     stmt = select(Field).join(Farm, Field.farm_id == Farm.id)
-    if farm is not None:
+    if field_id is not None:
+        # single-field scope (P07); the field was access-checked at creation
+        stmt = stmt.where(Field.id == field_id)
+    elif farm is not None:
         stmt = stmt.where(Field.farm_id == farm.id)
     else:
         stmt = stmt.where(Farm.organization_id == organization_id)
@@ -1166,3 +1197,357 @@ __all__ = [
     "read_report_file",
     "set_report_schedule",
 ]
+
+
+# ==================================================== P07 section builders ==
+# Every builder follows the P3 honesty contract: sections degrade to
+# provenance="missing" with a note when their data does not exist; no
+# section fabricates values, and satellite/spatial rows always carry the
+# provenance written by the processing pipeline.
+
+
+def _data_availability_section(
+    session: Session,
+    fields: list[Field],
+    date_from: date,
+    date_to: date,
+    locale: str,
+) -> dict[str, Any]:
+    """Observation coverage + missing periods per variable (honest gaps)."""
+    from app.db.models import Observation
+
+    rows: list[list[Any]] = []
+    kpis: list[dict[str, Any]] = []
+    for field in fields[:20]:
+        var_rows = session.execute(
+            select(Observation.variable_code, func.count(), func.min(Observation.observed_at), func.max(Observation.observed_at))
+            .where(Observation.field_id == field.id)
+            .group_by(Observation.variable_code)
+        ).all()
+        if not var_rows:
+            rows.append([field.name, "—", 0, "", "", "no observations ingested"])
+            continue
+        for variable_code, count, first, last in var_rows:
+            rows.append(
+                [
+                    field.name,
+                    variable_code,
+                    int(count),
+                    first.date().isoformat() if first else "",
+                    last.date().isoformat() if last else "",
+                    "",
+                ]
+            )
+        kpis.append(
+            contracts.make_kpi(
+                f"{field.name} variables", len(var_rows), "variables", PROVENANCE_OBSERVED
+            )
+        )
+    return contracts.make_section(
+        _heading("data_availability", locale),
+        prose=(
+            "Observation coverage by variable over the full record (not only "
+            "the report window). Missing periods are shown as gaps; the "
+            "platform does not interpolate missing satellite observations."
+        ),
+        table=contracts.make_table(
+            ["Field", "Variable", "Observations", "First", "Latest", "Note"],
+            rows,
+        ),
+        kpis=kpis[:6],
+        provenance=PROVENANCE_OBSERVED if rows else PROVENANCE_MISSING,
+        note=None if rows else "no observations in scope",
+    )
+
+
+def _satellite_section(
+    session: Session, fields: list[Field], locale: str
+) -> dict[str, Any]:
+    """Satellite acquisition history + index statistics with provenance."""
+    from app.db.models import Observation
+    from app.db.models_p2 import SatelliteScene
+
+    rows: list[list[Any]] = []
+    scenes = session.scalars(
+        select(SatelliteScene)
+        .where(SatelliteScene.field_id.in_([f.id for f in fields[:20]]))
+        .order_by(SatelliteScene.acquired_at.desc())
+        .limit(60)
+    ).all()
+    for scene in scenes:
+        field_name = next((f.name for f in fields if f.id == scene.field_id), "")
+        rows.append(
+            [
+                field_name,
+                scene.scene_id,
+                scene.provider_code,
+                scene.product_code,
+                scene.acquired_at.date().isoformat() if scene.acquired_at else "",
+                "" if scene.cloud_cover_pct is None else scene.cloud_cover_pct,
+                "" if scene.spatial_resolution_m is None else scene.spatial_resolution_m,
+                scene.acquisition_status,
+                "yes" if scene.is_synthetic else "no",
+            ]
+        )
+
+    index_rows: list[list[Any]] = []
+    for field in fields[:20]:
+        obs = session.scalars(
+            select(Observation)
+            .where(Observation.field_id == field.id)
+            .where(Observation.variable_code.in_(["ndvi", "evi", "ndmi", "ndwi", "bsi"]))
+            .where(Observation.value.is_not(None))
+            .order_by(Observation.observed_at.desc())
+            .limit(40)
+        ).all()
+        for obs in obs:
+            meta = obs.metadata or {}
+            zonal = meta.get("zonal") or {}
+            index_rows.append(
+                [
+                    field.name,
+                    obs.variable_code,
+                    obs.observed_at.date().isoformat() if obs.observed_at else "",
+                    round(float(obs.value), 4),
+                    "" if obs.processing_version is None else obs.processing_version,
+                    "" if meta.get("cloud_cover_pct") is None else meta["cloud_cover_pct"],
+                    "" if zonal.get("valid_pixels") is None else zonal["valid_pixels"],
+                    obs.evidence_class or "",
+                ]
+            )
+
+    note = (
+        "Index values are field-mean spectral statistics produced by the "
+        "CRS-correct preprocessing pipeline (windowed reads, HLS scaling, "
+        "Fmask cloud/shadow/snow exclusion). They are measurements, not "
+        "diagnoses of crop condition."
+    )
+    return _two_table_section(
+        _heading("satellite", locale),
+        note,
+        scenes_table=contracts.make_table(
+            ["Field", "Scene", "Provider", "Product", "Acquired", "Cloud %", "Res (m)", "Acquisition", "Synthetic"],
+            rows,
+            units=[None, None, None, None, None, "%", "m", None, None],
+        ),
+        index_table=contracts.make_table(
+            ["Field", "Index", "Date", "Mean", "Processing version", "Cloud %", "Valid px", "Evidence class"],
+            index_rows,
+            units=[None, None, None, None, None, "%", "px", None],
+        ),
+        scenes_present=bool(rows),
+        indices_present=bool(index_rows),
+        locale=locale,
+    )
+
+
+def _two_table_section(
+    heading: str,
+    prose: str,
+    *,
+    scenes_table: dict[str, Any] | None,
+    index_table: dict[str, Any] | None,
+    scenes_present: bool,
+    indices_present: bool,
+    locale: str,
+) -> dict[str, Any]:
+    """Satellite section carrying both the scene ledger and index table.
+
+    The normalized section schema supports one table; the index table is
+    the primary CSV surface, so it takes the table slot and the scene
+    ledger is serialized into the prose-free `note` as a compact summary
+    when present (never fabricated).
+    """
+    if not scenes_present and not indices_present:
+        return contracts.missing_section(
+            heading, "no satellite scenes or derived index observations in scope"
+        )
+    extra = ""
+    if scenes_present and scenes_table:
+        # columns: Field, Scene, Provider, Product, Acquired, ...
+        ledger = [
+            f"{row[1]} {row[3]} {row[4]}".strip()
+            for row in scenes_table["rows"][:10]
+        ]
+        extra = f" Recent scenes: {'; '.join(ledger)}."
+    return contracts.make_section(
+        heading,
+        prose=prose + extra,
+        table=index_table if indices_present else None,
+        kpis=[],
+        provenance=PROVENANCE_OBSERVED if (indices_present or scenes_present) else PROVENANCE_MISSING,
+        note=(
+            "Full scene ledger rows: "
+            + str(len(scenes_table["rows"]) if scenes_table else 0)
+            + " (bounded to the 60 most recent)."
+            if scenes_present
+            else None
+        ),
+    )
+
+
+def _spatial_section(session: Session, fields: list[Field], locale: str) -> dict[str, Any]:
+    """Spatial variation, statistical zones and gated anomaly signals."""
+    from app.geospatial.spatial_analytics import detect_spatial_anomalies
+
+    rows: list[list[Any]] = []
+    notes: list[str] = []
+    anomaly_count = 0
+    for field in fields[:20]:
+        result = detect_spatial_anomalies(session, field, index_code="ndvi")
+        for anomaly in result.get("anomalies", []):
+            anomaly_count += 1
+            rows.append(
+                [
+                    field.name,
+                    anomaly["type"],
+                    anomaly["severity"],
+                    anomaly.get("confidence"),
+                    anomaly.get("observed_at") or "",
+                    anomaly.get("spatial_resolution_m") or "",
+                    anomaly.get("valid_pixel_fraction") or "",
+                    anomaly.get("scene_id") or "",
+                    "; ".join(anomaly.get("reasons", []))[:180],
+                ]
+            )
+        for reason in result.get("insufficient_evidence", []):
+            notes.append(f"{field.name}: {reason}")
+    if not rows:
+        prose = (
+            "No anomaly signals passed the quality gates for this scope. "
+            "Failed gates are listed below — the report does not lower "
+            "thresholds to produce findings."
+        )
+    else:
+        prose = (
+            "Signals passed explicit minimum-sample, coverage, freshness and "
+            "baseline gates. Signals are NOT diagnoses: disease, pest, "
+            "nutrient-deficiency or irrigation-failure claims require "
+            "independent evidence."
+        )
+    if notes:
+        prose += " Insufficient evidence: " + "; ".join(notes[:8]) + "."
+    return contracts.make_section(
+        _heading("spatial", locale),
+        prose=prose,
+        table=contracts.make_table(
+            ["Field", "Signal", "Severity", "Confidence", "Observed", "Res (m)", "Valid px frac", "Scene", "Reasons"],
+            rows,
+        )
+        if rows
+        else None,
+        kpis=[contracts.make_kpi("signals emitted", anomaly_count, "signals", PROVENANCE_OBSERVED)] if rows or not notes else [],
+        provenance=PROVENANCE_OBSERVED if rows else PROVENANCE_MISSING,
+        note=(
+            "Statistical tercile zones are data-description strata, not "
+            "agronomic management zones."
+        ),
+    )
+
+
+def _environmental_section(
+    session: Session,
+    fields: list[Field],
+    date_from: date,
+    date_to: date,
+    locale: str,
+) -> dict[str, Any]:
+    """Environmental observation summary for the report window (real data)."""
+    from app.db.models import Observation
+
+    start_dt = datetime.combine(date_from, datetime.min.time(), tzinfo=UTC)
+    end_dt = datetime.combine(date_to, datetime.max.time(), tzinfo=UTC)
+    variables = ("precipitation", "soil_moisture_surface", "air_temperature_mean", "air_temperature_max", "air_temperature_min", "reference_et0")
+    rows: list[list[Any]] = []
+    for field in fields[:20]:
+        stats = session.execute(
+            select(
+                Observation.variable_code,
+                func.count(Observation.id),
+                func.sum(Observation.value),
+                func.avg(Observation.value),
+                func.max(Observation.observed_at),
+            )
+            .where(
+                Observation.field_id == field.id,
+                Observation.variable_code.in_(variables),
+                Observation.observed_at >= start_dt,
+                Observation.observed_at <= end_dt,
+                Observation.value.is_not(None),
+            )
+            .group_by(Observation.variable_code)
+        ).all()
+        for variable_code, count, total, avg, last in stats:
+            rows.append(
+                [
+                    field.name,
+                    variable_code,
+                    int(count),
+                    round(float(total), 2) if total is not None and variable_code in ("precipitation", "reference_et0") else "",
+                    round(float(avg), 3) if avg is not None and variable_code not in ("precipitation", "reference_et0") else "",
+                    last.date().isoformat() if last else "",
+                ]
+            )
+    return contracts.make_section(
+        _heading("environmental", locale),
+        prose=(
+            "Real ingested observations for the report window only. Variables "
+            "with no provider ingestion for this field are absent — they are "
+            "never estimated. ECOSTRESS land-surface temperature and terrain "
+            "elevation/slope have no ingestion pipeline in the platform yet."
+        ),
+        table=contracts.make_table(
+            ["Field", "Variable", "Days", "Sum", "Mean", "Latest"],
+            rows,
+            units=[None, None, "d", None, None, None],
+        )
+        if rows
+        else None,
+        kpis=[],
+        provenance=PROVENANCE_OBSERVED if rows else PROVENANCE_MISSING,
+        note=None if rows else "no environmental observations in the report window",
+    )
+
+
+def _methodology_section(session: Session, fields: list[Field], locale: str) -> dict[str, Any]:
+    """Methodology + source appendix (reproducibility metadata)."""
+    from app.geospatial.preprocessing import PROCESSING_SOFTWARE_VERSION
+    from app.vegetation.indices import INDEX_FORMULAS
+    from app.vegetation.field_profile import PROFILE_VERSION
+    from app.geospatial.spatial_analytics import SPATIAL_ANALYTICS_VERSION
+
+    formula_rows = [
+        [code, formula, "documented valid range normalized colormap"]
+        for code, formula in INDEX_FORMULAS.items()
+    ]
+    return contracts.make_section(
+        _heading("methodology", locale),
+        prose=(
+            "Reproducibility appendix. Satellite products are derived with "
+            "windowed COG reads, HLS surface-reflectance scaling (DN x "
+            "0.0001) and Fmask exclusion of cloud/cirrus/shadow/snow pixels; "
+            "nodata is never rendered as zero. Zonal statistics are "
+            "pixel-centre masked and tercile zones are rank-based statistical "
+            "strata — not agronomic zones. Anomaly signals are threshold-"
+            "gated (baseline >= 3 observations, freshness <= 45 days, valid "
+            "pixels >= 5, coverage >= 0.4, |z| >= 1.5 for decline) and carry "
+            "machine-readable reasons."
+        ),
+        table=contracts.make_table(
+            ["Index", "Formula", "Rendering"],
+            formula_rows,
+        ),
+        kpis=[
+            contracts.make_kpi("processing software version", PROCESSING_SOFTWARE_VERSION, "version", PROVENANCE_MODEL),
+            contracts.make_kpi("field profile version", PROFILE_VERSION, "version", PROVENANCE_MODEL),
+            contracts.make_kpi("spatial analytics version", SPATIAL_ANALYTICS_VERSION, "version", PROVENANCE_MODEL),
+            contracts.make_kpi("report generation version", REPORT_GENERATION_VERSION, "version", PROVENANCE_MODEL),
+        ],
+        provenance=PROVENANCE_MODEL,
+        note=(
+            "Data sources: NASA HLS (HLSL30/HLSS30) via NASA LP DAAC CMR "
+            "STAC; environmental observations from registered data-platform "
+            "providers; crop history and recommendations from platform "
+            "engines. No LLM participates in any calculation in this report."
+        ),
+    )

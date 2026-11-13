@@ -432,6 +432,43 @@ def _satellite_section(db: Session, field: dbm.Field) -> dict[str, Any] | None:
             "diagnose disease, drought or nutrient status."
         ),
     }
+    # P07 B4: quality-gated spatial anomaly signals ride along with the
+    # vegetation section — SAME observations, no second calculation, no
+    # confidence inflation. Only gate-passing signals are included and each
+    # carries its scene/processing provenance. The condition-context
+    # recommendation generator still consumes the profile directly, so one
+    # observation still votes once.
+    try:
+        from app.geospatial.spatial_analytics import detect_spatial_anomalies
+
+        anomaly_result = detect_spatial_anomalies(db, field, index_code="ndvi")
+        signals = anomaly_result.get("anomalies") or []
+        section["spatial_anomalies"] = {
+            "signals": [
+                {
+                    "type": a.get("type"),
+                    "severity": a.get("severity"),
+                    "confidence": a.get("confidence"),
+                    "reasons": a.get("reasons"),
+                    "observed_at": a.get("observed_at"),
+                    "scene_id": a.get("scene_id"),
+                    "processing_version": a.get("processing_version"),
+                    "spatial_resolution_m": a.get("spatial_resolution_m"),
+                    "valid_pixel_fraction": a.get("valid_pixel_fraction"),
+                    "not_a_diagnosis": True,
+                }
+                for a in signals
+            ],
+            "insufficient_evidence": anomaly_result.get("insufficient_evidence") or [],
+            "note": (
+                "Quality-gated spatial signals (statistical thresholds); they "
+                "do not diagnose disease, pests, nutrient deficiency or "
+                "irrigation failure, and never raise recommendation "
+                "confidence on their own."
+            ),
+        }
+    except Exception:  # noqa: BLE001 — evidence must never break the pack
+        logger.exception("spatial anomaly evidence section failed")
     return section
 
 

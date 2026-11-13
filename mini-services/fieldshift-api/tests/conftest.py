@@ -253,12 +253,54 @@ def clean_tables():
                     "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
                     f"AND tablename NOT IN ({postgis_internal}) ORDER BY tablename"
                 ).fetchall()
-                tables = ", ".join(f'"{row[0]}"' for row in rows)
-                # One statement for ALL tables: TRUNCATE of the full set needs
-                # no CASCADE (every referencing table is included) and issues
-                # one relation-lock cycle instead of ~80.
-                if tables:
-                    conn.exec_driver_sql(f"TRUNCATE TABLE {tables}")
+                names = [row[0] for row in rows]
+                if not names:
+                    return
+                # Emptiness probe: one EXISTS (first-row) scan per table.
+                # On this sandbox a full-set TRUNCATE costs ~60s (per-table
+                # smgr unlink dominates), which made the per-test autouse
+                # cleanup the suite bottleneck. Truncating ONLY tables that
+                # actually hold rows is semantically identical (empty tables
+                # need no cleanup) and typically 10-20x faster because most
+                # tests touch a handful of tables.
+                union_sql = " UNION ALL ".join(
+                    f"SELECT '{name}' AS t, EXISTS(SELECT 1 FROM \"{name}\") AS dirty"
+                    for name in names
+                )
+                dirty = [
+                    row[0]
+                    for row in conn.exec_driver_sql(union_sql).fetchall()
+                    if row[1]
+                ]
+                if not dirty:
+                    return
+                # FK closure: TRUNCATE fails (FeatureNotSupported) when a
+                # dirty table is referenced by a table that is empty and
+                # therefore not in the dirty set. Close the set with all
+                # transitive referencing (child) tables from the catalog —
+                # empty children add nothing to clean and only a small
+                # per-table lock/unlink cost.
+                edges = conn.exec_driver_sql(
+                    "SELECT confrelid::regclass::text AS parent, "
+                    "conrelid::regclass::text AS child FROM pg_constraint "
+                    "WHERE contype = 'f'"
+                ).fetchall()
+                children: dict[str, set[str]] = {}
+                for parent, child in edges:
+                    children.setdefault(parent, set()).add(child)
+                closure = set(dirty)
+                frontier = list(dirty)
+                while frontier:
+                    current = frontier.pop()
+                    for child in children.get(current, ()):
+                        if child not in closure:
+                            closure.add(child)
+                            frontier.append(child)
+                tables = ", ".join(f'"{name}"' for name in sorted(closure))
+                # One statement for the dirty set: TRUNCATE of the full set
+                # needs no CASCADE (every referencing table that could hold
+                # rows is included) and issues one relation-lock cycle.
+                conn.exec_driver_sql(f"TRUNCATE TABLE {tables}")
             return
         except Exception as exc:  # noqa: BLE001 — any DB error: back off, retry
             last_exc = exc

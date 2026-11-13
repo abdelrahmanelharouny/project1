@@ -1,36 +1,39 @@
 'use client'
 
 /**
- * P02 W1 — Map & Satellite destination canvas (blueprint C3).
+ * P07 (task 2-a) — Map & Satellite destination canvas.
  *
- * Composition ONLY — both components are mounted verbatim with their existing
- * props/contracts:
- *   - `FarmMap` becomes the destination canvas (fields of the context farm)
- *   - `SatelliteIntelligence` (the former full-width Satellite tab) docks as
- *     the side panel beside the map it decorates
+ * Composition (keeps the P02 blueprint: FarmMap canvas + docked side panel):
+ *   - `FarmMap` renders the farm's fields. Its instance is STABLE — every
+ *     VISIBLE vegetation layer becomes one server-rendered XYZ raster overlay
+ *     (`productTileUrlTemplate` → MapLibre raster source, same-origin cookies)
+ *     applied incrementally, z-ordered by the layer manager's draw order.
+ *   - `TemporalExplorer` sits above the map: date chips, prev/next stepping,
+ *     honest coverage gaps and the temporal-compatibility warning.
+ *   - `SpatialLegend` floats on the map (documented colormap + nodata note).
+ *   - `FieldInspector` docks under the map for the selected field.
+ *   - `SatelliteIntelligence` keeps every existing capability (unchanged).
+ *   - The new `LayerManager` (backend layer catalog) replaces the former P05
+ *     SatelliteLayersCard and preserves all of its capabilities: per-layer
+ *     index visibility, scene-date select, opacity, provenance metadata and
+ *     the documented colormap legend.
  *
- * Honesty contract preserved: the base map introduces NO imagery — it
- * rearranges the existing offline map + vegetation index/scenes surfaces.
- * P05 adds ONE explicit raster surface: the "Satellite layers" card renders
- * the backend's own preview PNG of a derived index product, georeferenced to
- * the product's documented WGS84 bbox via a MapLibre image source. Every
- * layer carries its provenance (provider/product, synthetic fixture badge,
- * processing version, valid-pixel fraction) and the documented colormap is
- * described in the legend — nothing is invented client-side.
+ * State shape: per-layer UI state and the draw order are stored as
+ * FIELD-SCOPED overrides (a `null` override falls back to catalog defaults —
+ * first available vegetation layer visible at 70% opacity, backend draw
+ * order). Nothing is synced through effects; everything is derived.
  *
- * FarmMap's worker setup stays a module-level singleton (farm-map.tsx) and
- * only one instance is mounted at a time (same as today). Field selection
- * writes the same store slice; clicking a field on the canvas selects it for
- * the satellite panel without navigating away.
+ * Honesty contract: overlays exist ONLY for derived assets the backend
+ * actually resolves (catalog `latest.asset_id`, or the processing ledger's
+ * asset for the selected scene). When nothing resolves, nothing is drawn and
+ * the pane says so. The processing ledger keeps its poll behavior untouched.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Eye, EyeOff, Layers } from 'lucide-react'
+import { TriangleAlert } from 'lucide-react'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Slider } from '@/components/ui/slider'
 import {
   Select,
   SelectContent,
@@ -38,436 +41,279 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { FarmMap, type SatelliteMapOverlay } from '@/components/croptwist/farm-map'
-import { SatelliteIntelligence } from '@/components/croptwist/satellite'
-import { ErrorState, SectionSkeleton } from '@/components/croptwist/state-views'
-import { SyntheticBadge } from '@/components/croptwist/badges'
 import {
-  useFields,
-  useSatelliteProcessing,
-} from '@/hooks/use-croptwist'
-import { fetchSatelliteAssetBlob } from '@/lib/api'
+  FarmMap,
+  type FarmMapFitRequest,
+  type FarmMapOverlay,
+} from '@/components/croptwist/farm-map'
+import { SatelliteIntelligence } from '@/components/croptwist/satellite'
+import {
+  DEFAULT_LAYER_UI,
+  LayerManager,
+  type P07LayerUiState,
+} from '@/components/croptwist/map/layer-manager'
+import { TemporalExplorer } from '@/components/croptwist/map/temporal-explorer'
+import {
+  FieldInspector,
+  type FieldInspectorField,
+} from '@/components/croptwist/map/field-inspector'
+import { SpatialLegend } from '@/components/croptwist/map/spatial-legend'
+import { useFields, useSatelliteProcessing } from '@/hooks/use-croptwist'
+import { useLayerCatalog } from '@/hooks/use-p07'
+import { productTileUrlTemplate } from '@/lib/api-p07'
+import {
+  dayFromIso,
+  opacityFraction,
+  sortDatesDescending,
+  zIndexForOrderSlot,
+  type TemporalCompatibilityInput,
+} from '@/lib/map/temporal'
 import { useCropTwistUi } from '@/lib/store'
-import type {
-  SatelliteDerivedProduct,
-  SatelliteProcessingScene,
-} from '@/lib/types'
+import type { Field, SatelliteProcessingScene } from '@/lib/types'
+import type { P07IndexCode, P07VegetationLayer } from '@/lib/types-p07'
 
-/**
- * Layer-card index options (P05 selector contract: ndvi/evi/ndmi/ndwi/bsi).
- * Documented ranges are the backend's own `documented_range` values
- * (live-verified): they drive the legend scale, never invented client-side.
- */
-const LAYER_INDEX_CODES = ['ndvi', 'evi', 'ndmi', 'ndwi', 'bsi'] as const
-type LayerIndexCode = (typeof LAYER_INDEX_CODES)[number]
-
-const DOCUMENTED_RANGES: Record<LayerIndexCode, [number, number]> = {
-  ndvi: [-1, 1],
-  evi: [-1, 3],
-  ndmi: [-1, 1],
-  ndwi: [-1, 1],
-  bsi: [-1, 1],
-}
-
-/** Documented colormap of the backend preview renderings: brown → white → green. */
-const COLORMAP_GRADIENT = 'linear-gradient(to right, #8a5a2b, #f5f5f4 50%, #15803d)'
-
-/** One scene + its derived product for a given index. */
-interface LayerEntry {
-  scene: SatelliteProcessingScene
-  product: SatelliteDerivedProduct
-}
-
-interface SatelliteLayersState {
-  query: ReturnType<typeof useSatelliteProcessing>
-  /** scene+product entries per index code, most recent first. */
-  entriesByIndex: Record<LayerIndexCode, LayerEntry[]>
-  index: LayerIndexCode
-  setIndex: (code: LayerIndexCode) => void
-  sceneId: string | null
-  setSceneId: (id: string | null) => void
-  opacityPct: number
-  setOpacityPct: (pct: number) => void
-  visible: boolean
-  setVisible: (visible: boolean) => void
-  selectedEntry: LayerEntry | null
-  /** Preview blob state for the currently selected asset. */
-  preview: { url: string | null; loading: boolean; error: boolean }
-  overlay: SatelliteMapOverlay | null
-}
-
-/**
- * Selection state + preview blob lifecycle for the satellite layers card.
- * The blob URL is owned here: revoked in cleanup when replaced or unmounted.
- * (FarmMap is a child — its map teardown runs before this cleanup, so the URL
- * is never revoked while a live map still references it.)
- */
-function useSatelliteLayers(fieldId: string | null): SatelliteLayersState {
-  const query = useSatelliteProcessing(fieldId)
-
-  const [index, setIndexRaw] = useState<LayerIndexCode>('ndvi')
-  const [sceneId, setSceneId] = useState<string | null>(null)
-  const [opacityPct, setOpacityPct] = useState(70)
-  const [visible, setVisible] = useState(true)
-  // Preview fetch result, keyed to the asset it belongs to: while the fetch for
-  // the currently selected asset is in flight, the derived `preview` below
-  // reports loading — no synchronous setState inside the effect needed.
-  const [previewState, setPreviewState] = useState<{
-    assetId: string | null
-    url: string | null
-    error: boolean
-  }>({ assetId: null, url: null, error: false })
-
-  const scenes = query.data?.scenes ?? []
-
-  const entriesByIndex = useMemo(() => {
-    const byIndex = Object.fromEntries(
-      LAYER_INDEX_CODES.map((code) => [code, [] as LayerEntry[]]),
-    ) as Record<LayerIndexCode, LayerEntry[]>
-    for (const scene of scenes) {
-      for (const product of scene.products ?? []) {
-        if ((LAYER_INDEX_CODES as readonly string[]).includes(product.index_code)) {
-          byIndex[product.index_code as LayerIndexCode].push({ scene, product })
-        }
-      }
-    }
-    for (const code of LAYER_INDEX_CODES) {
-      byIndex[code].sort(
-        (a, b) => (b.scene.acquired_at ?? '').localeCompare(a.scene.acquired_at ?? ''),
-      )
-    }
-    return byIndex
-  }, [scenes])
-
-  // Reset the explicit scene pick when the field or index changes; a null
-  // sceneId means "latest acquisition for the chosen index".
-  const setIndex = useCallback((code: LayerIndexCode) => {
-    setIndexRaw(code)
-    setSceneId(null)
-  }, [])
-
-  const selectedEntry = useMemo<LayerEntry | null>(() => {
-    const entries = entriesByIndex[index]
-    if (entries.length === 0) return null
-    if (sceneId) {
-      return entries.find((entry) => entry.scene.scene_id === sceneId) ?? entries[0]
-    }
-    return entries[0]
-  }, [entriesByIndex, index, sceneId])
-
-  const previewAssetId = selectedEntry?.product.preview_asset_id ?? null
-
-  // Derived preview state for the CURRENTLY selected asset (never stale).
-  const preview = useMemo(() => {
-    if (!previewAssetId) return { url: null as string | null, loading: false, error: false }
-    if (previewState.assetId === previewAssetId) {
-      return { url: previewState.url, loading: false, error: previewState.error }
-    }
-    return { url: null as string | null, loading: true, error: false }
-  }, [previewAssetId, previewState])
-
-  // Fetch the preview PNG → object URL whenever the selected product changes.
-  // setState only fires from the async callbacks (never synchronously here).
-  useEffect(() => {
-    if (!fieldId || !previewAssetId) return
-    let alive = true
-    fetchSatelliteAssetBlob(fieldId, previewAssetId)
-      .then((blob) => {
-        if (!alive) return
-        setPreviewState({ assetId: previewAssetId, url: URL.createObjectURL(blob), error: false })
-      })
-      .catch(() => {
-        if (!alive) return
-        setPreviewState({ assetId: previewAssetId, url: null, error: true })
-      })
-    return () => {
-      alive = false
-    }
-  }, [fieldId, previewAssetId])
-
-  // Revoke each object URL when it is replaced by another one (or on unmount).
-  // This cleanup runs after FarmMap's own cleanup removed the map, so a URL is
-  // never revoked while a live map still references it.
-  useEffect(() => {
-    const url = previewState.url
-    if (!url) return
-    return () => {
-      URL.revokeObjectURL(url)
-    }
-  }, [previewState.url])
-
-  const overlay = useMemo<SatelliteMapOverlay | null>(() => {
-    const product = selectedEntry?.product
-    if (!preview.url || !product?.bbox_wgs84 || !visible) return null
-    return {
-      id: product.asset_id,
-      imageUrl: preview.url,
-      bbox: product.bbox_wgs84,
-      opacity: opacityPct / 100,
-      visible: true,
-    }
-  }, [preview, selectedEntry, opacityPct, visible])
-
-  return {
-    query,
-    entriesByIndex,
-    index,
-    setIndex,
-    sceneId,
-    setSceneId,
-    opacityPct,
-    setOpacityPct,
-    visible,
-    setVisible,
-    selectedEntry,
-    preview,
-    overlay,
-  }
-}
-
-function legendLabelKey(index: LayerIndexCode, end: 'low' | 'high'): string {
-  if (index === 'ndvi') return end === 'low' ? 'legendLowNdvi' : 'legendHighNdvi'
-  return end === 'low' ? 'legendLow' : 'legendHigh'
-}
-
-function formatIndexValue(value: number): string {
-  return `${value > 0 ? '+' : ''}${value}`
-}
-
-/** P05 "Satellite layers" card — index/date pickers, opacity, legend, provenance. */
-function SatelliteLayersCard({ layers }: { layers: SatelliteLayersState }) {
-  const t = useTranslations('satellite')
-  const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
-  const setActiveSub = useCropTwistUi((s) => s.setActiveSub)
-
-  const { query, entriesByIndex, index, setIndex, sceneId, setSceneId } = layers
-  const entries = entriesByIndex[index]
-  const selectedEntry = layers.selectedEntry
-  const product = selectedEntry?.product ?? null
-  const scene = selectedEntry?.scene ?? null
-
-  const hasAnyProduct = LAYER_INDEX_CODES.some((code) => entriesByIndex[code].length > 0)
-  const unavailableCodes = LAYER_INDEX_CODES.filter(
-    (code) => entriesByIndex[code].length === 0,
-  )
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
-          {t('layersTitle')}
-        </CardTitle>
-        <CardDescription className="text-sm text-stone-500">{t('layersDesc')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {query.isLoading && <SectionSkeleton lines={4} />}
-        {query.isError && (
-          <ErrorState message={t('layersLoadError')} onRetry={() => query.refetch()} />
-        )}
-        {query.data && !hasAnyProduct && (
-          <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-stone-300 bg-stone-50/60 p-4">
-            <p className="text-sm font-medium text-stone-700">{t('noProductsTitle')}</p>
-            <p className="text-xs leading-relaxed text-stone-500">{t('noProductsDesc')}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setActiveTab('datahub')
-                setActiveSub('scenes')
-              }}
-            >
-              {t('openCatalog')}
-            </Button>
-          </div>
-        )}
-
-        {query.data && hasAnyProduct && (
-          <>
-            {/* Index + date selectors */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-stone-600" htmlFor="sat-layer-index">
-                  {t('index')}
-                </label>
-                <Select value={index} onValueChange={(value) => setIndex(value as LayerIndexCode)}>
-                  <SelectTrigger id="sat-layer-index" className="h-9 bg-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LAYER_INDEX_CODES.map((code) => {
-                      const available = entriesByIndex[code].length > 0
-                      return (
-                        <SelectItem key={code} value={code} disabled={!available}>
-                          {code.toUpperCase()}
-                          {!available && (
-                            <span className="ms-1 text-[10px] text-stone-400">
-                              {t('notAvailableHint')}
-                            </span>
-                          )}
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-stone-500">{t(`indexDesc${index.toUpperCase()}`)}</p>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-stone-600" htmlFor="sat-layer-date">
-                  {t('sceneDateLabel')}
-                </label>
-                <Select
-                  value={sceneId ?? entries[0]?.scene.scene_id ?? ''}
-                  onValueChange={(value) => setSceneId(value)}
-                >
-                  <SelectTrigger id="sat-layer-date" className="h-9 bg-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {entries.map((entry) => (
-                      <SelectItem key={entry.scene.scene_id} value={entry.scene.scene_id}>
-                        {entry.scene.acquired_at?.slice(0, 10) ?? '—'}
-                        <span className="ms-1 text-[10px] text-stone-400">
-                          {entry.scene.scene_id}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {unavailableCodes.length > 0 && (
-              <p className="text-[11px] text-amber-800">
-                {t('unavailableHint', { codes: unavailableCodes.map((c) => c.toUpperCase()).join(', ') })}
-              </p>
-            )}
-
-            {/* Opacity + visibility */}
-            <div className="flex flex-wrap items-center gap-3">
-              <label
-                className="flex min-w-[180px] flex-1 items-center gap-2 text-xs font-medium text-stone-600"
-                htmlFor="sat-layer-opacity"
-              >
-                <span className="shrink-0">{t('opacity')}</span>
-                <Slider
-                  id="sat-layer-opacity"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={[layers.opacityPct]}
-                  onValueChange={(values) => layers.setOpacityPct(values[0] ?? 70)}
-                  className="flex-1"
-                  aria-valuetext={`${layers.opacityPct}%`}
-                />
-                <span className="w-10 shrink-0 text-end tabular-nums text-stone-500">
-                  {layers.opacityPct}%
-                </span>
-              </label>
-              <Button
-                type="button"
-                variant={layers.visible ? 'default' : 'outline'}
-                size="sm"
-                className="h-9"
-                onClick={() => layers.setVisible(!layers.visible)}
-                aria-pressed={layers.visible}
-              >
-                {layers.visible ? (
-                  <Eye className="h-4 w-4" aria-hidden />
-                ) : (
-                  <EyeOff className="h-4 w-4" aria-hidden />
-                )}
-                <span className="ms-1">{layers.visible ? t('hideLayer') : t('showLayer')}</span>
-              </Button>
-            </div>
-
-            {/* Legend — documented colormap over the documented range */}
-            <div className="rounded-md border border-stone-200 bg-stone-50/60 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">
-                {t('legendTitle')}
-              </p>
-              <div dir="ltr" className="mt-2 space-y-1">
-                <div
-                  className="h-3 w-full rounded-full border border-stone-200"
-                  style={{ background: COLORMAP_GRADIENT }}
-                  aria-hidden
-                />
-                <div className="flex items-center justify-between text-[10px] text-stone-600">
-                  <span>
-                    <span className="font-semibold tabular-nums">
-                      {formatIndexValue(DOCUMENTED_RANGES[index][0])}
-                    </span>{' '}
-                    {t(legendLabelKey(index, 'low'))}
-                  </span>
-                  <span>
-                    {t(legendLabelKey(index, 'high'))}{' '}
-                    <span className="font-semibold tabular-nums">
-                      {formatIndexValue(DOCUMENTED_RANGES[index][1])}
-                    </span>
-                  </span>
-                </div>
-              </div>
-              <p className="mt-1.5 text-[10px] text-stone-500">{t('legendMasked')}</p>
-            </div>
-
-            {/* Layer info / provenance line */}
-            {product && scene ? (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-stone-600">
-                <span className="font-medium text-stone-800">
-                  {scene.product_code} · {scene.provider_code}
-                </span>
-                {scene.is_synthetic && <SyntheticBadge />}
-                <span>
-                  {t('infoAcquired')}: {scene.acquired_at?.slice(0, 10) ?? '—'}
-                </span>
-                <span>
-                  {t('infoResolution')}: {product.spatial_resolution_m} m
-                </span>
-                <span>
-                  {t('infoVersion')}: {product.processing_version}
-                </span>
-                <span>
-                  {t('infoValidPixels')}: {Math.round(product.valid_pixel_fraction * 100)}%
-                </span>
-                <span>
-                  {t('infoCloud')}: {scene.cloud_cover_pct != null ? `${Math.round(scene.cloud_cover_pct)}%` : '—'}
-                </span>
-              </div>
-            ) : null}
-
-            {/* Preview state honesty */}
-            {layers.preview.loading && <p className="text-[11px] text-stone-500">{t('previewLoading')}</p>}
-            {layers.preview.error && (
-              <p className="text-[11px] text-amber-800" role="status">
-                {t('previewError')}
-              </p>
-            )}
-            {product && !layers.preview.loading && !layers.preview.error && !product.preview_asset_id && (
-              <p className="text-[11px] text-stone-500">{t('noPreviewHint')}</p>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
+/** P07 vegetation indexes (backend catalog contract: exactly these five). */
+const P07_INDEX_CODES: readonly P07IndexCode[] = ['ndvi', 'evi', 'ndmi', 'ndwi', 'bsi']
 
 export function MapSatellitePane() {
+  const t = useTranslations('p07map')
   const tMap = useTranslations('map')
   const tNav = useTranslations('nav')
+
   const selectedFarmId = useCropTwistUi((s) => s.selectedFarmId)
   const selectedField = useCropTwistUi((s) => s.selectedField)
   const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
-  const fieldsQuery = useFields(selectedFarmId, Boolean(selectedFarmId))
-  const layers = useSatelliteLayers(selectedField?.id ?? null)
 
+  const fieldsQuery = useFields(selectedFarmId, Boolean(selectedFarmId))
+  const fieldId = selectedField?.id ?? null
+  const catalogQuery = useLayerCatalog(fieldId)
+  const catalog = catalogQuery.data ?? null
+
+  // Processing ledger — poll behavior untouched (5s while any scene is
+  // mid-derivation); used here to map scene_id → derived asset id.
+  const processingQuery = useSatelliteProcessing(fieldId)
+
+  // ---------------------------------------------------------------- state
+  // FIELD-SCOPED user overrides: null (or a different field) means "fall back
+  // to catalog defaults". Switching fields therefore needs no reset effect —
+  // the stale override is simply ignored.
+  const [uiOverride, setUiOverride] = useState<{
+    fieldId: string
+    ui: Record<string, P07LayerUiState>
+  } | null>(null)
+  const [orderOverride, setOrderOverride] = useState<{
+    fieldId: string
+    ids: string[]
+  } | null>(null)
+  const [focusIndex, setFocusIndex] = useState<P07IndexCode>('ndvi')
+  const [fitRequest, setFitRequest] = useState<FarmMapFitRequest | null>(null)
+  // Tile errors are stored per visible-overlay set (key = the id list), so
+  // stale sets age out without any effect-driven state clearing.
+  const [overlayErrorsBySet, setOverlayErrorsBySet] = useState<Record<string, string[]>>({})
+
+  const vegetation = useMemo(() => catalog?.layers.vegetation ?? [], [catalog])
+
+  // Effective per-layer UI state: catalog defaults (first available vegetation
+  // layer visible at 70% opacity) overridden by the user's explicit choices.
+  const layerUi = useMemo<Record<string, P07LayerUiState>>(() => {
+    const overrides = uiOverride && uiOverride.fieldId === fieldId ? uiOverride.ui : {}
+    if (!catalog) return overrides
+    const firstAvailableId =
+      catalog.layers.vegetation.find((layer) => layer.available)?.id ?? null
+    const out: Record<string, P07LayerUiState> = {}
+    for (const layer of catalog.layers.vegetation) {
+      out[layer.id] =
+        overrides[layer.id] ?? { ...DEFAULT_LAYER_UI, visible: layer.id === firstAvailableId }
+    }
+    return out
+  }, [catalog, uiOverride, fieldId])
+
+  // Effective draw order: backend vegetation order unless the user reordered.
+  const order = useMemo<string[]>(() => {
+    if (orderOverride && orderOverride.fieldId === fieldId) return orderOverride.ids
+    return vegetation.map((layer) => layer.id)
+  }, [orderOverride, fieldId, vegetation])
+
+  const handleUiChange = useCallback(
+    (layerId: string, patch: Partial<P07LayerUiState>) => {
+      setUiOverride((prev) => {
+        const base = prev && prev.fieldId === fieldId ? { ...prev.ui } : {}
+        base[layerId] = { ...(base[layerId] ?? DEFAULT_LAYER_UI), ...patch }
+        return { fieldId: fieldId ?? '', ui: base }
+      })
+    },
+    [fieldId],
+  )
+
+  const handleOrderChange = useCallback(
+    (next: string[]) => setOrderOverride({ fieldId: fieldId ?? '', ids: next }),
+    [fieldId],
+  )
+
+  // ------------------------------------------------------------ focus layer
+  const focusLayer = useMemo<P07VegetationLayer | null>(() => {
+    return (
+      vegetation.find((layer) => layer.code === focusIndex && layer.available) ??
+      vegetation.find((layer) => layer.available) ??
+      null
+    )
+  }, [vegetation, focusIndex])
+
+  const focusUi = focusLayer ? (layerUi[focusLayer.id] ?? DEFAULT_LAYER_UI) : DEFAULT_LAYER_UI
+
+  const focusEntry = useMemo(() => {
+    if (!focusLayer) return null
+    const sorted = sortDatesDescending(focusLayer.dates_available)
+    if (focusUi.selectedSceneId) {
+      const found = sorted.find((entry) => entry.scene_id === focusUi.selectedSceneId)
+      if (found) return found
+    }
+    return sorted[0] ?? null
+  }, [focusLayer, focusUi.selectedSceneId])
+
+  const focusDay = focusEntry ? dayFromIso(focusEntry.date) : null
+
+  const handleSelectDay = useCallback(
+    (day: string) => {
+      if (!focusLayer) return
+      const entry = focusLayer.dates_available.find(
+        (candidate) => dayFromIso(candidate.date) === day,
+      )
+      if (!entry) return
+      handleUiChange(focusLayer.id, { selectedSceneId: entry.scene_id })
+    },
+    [focusLayer, handleUiChange],
+  )
+
+  // ------------------------------------------------------- scene → asset map
+  const sceneMap = useMemo(() => {
+    const map = new Map<string, SatelliteProcessingScene>()
+    for (const scene of processingQuery.data?.scenes ?? []) map.set(scene.scene_id, scene)
+    return map
+  }, [processingQuery.data])
+
+  // --------------------------------------------------------------- overlays
+  // One overlay per VISIBLE vegetation layer with its own selected date.
+  // Only real, backend-resolved assets become overlays — otherwise the layer
+  // is reported as missing, never faked.
+  const { overlays, missingTiles } = useMemo(() => {
+    const out: FarmMapOverlay[] = []
+    const missing: string[] = []
+    if (!fieldId || !catalog) return { overlays: out, missingTiles: missing }
+
+    const resolveAssetId = (
+      layer: P07VegetationLayer,
+      sceneId: string,
+      processingVersion: string | null,
+    ): string | null => {
+      if (layer.latest && layer.latest.scene_id === sceneId) return layer.latest.asset_id
+      const scene = sceneMap.get(sceneId)
+      if (!scene) return null
+      const candidates = scene.products.filter((product) => product.index_code === layer.code)
+      if (candidates.length === 0) return null
+      if (processingVersion) {
+        const exact = candidates.find(
+          (product) => product.processing_version === processingVersion,
+        )
+        if (exact) return exact.asset_id
+      }
+      return candidates[candidates.length - 1]?.asset_id ?? null
+    }
+
+    for (const layer of vegetation) {
+      if (!layer.available) continue
+      const ui = layerUi[layer.id] ?? DEFAULT_LAYER_UI
+      if (!ui.visible) continue
+      const sorted = sortDatesDescending(layer.dates_available)
+      const entry =
+        (ui.selectedSceneId
+          ? sorted.find((candidate) => candidate.scene_id === ui.selectedSceneId)
+          : undefined) ?? sorted[0]
+      if (!entry) {
+        missing.push(layer.label)
+        continue
+      }
+      const assetId = resolveAssetId(layer, entry.scene_id, entry.processing_version)
+      if (!assetId) {
+        missing.push(layer.label)
+        continue
+      }
+      out.push({
+        id: layer.id,
+        tileUrl: productTileUrlTemplate(fieldId, assetId),
+        opacity: opacityFraction(ui.opacityPct),
+        visible: true,
+        zIndex: zIndexForOrderSlot(order, layer.id),
+      })
+    }
+    return { overlays: out, missingTiles: missing }
+  }, [catalog, fieldId, vegetation, layerUi, order, sceneMap])
+
+  // Honest tile-error notes, scoped to the current visible-overlay set so
+  // toggling a layer or switching fields starts a clean slate (no effects).
+  const overlayIdKey = overlays.map((overlay) => overlay.id).join('|')
+  const overlayErrors = overlayErrorsBySet[overlayIdKey] ?? []
+
+  // FarmMap keeps handlers in a ref refreshed every render, so rebinding per
+  // overlay-set is free — the callback always reports into its own set key.
+  const handleOverlayError = useCallback(
+    (id: string) => {
+      setOverlayErrorsBySet((prev) => {
+        const current = prev[overlayIdKey] ?? []
+        if (current.includes(id)) return prev
+        return { [overlayIdKey]: [...current, id] }
+      })
+    },
+    [overlayIdKey],
+  )
+
+  // --------------------------------------- temporal compatibility inputs
+  const visibleLayerDates = useMemo<TemporalCompatibilityInput[]>(() => {
+    const inputs: TemporalCompatibilityInput[] = []
+    for (const layer of vegetation) {
+      if (!layer.available) continue
+      const ui = layerUi[layer.id] ?? DEFAULT_LAYER_UI
+      if (!ui.visible) continue
+      const sorted = sortDatesDescending(layer.dates_available)
+      const entry =
+        (ui.selectedSceneId
+          ? sorted.find((candidate) => candidate.scene_id === ui.selectedSceneId)
+          : undefined) ?? sorted[0]
+      inputs.push({ id: layer.id, date: entry ? dayFromIso(entry.date) : null })
+    }
+    return inputs
+  }, [vegetation, layerUi])
+
+  // ------------------------------------------------------- field selection
   const handleFieldSelect = useCallback(
-    (field: { id: string; name: string; farm_id: string }) => {
+    (field: Field) => {
       setSelectedField({ id: field.id, name: field.name, farmId: field.farm_id })
     },
     [setSelectedField],
   )
 
+  const handleClearSelection = useCallback(() => setSelectedField(null), [setSelectedField])
+
+  const handleFit = useCallback(() => {
+    if (!fieldId) return
+    setFitRequest((prev) => ({ fieldId, seq: (prev?.seq ?? 0) + 1 }))
+  }, [fieldId])
+
+  const fields = useMemo(() => fieldsQuery.data?.items ?? [], [fieldsQuery.data])
+
+  const inspectorField = useMemo<FieldInspectorField | null>(() => {
+    if (!selectedField) return null
+    const record = fields.find((entry) => entry.id === selectedField.id)
+    if (!record) return null
+    return {
+      id: record.id,
+      name: record.name,
+      areaHa: record.postgis_geodesic_area_ha ?? record.area_ha ?? null,
+      boundaryVersion: record.boundary_version ?? null,
+    }
+  }, [fields, selectedField])
+
+  // ---------------------------------------------------------------- render
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px] [&>*]:min-w-0">
       <Card className="border-stone-200 bg-white shadow-sm">
@@ -477,19 +323,115 @@ export function MapSatellitePane() {
             {tMap('farmMapDesc')} {tMap('clickHint')}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <FarmMap
-            fields={fieldsQuery.data?.items ?? []}
-            selectedFieldId={selectedField?.id ?? null}
-            onFieldSelect={handleFieldSelect}
-            satelliteOverlay={layers.overlay}
+        <CardContent className="space-y-3">
+          {/* Focus index — drives the legend, timeline and inspector */}
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="p07-focus-index" className="text-xs font-medium text-stone-600">
+              {t('focusIndex')}
+            </label>
+            <Select
+              value={focusIndex}
+              onValueChange={(value) => setFocusIndex(value as P07IndexCode)}
+            >
+              <SelectTrigger
+                id="p07-focus-index"
+                aria-label={t('focusIndexAria')}
+                className="h-11 w-[210px] bg-white sm:h-9"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {P07_INDEX_CODES.map((code) => {
+                  const layer = vegetation.find((entry) => entry.code === code)
+                  const available = layer?.available === true
+                  return (
+                    <SelectItem key={code} value={code} disabled={!available}>
+                      {code.toUpperCase()}
+                      {!available && (
+                        <span className="ms-1 text-[10px] text-stone-400">{t('unavailable')}</span>
+                      )}
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <TemporalExplorer
+            index={focusLayer?.code ?? focusIndex}
+            dates={focusLayer?.dates_available ?? []}
+            selectedDay={focusDay}
+            onSelectDay={handleSelectDay}
+            visibleLayerDates={visibleLayerDates}
+          />
+
+          <div className="relative">
+            <FarmMap
+              fields={fields}
+              selectedFieldId={selectedField?.id ?? null}
+              onFieldSelect={handleFieldSelect}
+              onFieldClick={handleFieldSelect}
+              overlays={overlays}
+              onOverlayError={handleOverlayError}
+              fitRequest={fitRequest}
+            />
+            {/* The legend floats on the LTR map canvas — PHYSICAL left/top on
+                purpose: MapLibre's nav control sits at physical top-right, so
+                a logical start-3 anchor would collide with it in RTL. */}
+            <SpatialLegend
+              index={focusIndex}
+              className="absolute left-3 top-3 z-10 w-56"
+              defaultOpen={false}
+            />
+          </div>
+
+          {/* Honest overlay status — tile failures and unresolved assets */}
+          {(overlayErrors.length > 0 || missingTiles.length > 0) && (
+            <div
+              className="rounded-md border border-amber-200 bg-amber-50/60 p-2.5 text-[11px] text-amber-900"
+              role="status"
+            >
+              <p className="flex items-center gap-1.5 font-semibold">
+                <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
+                {t('overlayErrorsTitle')}
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 ps-4">
+                {overlayErrors.map((id) => {
+                  const label = vegetation.find((layer) => layer.id === id)?.label ?? id
+                  return <li key={`tile-error-${id}`}>{t('overlayErrorItem', { name: label })}</li>
+                })}
+                {missingTiles.map((label, index) => (
+                  <li key={`missing-${label}-${index}`}>{t('noTilesForDate', { name: label })}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <FieldInspector
+            field={inspectorField}
+            index={focusIndex}
+            latest={focusLayer?.latest ?? null}
+            onFit={handleFit}
+            onClear={handleClearSelection}
           />
         </CardContent>
       </Card>
+
       <div className="min-w-0 space-y-4" aria-label={tNav('satellite')}>
         <SatelliteIntelligence />
-        <SatelliteLayersCard layers={layers} />
+        <LayerManager
+          catalog={catalog}
+          loading={catalogQuery.isLoading}
+          error={catalogQuery.isError}
+          onRetry={() => void catalogQuery.refetch()}
+          ui={layerUi}
+          onUiChange={handleUiChange}
+          order={order}
+          onOrderChange={handleOrderChange}
+        />
       </div>
     </div>
   )
 }
+
+export default MapSatellitePane

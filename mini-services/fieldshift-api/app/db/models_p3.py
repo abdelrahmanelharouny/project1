@@ -392,6 +392,9 @@ class ReportJob(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     farm_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # P07: optional single-field scope (individual field reports). When set,
+    # the payload gathers data for this field only — never another org's.
+    field_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     requested_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     report_type: Mapped[str] = mapped_column(String(60), nullable=False)
     output_format: Mapped[str] = mapped_column(String(10), nullable=False)

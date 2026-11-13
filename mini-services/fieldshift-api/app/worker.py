@@ -70,13 +70,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # Register replayable kinds BEFORE recovery so orphans can re-execute.
     # The 'ingestion' kind self-registers lazily on first submit; raster
-    # processing registers eagerly here so recovered rows replay.
+    # processing and report generation register eagerly here so recovered
+    # rows replay (P07: report generation is worker-deployable too — long
+    # PDF/XLSX renders never share the API's request budget).
     from app.data_platform.processing.service import (
         PROCESSING_JOB_KIND,
         replay_processing_job,
     )
+    from app.reports.worker import REPORT_JOB_KIND, replay_report_job
 
     jobs.register_kind(PROCESSING_JOB_KIND, replay_processing_job)
+    jobs.register_kind(REPORT_JOB_KIND, replay_report_job)
 
     started = jobs.start_workers()
     if started == 0:
