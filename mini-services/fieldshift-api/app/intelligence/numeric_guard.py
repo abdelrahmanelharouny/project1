@@ -39,7 +39,7 @@ SMALL_INT_IGNORE = 12    # bare integers <= this are enumeration, not data
 _NUMBER_RE = re.compile(
     r"(?<![\w.])(?P<sign>-)?"
     r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
-    r"\s*(?P<unit>kg/ha/yr|kg/ha|Mg/ha|mm/day|days?|years?|index|z\b|mm|cm|m3|m³|kg|Mg|ha|°C|°F|%|m\b|t\b)?"
+    r"\s*(?P<unit>Mg\s+C/ha|kg/ha/yr|mm/day|kg/ha|Mg/ha|-days?|days?|years?|index|fraction|sigma|z\b|degC|degF|mm|cm|m3|m³|kg|Mg|ha|°C|°F|%|m\b|t\b)?"
     r"(?!\d)"
 )
 
@@ -119,7 +119,7 @@ def collect_reference_values(evidence: dict[str, Any]) -> list[NumericClaim]:
     cover = (evidence.get("management") or {}).get("soil_cover") or {}
     _add(
         cover.get("protective_cover_fraction"),
-        None,
+        "fraction",
         "management.soil_cover.protective_cover_fraction",
     )
     _add(
@@ -155,11 +155,57 @@ def collect_reference_values(evidence: dict[str, Any]) -> list[NumericClaim]:
     return refs
 
 
-def _matches(value: float, unit: str | None, refs: list[NumericClaim]) -> bool:
+def _canonical_value(value: float, unit: str | None) -> tuple[float, str]:
+    """Convert supported units to a canonical value and dimension key."""
+    if unit is None:
+        return value, "unitless"
+    normalized = re.sub(r"\s+", "", unit)
+    aliases = {
+        "m³": "m3", "degC": "°C", "degF": "°F", "sigma": "z",
+        "MgC/ha": "Mg/ha", "day": "days", "year": "years",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in _LENGTH_TO_MM:
+        return value * _LENGTH_TO_MM[normalized], "length_mm"
+    if normalized == "°C":
+        return value, "temperature_c"
+    if normalized == "°F":
+        return (value - 32.0) * 5.0 / 9.0, "temperature_c"
+    if normalized == "%":
+        return value / 100.0, "fraction"
+    if normalized == "fraction":
+        return value, "fraction"
+    if normalized == "kg/ha":
+        return value, "mass_per_area_kg_ha"
+    if normalized == "Mg/ha":
+        return value * 1000.0, "mass_per_area_kg_ha"
+    if normalized in ("kg/ha/yr", "mm/day", "days", "years", "index", "z", "m3", "kg", "ha"):
+        return value, normalized
+    if normalized in ("Mg", "t"):
+        return value * 1000.0, "mass_kg"
+    return value, f"unit:{normalized.casefold()}"
+
+
+def _matches(
+    value: float,
+    unit: str | None,
+    refs: list[NumericClaim],
+    *,
+    context: str = "",
+) -> bool:
+    candidates = _candidate_pairs(value, unit)
     for ref in refs:
-        # Direct same-unit or unitless comparison.
-        for cand, cand_unit in _candidate_pairs(value, unit):
-            if _close(cand, ref.value, cand_unit or ref.unit):
+        ref_value, ref_dimension = _canonical_value(ref.value, ref.unit)
+        for candidate, dimension in candidates:
+            if dimension != ref_dimension:
+                continue
+            comparable = [candidate]
+            if dimension == "z" and candidate >= 0:
+                if re.search(r"\b(below|lower|negative|under)\b", context, re.IGNORECASE):
+                    comparable.append(-abs(candidate))
+                elif re.search(r"\b(above|higher|positive|over)\b", context, re.IGNORECASE):
+                    comparable.append(abs(candidate))
+            if any(_close(item, ref_value, dimension) for item in comparable):
                 return True
     return False
 
@@ -176,29 +222,13 @@ def _close(a: float, b: float, unit: str | None) -> bool:
     return abs(a - b) <= tol
 
 
-def _candidate_pairs(value: float, unit: str | None) -> list[tuple[float, str | None]]:
-    pairs: list[tuple[float, str | None]] = [(value, unit)]
-    if unit in ("mm", "cm", "m"):
-        factor = _LENGTH_TO_MM[unit]
-        # value expressed in `unit`; compare against mm references.
-        mm_value = value * factor
-        pairs.append((mm_value, "mm"))
-        if unit != "cm":
-            pairs.append((value, "mm" if unit == "cm" else None))
-        if unit == "cm":
-            pairs.append((value / 10.0, "mm"))  # cm value stated as mm ref
-        if unit == "mm":
-            pairs.append((value / 10.0, "cm"))
-            pairs.append((value / 1000.0, "m"))
-    elif unit in ("°C", "°F"):
-        converted = _c_to_f(value) if unit == "°C" else (value - 32.0) * 5.0 / 9.0
-        pairs.append((converted, "°F" if unit == "°C" else "°C"))
-    elif unit is None:
-        # percent-as-fraction vs fraction-as-percent both directions.
-        pairs.append((value / 100.0, None))
-        pairs.append((value * 100.0, None))
-    elif unit in ("kg/ha", "Mg/ha"):
-        pairs.append((value, "kg/ha" if unit == "Mg/ha" else "Mg/ha"))
+def _candidate_pairs(value: float, unit: str | None) -> list[tuple[float, str]]:
+    """Return canonical candidates; unitless values never match dimensions."""
+    pairs = [_canonical_value(value, unit)]
+    # A bare proportion (0..1) may describe a stored fraction, but it cannot
+    # match length, mass, volume or other dimensional measurements.
+    if unit is None and 0.0 <= value <= 1.0:
+        pairs.append(_canonical_value(value, "fraction"))
     return pairs
 
 
@@ -214,7 +244,12 @@ def extract_claims(text: str) -> list[NumericClaim]:
             except ValueError:  # pragma: no cover — regex guarantees digits
                 continue
             unit = match.group("unit")
-            unit = {"m3": "m3", "m³": "m3", "t": "t", "m": "m"}.get(unit, unit)
+            unit = re.sub(r"\s+", "", unit) if unit else None
+            unit = unit.lstrip("-") if unit else None
+            unit = {
+                "m³": "m3", "degC": "°C", "degF": "°F", "sigma": "z",
+                "MgC/ha": "Mg/ha",
+            }.get(unit, unit)
             claims.append(
                 NumericClaim(value=value, unit=unit, context=sentence.strip()[:160])
             )
@@ -306,9 +341,18 @@ def validate_numbers(
     refs = collect_reference_values(evidence)
     for finding in anomalies or []:
         try:
-            refs.append(NumericClaim(value=float(finding.get("value")), unit=None, context="anomaly.value"))
-            refs.append(NumericClaim(value=float(finding.get("baseline_mean")), unit=None, context="anomaly.baseline_mean"))
-            refs.append(NumericClaim(value=float(finding.get("z")), unit=None, context="anomaly.z"))
+            metric = str(finding.get("metric") or "").casefold()
+            anomaly_unit = finding.get("unit")
+            if anomaly_unit is None:
+                if "precipitation" in metric or "rainfall" in metric or "reference_et0" in metric:
+                    anomaly_unit = "mm"
+                elif "temperature" in metric or "temp_" in metric:
+                    anomaly_unit = "°C"
+                elif metric.startswith(("ndvi", "evi")):
+                    anomaly_unit = "index"
+            refs.append(NumericClaim(value=float(finding.get("value")), unit=anomaly_unit, context="anomaly.value"))
+            refs.append(NumericClaim(value=float(finding.get("baseline_mean")), unit=anomaly_unit, context="anomaly.baseline_mean"))
+            refs.append(NumericClaim(value=float(finding.get("z")), unit="z", context="anomaly.z"))
         except (TypeError, ValueError):
             continue
 
@@ -317,7 +361,7 @@ def validate_numbers(
         if _is_boilerplate(claim):
             report.ignored.append(claim)
             continue
-        if _matches(claim.value, claim.unit, refs):
+        if _matches(claim.value, claim.unit, refs, context=claim.context):
             report.supported.append(claim)
         else:
             report.unsupported.append(claim)

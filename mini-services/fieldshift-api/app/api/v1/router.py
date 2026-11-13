@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    ai_core,
     activity,
     analytics,
     auth,
@@ -73,6 +74,7 @@ api_router.include_router(robust_rotation.router)
 api_router.include_router(decision.router)
 api_router.include_router(digital_twin.router)
 api_router.include_router(recommendations.router)
+api_router.include_router(ai_core.router)
 # P2 intelligence routers — all field/farm-scoped paths are literal and
 # non-conflicting with the routers above.
 api_router.include_router(vegetation.router)

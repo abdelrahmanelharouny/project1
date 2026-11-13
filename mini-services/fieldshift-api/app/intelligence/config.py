@@ -29,6 +29,9 @@ module. The AI variables:
   CROPTWIST_NARRATIVE_CACHE_MAX_ENTRIES (0 disables the cache).
 - Advisor (A8): CROPTWIST_ADVISOR_HISTORY_TURNS — recent turns replayed in
   the multi-turn advisor prompt.
+- AI Core: CROPTWIST_AI_CONVERSATION_RETENTION_DAYS — inactivity expiry for
+  AI Core conversation access (default 365; 0 disables; transcript rows are
+  not automatically deleted).
 
 Environment variables take precedence over the .env file (pydantic-settings
 semantics, same as the central Settings).
@@ -36,6 +39,7 @@ semantics, same as the central Settings).
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -71,6 +75,9 @@ class AISettings(BaseSettings):
 
     # --- A8: advisor sessions -----------------------------------------------
     advisor_history_turns: int = 6
+    # Inactive core conversations expire from AI-Core access after this many
+    # days. Transcript rows are not automatically deleted. Zero disables expiry.
+    ai_conversation_retention_days: int = Field(default=365, ge=0, le=3650)
 
     # --- A10: locales understood by the intelligence layer ------------------
     supported_locales: tuple[str, ...] = ("en", "ar")

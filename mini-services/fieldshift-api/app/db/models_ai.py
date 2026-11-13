@@ -124,8 +124,8 @@ class AIAdvisorSession(Base):
     """One advisor conversation for a field (A8).
 
     Sessions scope multi-turn context: all messages of a conversation share a
-    session row; access control rides on the field (tenant rule) and the
-    session's field_id is re-checked on every message write.
+    session row. New core sessions have an authenticated owner; legacy NULL
+    owners retain field-scoped access until separately migrated/retired.
     """
 
     __tablename__ = "ai_advisor_sessions"
@@ -133,6 +133,11 @@ class AIAdvisorSession(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     field_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    # NULL is retained for pre-ownership legacy sessions; new core sessions
+    # are always stamped from the authenticated principal on the server.
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     title: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -144,6 +149,7 @@ class AIAdvisorSession(Base):
 
     __table_args__ = (
         Index("ix_ai_advisor_sessions_field", "field_id"),
+        Index("ix_ai_advisor_sessions_owner", "owner_user_id"),
     )
 
 
