@@ -60,6 +60,7 @@ import type {
   P07InfrastructureLayer,
   P07LayerCatalog,
   P07VegetationLayer,
+  P07ZonePolygons,
 } from '@/lib/types-p07'
 
 /** Per-layer UI state owned by the pane; the manager renders it read-only. */
@@ -87,6 +88,16 @@ export interface LayerManagerProps {
   /** Vegetation draw order (top of stack first); ids only. */
   order: string[]
   onOrderChange: (next: string[]) => void
+  statisticalZonesVisible: boolean
+  onStatisticalZonesVisibleChange: (visible: boolean) => void
+  statisticalZonesOpacityPct: number
+  onStatisticalZonesOpacityChange: (opacityPct: number) => void
+  statisticalZonesLoading: boolean
+  statisticalZonesError: boolean
+  onRetryStatisticalZones: () => void
+  statisticalZones: P07ZonePolygons | null
+  hasFocusAsset: boolean
+  statisticalZonesUnavailableReason?: string
   className?: string
 }
 
@@ -386,6 +397,134 @@ function InfrastructureRow({ layer }: { layer: P07InfrastructureLayer }) {
   )
 }
 
+function StatisticalZonesControls({
+  visible,
+  onVisibleChange,
+  opacityPct,
+  onOpacityChange,
+  loading,
+  error,
+  onRetry,
+  polygons,
+  hasFocusAsset,
+  unavailableReason,
+}: {
+  visible: boolean
+  onVisibleChange: (visible: boolean) => void
+  opacityPct: number
+  onOpacityChange: (opacityPct: number) => void
+  loading: boolean
+  error: boolean
+  onRetry: () => void
+  polygons: P07ZonePolygons | null
+  hasFocusAsset: boolean
+  unavailableReason?: string
+}) {
+  const t = useTranslations('p07map')
+  const polygonCount = polygons?.features.filter((feature) => feature.geometry !== null).length ?? 0
+  const disabled = !hasFocusAsset || Boolean(unavailableReason)
+
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50/30 p-3">
+      <div className="flex items-start gap-2.5">
+        <Switch
+          checked={visible}
+          disabled={disabled}
+          onCheckedChange={(checked) => onVisibleChange(checked === true)}
+          aria-label={t('zonesVisibilityAria')}
+          className="mt-1 h-11 w-[64px] sm:h-6 sm:w-11"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-stone-800">{t('zonesTitle')}</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-amber-900">
+            {t('zonesStatisticalNote')}
+          </p>
+        </div>
+      </div>
+
+      {unavailableReason && (
+        <p className="mt-2 rounded-md bg-amber-50 p-2 text-[11px] text-amber-900" role="status">
+          {unavailableReason}
+        </p>
+      )}
+      {!hasFocusAsset && !unavailableReason && (
+        <p className="mt-2 text-[11px] text-stone-500">{t('zonesNeedFocusProduct')}</p>
+      )}
+
+      {visible && !disabled && (
+        <div className="mt-2 space-y-2 border-t border-emerald-100 pt-2">
+          <div className="flex min-w-0 flex-col gap-1">
+            <label
+              className="flex items-center justify-between gap-2 text-xs font-medium text-stone-600"
+              htmlFor="p07-statistical-zones-opacity"
+            >
+              <span>{t('opacity')}</span>
+              <span className="tabular-nums text-stone-500">{opacityPct}%</span>
+            </label>
+            <Slider
+              id="p07-statistical-zones-opacity"
+              min={0}
+              max={100}
+              step={5}
+              value={[opacityPct]}
+              onValueChange={(values) => onOpacityChange(values[0] ?? 60)}
+              className="touch-none py-3"
+              aria-valuetext={`${opacityPct}%`}
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-stone-600" aria-label={t('zonesLegendAria')}>
+            <span className="inline-flex items-center gap-1">
+              <i className="h-2.5 w-2.5 rounded-sm bg-amber-600" aria-hidden />
+              {t('zoneLowestTercile')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <i className="h-2.5 w-2.5 rounded-sm bg-lime-600" aria-hidden />
+              {t('zoneMiddleTercile')}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <i className="h-2.5 w-2.5 rounded-sm bg-emerald-600" aria-hidden />
+              {t('zoneHighestTercile')}
+            </span>
+          </div>
+
+          {loading && <p className="text-[11px] text-stone-500" role="status">{t('zonesLoading')}</p>}
+          {error && !loading && (
+            <div className="flex flex-wrap items-center justify-between gap-2" role="alert">
+              <p className="text-[11px] text-amber-900">{t('zonesLoadError')}</p>
+              <Button type="button" variant="outline" className="h-11" onClick={onRetry}>
+                {t('retry')}
+              </Button>
+            </div>
+          )}
+          {!loading && !error && !polygons && (
+            <p className="text-[11px] text-stone-500">{t('zonesLoading')}</p>
+          )}
+          {!loading && !error && polygons?.available === false && (
+            <p className="text-[11px] text-amber-900" role="status">
+              {polygons.reason || t('zonesNoPolygons')}
+            </p>
+          )}
+          {!loading && !error && polygons && polygons.available !== false && polygonCount === 0 && (
+            <p className="text-[11px] text-stone-600" role="status">
+              {t('zonesNoPolygons')}
+              {polygons.zones_without_geometry.length > 0
+                ? ` ${t('zonesWithoutGeometry', { count: polygons.zones_without_geometry.length })}`
+                : ''}
+            </p>
+          )}
+          {!loading && !error && polygons && polygons.available !== false && polygonCount > 0 && (
+            <p className="text-[11px] text-stone-600" role="status">
+              {t('zonesLoaded', { count: polygonCount })}
+              {polygons.zone_note ? ` ${polygons.zone_note}` : ''}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------- group
 
 function LayerGroup({
@@ -433,6 +572,16 @@ export function LayerManager({
   onUiChange,
   order,
   onOrderChange,
+  statisticalZonesVisible,
+  onStatisticalZonesVisibleChange,
+  statisticalZonesOpacityPct,
+  onStatisticalZonesOpacityChange,
+  statisticalZonesLoading,
+  statisticalZonesError,
+  onRetryStatisticalZones,
+  statisticalZones,
+  hasFocusAsset,
+  statisticalZonesUnavailableReason,
   className,
 }: LayerManagerProps) {
   const t = useTranslations('p07map')
@@ -510,16 +659,26 @@ export function LayerManager({
               </>
             )}
 
-            {infrastructure.length > 0 && (
-              <>
-                <Separator />
-                <LayerGroup title={t('groupInfrastructure')} count={infrastructure.length}>
-                  {infrastructure.map((layer) => (
-                    <InfrastructureRow key={layer.id} layer={layer} />
-                  ))}
-                </LayerGroup>
-              </>
-            )}
+            <>
+              <Separator />
+              <LayerGroup title={t('groupInfrastructure')} count={infrastructure.length + 1}>
+                {infrastructure.map((layer) => (
+                  <InfrastructureRow key={layer.id} layer={layer} />
+                ))}
+                <StatisticalZonesControls
+                  visible={statisticalZonesVisible}
+                  onVisibleChange={onStatisticalZonesVisibleChange}
+                  opacityPct={statisticalZonesOpacityPct}
+                  onOpacityChange={onStatisticalZonesOpacityChange}
+                  loading={statisticalZonesLoading}
+                  error={statisticalZonesError}
+                  onRetry={onRetryStatisticalZones}
+                  polygons={statisticalZones}
+                  hasFocusAsset={hasFocusAsset}
+                  unavailableReason={statisticalZonesUnavailableReason}
+                />
+              </LayerGroup>
+            </>
           </div>
         )}
         {catalog && (

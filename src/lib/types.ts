@@ -3859,12 +3859,19 @@ export interface PortfolioRun {
 // -------------------------------------------------------------
 
 /** Server-side derivation state of an acquired scene (processing endpoint). */
-export type SatelliteProcessingState = 'unprocessed' | 'processing' | 'processed' | 'failed'
+export type SatelliteMapIndex = 'ndvi' | 'evi' | 'ndmi' | 'ndwi' | 'bsi'
+export type SatelliteProcessingState =
+  | 'unprocessed'
+  | 'processing'
+  | 'partial'
+  | 'processed'
+  | 'failed'
 
 /**
  * processing_detail is state-dependent (live-verified against the P05 API):
- *   - processing: { job_ids, indices, stage, progress }
- *   - failed:     { job_id, error }
+ *   - processing: { job_ids, indices, stage, progress, available_indices, missing_indices }
+ *   - partial:    { available_indices, missing_indices }
+ *   - failed:     { job_id, error, available_indices, missing_indices }
  *   - processed / unprocessed: null
  */
 export interface SatelliteProcessingDetail {
@@ -3874,6 +3881,8 @@ export interface SatelliteProcessingDetail {
   stage?: string
   progress?: number
   error?: string
+  available_indices?: SatelliteMapIndex[]
+  missing_indices?: SatelliteMapIndex[]
 }
 
 /** Zonal statistics block attached to a derived index raster. */
@@ -3948,7 +3957,7 @@ export interface SatelliteProcessingResponse {
 
 export interface SatelliteProcessingInput {
   scene_ids: string[]
-  /** Allowed: ndvi, evi, savi, ndmi, ndwi, bsi. */
+  /** P05 accepts ndvi, evi, savi, ndmi, ndwi, bsi; the P07 map selector omits SAVI. */
   indices: string[]
 }
 
@@ -3956,6 +3965,7 @@ export interface SatelliteProcessingJob {
   job_id: string
   background_job_id: string | null
   scene_id: string
+  indices?: string[]
   status: string
   status_url: string
   replayed?: boolean

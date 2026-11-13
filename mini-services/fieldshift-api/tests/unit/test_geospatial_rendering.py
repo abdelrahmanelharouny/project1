@@ -153,7 +153,9 @@ def processed_product(db, raster_storage, fixture_field, tmp_path):
     )
 
     field_id = uuid.UUID(fixture_field["field"]["id"])
-    assets = fx.write_fixture_scene(tmp_path, scene_id="FIX.REND1")
+    assets = fx.write_fixture_scene(
+        tmp_path, scene_id="FIX.REND1", with_nodata_patch=True
+    )
     _make_scene_row(db, field_id, scene_id="FIX.REND1", assets=assets,
                     acquired_at=datetime(2026, 2, 1, 10, 0, tzinfo=UTC))
     field = db.get(Field, field_id)
@@ -312,6 +314,70 @@ def _count_opaque_pixels(png: bytes) -> int:
             if line[px * 4 + 3] > 0:
                 opaque += 1
     return opaque
+
+
+def _fixture_pixel_lonlat(row: int, col: int) -> tuple[float, float]:
+    from pyproj import Transformer
+
+    to_wgs84 = Transformer.from_crs(fx.FIXTURE_CRS, "EPSG:4326", always_xy=True)
+    x = fx.FIXTURE_LEFT + (col + 0.5) * fx.FIXTURE_RES
+    y = fx.FIXTURE_TOP - (row + 0.5) * fx.FIXTURE_RES
+    return to_wgs84.transform(x, y)
+
+
+# ------------------------------------------------------------- point sampling
+class TestProductValueSampling:
+    def test_samples_two_actual_pixels_from_stored_product(self, processed_product):
+        from app.geospatial.objectstore import get_raster_storage
+        from app.geospatial.rendering import sample_product_value
+
+        asset = processed_product["asset"]
+        storage = get_raster_storage()
+        lon, lat = _fixture_pixel_lonlat(8, 10)
+        vegetated = sample_product_value(asset=asset, storage=storage, lon=lon, lat=lat)
+        lon, lat = _fixture_pixel_lonlat(25, 10)
+        stressed = sample_product_value(asset=asset, storage=storage, lon=lon, lat=lat)
+
+        assert vegetated["available"] is True
+        assert vegetated["value"] == pytest.approx(fx.EXPECTED_VEGETATED["ndvi"], abs=1e-6)
+        assert stressed["available"] is True
+        assert stressed["value"] == pytest.approx(fx.EXPECTED_STRESSED["ndvi"], abs=1e-6)
+
+    def test_outside_extent_is_unavailable_not_a_value(self, processed_product):
+        from pyproj import Transformer
+
+        from app.geospatial.objectstore import get_raster_storage
+        from app.geospatial.rendering import sample_product_value
+
+        to_wgs84 = Transformer.from_crs(fx.FIXTURE_CRS, "EPSG:4326", always_xy=True)
+        lon, lat = to_wgs84.transform(
+            fx.FIXTURE_LEFT + (fx.FIXTURE_WIDTH + 2.5) * fx.FIXTURE_RES,
+            fx.FIXTURE_TOP - 20.5 * fx.FIXTURE_RES,
+        )
+        sample = sample_product_value(
+            asset=processed_product["asset"],
+            storage=get_raster_storage(),
+            lon=lon,
+            lat=lat,
+        )
+        assert sample["available"] is False
+        assert sample["value"] is None
+        assert sample["unavailable_reason"] == "point_outside_raster_extent"
+
+    def test_nodata_pixel_is_unavailable_using_valid_mask(self, processed_product):
+        from app.geospatial.objectstore import get_raster_storage
+        from app.geospatial.rendering import sample_product_value
+
+        lon, lat = _fixture_pixel_lonlat(32, 30)
+        sample = sample_product_value(
+            asset=processed_product["asset"],
+            storage=get_raster_storage(),
+            lon=lon,
+            lat=lat,
+        )
+        assert sample["available"] is False
+        assert sample["value"] is None
+        assert sample["unavailable_reason"] == "pixel_invalid_or_nodata_or_cloud_masked"
 
 
 # ------------------------------------------------------------ zones + histogram

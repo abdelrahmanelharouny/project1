@@ -16,6 +16,7 @@ import type {
   P07FarmOverview,
   P07GeoJSONExport,
   P07LayerCatalog,
+  P07ProductValueSample,
   P07SpatialAnalytics,
   P07ZonePolygons,
 } from './types-p07'
@@ -108,6 +109,18 @@ export function getFarmSatelliteOverview(farmId: string, index = 'ndvi'): Promis
 export function getProductZones(fieldId: string, assetId: string): Promise<P07ZonePolygons> {
   return p07Request<P07ZonePolygons>(
     `/api/v1/fields/${fieldId}/satellite/products/${assetId}/zones`,
+  )
+}
+
+export function getProductValueSample(
+  fieldId: string,
+  assetId: string,
+  lon: number,
+  lat: number,
+): Promise<P07ProductValueSample> {
+  const query = new URLSearchParams({ lon: String(lon), lat: String(lat) })
+  return p07Request<P07ProductValueSample>(
+    `/api/v1/fields/${fieldId}/satellite/products/${assetId}/value?${query.toString()}`,
   )
 }
 

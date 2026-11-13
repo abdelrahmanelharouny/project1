@@ -67,6 +67,7 @@ PROVIDER_CODE = "nasa_hls"
 # pass as satellite evidence). Any other provider is refused.
 FIXTURE_PROVIDER_CODE = "fixture_demo"
 PROCESSING_VERSION = settings.raster_processing_default_version
+MAP_SUPPORTED_INDICES = ("ndvi", "evi", "ndmi", "ndwi", "bsi")
 _replay_registered = False
 
 
@@ -98,7 +99,8 @@ def create_processing_jobs(
       provider (`is_synthetic=False`), be acquisition-'ready' and carry band
       asset refs.
     - Active duplicates replay the SAME job (replay-safe double submit).
-    - Fully processed scene/version combos are skipped honestly.
+    - Each scene/version only queues requested indices not already stored or
+      covered by an active job; already-complete requests are skipped.
     """
     from app.core.config import settings as cfg
     global _replay_registered
@@ -116,7 +118,7 @@ def create_processing_jobs(
         raise ProcessingRequestError(
             f"at most {cfg.nasa_hls_max_scenes_per_job} scenes per processing batch"
         )
-    clean_indices = [i.strip().lower() for i in indices if i and i.strip()]
+    clean_indices = list(dict.fromkeys(i.strip().lower() for i in indices if i and i.strip()))
     if not clean_indices:
         raise ProcessingRequestError("indices must not be empty")
     unknown = [i for i in clean_indices if i not in pre._SUPPORTED_INDICES]
@@ -160,31 +162,20 @@ def create_processing_jobs(
             skipped.append({"scene_id": sid, "reason": "no band assets recorded"})
             continue
 
-        digest = indices_digest(clean_indices)
-        # (1) active duplicate -> replay same job
-        active = db.scalar(
-            select(RasterProcessingJob).where(
-                RasterProcessingJob.scene_id == sid,
-                RasterProcessingJob.processing_version == processing_version,
-                RasterProcessingJob.indices_digest == digest,
-                RasterProcessingJob.status.in_(("queued", "running")),
-            )
+        requested = set(clean_indices)
+        existing_indices = set(
+            db.scalars(
+                select(RasterAsset.index_code).where(
+                    RasterAsset.field_id == field.id,
+                    RasterAsset.scene_id == sid,
+                    RasterAsset.processing_version == processing_version,
+                    RasterAsset.asset_kind == "derived",
+                )
+            ).all()
         )
-        if active is not None:
-            jobs.append(_job_payload(active, replayed=True))
-            continue
-        # (2) already fully processed -> honest skip
-        existing_assets = db.scalar(
-            select(RasterAsset.id)
-            .where(
-                RasterAsset.field_id == field.id,
-                RasterAsset.scene_id == sid,
-                RasterAsset.processing_version == processing_version,
-                RasterAsset.asset_kind == "derived",
-            )
-            .limit(1)
-        )
-        if existing_assets is not None:
+        pending = requested - existing_indices
+        # (1) already-complete request -> honest idempotent skip
+        if not pending:
             skipped.append(
                 {
                     "scene_id": sid,
@@ -193,11 +184,52 @@ def create_processing_jobs(
             )
             continue
 
+        # Active work is scoped to the same field, scene and processing version.
+        active = db.scalars(
+            select(RasterProcessingJob).where(
+                RasterProcessingJob.field_id == field.id,
+                RasterProcessingJob.scene_id == sid,
+                RasterProcessingJob.processing_version == processing_version,
+                RasterProcessingJob.status.in_(("queued", "running")),
+            )
+        ).all()
+        # Replay a matching full request, or an active job that exactly covers
+        # the still-unmaterialized portion of this request.
+        exact_active = next(
+            (
+                job
+                for job in active
+                if set(job.indices or []) in (requested, pending)
+            ),
+            None,
+        )
+        if exact_active is not None:
+            jobs.append(_job_payload(exact_active, replayed=True))
+            continue
+
+        active_indices = {index for job in active for index in (job.indices or [])}
+        missing_indices = [
+            index for index in clean_indices if index in pending and index not in active_indices
+        ]
+        if not missing_indices:
+            # The pending request is covered by one or more active jobs. Return
+            # those jobs as replays instead of creating an empty/duplicate job.
+            uncovered = set(pending)
+            for job in active:
+                covered_here = uncovered.intersection(job.indices or [])
+                if covered_here:
+                    jobs.append(_job_payload(job, replayed=True))
+                    uncovered.difference_update(covered_here)
+                if not uncovered:
+                    break
+            continue
+
+        digest = indices_digest(missing_indices)
         rp = RasterProcessingJob(
             field_id=field.id,
             scene_id=sid,
             product_code=scene.product_code,
-            indices=list(clean_indices),
+            indices=list(missing_indices),
             indices_digest=digest,
             processing_version=processing_version,
             status="queued",
@@ -211,7 +243,7 @@ def create_processing_jobs(
             lambda bg_id, progress, rp_id=rp.id: execute_processing_job(rp_id, progress),
             ref_kind=PROCESSING_JOB_KIND,
             ref_id=rp.id,
-            label=f"Preprocess HLS scene {sid} ({','.join(clean_indices)})",
+            label=f"Preprocess HLS scene {sid} ({','.join(missing_indices)})",
             created_by=created_by,
         )
         rp.background_job_id = bg.id
@@ -856,7 +888,8 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
     Status vocabulary (honest, distinguishable):
     - 'unprocessed': raw scene only
     - 'processing': an active (queued|running) raster_processing job exists
-    - 'processed': derived assets exist for the requested version
+    - 'partial': one or more, but not all, map-supported indices exist
+    - 'processed': all map-supported indices exist for the requested version
     - 'failed': latest attempt failed (error surfaced)
     """
     scenes = db.scalars(
@@ -884,9 +917,17 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
             )
         ).all()
         derived = [a for a in assets if a.asset_kind == "derived"]
+        derived_indices = {a.index_code for a in derived}
+        available_indices = [
+            index for index in MAP_SUPPORTED_INDICES if index in derived_indices
+        ]
+        missing_indices = [
+            index for index in MAP_SUPPORTED_INDICES if index not in derived_indices
+        ]
         previews = {a.index_code: a for a in assets if a.asset_kind == "preview"}
         active = db.scalars(
             select(RasterProcessingJob).where(
+                RasterProcessingJob.field_id == field_id,
                 RasterProcessingJob.scene_id == scene.scene_id,
                 RasterProcessingJob.processing_version == version,
                 RasterProcessingJob.status.in_(("queued", "running")),
@@ -895,6 +936,7 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
         latest_failed = db.scalar(
             select(RasterProcessingJob)
             .where(
+                RasterProcessingJob.field_id == field_id,
                 RasterProcessingJob.scene_id == scene.scene_id,
                 RasterProcessingJob.processing_version == version,
                 RasterProcessingJob.status == "failed",
@@ -909,8 +951,10 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
                 "indices": sorted({i for j in active for i in (j.indices or [])}),
                 "stage": active[0].stage,
                 "progress": active[0].progress,
+                "available_indices": available_indices,
+                "missing_indices": missing_indices,
             }
-        elif derived:
+        elif not missing_indices:
             state = "processed"
             detail = None
         elif latest_failed is not None:
@@ -918,6 +962,14 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
             detail = {
                 "job_id": str(latest_failed.id),
                 "error": (latest_failed.error or "")[:500],
+                "available_indices": available_indices,
+                "missing_indices": missing_indices,
+            }
+        elif available_indices:
+            state = "partial"
+            detail = {
+                "available_indices": available_indices,
+                "missing_indices": missing_indices,
             }
         else:
             state = "unprocessed"
