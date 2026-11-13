@@ -4,7 +4,7 @@
 - **Repository:** `abdelrahmanelharouny/project1/mini-services/fieldshift-api`
 - **Branch:** `feature/ai-core-orchestration`
 - **Base checkpoint:** `998f7a5` (`Audit CropTwist and harden auth, AI, and configuration`)
-- **Implementation commit:** will be recorded in the follow-up report update immediately after the implementation commit.
+- **Implementation commit:** `46a5c9e` (`feat(ai): add orchestration core and evidence contracts`)
 
 ## Executive summary
 
@@ -159,5 +159,9 @@ The following must be integrated by later workstreams, not duplicated here:
 ## Commit references
 
 - Base audit checkpoint: `998f7a5`.
-- Implementation commit: to be filled in the final report update immediately after the first feature commit.
-- Follow-up commit: documentation report update that records the implementation commit SHA.
+- Implementation commit: `46a5c9e` (`feat(ai): add orchestration core and evidence contracts`).
+- Follow-up commit: documentation-only update recording the implementation SHA.
+
+- No merge or push is performed by this task; the branch remains isolated.
+- The feature commit contains implementation code, tests, migration and primary documentation.
+- A documentation-only follow-up records that implementation SHA in this report.
