@@ -2,12 +2,14 @@
 
 FastAPI backend for **CropTwist**, a global agriculture decision-intelligence platform. It provides multi-tenant farm/field management with PostGIS geometry, a canonical field-data pipeline (data platform → features → knowledge), agronomic modeling (rotation, water, soil, digital twin), and a decision layer (scenarios, sensitivity, robust rotation, comparisons) — all under a versioned `/api/v1` contract.
 
+> Current status is summarized in the [repository audit](../../../docs/MASTER_REPOSITORY_AUDIT.md), [gap matrix](../../../docs/MASTER_GAP_ANALYSIS.md), and this API's [known limitations](KNOWN_LIMITATIONS.md). Historical milestone counts and claims are not current readiness evidence.
+
 ## Architecture at a glance
 
-- **Stack:** FastAPI + SQLAlchemy 2 (GeoAlchemy2) on **PostgreSQL 16 + PostGIS 3.5**, pydantic-settings configuration, Alembic migrations (17 revisions, head `0015_auth_hardening`), uvicorn.
-- **Surface:** **19 routers / 174 endpoints** mounted under `/api/v1`, backed by **80 tables** across `app/db/models.py` and `app/db/models_m6bc_m7.py`.
+- **Stack:** FastAPI + SQLAlchemy 2 (GeoAlchemy2) on **PostgreSQL 16 + PostGIS 3.5**, pydantic-settings configuration, Alembic migrations (current head `0023_p07_field_reports`), and uvicorn.
+- **Surface:** versioned domain routers mounted under `/api/v1`, backed by SQLAlchemy models across core, AI, P2, and P3 modules. Use the current model/migration inventory rather than older endpoint/table counts.
 - **Determinism:** the rotation optimizer is OR-Tools CP-SAT with `num_search_workers=1` and a recorded seed (identical inputs → identical plans); scenario executions, sensitivity analyses, robust runs and decision documents are checksummed, immutable, replayable artifacts with `/verify` endpoints.
-- **Frontend:** Next.js 16 App Router app at the repository root (`/home/z/my-project`), served on port 3000, calling the API via relative `/api/v1` paths (Caddy gateway `XTransformPort=3030`, or the `next.config.ts` rewrite fallback).
+- **Frontend:** Next.js 16 App Router app at the repository root, served on port 3000, calling the API via relative `/api/v1` paths (Caddy gateway `XTransformPort=3030`, or the `next.config.ts` rewrite fallback).
 - **Liveness / readiness:** `GET /api/v1/health` (process) and `GET /api/v1/health/ready` (verifies PostGIS is installed and reachable). OpenAPI UI at **`/docs`**.
 
 ### Domain routers (`app/api/v1/`)
@@ -25,7 +27,7 @@ FastAPI backend for **CropTwist**, a global agriculture decision-intelligence pl
 | Soil intelligence | `soil.py` | Field management | `management.py` |
 | Health | `health.py` | | |
 
-External data providers: Open-Meteo historical archive (ERA5/ERA5-Land reanalysis) and ISRIC SoilGrids WCS, plus a deterministic SHA-256-seeded synthetic fixture provider (base URLs/timeouts configurable). **Weather-forecast, climate-projection and satellite (NASA) connectors are intentionally not implemented** — see `KNOWN_LIMITATIONS.md`. Every response carries an `x-request-id` correlation header.
+External data code includes the Open-Meteo historical archive (ERA5/ERA5-Land reanalysis), optional ISRIC SoilGrids WCS, operator-upload CHIRPS GeoTIFF extraction, NASA HLS discovery and Earthdata-gated asset reads, and explicitly labelled synthetic fixtures. Current live provider readiness was not established by the repository audit; HLS contract tests use mocked transport, and the direct HLS acquisition path has known Fmask/CRS/windowing gaps. Weather forecasts and climate projections are not connected. Every response carries an `x-request-id` correlation header.
 
 ## Quickstart (local, sandbox convention)
 
@@ -52,7 +54,7 @@ Frontend (from the repo root): `bun install && bun run dev` → `http://localhos
 The repository-root compose file builds the whole stack (db + api + web + Caddy gateway on :81):
 
 ```bash
-cd /home/z/my-project
+# Run from the repository root.
 docker compose up --build
 # db:  postgis/postgis:16-3.5 on host port 5433 (named volume croptwist-pgdata)
 # api: alembic upgrade head, then uvicorn on 3030
@@ -60,7 +62,7 @@ docker compose up --build
 # gateway: caddy:2 on 81 (XTransformPort routing, host networking)
 ```
 
-A backend-local subset (db + api + web, without the gateway) lives in this directory's `docker-compose.yml`. Note the documented limitation about the hardcoded rewrite target in `next.config.ts` — see the comment block at the bottom of that file and `docs/architecture/deployment.md`.
+A backend-local subset (db + api + web, without the gateway) lives in this directory's `docker-compose.yml`. The repository-root Compose file is a local/demo topology, not a production deployment; dev mode is off by default and should only be enabled for an isolated demo. Note the documented limitation about the hardcoded rewrite target in `next.config.ts` — see the comment block at the bottom of that file and `docs/architecture/deployment.md`.
 
 ## Configuration
 
@@ -99,8 +101,8 @@ All settings come from `app/core/config.py` (pydantic-settings, prefix `CROPTWIS
 
 ## Background jobs (async ingestion)
 
-Provider ingestion runs on an in-process worker pool (`app/core/jobs.py`, migration `0016_background_jobs`):
-`POST /fields/{id}/data-jobs` returns `202` with the job **queued**, the pool executes the provider fetch outside the request, and clients poll the unchanged status URL (`GET /jobs/{job_id}`). A unified queue view lives at `GET /api/v1/jobs/background` and `GET /api/v1/jobs/background/{id}` (progress, stage, terminal flag). Jobs left `queued` by a crash are re-executed on startup; jobs found `running` are marked failed (`interrupted by restart`). Set `CROPTWIST_JOB_WORKERS=0` to restore inline execution (the test suite does).
+Provider ingestion uses database-backed job records and a process-local in-memory worker queue (`app/core/jobs.py`, migration `0016_background_jobs`):
+`POST /fields/{id}/data-jobs` returns `202` with the job **queued**, and clients poll `GET /jobs/{job_id}` or the unified queue views. The database rows do not provide a shared broker or atomic distributed claim; a separate worker does not receive new API submissions. Restart recovery, queue/domain failure reconciliation, and dispatch ordering have open correctness gaps described in `KNOWN_LIMITATIONS.md`. Set `CROPTWIST_JOB_WORKERS=0` to use legacy inline execution (the test suite does).
 
 ## Testing
 
@@ -108,10 +110,10 @@ The suite needs a real PostgreSQL + PostGIS (no SQLite fallback) on `127.0.0.1:5
 
 ```bash
 cd mini-services/fieldshift-api
-.venv/bin/python -m pytest tests -q     # or: bun run test
+.venv/bin/python -m pytest tests -q     # requires isolated PostgreSQL + PostGIS
 ```
 
-CI runs the same flow against a `postgis/postgis:16-3.5` service container (see `.github/workflows/ci.yml` at the repo root).
+From the repository root, run `bun test tests/frontend` for the frontend helper/navigation suite. CI declares backend migrations, `alembic check`, pytest, and API/bridge smoke against a `postgis/postgis:16-3.5` service; frontend typecheck, lint, regression tests, and production build; and bridge typecheck. The workflow declaration is not evidence of a current successful hosted run.
 
 ## Project layout
 
@@ -129,7 +131,7 @@ mini-services/fieldshift-api/
 │   ├── core/                # config.py (pydantic-settings), database, security,
 │   │                        #   rate_limit, logging, errors
 │   ├── domains/             # identity (auth primitives, RBAC roles), farms_fields
-│   ├── db/                  # SQLAlchemy models (models.py, models_m6bc_m7.py)
+│   ├── db/                  # SQLAlchemy models across core, AI, P2, and P3 modules
 │   ├── data_platform/       # providers (open_meteo, soilgrids, chirps, synthetic),
 │   │                        #   registry, ingestion, CSV imports, observability
 │   ├── features/            # M4 feature engine + versioned catalog + calendar
@@ -145,7 +147,7 @@ mini-services/fieldshift-api/
 │   ├── robust_rotation/     # M7.5 shared-plan maximin optimization
 │   ├── decision/            # M7.6 decision comparison documents
 │   └── digital_twin/        # M7.7 traceable twin assembly & validation
-├── migrations/versions/     # 17 Alembic revisions, head 0015_auth_hardening
+├── migrations/versions/     # additive Alembic revisions through 0023_p07_field_reports
 ├── scripts/
 │   ├── run_dev.py           # ensure PG → migrate → uvicorn --reload
 │   ├── ensure_db.py         # boots the user-space PostgreSQL cluster
@@ -175,4 +177,4 @@ Run modes, sandbox layout, and the production checklist (managed PostGIS, `CROPT
 
 ## Known limitations
 
-See [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) for the maintained list. Highlights: RBAC roles are defined and being wired through every router; scenario runs execute inline while provider ingestion is queued on the background worker pool (domain runs can adopt the same pool — see the Background jobs section); metrics/observability are in-process only (OpenTelemetry API is pinned but no exporter is configured); no weather-forecast, climate-projection or satellite providers; soil and management scenario dimensions are not implemented.
+See [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) for the maintained list. Highlights: role enforcement and commercial entitlements have gaps; job execution is process-local with restart/status issues; direct HLS acquisition needs correction; field briefs now require per-sentence pack citations and same-unit values in the cited evidence section, while recommendation narratives still lack the runtime gate; advisor Q&A numeric checks remain screening-grade; metrics are process-local; external HLS/Sentinel/SoilGrids/S3/LLM readiness is unverified; weather forecasts, climate projections, document RAG, and trained predictive ML are absent. The root Compose stack is for local/demo use, not production.

@@ -46,26 +46,24 @@ services:
     environment:
       # Inside the compose network the database service is `db:5432`; the host
       # mapping 5433 exists only for tools running on the host.
-      FIELDSHIFT_DATABASE_URL: postgresql+psycopg2://${FIELDSHIFT_COMPOSE_PG_USER:-postgres}:${FIELDSHIFT_COMPOSE_PG_PASSWORD:-postgres}@db:5432/${FIELDSHIFT_COMPOSE_PG_DB:-fieldshift}
-      # Demo conveniences (POST /api/v1/dev/seed-demo, auto-verified
-      # registration). Set to 0 for anything beyond a local demo.
-      FIELDSHIFT_DEV_MODE: "1"
-      FIELDSHIFT_ENVIRONMENT: development
+      CROPTWIST_DATABASE_URL: postgresql+psycopg2://${FIELDSHIFT_COMPOSE_PG_USER:-postgres}:${FIELDSHIFT_COMPOSE_PG_PASSWORD:-postgres}@db:5432/${FIELDSHIFT_COMPOSE_PG_DB:-fieldshift}
+      # Demo conveniences must be explicitly enabled for a local demo. Never
+      # enable dev mode in a production deployment.
+      CROPTWIST_DEV_MODE: ${CROPTWIST_DEV_MODE:-false}
+      CROPTWIST_ENVIRONMENT: ${CROPTWIST_ENVIRONMENT:-development}
       # Comma-separated browser origins allowed by CORS; empty disables the
       # CORS middleware (fine when the gateway is strictly same-origin).
-      FIELDSHIFT_CORS_ALLOW_ORIGINS: ${FIELDSHIFT_CORS_ALLOW_ORIGINS:-}
+      CROPTWIST_CORS_ALLOW_ORIGINS: ${CROPTWIST_CORS_ALLOW_ORIGINS:-}
       # Application settings passed through from the root .env (defaults
       # mirror app/core/config.py; see .env.example for annotations).
-      FIELDSHIFT_PASSWORD_PBKDF2_ITERATIONS: ${FIELDSHIFT_PASSWORD_PBKDF2_ITERATIONS:-600000}
-      FIELDSHIFT_AUTH_TOKEN_TTL_SECONDS: ${FIELDSHIFT_AUTH_TOKEN_TTL_SECONDS:-43200}
-      FIELDSHIFT_DEFAULT_PAGE_SIZE: ${FIELDSHIFT_DEFAULT_PAGE_SIZE:-50}
-      FIELDSHIFT_MAX_PAGE_SIZE: ${FIELDSHIFT_MAX_PAGE_SIZE:-500}
-      FIELDSHIFT_MAX_IMPORT_FILE_BYTES: ${FIELDSHIFT_MAX_IMPORT_FILE_BYTES:-32000000}
-      # Reserved settings (in-flight workstreams; ignored by current config).
-      FIELDSHIFT_AUTH_RATE_LIMIT_PER_MINUTE: ${FIELDSHIFT_AUTH_RATE_LIMIT_PER_MINUTE:-10}
-      FIELDSHIFT_RATE_LIMIT_GLOBAL_PER_MIN: ${FIELDSHIFT_RATE_LIMIT_GLOBAL_PER_MIN:-300}
-      FIELDSHIFT_JOB_WORKERS: ${FIELDSHIFT_JOB_WORKERS:-2}
-      FIELDSHIFT_REFRESH_TOKEN_TTL_HOURS: ${FIELDSHIFT_REFRESH_TOKEN_TTL_HOURS:-168}
+      CROPTWIST_PASSWORD_PBKDF2_ITERATIONS: ${CROPTWIST_PASSWORD_PBKDF2_ITERATIONS:-600000}
+      CROPTWIST_AUTH_TOKEN_TTL_SECONDS: ${CROPTWIST_AUTH_TOKEN_TTL_SECONDS:-43200}
+      CROPTWIST_AUTH_REFRESH_TTL_SECONDS: ${CROPTWIST_AUTH_REFRESH_TTL_SECONDS:-2592000}
+      CROPTWIST_AUTH_RATE_LIMIT_PER_MINUTE: ${CROPTWIST_AUTH_RATE_LIMIT_PER_MINUTE:-10}
+      CROPTWIST_DEFAULT_PAGE_SIZE: ${CROPTWIST_DEFAULT_PAGE_SIZE:-50}
+      CROPTWIST_MAX_PAGE_SIZE: ${CROPTWIST_MAX_PAGE_SIZE:-500}
+      CROPTWIST_MAX_IMPORT_FILE_BYTES: ${CROPTWIST_MAX_IMPORT_FILE_BYTES:-32000000}
+      CROPTWIST_JOB_WORKERS: ${CROPTWIST_JOB_WORKERS:-2}
     ports:
       - "3030:3030"
     depends_on:
@@ -78,7 +76,7 @@ services:
     healthcheck:
       # Liveness: /api/v1/health. Readiness incl. the PostGIS check is
       # /api/v1/health/ready. python:3.12-slim has no curl/wget, hence urllib.
-      test: ["CMD", "python", "-c", "import sys, urllib.request as u; r = u.urlopen('http://127.0.0.1:3030/api/v1/health', timeout=4); sys.exit(0 if r.status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import sys, urllib.request as u; r = u.urlopen('http://127.0.0.1:3030/api/v1/health/ready', timeout=4); sys.exit(0 if r.status == 200 else 1)"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -102,7 +100,7 @@ services:
       - "3000:3000"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       # oven/bun:1-slim has no curl/wget; use the bun runtime itself.
       test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:3000/').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]
@@ -123,8 +121,10 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
-      - web
-      - api
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:81/"]
       interval: 15s

@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from app.intelligence import metrics
@@ -46,7 +47,7 @@ from app.intelligence.guard import (
     sanitize_text,
     wrap_untrusted,
 )
-from app.intelligence.numeric_guard import validate_numbers
+from app.intelligence.numeric_guard import validate_numbers, validate_numbers_for_citations
 from app.intelligence.response_contract import (
     AdvisorStructuredResponse,
     citations_from_answer,
@@ -310,8 +311,9 @@ def _regeneration_messages(
     """One constrained regeneration attempt after a validation failure (A7)."""
     correction = (
         "Your previous reply was rejected by validation: it contained numeric "
-        "claims not supported by the evidence pack (or fabricated citations). "
-        "Regenerate STRICTLY within the evidence pack values. Same JSON schema."
+        "claims not supported by the evidence pack, fabricated citations, or "
+        "missing inline evidence citations. Regenerate STRICTLY within the "
+        "evidence pack values and cite each factual statement. Same JSON schema."
     )
     return [
         {"role": "system", "content": system_prompt},
@@ -448,34 +450,87 @@ def _evidence_used(
     return out
 
 
+def _brief_system_prompt(locale: str) -> str:
+    language = "Modern Standard Arabic" if locale == "ar" else "English"
+    return (
+        "You are CropTwist's AI agronomist. Write a 2-3 sentence field brief. "
+        "Ground EVERY statement ONLY in the provided evidence pack; cite at "
+        "least one evidence item inline as [evidence: LABEL] and include that "
+        "label in the citations array. Name missing data as missing; never "
+        "invent numbers. Every numeric value must appear in the evidence pack. "
+        "Respond with STRICT JSON ONLY: "
+        '{"answer": "<brief>", "citations": ["<label>", ...]}. '
+        f"Write the brief in {language}."
+    )
+
+
+def _validated_brief_result(
+    detail: dict[str, Any] | None,
+    evidence: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Fail closed unless a structured brief cites this pack and its numbers pass."""
+    if detail is None:
+        return None
+    structured = parse_structured(detail.get("content"))
+    if structured is None:
+        return None
+    inline = citations_from_answer(structured.answer)
+    valid_labels = _top_level_labels(evidence)
+    if evidence.get("data_gaps"):
+        valid_labels.append("data_gaps")
+    accepted, rejected = validate_citations(
+        list(dict.fromkeys(structured.citations + inline)), valid_labels
+    )
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?؟])\s+|\n+", structured.answer)
+        if sentence.strip()
+    ]
+    if (
+        not inline
+        or not accepted
+        or rejected
+        or not sentences
+        or any(not citations_from_answer(sentence) for sentence in sentences)
+    ):
+        metrics.incr_validation_failure("brief_citation_validation")
+        return None
+    numeric = validate_numbers_for_citations(structured.answer, evidence)
+    if numeric.material_mismatch:
+        return None
+    return {
+        "summary": structured.answer.strip(),
+        "engine": {
+            "mode": "llm",
+            "model": detail.get("model"),
+            "evidence_used": _evidence_used(evidence, accepted),
+            "numeric_validation": {
+                "unsupported_count": len(numeric.unsupported),
+                "supported_count": len(numeric.supported),
+            },
+        },
+    }
+
+
 async def field_brief_async(db: Any, field: Any, *, locale: str = "en") -> dict[str, Any]:
     """Async 2-3 sentence field brief (A2), grounded ONLY in the pack."""
     evidence = await asyncio.to_thread(build_field_evidence, db, field)
     anomalies = await asyncio.to_thread(detect_feature_anomalies, db, field.id)
-    system = (
-        "You are CropTwist's AI agronomist. Write a 2-3 sentence field brief. "
-        "Ground EVERY statement ONLY in the provided evidence pack; cite "
-        "labels like [evidence: LABEL]; name missing data as missing; never "
-        "invent numbers. Respond with STRICT JSON ONLY: "
-        '{"answer": "<brief>", "citations": ["<label>", ...]}.'
-        + (f" Write the brief in Modern Standard Arabic." if locale == "ar" else " Write the brief in English.")
+    system = _brief_system_prompt(locale)
+    user_message = _build_user_message(
+        question="(generate the field brief)", evidence=evidence,
+        anomalies=anomalies, history=None, locale=locale,
     )
-    detail = await achat_detail(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": _build_user_message(
-                question="(generate the field brief)", evidence=evidence,
-                anomalies=anomalies, history=None, locale=locale,
-            )},
-        ]
-    )
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user_message}]
+    detail = await achat_detail(messages)
     if detail is None:
         return {"summary": None, "engine": {"mode": "rules", "model": None}}
-    structured: AdvisorStructuredResponse | None = parse_structured(detail["content"])
-    summary = structured.answer.strip() if structured else detail["content"].strip()
-    return {
-        "summary": summary,
-        "engine": {"mode": "llm", "model": detail.get("model")},
+    result = _validated_brief_result(detail, evidence)
+    if result is not None:
+        return result
+    retry = await achat_detail(_regeneration_messages(system, user_message))
+    return _validated_brief_result(retry, evidence) or {
+        "summary": None, "engine": {"mode": "rules", "model": None}
     }
 
 
@@ -487,28 +542,19 @@ def field_brief(db: Any, field: Any, *, locale: str = "en") -> dict[str, Any]:
     """
     evidence = build_field_evidence(db, field)
     anomalies = detect_feature_anomalies(db, field.id)
-    system = (
-        "You are CropTwist's AI agronomist. Write a 2-3 sentence field brief. "
-        "Ground EVERY statement ONLY in the provided evidence pack; cite "
-        "labels like [evidence: LABEL]; name missing data as missing; never "
-        "invent numbers. Respond with STRICT JSON ONLY: "
-        '{"answer": "<brief>", "citations": ["<label>", ...]}.'
-        + (f" Write the brief in Modern Standard Arabic." if locale == "ar" else " Write the brief in English.")
+    system = _brief_system_prompt(locale)
+    user_message = _build_user_message(
+        question="(generate the field brief)", evidence=evidence,
+        anomalies=anomalies, history=None, locale=locale,
     )
-    detail = chat_detail(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": _build_user_message(
-                question="(generate the field brief)", evidence=evidence,
-                anomalies=anomalies, history=None, locale=locale,
-            )},
-        ]
-    )
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user_message}]
+    detail = chat_detail(messages)
     if detail is None:
         return {"summary": None, "engine": {"mode": "rules", "model": None}}
-    structured = parse_structured(detail["content"])
-    summary = structured.answer.strip() if structured else detail["content"].strip()
-    return {
-        "summary": summary,
-        "engine": {"mode": "llm", "model": detail.get("model")},
+    result = _validated_brief_result(detail, evidence)
+    if result is not None:
+        return result
+    retry = chat_detail(_regeneration_messages(system, user_message))
+    return _validated_brief_result(retry, evidence) or {
+        "summary": None, "engine": {"mode": "rules", "model": None}
     }

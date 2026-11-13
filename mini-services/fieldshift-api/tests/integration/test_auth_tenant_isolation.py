@@ -44,11 +44,14 @@ class TestRegistrationAndLogin:
         assert me.json()["user"]["id"] == user["user"]["id"]
         assert len(me.json()["organizations"]) == 1
 
-    def test_logout_revokes_token(self, client, auth_headers):
+    def test_logout_revokes_token_family(self, client, auth_headers):
         headers, user = auth_headers
         assert client.get("/api/v1/me", headers=headers).status_code == 200
         assert client.post("/api/v1/auth/logout", headers=headers).status_code == 204
         assert client.get("/api/v1/me", headers=headers).status_code == 401
+        assert client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": user["refresh_token"]}
+        ).status_code == 401
 
 
 class TestTenantIsolation:

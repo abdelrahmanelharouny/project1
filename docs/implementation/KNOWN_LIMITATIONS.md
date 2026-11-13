@@ -2,6 +2,8 @@
 
 Honest record of what this slice does NOT do. Nothing here is claimed to work.
 
+> **Historical snapshot dated 2026-10-31.** This M3-era document is retained for milestone history and is not a current implementation inventory. Use [`mini-services/fieldshift-api/KNOWN_LIMITATIONS.md`](../../mini-services/fieldshift-api/KNOWN_LIMITATIONS.md) and the [master audit](../MASTER_REPOSITORY_AUDIT.md) for current status; later milestones added substantial feature and infrastructure code.
+
 ## Data and providers
 
 1. **Synthetic fixtures are fixtures.** The synthetic provider's profiles are invented shapes — zero agronomic validity, always `is_synthetic=true`. Real sources now exist alongside (item 2) but the fixture rule is unchanged.

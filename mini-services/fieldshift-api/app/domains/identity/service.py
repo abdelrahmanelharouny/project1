@@ -561,10 +561,21 @@ def confirm_email_verification(db: Session, token_plain: str) -> User:
 
 def revoke_token(db: Session, principal: Principal, token_plain: str) -> None:
     token_hash = hash_token(token_plain)
-    row = db.scalar(select(AuthToken).where(AuthToken.token_hash == token_hash))
-    if row is not None:
-        row.revoked_at = datetime.now(UTC)
-        db.commit()
+    row = db.scalar(
+        select(AuthToken).where(
+            AuthToken.token_hash == token_hash,
+            AuthToken.user_id == principal.id,
+            AuthToken.kind == "access",
+        )
+    )
+    if row is None or row.revoked_at is not None:
+        return
+    now = datetime.now(UTC)
+    if row.family_id is None:
+        row.revoked_at = now
+    else:
+        _revoke_family(db, row.family_id, now)
+    db.commit()
 
 
 # ------------------------------------------------- membership management

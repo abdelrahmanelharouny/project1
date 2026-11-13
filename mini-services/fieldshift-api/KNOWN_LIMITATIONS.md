@@ -1,136 +1,73 @@
 # Known Limitations
 
-Honest inventory of what the CropTwist API does **not** do. Items here are
-gaps by design or by priority — not hidden defects. Where a future direction
-exists it is named; nothing in this list is simulated elsewhere in the code.
+**Current status: 2026-11-14.** This is an honest inventory of what the CropTwist API does not yet do, what is known to be incorrect, and what has not been live-verified. Source presence, mocked tests, historical provider checks, and CI workflow declarations are not proof of current runtime readiness. See the repository-wide [master audit](../../docs/MASTER_REPOSITORY_AUDIT.md) and [gap matrix](../../docs/MASTER_GAP_ANALYSIS.md).
 
-## Identity and authorization
+## Identity, authorization, billing, and secrets
 
-- **RBAC enforcement is being rolled out.** The four roles (`viewer <
-  agronomist < manager < owner`) and the gate helpers
-  (`require_org_role`, `require_farm_role`) exist in
-  `app/domains/identity/service.py` and are enforced on farms, fields,
-  rotation, management, scenario executions, sensitivity and robust rotation
-  routes. Several other routers still authorize membership only, without the
-  role gate; wiring the role check through every router is in progress.
-- Password reset and email verification issue single-use tokens but have
-  **no delivery channel**: plaintext tokens are handed to the caller /
-  returned in the response for sandbox use. An out-of-band mailer is not
-  implemented.
+- **Role enforcement is inconsistent across all API paths.** Role codes and gates exist and are used in multiple domains, but the legacy farm-member routes allow an `org_admin` to grant `owner` through rank-based checks. Align legacy and organization-level member APIs before relying on ownership-transfer policy.
+- **Logout now revokes the current session's access/refresh family.** The source-level unit regression passes and an API integration assertion was added; the latter still requires a PostGIS-backed run. A separate critical issue remains: non-dev registration returns a usable access/refresh pair before the user's email is verified.
+- **Password-reset and email-verification delivery is absent.** Challenge rows are created, but there is no production email/SMTP adapter to deliver the token out of band. Development-mode token behavior must not be enabled in production.
+- **Free-tier entitlements are not enforced consistently.** Some farm/field/API-key paths skip configured limits when there is no live subscription; API-key creation also has a path that converts a zero rate limit to a positive default. Verify subscription, no-subscription, Free, Starter, and downgrade cases before enabling commercial plans.
+- **Billing is sandbox-only.** No real payment processor adapter, live credentials, or sandbox transaction validation is configured. The billing webhook secret has a predictable default and production configuration does not fail fast on that default; production deployments must not rely on it.
+- **Outgoing webhook security remains incomplete.** Destination validation does not reject all private/link-local IPv4/IPv6 destinations or prevent DNS rebinding/unsafe redirects. Signing secrets are stored in recoverable plaintext in the database. Do not expose the webhook dispatcher to untrusted tenant control without network egress controls and secret protection.
+- **Public API route-level integration coverage is missing.** Existing API-key tests focus on helper logic with a fake session; database-backed HTTP tests are needed for scope, tenant filters, pagination, and response contracts.
 
-## Execution model and observability
+## Jobs, execution, and observability
 
-- **Runs execute inline.** Scenario executions (M7.3), sensitivity analyses
-  (M7.4), robust rotations (M7.5) and decision documents (M7.6) are computed
-  synchronously inside the HTTP request. Long scenario sets are bounded by
-  documented caps (e.g. `MAX_SCENARIO_SET_SIZE = 5`), but there is no job
-  queue yet. An async mode is being added behind the reserved
-  background worker pool for provider ingestion (`CROPTWIST_JOB_WORKERS`); domain run endpoints (rotation, sensitivity, robust rotation, SOC) still execute inside the request and can adopt the same pool per-domain as their UIs gain progress polling.
-- **Raster processing jobs use Postgres-backed queues, not a distributed
-  broker.** P05 satellite preprocessing runs through `background_jobs` +
-  `raster_processing_jobs` rows and the standalone `python -m app.worker`
-  process (durable rows, restart replay, graceful drain). At current scale a
-  Postgres-backed queue satisfies durability and single-active-job
-  idempotency; a broker (Redis/RabbitMQ/Celery) is intentionally NOT
-  introduced — revisit only if multi-region fan-out or thousands of
-  concurrent scene jobs are required. Workers must be deployed separately
-  from the API (independently scalable); the API never runs raster work
-  in-request.
-- **Metrics are in-process only.** `opentelemetry-api` is pinned in
-  `requirements.txt` but no exporter, collector or external metrics endpoint
-  is configured. Observability today: structured logging, `x-request-id`
-  correlation headers, and the health/readiness endpoints.
-- No caching layer: provider probes use a small in-process TTL cache
-  (`CROPTWIST_PROVIDER_PROBE_CACHE_SECONDS`); everything else reads
-  PostgreSQL directly.
+- **Background-job rows exist, but execution is process-local.** The API starts an in-process thread pool backed by `queue.Queue`. Database rows record status; they do not form a shared broker or atomic distributed-claim mechanism. A separate `python -m app.worker` process performs startup recovery but does not receive future API submissions through the API process's in-memory queue. Do not claim independent-worker or multi-replica scaling.
+- **Job lifecycle/recovery has known consistency gaps.** Ingestion replay executors are registered lazily after startup recovery; queued ingestion may be stranded after a restart. A provider failure can leave the generic queue row marked successful while its domain ingestion row is failed. Recovery marks interrupted queue rows but does not reconcile the linked domain row. Raster processing can enqueue a worker before the domain job transaction commits.
+- **Several decision runs remain synchronous.** Scenario executions, sensitivity analyses, robust rotations, and decision documents execute in request paths; bounds exist for selected scenario sizes, but long-running requests need a deliberate job/progress contract before larger workloads.
+- **Operational metrics are process-local.** Counters and latency samples are stored in process globals; latency samples grow without a configured bound, there is no durable exporter/collector, and `/metrics` relies on network-level controls rather than application authentication. Multi-replica aggregation is not implemented.
+- Rate limits, scheduler state, circuit-breaker state, and narrative-cache state are process-local; they are not shared across replicas.
 
-## Data platform
+## Observation data, providers, and geospatial processing
 
-- **No weather-forecast provider.** Only the Open-Meteo *historical archive*
-  (ERA5/ERA5-Land reanalysis) is implemented. Forecast APIs are not wired.
-- **No climate-projection provider.** Climate scenarios cannot be built from
-  projection datasets; the scenario type exists as a contract only.
-- **NASA HLS connector (P04) — real adapter, live-verified discovery only.**
-  Catalog discovery via NASA CMR STAC is live-verified in the sandbox (real
-  HLSL30/HLSS30 scenes discovered and persisted). Authenticated asset reads
-  (`/vsicurl/` COG range reads via NASA Earthdata Login) are implemented but
-  NOT live-tested — no Earthdata credentials in this environment; without
-  credentials the acquisition path fails loudly per scene (RasterioIOError
-  surfaced in scene `acquisition_detail`), never fabricating data. Vegetation
-  indices are derived per scene during acquisition (documented HLS scaling +
-  Fmask masking); no agronomic conclusions in the ingestion layer.
-- CHIRPS support is limited to local GeoTIFF extraction (`extractor.py`);
-  there is no live CHIRPS API client.
-- Provider availability probes and timeouts are best-effort; a provider being
-  unreachable marks datasets stale rather than blocking the API.
+- **Open-Meteo is a historical archive adapter.** It represents ERA5/ERA5-Land reanalysis, not a weather forecast. Current endpoint health was not checked in this audit.
+- **SoilGrids WCS is optional and current live availability is unknown.** Contract tests use mocked transport and generated rasters; historical sandbox status documents no completed live round-trip. Its per-pixel quantile-width summary is not a field-level 90% prediction interval.
+- **NASA HLS source code exists, but live protected asset readiness is unverified.** CMR discovery and Earthdata-gated asset reads are implemented; this audit did not inspect credential values or issue live calls. HLS tests use mocked transport and fixtures. In the direct acquisition path, orchestration drops the Fmask reference and the provider does not reproject/window the EPSG:4326 field geometry against projected raster coordinates. The separate P05 preprocessing path does reproject and window rasters, but does not establish correctness of the direct acquisition path.
+- **Sentinel-2/CDSE is optional and not live-verified in this environment.** Protected asset access depends on external credentials and egress.
+- **CHIRPS is operator-supplied.** The implementation extracts observations from an uploaded GeoTIFF; there is no automatic/bulk download pipeline.
+- **HLS, SoilGrids, Open-Meteo, Sentinel-2, S3, and LLM service health must be checked in the target deployment.** Historical checks, adapter presence, mocks, and synthetic fixtures are not current readiness records. Keep synthetic data explicitly labeled and never treat it as field observation.
+- **Duplicate observation handling can roll back valid work.** Ingestion catches a duplicate-row `IntegrityError` by rolling back the current transaction and continuing, which can undo earlier new rows while the job reports success. Use a per-row savepoint or conflict-safe insert.
+- **Observation contract checks are incomplete.** The documented `value`/`missing` invariant is only checked in one direction; CSV float parsing can accept `NaN`/`Infinity`. CSV header normalization is used for required-header checks but not consistently for row access, and the recorded checksum can differ from uploaded bytes when a BOM is removed before hashing.
+- **Coverage can overstate usable evidence.** The coverage query counts every non-null value as valid regardless of quality status. Define valid quality states and report excluded/suspect values separately.
+- **Provider run provenance is partially persisted.** `ProviderFetchResult` can carry coverage, request identifiers, and raw references that are not all stored with the durable ingestion run.
+- **Object storage is implemented but not production-provisioned.** Local and S3-compatible adapters exist; tests use temporary files or a fake S3 client. Compose defaults to local storage, does not provision durable raster/report storage, and `boto3` is not a declared direct runtime dependency. Production bucket, credential, KMS, permissions, and read/write validation remain external.
+- Provider probes are best-effort; a provider being unreachable marks datasets stale rather than blocking the API. The NASA probe may treat some HTTP 4xx responses as reachable; catalog protocol readiness and protected asset readiness should be reported separately.
 
-## Scenarios and analytics
+## Agronomic and decision-intelligence limits
 
-- **Soil and management scenario dimensions are not implemented.** M7.3
-  transformations cover uniform temperature shifts and precipitation
-  scaling only. `climate_projection` and `weather_forecast` scenario types
-  are **rejected** at validation with structured findings (they are
-  contract-only in M7.2; no real forecast/projection evidence exists).
-- Scenario reference ET0 is never recalculated; scenario water estimates are
-  structurally unavailable and farmer water allocations are rejected in
-  robust runs rather than silently dropped (see
-  `docs/m7/m7_5/M7_5_ROBUST_METHOD.md`).
-- Knowledge values are `validation_status="reference"` until agronomist
-  review; hard rotation-break constraints bind on nothing until
-  region-validated rules exist.
-- No composite scores, probabilities, yield predictions or universal
-  recommendations are produced anywhere — by design (M7.6 discipline).
+- **Climate projections and weather-forecast scenarios are unavailable.** Scenario transformations cover supported uniform temperature shifts and precipitation scaling; forecast/projection inputs remain rejected or contract-only where no sourced provider is connected.
+- **Scenario ET0 and scenario water requirements are unavailable.** ET0 is not recalculated from scenario variables. Robust runs refuse unsupported farmer-water-allocation constraints instead of silently dropping them.
+- **Knowledge values are reference material, not locally confirmed agronomy.** Seed-pack values remain `validation_status="reference"` until expert review; coarse calendar windows need regional calibration; no rule is `confirmed_regional` by default.
+- **Crop suitability is not yield prediction.** Candidate precipitation screening can compare season totals with annual reference ranges; treat that as coarse screening, not a seasonally aligned conclusion. Several suitability paths can remain marked eligible while material climate/soil/water dimensions are unevaluated.
+- **Knowledge-pack composition and regional numeric resolution need correction.** Active rows from losing crop-code versions can be combined with winning rows, and regional traits may be cited without being used in numeric calculations.
+- **Multi-season steering is not fully season-specific.** Some optimizer coefficients reuse first-season crop scores while displayed post-hoc criteria aggregate seasons. Robust solver steering is a proxy, not guaranteed to optimize the displayed post-hoc metric.
+- **Vegetation-context timing and forecast continuity need correction.** Stress context can include climate/water evidence from periods not aligned to the vegetation anomaly; sparse forecast dates can be counted as consecutive dry days.
+- **Soil health does not manufacture a composite score.** Missing indicators, method/depth comparability, and uncertain measurement basis are exposed; absence is not “poor soil.” Nutrient balances are partial accounting statements, not measured stock change where flows are absent.
+- No universal recommendations, validated yield forecasts, calibrated probabilities, or regionally confirmed crop prescriptions are produced. Economic inputs are farmer-supplied; the platform does not estimate prices or yield.
 
-## Deployment and operations
+## AI, generated text, and evaluation
 
-- The sandbox deployment scripts (`scripts/ensure_db.py`,
-  `scripts/daemonize.py`, `scripts/start-stack.sh` at the repo root) are
-  **sandbox-specific**: they boot a user-space conda-forge PostgreSQL
-  cluster and daemonize processes to survive sandbox process reaping.
-  Production must use a managed PostgreSQL + PostGIS and a real process
-  manager (see `docs/architecture/deployment.md`).
-- `next.config.ts` hardcodes the `/api/v1` rewrite fallback to
-  `http://127.0.0.1:3030`, which only works when web and API share a host.
-  Behind the Caddy gateway this does not matter; in a compose network it
-  does (documented in the compose files).
-- Single-database, single-region. No replication, point-in-time recovery
-  config, or backup automation ships with the repository.
+- **Field briefs now have a fail-closed citation/numeric gate; recommendation narratives do not.** Each brief sentence must cite the current pack, and numeric claims must match same-unit references from that cited evidence section; one constrained retry is allowed, then model text is omitted. The check is intentionally conservative, does not convert units, and is domain-level rather than a complete semantic claim parser. Recommendation narratives still accept generated text without this runtime gate; deterministic engine outputs remain authoritative.
+- **Advisor Q&A's numeric matcher remains screening-grade, not a grounding guarantee.** It compares measurements against a global set without strict fact-bound domain/unit matching; the `kg/ha`/`Mg/ha` conversion omits the factor of 1,000. It may both accept incompatible evidence and reject valid derived values. Correct this shared Q&A matcher before increasing reliance on model prose.
+- **Prompt trust boundaries need hardening.** Raw user strings are wrapped in delimiters without escaping delimiter-closing content; farmer-controlled farm/field metadata can enter context labeled trusted. The model does not have tool execution, but prompt injection may still mislead generated text.
+- **LLM integration is single-provider and optional.** The bridge calls one provider SDK; no provider registry/fallback router, supported tool-calling executor, durable cost accounting, or current live-provider success was established.
+- **Latency/token controls are incomplete.** Backend and bridge deadlines differ, outstanding calls may continue after caller fallback, the daily input-token check omits output usage, and spend is not calculated from a rate schedule.
+- **Narrative cache keys/single-flight need work.** Cache fingerprints omit some generation inputs/model identity and production refreshes are not coalesced per key.
+- **No document RAG or learned predictive ML pipeline was found in the audited scope.** Curated structured agricultural knowledge, deterministic recommendations, statistical anomaly checks, and a deterministic golden-case evaluation suite do exist; none is a vector-indexed document system or trained predictive model.
+- Feedback is append-only and is not used for automatic retraining or rule changes. Agronomic calibration requires controlled evaluation and expert validation.
 
-## P1 AI Intelligence, Performance & Trust (known limits)
+## Frontend and product behavior
 
-- **Narrative locale is fixed at refresh time.** The LLM narrative is a
-  persisted artifact generated for the locale requested by THAT refresh
-  (`?locale=ar|en`); rows keep it until the next refresh. Switching the UI
-  locale does not retroactively translate existing narratives — press
-  "Regenerate" (or refresh with the new locale) to rewrite them. Rules-layer
-  text (titles/summaries/rationales) stays canonical English by design;
-  localization happens through narratives + UI labels.
-- **Evidence-quality components are heuristic, not calibrated.** A5 computes
-  completeness/recency/coverage/source-reliability/data-gap components with
-  documented bands; spatial resolution and cross-source agreement are
-  declared `null` until such metadata reaches the evidence pack. No
-  probability is manufactured anywhere.
-- **Numeric-consistency validation is screening-grade.** It uses explicit
-  tolerances (1.5% relative, ±0.15 z, ±1.0 percentage points) and a small
-  conversion table (mm/cm/m, °C/°F, %↔fraction, kg/ha↔Mg/ha). Derived values
-  the model legitimately computes from evidence (e.g. NIR minus effective
-  rain) can still be flagged; the consequence is one constrained
-  regeneration, then the deterministic fallback — never silent acceptance.
-- **Circuit breaker and narrative cache are in-process.** Same trade-off as
-  the rate limiter and job queue (single-process sandbox); multi-replica
-  deployments swap the store/coordinates behind the same interfaces.
-- **Streaming is intentionally not implemented** — citation validation and
-  numeric consistency need the complete response before rendering
-  (`mini-services/llm-bridge/README.md` documents the decision).
-- **The evaluation framework verifies generator RULES, not upstream engine
-  science.** Golden cases run the real generators over fixed synthetic
-  contexts (62 checks, deterministic, no network). LLM-narrative criteria are
-  heuristic; the optional bridge judge is supplementary and never decisive.
-- **Bridge auth is off by default** (loopback-only dev). Production must set
-  `BRIDGE_TOKEN` on the bridge and the same value in
-  `CROPTWIST_LLM_BRIDGE_TOKEN` on the backend — see
-  `mini-services/llm-bridge/README.md`.
-- **Advisor answers for fields without engine runs** are honest data-gap
-  reports (the model is constrained to the evidence pack, which lists only
-  gaps) — an answer like "I cannot determine X, data is missing" IS the
-  correct behavior, not a failure.
+- The nine-destination Next.js workspace, typed API clients, map/report/analytics surfaces, and English/Arabic locale plumbing exist in source. The full production backend/API/provider flow was not live-tested in this audit.
+- Several organization-scoped pages silently use the first organization rather than a shared explicit selection. Data Hub and map failures can appear as empty evidence; commercial JSON 401 retries are unbounded and binary downloads bypass the refresh path. Arabic RTL still has physical left/right styling and fatal loading/error fallbacks are not consistently localized.
+- Current frontend tests cover navigation and pure map/analytics helpers, not rendered route behavior, real API states, RTL visual behavior, keyboard journeys, or assistive technology. The frontend helper suite is now included in CI, but no hosted CI run was observed.
+- The map base is intentionally offline: it renders the graticule and field geometries with optional backend-derived raster overlays, not a road/terrain basemap. Do not imply imagery exists when no compatible backend asset resolves.
+
+## Deployment and external blockers
+
+- The root Compose configuration now uses the API's `CROPTWIST_` setting prefix and gates dependent services on API readiness. It remains a local/demo topology: published host ports, host-network Caddy on cleartext port 81, demo database defaults, local artifacts, and no managed secrets/TLS. The Compose file was statically reviewed but no container/service was started here.
+- Production requires managed PostgreSQL + PostGIS, secret management, TLS and fixed ingress, persistent tenant-safe storage, worker/job coordination, monitoring, backups/restore drills, and reviewed access controls. No production deployment was inspected or asserted.
+- External readiness remains unverified for NASA Earthdata/CDSE, current SoilGrids/Open-Meteo availability, production S3, the LLM provider, and any paid service. Real email delivery and real payment processing require implementation/provisioning.
+- The backend full integration suite and migration checks require an isolated PostgreSQL/PostGIS service. None was listening on localhost ports 5432 or 5433 in this sandbox; no database, migration, container, or live provider operation was started during the current task.

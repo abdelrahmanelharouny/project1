@@ -8,7 +8,7 @@
 #   and documented in docs/operations/CI_AND_TESTING.md).
 # frontend: dependency install (frozen lockfile), BLOCKING TypeScript check
 #   (next.config.ts sets typescript.ignoreBuildErrors: false since P0 — type
-#   errors fail the build too), ESLint, and a production `next build`.
+#   errors fail the build too), ESLint, frontend regression tests, and a production `next build`.
 #   `bunx tsc --noEmit` at the repo root validates ONLY the frontend src/
 #   project (tsconfig.json excludes mini-services/ and skills/).
 # bridge: strict TypeScript check for the LLM bridge package
@@ -115,7 +115,7 @@ jobs:
         run: python scripts/e2e_smoke.py
 
   frontend:
-    name: frontend (tsc + eslint + build) + bridge typecheck
+    name: frontend (tsc + eslint + tests + build) + bridge typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -143,6 +143,9 @@ jobs:
       # package.json defines "lint": "eslint ." — keep in sync if renamed.
       - name: Lint
         run: bun run lint
+
+      - name: Frontend regression tests
+        run: bun test tests/frontend
 
       # Production build (includes its own type check + page data collection).
       - name: Production build

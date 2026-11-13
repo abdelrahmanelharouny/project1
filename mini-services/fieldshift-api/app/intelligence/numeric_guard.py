@@ -39,7 +39,7 @@ SMALL_INT_IGNORE = 12    # bare integers <= this are enumeration, not data
 _NUMBER_RE = re.compile(
     r"(?<![\w.])(?P<sign>-)?"
     r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
-    r"\s*(?P<unit>kg/ha/yr|kg/ha|Mg/ha|mm/day|mm|cm|m3|m³|kg|Mg|ha|°C|°F|%|m\b|t\b)?"
+    r"\s*(?P<unit>kg/ha/yr|kg/ha|Mg/ha|mm/day|days?|years?|index|z\b|mm|cm|m3|m³|kg|Mg|ha|°C|°F|%|m\b|t\b)?"
     r"(?!\d)"
 )
 
@@ -83,31 +83,74 @@ def collect_reference_values(evidence: dict[str, Any]) -> list[NumericClaim]:
         refs.append(NumericClaim(value=v, unit=unit, context=context))
 
     for metric in ((evidence.get("climate") or {}).get("metrics") or []):
-        _add(metric.get("value"), metric.get("unit"), str(metric.get("code")))
+        _add(
+            metric.get("value"),
+            metric.get("unit"),
+            f"climate.{metric.get('code')}",
+        )
 
     water = evidence.get("water") or {}
     _add(water.get("nir_mm"), "mm", "water.nir_mm")
     _add(water.get("gir_mm"), "mm", "water.gir_mm")
     _add(water.get("water_allocation_m3"), "m3", "water.water_allocation_m3")
     first = water.get("first_deficit_window") or {}
-    _add(first.get("days"), None, "water.first_deficit_window.days")
+    _add(first.get("days"), "days", "water.first_deficit_window.days")
     _add(first.get("max_dr_mm"), "mm", "water.first_deficit_window.max_dr_mm")
     _add(first.get("deficit_m3"), "m3", "water.first_deficit_window.deficit_m3")
 
     soil = evidence.get("soil") or {}
+    assessment = soil.get("assessment") or {}
+    for domain in assessment.get("domains") or []:
+        for indicator in domain.get("indicators") or []:
+            _add(
+                indicator.get("value"),
+                indicator.get("unit"),
+                f"soil.indicator.{indicator.get('code')}",
+            )
     budget = soil.get("nutrient_budget") or {}
     for nutrient, value in (budget.get("cumulative_balance_kg_ha") or {}).items():
-        _add(value, "kg/ha", f"nutrient_balance[{nutrient}]")
+        _add(value, "kg/ha", f"soil.nutrient_balance[{nutrient}]")
     soc = soil.get("soc_stock") or {}
-    _add(soc.get("stock_Mg_C_ha"), "Mg/ha", "soc_stock")
+    _add(soc.get("stock_Mg_C_ha"), "Mg/ha", "soil.soc_stock")
 
     field_sec = evidence.get("field") or {}
     _add(field_sec.get("area_ha"), "ha", "field.area_ha")
 
     cover = (evidence.get("management") or {}).get("soil_cover") or {}
-    _add(cover.get("protective_cover_fraction"), None, "protective_cover_fraction")
-    _add(cover.get("days_protective_cover"), None, "days_protective_cover")
-    _add(cover.get("longest_bare_interval_days"), None, "longest_bare_interval_days")
+    _add(
+        cover.get("protective_cover_fraction"),
+        None,
+        "management.soil_cover.protective_cover_fraction",
+    )
+    _add(
+        cover.get("days_protective_cover"),
+        "days",
+        "management.soil_cover.days_protective_cover",
+    )
+    _add(
+        cover.get("longest_bare_interval_days"),
+        "days",
+        "management.soil_cover.longest_bare_interval_days",
+    )
+
+    vegetation = evidence.get("vegetation") or {}
+    latest = vegetation.get("latest_observation") or {}
+    _add(
+        latest.get("value"),
+        latest.get("unit"),
+        "vegetation.latest_observation.value",
+    )
+    comparison = vegetation.get("baseline_comparison") or {}
+    _add(
+        comparison.get("delta_vs_baseline_mean"),
+        "index",
+        "vegetation.baseline_comparison.delta_vs_baseline_mean",
+    )
+    _add(
+        comparison.get("z_score_vs_baseline"),
+        "z",
+        "vegetation.baseline_comparison.z_score_vs_baseline",
+    )
 
     return refs
 
@@ -186,6 +229,74 @@ def _is_boilerplate(claim: NumericClaim) -> bool:
     if claim.unit is None and 2000 <= claim.value <= 2100 and claim.value == int(claim.value):
         return True
     return False
+
+
+_SECTION_CONTEXT_PREFIXES: dict[str, tuple[str, ...]] = {
+    "field": ("field.",),
+    "climate": ("climate.",),
+    "water": ("water.",),
+    "soil": ("soil.",),
+    "management": ("management.",),
+    "vegetation": ("vegetation.",),
+}
+
+
+def _same_unit_matches(value: float, unit: str | None, refs: list[NumericClaim]) -> bool:
+    aliases = {"m³": "m3", "degC": "°C", "degF": "°F"}
+    normalized_unit = aliases.get(unit, unit)
+    for ref in refs:
+        if aliases.get(ref.unit, ref.unit) != normalized_unit:
+            continue
+        if _close(value, ref.value, normalized_unit):
+            return True
+    return False
+
+
+def _references_for_section(
+    evidence: dict[str, Any], label: str
+) -> list[NumericClaim]:
+    prefixes = _SECTION_CONTEXT_PREFIXES.get(label, ())
+    if not prefixes:
+        return []
+    return [
+        ref
+        for ref in collect_reference_values(evidence)
+        if ref.context.startswith(prefixes)
+    ]
+
+
+def validate_numbers_for_citations(
+    answer: str, evidence: dict[str, Any]
+) -> NumericReport:
+    """Require each measurement to match same-unit facts in its cited section.
+
+    Unlike `validate_numbers`, this conservative field-brief check performs no
+    cross-section matching and no unit conversion. Every numeric claim must
+    have exactly one distinct inline evidence label in its sentence.
+    """
+    report = NumericReport()
+    inline_citation = re.compile(r"\[evidence:\s*([A-Za-z0-9_.:-]+)\]", re.IGNORECASE)
+    for claim in extract_claims(answer):
+        if _is_boilerplate(claim):
+            report.ignored.append(claim)
+            continue
+        labels = set(inline_citation.findall(claim.context))
+        if len(labels) != 1:
+            report.unsupported.append(claim)
+            continue
+        label = next(iter(labels))
+        refs = _references_for_section(evidence, label)
+        if _same_unit_matches(claim.value, claim.unit, refs):
+            report.supported.append(claim)
+        else:
+            report.unsupported.append(claim)
+            logger.warning(
+                "cited numeric claim not grounded in compatible evidence: value=%s unit=%s label=%s ctx=%s",
+                claim.value, claim.unit, label, claim.context,
+            )
+    if report.material_mismatch:
+        metrics.incr_validation_failure("cited_numeric_consistency")
+    return report
 
 
 def validate_numbers(

@@ -302,7 +302,7 @@ def test_all_report_type_registry_keys_have_titles() -> None:
     expected = {
         "farm_performance", "field_analysis", "soil_health", "water", "rotation",
         "seasonal", "environmental_risk", "recommendations", "org_executive",
-        "custom_range",
+        "custom_range", "field_intelligence", "satellite_vegetation", "spatial_anomalies",
     }
     assert set(contracts.REPORT_TYPES) == expected
     for key, spec in contracts.REPORT_TYPES.items():
