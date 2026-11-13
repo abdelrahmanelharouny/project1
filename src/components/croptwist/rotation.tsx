@@ -843,7 +843,7 @@ export function Rotation() {
   const tCommon = useTranslations('common')
   const selectedField = useCropTwistUi((s) => s.selectedField)
   const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
-  const goToObservationsFor = useCropTwistUi((s) => s.goToObservationsFor)
+  const goToFarms = useCropTwistUi((s) => s.setActiveTab)
   const [seasons, setSeasons] = useState<SeasonWindow[]>([
     { label: 'summer_2026', start: '2026-05-01', end: '2026-09-15' },
   ])
@@ -864,7 +864,7 @@ export function Rotation() {
                 value={null}
                 onValueChange={setSelectedField}
                 emptyHint={
-                  <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
+                  <Button variant="outline" size="sm" onClick={() => goToFarms('farms')}>
                     {tCommon('createFarmField')}
                   </Button>
                 }
@@ -874,7 +874,6 @@ export function Rotation() {
         </Card>
       ) : (
         <>
-          <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">{t('seasonsTitle')}</CardTitle>

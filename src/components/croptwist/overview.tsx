@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { FlaskConical, Map, Plus, RefreshCw, Ruler, Sprout, Tractor } from 'lucide-react'
+import { FlaskConical, Map, Plus, Ruler, Sprout, Tractor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,6 +10,7 @@ import { useFields, useFarms, useHealthReady } from '@/hooks/use-croptwist'
 import { ClimateOverview } from '@/components/croptwist/charts/climate-overview'
 import { DataCoverage } from '@/components/croptwist/charts/data-coverage'
 import { FarmMap } from '@/components/croptwist/farm-map'
+import { ErrorState } from '@/components/croptwist/state-views'
 import { formatArea } from '@/lib/format'
 import { useCropTwistUi } from '@/lib/store'
 
@@ -57,10 +58,31 @@ export function Overview() {
   const locale = useLocale()
   const farmsQuery = useFarms()
   const farms = farmsQuery.data?.items ?? []
-  const firstFarm = farms[0] ?? null
-  const fieldsQuery = useFields(firstFarm?.id ?? null, Boolean(firstFarm))
-  const firstField = fieldsQuery.data?.items[0] ?? null
   const healthReady = useHealthReady()
+
+  // W0.1 (audit P4): the Overview previously bound to `farms[0]`, ignoring
+  // the user's actual selection. The active farm/field context now follows
+  // the store — which carries deep-link context (?farm=&field=), the header
+  // context bar, and cross-tab navigation — and only falls back to the first
+  // farm when nothing is selected yet.
+  const selectedFarmId = useCropTwistUi((s) => s.selectedFarmId)
+  const selectedField = useCropTwistUi((s) => s.selectedField)
+
+  const storeFarm =
+    (selectedFarmId ? farms.find((f) => f.id === selectedFarmId) : null) ??
+    (selectedField ? farms.find((f) => f.id === selectedField.farmId) : null) ??
+    null
+  const activeFarm = storeFarm ?? farms[0] ?? null
+  const fieldsQuery = useFields(activeFarm?.id ?? null, Boolean(activeFarm))
+  // Normalized field shape: the store's SelectedField uses farmId, API Field
+  // uses farm_id — Overview consumes both (deep-link selection may arrive
+  // before the fields list loads).
+  const activeField: { id: string; name: string; farm_id: string } | null =
+    selectedField && (activeFarm ? selectedField.farmId === activeFarm.id : false)
+      ? { id: selectedField.id, name: selectedField.name, farm_id: selectedField.farmId }
+      : fieldsQuery.data?.items.find((f) => f.id === selectedField?.id) ??
+        fieldsQuery.data?.items[0] ??
+        null
 
   const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
   const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
@@ -81,23 +103,17 @@ export function Overview() {
   const empty = !loading && farms.length === 0
 
   return (
-    <div className="space-y-6" aria-label="Overview">
+    <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-stone-900">{t('title')}</h2>
         <p className="text-sm text-stone-500">{t('subtitle')}</p>
       </div>
 
       {farmsQuery.isError ? (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-red-900">
-              {t('loadError')} {farmsQuery.error instanceof Error ? farmsQuery.error.message : ''}
-            </p>
-            <Button variant="outline" size="sm" onClick={() => farmsQuery.refetch()}>
-              <RefreshCw className="h-4 w-4" aria-hidden /> {t('quickActions')}
-            </Button>
-          </CardContent>
-        </Card>
+        <ErrorState
+          message={`${t('loadError')} ${farmsQuery.error instanceof Error ? farmsQuery.error.message : ''}`}
+          onRetry={() => farmsQuery.refetch()}
+        />
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -144,10 +160,10 @@ export function Overview() {
         </Card>
       </div>
 
-      {!empty && firstField ? (
+      {!empty && activeField ? (
         <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
-          <ClimateOverview fieldId={firstField.id} />
-          <DataCoverage fieldId={firstField.id} />
+          <ClimateOverview fieldId={activeField.id} />
+          <DataCoverage fieldId={activeField.id} />
         </div>
       ) : null}
 
@@ -177,10 +193,10 @@ export function Overview() {
         </Card>
       ) : null}
 
-      {!empty && firstFarm ? (
+      {!empty && activeFarm ? (
         <Card className="border-stone-200 bg-white shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">{tMap('farmMapTitle')} — {firstFarm.name}</CardTitle>
+            <CardTitle className="text-base">{tMap('farmMapTitle')} — {activeFarm.name}</CardTitle>
             <CardDescription>
               {tMap('farmMapDesc')} {tMap('clickHint')}
             </CardDescription>
@@ -209,15 +225,15 @@ export function Overview() {
               <Button
                 variant="outline"
                 className="max-w-full whitespace-normal border-stone-300 text-left"
-                disabled={!firstField}
+                disabled={!activeField}
                 onClick={() => {
-                  if (firstField) {
-                    goToPassportFor({ id: firstField.id, name: firstField.name, farmId: firstField.farm_id })
+                  if (activeField) {
+                    goToPassportFor({ id: activeField.id, name: activeField.name, farmId: activeField.farm_id })
                   }
                 }}
               >
                 <FlaskConical className="h-4 w-4" aria-hidden />
-                {firstField ? t('passportOf', { name: firstField.name }) : t('passportNeedField')}
+                {activeField ? t('passportOf', { name: activeField.name }) : t('passportNeedField')}
               </Button>
               <Button variant="outline" className="border-stone-300" onClick={() => setActiveTab('observations')}>
                 {t('ingestObservations')}

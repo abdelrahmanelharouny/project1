@@ -1,0 +1,878 @@
+     1→'use client'
+     2→
+     3→import { useMemo } from 'react'
+     4→import { useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+     5→import {
+     6→  compareFeatureRuns,
+     7→  createFieldState,
+     8→  fetchDataCoverage,
+     9→  getCatalog,
+    10→  getDataPassport,
+    11→  getFeatureCatalog,
+    12→  getFieldMap,
+    13→  getFieldState,
+    14→  getHealth,
+    15→  getHealthReady,
+    16→  getProvidersHealth,
+    17→  getWaterMethods,
+    18→  getWaterPlan,
+    19→  getWaterReadiness,
+    20→  listBoundaryVersions,
+    21→  listFeatureRuns,
+    22→  listFeatureValues,
+    23→  listFieldStates,
+    24→  listFields,
+    25→  listObservations,
+    26→  listFarms,
+    27→  listWaterPlans,
+    28→  verifyFieldState,
+    29→  getScenarioCapabilities,
+    30→  getScenarioTypes,
+    31→  listScenarios,
+    32→} from '@/lib/api'
+    33→import type {
+    34→  BoundaryVersionListResponse,
+    35→  CatalogResponse,
+    36→  CropHistoryListResponse,
+    37→  DataCoverageResponse,
+    38→  DataPassport,
+    39→  Farm,
+    40→  FeatureCatalogResponse,
+    41→  FeatureRunComparison,
+    42→  FeatureRunListResponse,
+    43→  FieldState,
+    44→  FieldStateListResponse,
+    45→  FieldStateVerifyResponse,
+    46→  FeatureValueListResponse,
+    47→  Field,
+    48→  FieldListResponse,
+    49→  FarmListResponse,
+    50→  FieldMapResponse,
+    51→  HealthReadyResponse,
+    52→  HealthResponse,
+    53→  KnowledgeCropListResponse,
+    54→  KnowledgePackListResponse,
+    55→  KnowledgePackSourcesResponse,
+    56→  ObservationListResponse,
+    57→  ProvidersHealthResponse,
+    58→  RotationComparisonResponse,
+    59→  RotationRun,
+    60→  RotationRunListResponse,
+    61→  RotationRulesResponse,
+    62→  WaterMethodsResponse,
+    63→  WaterPlan,
+    64→  ScenarioListResponse,
+    65→  ScenarioTaxonomy,
+    66→  ScenarioCapabilities,
+    67→  WaterPlanListResponse,
+    68→  WaterReadinessResponse,
+    69→} from '@/lib/types'
+    70→
+    71→/**
+    72→ * Server-state hooks. Every hook relies on the bearer token being present in
+    73→ * localStorage (attached by the fetch wrapper) — components only enable them
+    74→ * once the user is authenticated.
+    75→ */
+    76→
+    77→export function useHealth(): UseQueryResult<HealthResponse> {
+    78→  return useQuery({
+    79→    queryKey: ['health'],
+    80→    queryFn: getHealth,
+    81→    staleTime: 60_000,
+    82→    retry: 1,
+    83→  })
+    84→}
+    85→
+    86→export function useHealthReady(): UseQueryResult<HealthReadyResponse> {
+    87→  return useQuery({
+    88→    queryKey: ['health-ready'],
+    89→    queryFn: getHealthReady,
+    90→    staleTime: 60_000,
+    91→    retry: 1,
+    92→  })
+    93→}
+    94→
+    95→export function useFarms(enabled = true): UseQueryResult<FarmListResponse> {
+    96→  return useQuery({
+    97→    queryKey: ['farms'],
+    98→    queryFn: listFarms,
+    99→    enabled,
+   100→    staleTime: 15_000,
+   101→  })
+   102→}
+   103→
+   104→export function useFields(farmId: string | null, enabled = true): UseQueryResult<FieldListResponse> {
+   105→  return useQuery({
+   106→    queryKey: ['fields', farmId],
+   107→    queryFn: () => listFields(farmId as string),
+   108→    enabled: enabled && Boolean(farmId),
+   109→    staleTime: 15_000,
+   110→  })
+   111→}
+   112→
+   113→export interface FarmWithFields {
+   114→  farm: Farm
+   115→  fields: Field[]
+   116→  fieldsQuery: UseQueryResult<FieldListResponse>
+   117→}
+   118→
+   119→/**
+   120→ * Farms with their fields flattened via parallel queries — small workspaces,
+   121→ * so this stays cheap. Exposed so tabs that need a global field picker
+   122→ * (Observations / Data Passport) can render one list.
+   123→ */
+   124→export function useFarmsWithFields(enabled = true): {
+   125→  farms: FarmWithFields[]
+   126→  allFields: Field[]
+   127→  isLoading: boolean
+   128→  hasError: boolean
+   129→} {
+   130→  const farmsQuery = useFarms(enabled)
+   131→  const farms = useMemo(() => farmsQuery.data?.items ?? [], [farmsQuery.data])
+   132→
+   133→  const fieldQueries = useQueries({
+   134→    queries: farms.map((farm) => ({
+   135→      queryKey: ['fields', farm.id],
+   136→      queryFn: () => listFields(farm.id),
+   137→      enabled,
+   138→      staleTime: 15_000,
+   139→    })),
+   140→  })
+   141→
+   142→  const farmsWithFields = useMemo<FarmWithFields[]>(() => {
+   143→    return farms.map((farm, index) => ({
+   144→      farm,
+   145→      fields: fieldQueries[index]?.data?.items ?? [],
+   146→      fieldsQuery: fieldQueries[index],
+   147→    }))
+   148→  }, [farms, fieldQueries])
+   149→
+   150→  const allFields = useMemo(() => farmsWithFields.flatMap((entry) => entry.fields), [farmsWithFields])
+   151→  const isLoading = farmsQuery.isLoading || fieldQueries.some((q) => q.isLoading)
+   152→  const hasError = farmsQuery.isError || fieldQueries.some((q) => q.isError)
+   153→
+   154→  return { farms: farmsWithFields, allFields, isLoading, hasError }
+   155→}
+   156→
+   157→export function useFieldMap(fieldId: string | null): UseQueryResult<FieldMapResponse> {
+   158→  return useQuery({
+   159→    queryKey: ['field-map', fieldId],
+   160→    queryFn: () => getFieldMap(fieldId as string),
+   161→    enabled: Boolean(fieldId),
+   162→    staleTime: 60_000,
+   163→  })
+   164→}
+   165→
+   166→export function useBoundaryVersions(fieldId: string | null): UseQueryResult<BoundaryVersionListResponse> {
+   167→  return useQuery({
+   168→    queryKey: ['boundary-versions', fieldId],
+   169→    queryFn: () => listBoundaryVersions(fieldId as string),
+   170→    enabled: Boolean(fieldId),
+   171→    staleTime: 60_000,
+   172→  })
+   173→}
+   174→
+   175→export function useCatalog(enabled = true): UseQueryResult<CatalogResponse> {
+   176→  return useQuery({
+   177→    queryKey: ['catalog'],
+   178→    queryFn: getCatalog,
+   179→    enabled,
+   180→    staleTime: 10 * 60_000,
+   181→  })
+   182→}
+   183→
+   184→export function useObservations(
+   185→  fieldId: string | null,
+   186→  start: string,
+   187→  end: string,
+   188→  enabled = true,
+   189→): UseQueryResult<ObservationListResponse> {
+   190→  return useQuery({
+   191→    queryKey: ['observations', fieldId, start, end],
+   192→    queryFn: () => listObservations(fieldId as string, { start, end, limit: 5000 }),
+   193→    enabled: enabled && Boolean(fieldId) && Boolean(start) && Boolean(end),
+   194→    staleTime: 60_000,
+   195→  })
+   196→}
+   197→
+   198→export function useDataPassport(fieldId: string | null): UseQueryResult<DataPassport> {
+   199→  return useQuery({
+   200→    queryKey: ['data-passport', fieldId],
+   201→    queryFn: () => getDataPassport(fieldId as string),
+   202→    enabled: Boolean(fieldId),
+   203→  })
+   204→}
+   205→
+   206→export function useProvidersHealth(enabled = true): UseQueryResult<ProvidersHealthResponse> {
+   207→  return useQuery({
+   208→    queryKey: ['providers-health'],
+   209→    queryFn: getProvidersHealth,
+   210→    enabled,
+   211→    staleTime: 60_000,
+   212→  })
+   213→}
+   214→
+   215→export function useDataCoverage(fieldId: string | null, enabled = true): UseQueryResult<DataCoverageResponse> {
+   216→  return useQuery({
+   217→    queryKey: ['data-coverage', fieldId],
+   218→    queryFn: () => fetchDataCoverage(fieldId as string),
+   219→    enabled: enabled && Boolean(fieldId),
+   220→    staleTime: 30_000,
+   221→  })
+   222→}
+   223→
+   224→// --- feature engineering (Milestone 4) -------------------------------------
+   225→
+   226→export function useFeatureCatalog(enabled = true): UseQueryResult<FeatureCatalogResponse> {
+   227→  return useQuery({
+   228→    queryKey: ['feature-catalog'],
+   229→    queryFn: getFeatureCatalog,
+   230→    enabled,
+   231→    staleTime: 5 * 60_000,
+   232→  })
+   233→}
+   234→
+   235→export function useFeatureRuns(fieldId: string | null, enabled = true): UseQueryResult<FeatureRunListResponse> {
+   236→  return useQuery({
+   237→    queryKey: ['feature-runs', fieldId],
+   238→    queryFn: () => listFeatureRuns(fieldId as string),
+   239→    enabled: enabled && Boolean(fieldId),
+   240→    staleTime: 5_000,
+   241→  })
+   242→}
+   243→
+   244→export function useFeatureValues(
+   245→  runId: string | null,
+   246→  query: { aggregationLevel?: string; qualityStatus?: string },
+   247→  enabled = true,
+   248→): UseQueryResult<FeatureValueListResponse> {
+   249→  return useQuery({
+   250→    queryKey: ['feature-values', runId, query.aggregationLevel ?? '', query.qualityStatus ?? ''],
+   251→    queryFn: () =>
+   252→      listFeatureValues(runId as string, {
+   253→        aggregationLevel: query.aggregationLevel,
+   254→        qualityStatus: query.qualityStatus,
+   255→        limit: 500,
+   256→      }),
+   257→    enabled: enabled && Boolean(runId),
+   258→    staleTime: 30_000,
+   259→  })
+   260→}
+   261→
+   262→export function useFeatureComparison(
+   263→  runId: string | null,
+   264→  againstRunId: string | null,
+   265→  enabled = true,
+   266→): UseQueryResult<FeatureRunComparison> {
+   267→  return useQuery({
+   268→    queryKey: ['feature-comparison', runId, againstRunId],
+   269→    queryFn: () => compareFeatureRuns(runId as string, againstRunId as string),
+   270→    enabled: enabled && Boolean(runId) && Boolean(againstRunId) && runId !== againstRunId,
+   271→    staleTime: 30_000,
+   272→  })
+   273→}
+   274→
+   275→// =============================================================
+   276→// Milestone 5 — knowledge base & rotation intelligence
+   277→// =============================================================
+   278→
+   279→import {
+   280→  getKnowledgeCrops,
+   281→  getKnowledgePackSources,
+   282→  getKnowledgePacks,
+   283→  getRotationComparison,
+   284→  getRotationRules,
+   285→  getRotationRun,
+   286→  listCropHistory,
+   287→  listRotationRuns,
+   288→} from '@/lib/api'
+   289→
+   290→export function useKnowledgePacks(enabled = true): UseQueryResult<KnowledgePackListResponse> {
+   291→  return useQuery({
+   292→    queryKey: ['knowledge-packs'],
+   293→    queryFn: getKnowledgePacks,
+   294→    enabled,
+   295→  })
+   296→}
+   297→
+   298→export function useKnowledgePackSources(packId: string | null): UseQueryResult<KnowledgePackSourcesResponse> {
+   299→  return useQuery({
+   300→    queryKey: ['knowledge-pack-sources', packId],
+   301→    queryFn: () => getKnowledgePackSources(packId as string),
+   302→    enabled: !!packId,
+   303→  })
+   304→}
+   305→
+   306→export function useKnowledgeCrops(enabled = true): UseQueryResult<KnowledgeCropListResponse> {
+   307→  return useQuery({
+   308→    queryKey: ['knowledge-crops'],
+   309→    queryFn: getKnowledgeCrops,
+   310→    enabled,
+   311→  })
+   312→}
+   313→
+   314→export function useRotationRules(enabled = true): UseQueryResult<RotationRulesResponse> {
+   315→  return useQuery({
+   316→    queryKey: ['rotation-rules'],
+   317→    queryFn: getRotationRules,
+   318→    enabled,
+   319→  })
+   320→}
+   321→
+   322→export function useCropHistory(fieldId: string | null): UseQueryResult<CropHistoryListResponse> {
+   323→  return useQuery({
+   324→    queryKey: ['crop-history', fieldId],
+   325→    queryFn: () => listCropHistory(fieldId as string),
+   326→    enabled: !!fieldId,
+   327→  })
+   328→}
+   329→
+   330→export function useRotationRuns(fieldId: string | null): UseQueryResult<RotationRunListResponse> {
+   331→  return useQuery({
+   332→    queryKey: ['rotation-runs', fieldId],
+   333→    queryFn: () => listRotationRuns(fieldId as string),
+   334→    enabled: !!fieldId,
+   335→  })
+   336→}
+   337→
+   338→export function useRotationRun(runId: string | null): UseQueryResult<RotationRun> {
+   339→  return useQuery({
+   340→    queryKey: ['rotation-run', runId],
+   341→    queryFn: () => getRotationRun(runId as string),
+   342→    enabled: !!runId,
+   343→  })
+   344→}
+   345→
+   346→export function useRotationComparison(runId: string | null): UseQueryResult<RotationComparisonResponse> {
+   347→  return useQuery({
+   348→    queryKey: ['rotation-comparison', runId],
+   349→    queryFn: () => getRotationComparison(runId as string),
+   350→    enabled: !!runId,
+   351→  })
+   352→}
+   353→
+   354→// Milestone 6A — water intelligence
+   355→export function useWaterMethods(enabled = true): UseQueryResult<WaterMethodsResponse> {
+   356→  return useQuery({
+   357→    queryKey: ['water-methods'],
+   358→    queryFn: getWaterMethods,
+   359→    enabled,
+   360→    staleTime: 5 * 60 * 1000,
+   361→  })
+   362→}
+   363→
+   364→export function useWaterReadiness(fieldId: string | null): UseQueryResult<WaterReadinessResponse> {
+   365→  return useQuery({
+   366→    queryKey: ['water-readiness', fieldId],
+   367→    queryFn: () => getWaterReadiness(fieldId as string),
+   368→    enabled: !!fieldId,
+   369→  })
+   370→}
+   371→
+   372→export function useWaterPlans(fieldId: string | null): UseQueryResult<WaterPlanListResponse> {
+   373→  return useQuery({
+   374→    queryKey: ['water-plans', fieldId],
+   375→    queryFn: () => listWaterPlans(fieldId as string),
+   376→    enabled: !!fieldId,
+   377→  })
+   378→}
+   379→
+   380→export function useWaterPlan(planId: string | null): UseQueryResult<WaterPlan> {
+   381→  return useQuery({
+   382→    queryKey: ['water-plan', planId],
+   383→    queryFn: () => getWaterPlan(planId as string),
+   384→    enabled: !!planId,
+   385→  })
+   386→}
+   387→
+   388→// =============================================================
+   389→// Milestone 7.1 — field state foundation
+   390→// =============================================================
+   391→
+   392→export function useFieldStates(fieldId: string | null): UseQueryResult<FieldStateListResponse> {
+   393→  return useQuery({
+   394→    queryKey: ['field-states', fieldId],
+   395→    queryFn: () => listFieldStates(fieldId as string),
+   396→    enabled: !!fieldId,
+   397→  })
+   398→}
+   399→
+   400→export function useFieldState(stateId: string | null): UseQueryResult<FieldState> {
+   401→  return useQuery({
+   402→    queryKey: ['field-state', stateId],
+   403→    queryFn: () => getFieldState(stateId as string),
+   404→    enabled: !!stateId,
+   405→  })
+   406→}
+   407→
+   408→export function useFieldStateVerify(stateId: string | null, enabled: boolean) {
+   409→  return useQuery({
+   410→    queryKey: ['field-state-verify', stateId],
+   411→    queryFn: () => verifyFieldState(stateId as string),
+   412→    enabled: !!stateId && enabled,
+   413→  })
+   414→}
+   415→
+   416→// ---------------------------------------------------------------------------
+   417→// Scenarios (M7.2)
+   418→// ---------------------------------------------------------------------------
+   419→
+   420→export function useScenarios(fieldId: string | null): UseQueryResult<ScenarioListResponse> {
+   421→  return useQuery({
+   422→    queryKey: ['scenarios', fieldId],
+   423→    queryFn: () => listScenarios(fieldId as string),
+   424→    enabled: !!fieldId,
+   425→  })
+   426→}
+   427→
+   428→export function useScenarioTypes(): UseQueryResult<ScenarioTaxonomy> {
+   429→  return useQuery({
+   430→    queryKey: ['scenario-types'],
+   431→    queryFn: getScenarioTypes,
+   432→    staleTime: 5 * 60 * 1000,
+   433→  })
+   434→}
+   435→
+   436→export function useScenarioCapabilities(): UseQueryResult<ScenarioCapabilities> {
+   437→  return useQuery({
+   438→    queryKey: ['scenario-capabilities'],
+   439→    queryFn: getScenarioCapabilities,
+   440→    staleTime: 5 * 60 * 1000,
+   441→  })
+   442→}
+   443→
+   444→// =============================================================
+   445→// Milestone 6B — soil intelligence
+   446→// =============================================================
+   447→
+   448→import {
+   449→  getSoilDataReadiness,
+   450→  getSoilHealth,
+   451→  getSoilIndicators,
+   452→  getSoilMethods,
+   453→  getSoilProfile,
+   454→  listSocRuns,
+   455→} from '@/lib/api'
+   456→import type {
+   457→  SoilDataReadinessResponse,
+   458→  SoilHealthResponse,
+   459→  SoilIndicatorsResponse,
+   460→  SoilMethodsResponse,
+   461→  SoilProfileResponse,
+   462→  SocStockRunListResponse,
+   463→} from '@/lib/types'
+   464→
+   465→export function useSoilProfile(fieldId: string | null): UseQueryResult<SoilProfileResponse> {
+   466→  return useQuery({
+   467→    queryKey: ['soil-profile', fieldId],
+   468→    queryFn: () => getSoilProfile(fieldId as string),
+   469→    enabled: !!fieldId,
+   470→    staleTime: 30_000,
+   471→  })
+   472→}
+   473→
+   474→export function useSoilIndicators(fieldId: string | null): UseQueryResult<SoilIndicatorsResponse> {
+   475→  return useQuery({
+   476→    queryKey: ['soil-indicators', fieldId],
+   477→    queryFn: () => getSoilIndicators(fieldId as string),
+   478→    enabled: !!fieldId,
+   479→    staleTime: 30_000,
+   480→  })
+   481→}
+   482→
+   483→export function useSoilHealth(fieldId: string | null): UseQueryResult<SoilHealthResponse> {
+   484→  return useQuery({
+   485→    queryKey: ['soil-health', fieldId],
+   486→    queryFn: () => getSoilHealth(fieldId as string),
+   487→    enabled: !!fieldId,
+   488→    staleTime: 30_000,
+   489→  })
+   490→}
+   491→
+   492→export function useSoilDataReadiness(fieldId: string | null): UseQueryResult<SoilDataReadinessResponse> {
+   493→  return useQuery({
+   494→    queryKey: ['soil-data-readiness', fieldId],
+   495→    queryFn: () => getSoilDataReadiness(fieldId as string),
+   496→    enabled: !!fieldId,
+   497→    staleTime: 60_000,
+   498→  })
+   499→}
+   500→
+   501→export function useSocRuns(fieldId: string | null): UseQueryResult<SocStockRunListResponse> {
+   502→  return useQuery({
+   503→    queryKey: ['soc-runs', fieldId],
+   504→    queryFn: () => listSocRuns(fieldId as string),
+   505→    enabled: !!fieldId,
+   506→    staleTime: 15_000,
+   507→  })
+   508→}
+   509→
+   510→export function useSoilMethods(): UseQueryResult<SoilMethodsResponse> {
+   511→  return useQuery({
+   512→    queryKey: ['soil-methods'],
+   513→    queryFn: getSoilMethods,
+   514→    staleTime: 10 * 60 * 1000,
+   515→  })
+   516→}
+   517→
+   518→// =============================================================
+   519→// Milestone 8 — AI insights: recommendations, field brief, advisor
+   520→// P1: locale-aware (A10), cache-aware (A3), sessions (A8), feedback (A12)
+   521→// =============================================================
+   522→
+   523→import {
+   524→  getAdvisorHistory,
+   525→  getFieldInsights,
+   526→  getRecommendations,
+   527→  queryAdvisor,
+   528→  recordRecommendationFeedback,
+   529→  refreshRecommendations,
+   530→} from '@/lib/api'
+   531→import type {
+   532→  AdvisorHistoryResponse,
+   533→  FeedbackState,
+   534→  FieldInsightsResponse,
+   535→  RecommendationsResponse,
+   536→} from '@/lib/types'
+   537→import { useLocale } from 'next-intl'
+   538→import type { AiLocale } from '@/lib/api'
+   539→
+   540→function toAiLocale(locale: string): AiLocale {
+   541→  return locale === 'ar' ? 'ar' : 'en'
+   542→}
+   543→
+   544→/** Stored domain recommendations (rules + LLM narrative). */
+   545→export function useFieldRecommendations(
+   546→  fieldId: string | null,
+   547→): UseQueryResult<RecommendationsResponse> {
+   548→  const locale = useLocale()
+   549→  return useQuery({
+   550→    queryKey: ['recommendations', fieldId, locale],
+   551→    queryFn: () => getRecommendations(fieldId as string, false, { locale: toAiLocale(locale) }),
+   552→    enabled: !!fieldId,
+   553→    staleTime: 60_000,
+   554→  })
+   555→}
+   556→
+   557→/** Regenerate recommendations through the AI pipeline; syncs insights too. */
+   558→export function useRefreshRecommendations(fieldId: string | null) {
+   559→  const queryClient = useQueryClient()
+   560→  const locale = useLocale()
+   561→  return useMutation({
+   562→    mutationFn: (options: { force?: boolean } = {}) =>
+   563→      refreshRecommendations(fieldId as string, {
+   564→        force: options.force,
+   565→        locale: toAiLocale(locale),
+   566→      }),
+   567→    onSuccess: () => {
+   568→      queryClient.invalidateQueries({ queryKey: ['recommendations'] })
+   569→      queryClient.invalidateQueries({ queryKey: ['field-insights'] })
+   570→    },
+   571→  })
+   572→}
+   573→
+   574→/** Anomaly/trend insights plus the short AI field brief. */
+   575→export function useFieldInsights(fieldId: string | null): UseQueryResult<FieldInsightsResponse> {
+   576→  const locale = useLocale()
+   577→  return useQuery({
+   578→    queryKey: ['field-insights', fieldId, locale],
+   579→    queryFn: () => getFieldInsights(fieldId as string, toAiLocale(locale)),
+   580→    enabled: !!fieldId,
+   581→    staleTime: 60_000,
+   582→  })
+   583→}
+   584→
+   585→/** Recent advisor conversation for the field (user/assistant pairs). */
+   586→export function useAdvisorHistory(
+   587→  fieldId: string | null,
+   588→  limit = 20,
+   589→  sessionId?: string | null,
+   590→): UseQueryResult<AdvisorHistoryResponse> {
+   591→  return useQuery({
+   592→    queryKey: ['advisor-history', fieldId, limit, sessionId ?? null],
+   593→    queryFn: () => getAdvisorHistory(fieldId as string, limit, sessionId),
+   594→    enabled: !!fieldId,
+   595→  })
+   596→}
+   597→
+   598→/** Ask the AI agronomist; the answer is persisted server-side into history. */
+   599→export function useAdvisorQuery(fieldId: string | null) {
+   600→  const queryClient = useQueryClient()
+   601→  const locale = useLocale()
+   602→  return useMutation({
+   603→    mutationFn: (input: { question: string; sessionId: string | null }) =>
+   604→      queryAdvisor(fieldId as string, input.question, {
+   605→        sessionId: input.sessionId,
+   606→        locale: toAiLocale(locale),
+   607→      }),
+   608→    onSuccess: () => {
+   609→      queryClient.invalidateQueries({ queryKey: ['advisor-history'] })
+   610→    },
+   611→  })
+   612→}
+   613→
+   614→/** A12: record one feedback transition; refreshes the recommendations view. */
+   615→export function useRecommendationFeedback(fieldId: string | null) {
+   616→  const queryClient = useQueryClient()
+   617→  return useMutation({
+   618→    mutationFn: (input: { recommendationId: string; state: FeedbackState; reason?: string }) =>
+   619→      recordRecommendationFeedback(input.recommendationId, input.state, input.reason),
+   620→    onSuccess: () => {
+   621→      queryClient.invalidateQueries({ queryKey: ['recommendations', fieldId] })
+   622→    },
+   623→  })
+   624→}
+   625→
+   626→// -------------------------------------------------------------
+   627→// P2 hooks (satellite, climate, soil memory, failure lab, evidence, portfolio)
+   628→// -------------------------------------------------------------
+   629→
+   630→export function useVegetationSummary(fieldId: string | null, index = 'ndvi') {
+   631→  return useQuery({
+   632→    queryKey: ['vegetation-summary', fieldId, index],
+   633→    queryFn: () => getVegetationSummary(fieldId!, index),
+   634→    enabled: !!fieldId,
+   635→    staleTime: 30_000,
+   636→  })
+   637→}
+   638→
+   639→export function useVegetationScenes(fieldId: string | null) {
+   640→  return useQuery({
+   641→    queryKey: ['vegetation-scenes', fieldId],
+   642→    queryFn: () => getVegetationScenes(fieldId!),
+   643→    enabled: !!fieldId,
+   644→    staleTime: 30_000,
+   645→  })
+   646→}
+   647→
+   648→export function useClimateCapabilities() {
+   649→  return useQuery({
+   650→    queryKey: ['climate-capabilities'],
+   651→    queryFn: getClimateCapabilities,
+   652→    staleTime: 5 * 60_000,
+   653→  })
+   654→}
+   655→
+   656→export function useForecastWindow(fieldId: string | null, variableCode: string) {
+   657→  return useQuery({
+   658→    queryKey: ['forecast-window', fieldId, variableCode],
+   659→    queryFn: () => getForecastWindow(fieldId!, variableCode),
+   660→    enabled: !!fieldId,
+   661→    staleTime: 30_000,
+   662→  })
+   663→}
+   664→
+   665→export function useForecastRisks(fieldId: string | null) {
+   666→  return useQuery({
+   667→    queryKey: ['forecast-risks', fieldId],
+   668→    queryFn: () => getForecastRisks(fieldId!),
+   669→    enabled: !!fieldId,
+   670→    staleTime: 30_000,
+   671→  })
+   672→}
+   673→
+   674→export function useIngestForecast(fieldId: string | null) {
+   675→  const queryClient = useQueryClient()
+   676→  return useMutation({
+   677→    mutationFn: (body: { variables?: string[]; forecast_days?: number }) => ingestForecast(fieldId!, body),
+   678→    onSuccess: () => {
+   679→      queryClient.invalidateQueries({ queryKey: ['forecast-window', fieldId] })
+   680→      queryClient.invalidateQueries({ queryKey: ['forecast-risks', fieldId] })
+   681→    },
+   682→  })
+   683→}
+   684→
+   685→export function useSoilTimeline(fieldId: string | null) {
+   686→  return useQuery({
+   687→    queryKey: ['soil-timeline', fieldId],
+   688→    queryFn: () => getSoilTimeline(fieldId!),
+   689→    enabled: !!fieldId,
+   690→    staleTime: 30_000,
+   691→  })
+   692→}
+   693→
+   694→export function useSoilAlerts(fieldId: string | null) {
+   695→  return useQuery({
+   696→    queryKey: ['soil-alerts', fieldId],
+   697→    queryFn: () => getSoilAlerts(fieldId!),
+   698→    enabled: !!fieldId,
+   699→    staleTime: 60_000,
+   700→  })
+   701→}
+   702→
+   703→export function useCreateSoilSnapshot(fieldId: string | null) {
+   704→  const queryClient = useQueryClient()
+   705→  return useMutation({
+   706→    mutationFn: (asOf: string) => createSoilSnapshot(fieldId!, asOf),
+   707→    onSuccess: () => {
+   708→      queryClient.invalidateQueries({ queryKey: ['soil-timeline', fieldId] })
+   709→      queryClient.invalidateQueries({ queryKey: ['soil-alerts', fieldId] })
+   710→    },
+   711→  })
+   712→}
+   713→
+   714→export function useCreateSoilChangeEstimate(fieldId: string | null) {
+   715→  const queryClient = useQueryClient()
+   716→  return useMutation({
+   717→    mutationFn: (input: { start: string; end: string }) =>
+   718→      createSoilChangeEstimate(fieldId!, input.start, input.end),
+   719→    onSuccess: () => {
+   720→      queryClient.invalidateQueries({ queryKey: ['soil-timeline', fieldId] })
+   721→    },
+   722→  })
+   723→}
+   724→
+   725→export function useStressPacks() {
+   726→  return useQuery({
+   727→    queryKey: ['stress-packs'],
+   728→    queryFn: getStressPacks,
+   729→    staleTime: 5 * 60_000,
+   730→  })
+   731→}
+   732→
+   733→export function useRotationStressRuns(fieldId: string | null) {
+   734→  return useQuery({
+   735→    queryKey: ['rotation-stress-runs', fieldId],
+   736→    queryFn: () => getRotationStressRuns(fieldId!),
+   737→    enabled: !!fieldId,
+   738→    staleTime: 30_000,
+   739→  })
+   740→}
+   741→
+   742→export function useCreateRotationStressRun(fieldId: string | null) {
+   743→  const queryClient = useQueryClient()
+   744→  return useMutation({
+   745→    mutationFn: (body: { packs: Array<string | Record<string, unknown>>; candidates?: string[] }) =>
+   746→      createRotationStressRun(fieldId!, body),
+   747→    onSuccess: () => {
+   748→      queryClient.invalidateQueries({ queryKey: ['rotation-stress-runs', fieldId] })
+   749→    },
+   750→  })
+   751→}
+   752→
+   753→export function useEvidenceGaps(fieldId: string | null) {
+   754→  return useQuery({
+   755→    queryKey: ['evidence-gaps', fieldId],
+   756→    queryFn: () => getEvidenceGaps(fieldId!),
+   757→    enabled: !!fieldId,
+   758→    staleTime: 60_000,
+   759→  })
+   760→}
+   761→
+   762→export function useStaleness(fieldId: string | null) {
+   763→  return useQuery({
+   764→    queryKey: ['evidence-staleness', fieldId],
+   765→    queryFn: () => getStaleness(fieldId!),
+   766→    enabled: !!fieldId,
+   767→    staleTime: 60_000,
+   768→  })
+   769→}
+   770→
+   771→export function useEvidenceActions(fieldId: string | null) {
+   772→  return useQuery({
+   773→    queryKey: ['evidence-actions', fieldId],
+   774→    queryFn: () => getEvidenceActions(fieldId!),
+   775→    enabled: !!fieldId,
+   776→    staleTime: 30_000,
+   777→  })
+   778→}
+   779→
+   780→export function useCreateEvidenceAction(fieldId: string | null) {
+   781→  const queryClient = useQueryClient()
+   782→  return useMutation({
+   783→    mutationFn: (body: { gap_code: string; action_type: string; title: string }) =>
+   784→      createEvidenceAction(fieldId!, body),
+   785→    onSuccess: () => {
+   786→      queryClient.invalidateQueries({ queryKey: ['evidence-actions', fieldId] })
+   787→    },
+   788→  })
+   789→}
+   790→
+   791→export function useTransitionEvidenceAction(fieldId: string | null) {
+   792→  const queryClient = useQueryClient()
+   793→  return useMutation({
+   794→    mutationFn: (input: { actionId: string; toStatus: string; note?: string }) =>
+   795→      transitionEvidenceAction(fieldId!, input.actionId, input.toStatus, input.note),
+   796→    onSuccess: () => {
+   797→      queryClient.invalidateQueries({ queryKey: ['evidence-actions', fieldId] })
+   798→    },
+   799→  })
+   800→}
+   801→
+   802→export function useApplyEvidence(fieldId: string | null) {
+   803→  const queryClient = useQueryClient()
+   804→  return useMutation({
+   805→    mutationFn: (body: { ref_kind: string; ref_id?: string; action_id?: string }) =>
+   806→      applyEvidence(fieldId!, body),
+   807→    onSuccess: () => {
+   808→      queryClient.invalidateQueries({ queryKey: ['evidence-staleness', fieldId] })
+   809→      queryClient.invalidateQueries({ queryKey: ['evidence-actions', fieldId] })
+   810→      queryClient.invalidateQueries({ queryKey: ['recommendations', fieldId] })
+   811→      queryClient.invalidateQueries({ queryKey: ['vegetation-summary', fieldId] })
+   812→    },
+   813→  })
+   814→}
+   815→
+   816→export function usePortfolioConstraints() {
+   817→  return useQuery({
+   818→    queryKey: ['portfolio-constraints'],
+   819→    queryFn: getPortfolioConstraints,
+   820→    staleTime: 5 * 60_000,
+   821→  })
+   822→}
+   823→
+   824→export function usePortfolioRuns(farmId: string | null) {
+   825→  return useQuery({
+   826→    queryKey: ['portfolio-runs', farmId],
+   827→    queryFn: () => getPortfolioRuns(farmId!),
+   828→    enabled: !!farmId,
+   829→    staleTime: 30_000,
+   830→  })
+   831→}
+   832→
+   833→export function usePortfolioRun(runId: string | null) {
+   834→  return useQuery({
+   835→    queryKey: ['portfolio-run', runId],
+   836→    queryFn: () => getPortfolioRun(runId!),
+   837→    enabled: !!runId,
+   838→    staleTime: 60_000,
+   839→  })
+   840→}
+   841→
+   842→export function useCreatePortfolioRun(farmId: string | null) {
+   843→  const queryClient = useQueryClient()
+   844→  return useMutation({
+   845→    mutationFn: (body: Parameters<typeof createPortfolioRun>[1]) => createPortfolioRun(farmId!, body),
+   846→    onSuccess: () => {
+   847→      queryClient.invalidateQueries({ queryKey: ['portfolio-runs', farmId] })
+   848→    },
+   849→  })
+   850→}
+   851→
+   852→import {
+   853→  applyEvidence,
+   854→  createEvidenceAction,
+   855→  createPortfolioRun,
+   856→  createRotationStressRun,
+   857→  createSoilChangeEstimate,
+   858→  createSoilSnapshot,
+   859→  getClimateCapabilities,
+   860→  getEvidenceActions,
+   861→  getEvidenceGaps,
+   862→  getForecastRisks,
+   863→  getForecastWindow,
+   864→  getPortfolioConstraints,
+   865→  getPortfolioRun,
+   866→  getPortfolioRuns,
+   867→  getRotationStressRun,
+   868→  getRotationStressRuns,
+   869→  getSoilAlerts,
+   870→  getSoilTimeline,
+   871→  getStaleness,
+   872→  getStressPacks,
+   873→  getVegetationScenes,
+   874→  getVegetationSummary,
+   875→  ingestForecast,
+   876→  transitionEvidenceAction,
+   877→} from '@/lib/api'
+   878→

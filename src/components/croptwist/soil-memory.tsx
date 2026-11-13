@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { FieldPicker } from '@/components/croptwist/field-picker'
+import { FieldContextGate } from '@/components/croptwist/field-context'
 import {
   useCreateSoilChangeEstimate,
   useCreateSoilSnapshot,
@@ -33,7 +33,6 @@ function kindBadge(kind: string, t: ReturnType<typeof useTranslations<'soilmemor
 export function SoilMemory() {
   const t = useTranslations('soilmemory')
   const selectedField = useCropTwistUi((s) => s.selectedField)
-  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const [asOf, setAsOf] = useState<string>(new Date().toISOString().slice(0, 10))
   const [startId, setStartId] = useState<string | null>(null)
   const [endId, setEndId] = useState<string | null>(null)
@@ -44,18 +43,7 @@ export function SoilMemory() {
   const createSnapshot = useCreateSoilSnapshot(selectedField?.id ?? null)
   const createEstimate = useCreateSoilChangeEstimate(selectedField?.id ?? null)
 
-  if (!selectedField) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-stone-500">
-          <p>{t('pickFieldHint')}</p>
-          <div className="mx-auto mt-4 max-w-xs">
-            <FieldPicker value={null} onValueChange={setSelectedField} />
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (!selectedField) return <FieldContextGate hint={t('pickFieldHint')} />
 
   const snapshots = timeline.data?.snapshots ?? []
 
@@ -68,7 +56,6 @@ export function SoilMemory() {
               <CardTitle>{t('title')}</CardTitle>
               <CardDescription>{t('description')}</CardDescription>
             </div>
-            <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

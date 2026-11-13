@@ -3420,12 +3420,6 @@ export interface FeedbackHistoryResponse {
   }>
 }
 
-// The recovered management.tsx references `CoverPlan` without importing it
-// (lost in recovery); expose it globally so the component compiles untouched.
-declare global {
-  type CoverPlan = CoverCropPlan
-}
-
 // -------------------------------------------------------------
 // P2 — Satellite / Climate / Soil Memory / Failure Lab / Evidence / Portfolio
 // -------------------------------------------------------------

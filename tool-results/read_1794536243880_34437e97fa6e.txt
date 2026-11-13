@@ -1,0 +1,593 @@
+     1→   648→                  className={`h-3 w-3 shrink-0 rounded-sm ${CLASS_COLOR[d.classification] ?? CLASS_COLOR.unknown}`}
+     2→   649→                />
+     3→   650→              ))}
+     4→   651→            </div>
+     5→   652→          </div>
+     6→   653→
+     7→   654→          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+     8→   655→            <Metric label={t('metricProtective')} value={`${data.metrics.days_protective_cover} d`} />
+     9→   656→            <Metric label={t('metricBare')} value={`${data.metrics.days_known_bare} d`} />
+    10→   657→            <Metric label={t('metricUnknown')} value={`${data.metrics.days_unknown} d`} />
+    11→   658→            <Metric
+    12→   659→              label={t('metricLongestBare')}
+    13→   660→              value={data.metrics.longest_bare_interval_days ? `${data.metrics.longest_bare_interval_days} d` : '—'}
+    14→   661→              hint={data.metrics.longest_bare_interval ? data.metrics.longest_bare_interval.join(' → ') : t('noBareEvidence')}
+    15→   662→            />
+    16→   663→          </div>
+    17→   664→
+    18→   665→          <p className="text-[11px] text-stone-500">{data.thresholds.note}</p>
+    19→   666→
+    20→   667→          <Separator />
+    21→   668→
+    22→   669→          <div className="space-y-2">
+    23→   670→            <p className="text-xs font-semibold text-stone-700">{t('recordObs')}</p>
+    24→   671→            <div className="flex flex-wrap items-end gap-2">
+    25→   672→              <div className="space-y-1">
+    26→   673→                <Label htmlFor="obs-date" className="text-xs">{t('dateLabel')}</Label>
+    27→   674→                <Input id="obs-date" type="date" value={obsDate} onChange={(e) => setObsDate(e.target.value)} className="h-9 text-sm" />
+    28→   675→              </div>
+    29→   676→              <div className="space-y-1">
+    30→   677→                <Label htmlFor="obs-state" className="text-xs">{t('stateLabel')}</Label>
+    31→   678→                <Select value={obsState} onValueChange={setObsState}>
+    32→   679→                  <SelectTrigger id="obs-state" className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+    33→   680→                  <SelectContent>
+    34→   681→                    <SelectItem value="bare">{t('stateBare')}</SelectItem>
+    35→   682→                    <SelectItem value="living_main_crop">{t('stateLivingMain')}</SelectItem>
+    36→   683→                    <SelectItem value="living_cover_crop">{t('stateLivingCover')}</SelectItem>
+    37→   684→                    <SelectItem value="surface_residue">{t('stateResidue')}</SelectItem>
+    38→   685→                    <SelectItem value="mulch">{t('stateMulch')}</SelectItem>
+    39→   686→                    <SelectItem value="unknown">{t('stateUnknown')}</SelectItem>
+    40→   687→                  </SelectContent>
+    41→   688→                </Select>
+    42→   689→              </div>
+    43→   690→              <Button size="sm" variant="outline" className="h-9" onClick={() => addObs.mutate()} disabled={addObs.isPending}>
+    44→   691→                {addObs.isPending ? t('saving') : t('addObservation')}
+    45→   692→              </Button>
+    46→   693→            </div>
+    47→   694→            <ErrorNote error={error} />
+    48→   695→          </div>
+    49→   696→
+    50→   697→          {expert ? (
+    51→   698→            <Accordion type="single" collapsible>
+    52→   699→              <AccordionItem value="method">
+    53→   700→                <AccordionTrigger className="text-xs">{t('methodNotes')}</AccordionTrigger>
+    54→   701→                <AccordionContent className="space-y-1 text-[11px] text-stone-600">
+    55→   702→                  <p>{data.method.engine} · {data.method.version}</p>
+    56→   703→                  {data.method.rules.map((r, i) => <p key={i}>· {r}</p>)}
+    57→   704→                  {data.evidence_notes.map((n, i) => <p key={i} className="text-amber-800">· {n.detail}</p>)}
+    58→   705→                  <p>{t('inputsLine', { inputs: Object.entries(data.inputs_summary).map(([k, v]) => `${k}=${v}`).join(' · ') })}</p>
+    59→   706→                </AccordionContent>
+    60→   707→              </AccordionItem>
+    61→   708→            </Accordion>
+    62→   709→          ) : null}
+    63→   710→        </div>
+    64→   711→      ) : null}
+    65→   712→    </div>
+    66→   713→  )
+    67→   714→}
+    68→   715→
+    69→   716→// ------------------------------------------------------------ residue view
+    70→   717→
+    71→   718→function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+    72→   719→  const t = useTranslations('management')
+    73→   720→  const qc = useQueryClient()
+    74→   721→  const ledger = useQuery({
+    75→   722→    queryKey: ['residue-ledger', fieldId],
+    76→   723→    queryFn: () => getResidueLedger(fieldId),
+    77→   724→    enabled: Boolean(fieldId),
+    78→   725→  })
+    79→   726→  const [crop, setCrop] = useState('')
+    80→   727→  const [produced, setProduced] = useState('')
+    81→   728→  const [flowType, setFlowType] = useState('retained_surface')
+    82→   729→  const [flowKg, setFlowKg] = useState('')
+    83→   730→  const [targetRecord, setTargetRecord] = useState<string | null>(null)
+    84→   731→  const [error, setError] = useState<unknown>(null)
+    85→   732→
+    86→   733→  const addRecord = useMutation({
+    87→   734→    mutationFn: () =>
+    88→   735→      createResidueRecord(fieldId, {
+    89→   736→        crop_label: crop,
+    90→   737→        production_status: produced ? 'farmer_reported' : 'missing',
+    91→   738→        produced_dm_kg: produced ? Number(produced) : undefined,
+    92→   739→      }),
+    93→   740→    onSuccess: (rec) => {
+    94→   741→      setError(null)
+    95→   742→      setCrop('')
+    96→   743→      setProduced('')
+    97→   744→      setTargetRecord(rec.id)
+    98→   745→      qc.invalidateQueries({ queryKey: ['residue-ledger', fieldId] })
+    99→   746→    },
+   100→   747→    onError: setError,
+   101→   748→  })
+   102→   749→
+   103→   750→  const addFlow = useMutation({
+   104→   751→    mutationFn: () =>
+   105→   752→      createResidueFlow(targetRecord as string, {
+   106→   753→        flow_type: flowType,
+   107→   754→        dm_kg: flowKg ? Number(flowKg) : undefined,
+   108→   755→        dm_kg_status: flowKg ? 'farmer_reported' : 'unknown',
+   109→   756→      }),
+   110→   757→    onSuccess: () => {
+   111→   758→      setError(null)
+   112→   759→      setFlowKg('')
+   113→   760→      qc.invalidateQueries({ queryKey: ['residue-ledger', fieldId] })
+   114→   761→    },
+   115→   762→    onError: setError,
+   116→   763→  })
+   117→   764→
+   118→   765→  const data: ResidueLedgerResponse | undefined = ledger.data
+   119→   766→
+   120→   767→  return (
+   121→   768→    <div className="space-y-4">
+   122→   769→      <p className="text-sm text-stone-600">
+   123→   770→        {t('residueIntro')}
+   124→   771→      </p>
+   125→   772→
+   126→   773→      <div className="flex flex-wrap items-end gap-2">
+   127→   774→        <div className="space-y-1">
+   128→   775→          <Label htmlFor="res-crop" className="text-xs">{t('cropLabel')}</Label>
+   129→   776→          <Input id="res-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder={t('cropPlaceholder')} className="h-9 w-40 text-sm" />
+   130→   777→        </div>
+   131→   778→        <div className="space-y-1">
+   132→   779→          <Label htmlFor="res-prod" className="text-xs">{t('producedLabel')}</Label>
+   133→   780→          <Input id="res-prod" type="number" min="0" value={produced} onChange={(e) => setProduced(e.target.value)} className="h-9 w-44 text-sm" />
+   134→   781→        </div>
+   135→   782→        <Button variant="outline" className="h-9" onClick={() => addRecord.mutate()} disabled={addRecord.isPending || !crop}>
+   136→   783→          {addRecord.isPending ? t('saving') : t('addRecord')}
+   137→   784→        </Button>
+   138→   785→      </div>
+   139→   786→      <ErrorNote error={error} />
+   140→   787→
+   141→   788→      {ledger.isLoading ? <Skeleton className="h-32 w-full" /> : null}
+   142→   789→      <ErrorNote error={ledger.error} />
+   143→   790→
+   144→   791→      {data ? (
+   145→   792→        <div className="space-y-3">
+   146→   793→          {data.warnings.map((w, i) => (
+   147→   794→            <p key={i} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{w}</p>
+   148→   795→          ))}
+   149→   796→          {data.records.length === 0 ? (
+   150→   797→            <HonestEmpty>{t('noRecords')}</HonestEmpty>
+   151→   798→          ) : (
+   152→   799→            data.records.map((rec) => (
+   153→   800→              <Card key={rec.record.id} className="border-stone-200">
+   154→   801→                <CardHeader className="pb-2">
+   155→   802→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   156→   803→                    <CardTitle className="text-sm">{rec.record.crop_label}</CardTitle>
+   157→   804→                    <StatusBadge status={rec.balance.status} />
+   158→   805→                  </div>
+   159→   806→                  <CardDescription>
+   160→   807→                    {t('recordDesc', {
+   161→   808→                      amount: rec.record.produced_dm_kg !== null ? `${rec.record.produced_dm_kg} kg DM` : t('unknownAmount'),
+   162→   809→                      status: rec.record.production_status.replace(/_/g, ' '),
+   163→   810→                    })}
+   164→   811→                  </CardDescription>
+   165→   812→                </CardHeader>
+   166→   813→                <CardContent className="space-y-2 text-xs text-stone-600">
+   167→   814→                  {rec.flows.map((f) => (
+   168→   815→                    <div key={f.id} className="flex flex-wrap items-center gap-2">
+   169→   816→                      <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{f.flow_type.replace(/_/g, ' ')}</Badge>
+   170→   817→                      <span>{f.dm_kg !== null ? `${f.dm_kg} kg` : t('massUnknown')}</span>
+   171→   818→                      <span className="text-stone-400">{f.dm_kg_status}</span>
+   172→   819→                    </div>
+   173→   820→                  ))}
+   174→   821→                  <p>
+   175→   822→                    {t('balanceLine', {
+   176→   823→                      flows: rec.balance.total_flow_dm_kg,
+   177→   824→                      unaccounted: rec.balance.unaccounted_dm_kg !== null ? `${rec.balance.unaccounted_dm_kg} kg` : t('notComputable'),
+   178→   825→                    })}
+   179→   826→                  </p>
+   180→   827→                  {expert && rec.derived.total_nitrogen_kg !== undefined ? (
+   181→   828→                    <p className="text-[11px]">
+   182→   829→                      {t('nitrogenNote', { value: String(rec.derived.total_nitrogen_kg) })}
+   183→   830→                    </p>
+   184→   831→                  ) : null}
+   185→   832→                  {targetRecord === rec.record.id ? (
+   186→   833→                    <div className="flex flex-wrap items-end gap-2 border-t border-stone-100 pt-2">
+   187→   834→                      <div className="space-y-1">
+   188→   835→                        <Label htmlFor={`flow-type-${rec.record.id}`} className="text-xs">{t('flowLabel')}</Label>
+   189→   836→                        <Select value={flowType} onValueChange={setFlowType}>
+   190→   837→                          <SelectTrigger id={`flow-type-${rec.record.id}`} className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+   191→   838→                          <SelectContent>
+   192→   839→                            <SelectItem value="retained_surface">{t('flowRetained')}</SelectItem>
+   193→   840→                            <SelectItem value="incorporated">{t('flowIncorporated')}</SelectItem>
+   194→   841→                            <SelectItem value="removed_baled">{t('flowRemoved')}</SelectItem>
+   195→   842→                            <SelectItem value="grazed">{t('flowGrazed')}</SelectItem>
+   196→   843→                            <SelectItem value="burned">{t('flowBurned')}</SelectItem>
+   197→   844→                            <SelectItem value="other_loss">{t('flowOther')}</SelectItem>
+   198→   845→                            <SelectItem value="unknown">{t('flowUnknownFate')}</SelectItem>
+   199→   846→                          </SelectContent>
+   200→   847→                        </Select>
+   201→   848→                      </div>
+   202→   849→                      <div className="space-y-1">
+   203→   850→                        <Label htmlFor={`flow-kg-${rec.record.id}`} className="text-xs">{t('dmKgLabel')}</Label>
+   204→   851→                        <Input id={`flow-kg-${rec.record.id}`} type="number" min="0" value={flowKg} onChange={(e) => setFlowKg(e.target.value)} className="h-9 w-36 text-sm" />
+   205→   852→                      </div>
+   206→   853→                      <Button size="sm" variant="outline" className="h-9" onClick={() => addFlow.mutate()} disabled={addFlow.isPending}>
+   207→   854→                        {t('addFlow')}
+   208→   855→                      </Button>
+   209→   856→                    </div>
+   210→   857→                  ) : (
+   211→   858→                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setTargetRecord(rec.record.id)}>
+   212→   859→                      {t('addFlowToRecord')}
+   213→   860→                    </Button>
+   214→   861→                  )}
+   215→   862→                </CardContent>
+   216→   863→              </Card>
+   217→   864→            ))
+   218→   865→          )}
+   219→   866→        </div>
+   220→   867→      ) : null}
+   221→   868→    </div>
+   222→   869→  )
+   223→   870→}
+   224→   871→
+   225→   872→// ------------------------------------------------------------ erosion view
+   226→   873→
+   227→   874→function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   228→   875→  const t = useTranslations('management')
+   229→   876→  const qc = useQueryClient()
+   230→   877→  const [slopeClass, setSlopeClass] = useState('unknown')
+   231→   878→  const [useRusle, setUseRusle] = useState(false)
+   232→   879→  const [factors, setFactors] = useState({ R: '100', K: '0.25', LS: '1.0', C: '0.3', P: '0.5' })
+   233→   880→  const [factorSource, setFactorSource] = useState('')
+   234→   881→  const [run, setRun] = useState<ErosionRun | null>(null)
+   235→   882→  const [error, setError] = useState<unknown>(null)
+   236→   883→
+   237→   884→  const assess = useMutation({
+   238→   885→    mutationFn: () => {
+   239→   886→      const input: Parameters<typeof createErosionAssessment>[1] = {
+   240→   887→        window_start: daysAgo(365),
+   241→   888→        window_end: today(),
+   242→   889→        slope_evidence: slopeClass !== 'unknown' ? { slope_class: slopeClass } : undefined,
+   243→   890→      }
+   244→   891→      if (useRusle) {
+   245→   892→        input.rusle_factors = Object.fromEntries(
+   246→   893→          Object.entries(factors).map(([code, value]) => [
+   247→   894→            code,
+   248→   895→            {
+   249→   896→              value: Number(value),
+   250→   897→              source_reference: factorSource || 'unspecified local source',
+   251→   898→              region_scope: 'farm_declared',
+   252→   899→              unit_convention: 'metric_si',
+   253→   900→            },
+   254→   901→          ]),
+   255→   902→        )
+   256→   903→      }
+   257→   904→      return createErosionAssessment(fieldId, input)
+   258→   905→    },
+   259→   906→    onSuccess: (r) => {
+   260→   907→      setRun(r)
+   261→   908→      setError(null)
+   262→   909→      qc.invalidateQueries({ queryKey: ['erosion', fieldId] })
+   263→   910→    },
+   264→   911→    onError: setError,
+   265→   912→  })
+   266→   913→
+   267→   914→  return (
+   268→   915→    <div className="space-y-4">
+   269→   916→      <p className="text-sm text-stone-600">
+   270→   917→        {t.rich('erosionIntro', { b: (chunks) => <span className="font-medium">{chunks}</span> })}
+   271→   918→      </p>
+   272→   919→
+   273→   920→      <div className="flex flex-wrap items-end gap-2">
+   274→   921→        <div className="space-y-1">
+   275→   922→          <Label htmlFor="slope" className="text-xs">{t('slopeLabel')}</Label>
+   276→   923→          <Select value={slopeClass} onValueChange={setSlopeClass}>
+   277→   924→            <SelectTrigger id="slope" className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
+   278→   925→            <SelectContent>
+   279→   926→              <SelectItem value="unknown">{t('slopeUndeclared')}</SelectItem>
+   280→   927→              <SelectItem value="flat">{t('slopeFlat')}</SelectItem>
+   281→   928→              <SelectItem value="gentle">{t('slopeGentle')}</SelectItem>
+   282→   929→              <SelectItem value="moderate">{t('slopeModerate')}</SelectItem>
+   283→   930→              <SelectItem value="steep">{t('slopeSteep')}</SelectItem>
+   284→   931→            </SelectContent>
+   285→   932→          </Select>
+   286→   933→        </div>
+   287→   934→        <div className="flex items-center gap-2 pb-2 text-xs text-stone-500">
+   288→   935→          <Switch checked={useRusle} onCheckedChange={setUseRusle} aria-label={t('rusleAria')} id="rusle-toggle" />
+   289→   936→          <Label htmlFor="rusle-toggle" className="text-xs">{t('rusleLabel')}</Label>
+   290→   937→        </div>
+   291→   938→        {useRusle ? (
+   292→   939→          <div className="space-y-1">
+   293→   940→            <Label htmlFor="factor-src" className="text-xs">{t('factorSourceLabel')}</Label>
+   294→   941→            <Input id="factor-src" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} placeholder={t('factorSourcePlaceholder')} className="h-9 w-52 text-sm" />
+   295→   942→          </div>
+   296→   943→        ) : null}
+   297→   944→        <Button onClick={() => assess.mutate()} disabled={assess.isPending} className="bg-emerald-700 hover:bg-emerald-800">
+   298→   945→          {assess.isPending ? t('assessing') : t('runAssessment')}
+   299→   946→        </Button>
+   300→   947→      </div>
+   301→   948→
+   302→   949→      {useRusle ? (
+   303→   950→        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+   304→   951→          {(['R', 'K', 'LS', 'C', 'P'] as const).map((code) => (
+   305→   952→            <div key={code} className="space-y-1">
+   306→   953→              <Label htmlFor={`factor-${code}`} className="text-xs">{code}</Label>
+   307→   954→              <Input id={`factor-${code}`} value={factors[code]} onChange={(e) => setFactors({ ...factors, [code]: e.target.value })} className="h-9 text-sm" />
+   308→   955→            </div>
+   309→   956→          ))}
+   310→   957→        </div>
+   311→   958→      ) : null}
+   312→   959→      <ErrorNote error={error} />
+   313→   960→
+   314→   961→      {run ? (
+   315→   962→        <div className="space-y-3" data-testid="erosion-result">
+   316→   963→          <Card className="border-stone-200">
+   317→   964→            <CardHeader className="pb-2">
+   318→   965→              <CardTitle className="flex items-center gap-2 text-sm">
+   319→   966→                {t('screeningTitle')} <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{t('screeningBadge')}</Badge>
+   320→   967→              </CardTitle>
+   321→   968→            </CardHeader>
+   322→   969→            <CardContent className="space-y-2 text-xs text-stone-600">
+   323→   970→              {run.result.screening.concerns.length === 0 ? (
+   324→   971→                <HonestEmpty>{t('noConcerns', { count: run.result.screening.unknowns.length })}</HonestEmpty>
+   325→   972→              ) : (
+   326→   973→                run.result.screening.concerns.map((c, i) => (
+   327→   974→                  <div key={i} className="flex items-start gap-2">
+   328→   975→                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+   329→   976→                    <span>{c.evidence} <span className="text-stone-400">({c.processes.join(', ')})</span></span>
+   330→   977→                  </div>
+   331→   978→                ))
+   332→   979→              )}
+   333→   980→              {run.result.screening.field_observed_signs.length > 0 ? (
+   334→   981→                <div className="rounded-md border border-stone-200 bg-stone-50 p-2">
+   335→   982→                  <p className="font-medium text-stone-700">{t('observedSigns')}</p>
+   336→   983→                  {run.result.screening.field_observed_signs.map((s, i) => <p key={i}>{s.description}</p>)}
+   337→   984→                </div>
+   338→   985→              ) : null}
+   339→   986→              {run.result.screening.unknowns.length > 0 && expert ? (
+   340→   987→                <ul className="space-y-0.5 text-[11px] text-stone-500">
+   341→   988→                  {run.result.screening.unknowns.map((u, i) => <li key={i}>· {u}</li>)}
+   342→   989→                </ul>
+   343→   990→              ) : null}
+   344→   991→            </CardContent>
+   345→   992→          </Card>
+   346→   993→
+   347→   994→          {run.result.rusle.status !== 'not_evaluated' ? (
+   348→   995→            <Card className="border-stone-200">
+   349→   996→              <CardHeader className="pb-2">
+   350→   997→                <CardTitle className="text-sm">{t('rusleTitle')}</CardTitle>
+   351→   998→                <CardDescription>
+   352→   999→                  {run.result.rusle.annual_soil_loss_a !== undefined
+   353→  1000→                    ? t('rusleEstimate', {
+   354→  1001→                        value: run.result.rusle.annual_soil_loss_a,
+   355→  1002→                        unit: run.result.rusle.unit_convention ?? '',
+   356→  1003→                      })
+   357→  1004→                    : run.result.rusle.message}
+   358→  1005→                </CardDescription>
+   359→  1006→              </CardHeader>
+   360→  1007→              {expert && run.result.rusle.scope_disclosures ? (
+   361→  1008→                <CardContent>
+   362→  1009→                  <ul className="space-y-0.5 text-[11px] text-stone-500">
+   363→  1010→                    {run.result.rusle.scope_disclosures.map((d, i) => <li key={i}>· {d}</li>)}
+   364→  1011→                  </ul>
+   365→  1012→                </CardContent>
+   366→  1013→              ) : null}
+   367→  1014→            </Card>
+   368→  1015→          ) : null}
+   369→  1016→
+   370→  1017→          {run.result.alternatives.length > 0 ? (
+   371→  1018→            <Card className="border-stone-200">
+   372→  1019→              <CardHeader className="pb-2">
+   373→  1020→                <CardTitle className="text-sm">{t('alternativesTitle')}</CardTitle>
+   374→  1021→              </CardHeader>
+   375→  1022→              <CardContent>
+   376→  1023→                <Accordion type="single" collapsible className="w-full">
+   377→  1024→                  {run.result.alternatives.map((a) => (
+   378→  1025→                    <AccordionItem key={a.practice_code} value={a.practice_code}>
+   379→  1026→                      <AccordionTrigger className="text-xs">{a.name}</AccordionTrigger>
+   380→  1027→                      <AccordionContent className="space-y-1 text-[11px] text-stone-600">
+   381→  1028→                        {a.mechanisms.map((m, i) => (
+   382→  1029→                          <p key={i}>· {m.text} {m.citation ? <span className="text-stone-400">— {m.citation.citation_text}</span> : null}</p>
+   383→  1030→                        ))}
+   384→  1031→                        <p className="text-stone-400">{a.quantitative_note}</p>
+   385→  1032→                      </AccordionContent>
+   386→  1033→                    </AccordionItem>
+   387→  1034→                  ))}
+   388→  1035→                </Accordion>
+   389→  1036→              </CardContent>
+   390→  1037→            </Card>
+   391→  1038→          ) : null}
+   392→  1039→        </div>
+   393→  1040→      ) : null}
+   394→  1041→    </div>
+   395→  1042→  )
+   396→  1043→}
+   397→  1044→
+   398→  1045→// ------------------------------------------------------------ operations view
+   399→  1046→
+   400→  1047→function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: string | null; expert: boolean }) {
+   401→  1048→  const t = useTranslations('management')
+   402→  1049→  const qc = useQueryClient()
+   403→  1050→  const [crop, setCrop] = useState('')
+   404→  1051→  const [hoursPerDay, setHoursPerDay] = useState('8')
+   405→  1052→  const [resourceType, setResourceType] = useState('tractor')
+   406→  1053→  const [resourceName, setResourceName] = useState('')
+   407→  1054→  const [schedule, setSchedule] = useState<ScheduleRun | null>(null)
+   408→  1055→  const [error, setError] = useState<unknown>(null)
+   409→  1056→
+   410→  1057→  const ops = useQuery({
+   411→  1058→    queryKey: ['operations', fieldId],
+   412→  1059→    queryFn: () => listFieldOperations(fieldId),
+   413→  1060→    enabled: Boolean(fieldId),
+   414→  1061→  })
+   415→  1062→  const resources = useQuery({
+   416→  1063→    queryKey: ['resources', farmId],
+   417→  1064→    queryFn: () => listFarmResources(farmId as string),
+   418→  1065→    enabled: Boolean(farmId),
+   419→  1066→  })
+   420→  1067→  const templates = useQuery({
+   421→  1068→    queryKey: ['operation-templates'],
+   422→  1069→    queryFn: listOperationTemplates,
+   423→  1070→  })
+   424→  1071→
+   425→  1072→  const generate = useMutation({
+   426→  1073→    mutationFn: () => generateOperations(fieldId, { crop_label: crop, window_year: new Date().getFullYear() + 1 }),
+   427→  1074→    onSuccess: () => {
+   428→  1075→      setError(null)
+   429→  1076→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+   430→  1077→    },
+   431→  1078→    onError: setError,
+   432→  1079→  })
+   433→  1080→  const addResource = useMutation({
+   434→  1081→    mutationFn: () => createFarmResource(farmId as string, { resource_type: resourceType, name: resourceName || resourceType }),
+   435→  1082→    onSuccess: () => {
+   436→  1083→      setError(null)
+   437→  1084→      setResourceName('')
+   438→  1085→      qc.invalidateQueries({ queryKey: ['resources', farmId] })
+   439→  1086→    },
+   440→  1087→    onError: setError,
+   441→  1088→  })
+   442→  1089→  const scheduleRun = useMutation({
+   443→  1090→    mutationFn: () =>
+   444→  1091→      createScheduleRun(fieldId, { hours_per_workday: Number(hoursPerDay) || undefined }),
+   445→  1092→    onSuccess: (r) => {
+   446→  1093→      setSchedule(r)
+   447→  1094→      setError(null)
+   448→  1095→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+   449→  1096→    },
+   450→  1097→    onError: setError,
+   451→  1098→  })
+   452→  1099→  const complete = useMutation({
+   453→  1100→    mutationFn: (opId: string) => patchOperation(opId, { status: 'completed', completion_date: today() }),
+   454→  1101→    onSuccess: () => {
+   455→  1102→      setError(null)
+   456→  1103→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+   457→  1104→    },
+   458→  1105→    onError: setError,
+   459→  1106→  })
+   460→  1107→
+   461→  1108→  return (
+   462→  1109→    <div className="space-y-4">
+   463→  1110→      <div className="flex flex-wrap items-end gap-2">
+   464→  1111→        <div className="space-y-1">
+   465→  1112→          <Label htmlFor="gen-crop" className="text-xs">{t('generateCropLabel')}</Label>
+   466→  1113→          <Input id="gen-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder={t('cropPlaceholder')} className="h-9 w-40 text-sm" />
+   467→  1114→        </div>
+   468→  1115→        <Button variant="outline" className="h-9" onClick={() => generate.mutate()} disabled={generate.isPending || !crop}>
+   469→  1116→          {generate.isPending ? t('generating') : t('generateFromTemplates')}
+   470→  1117→        </Button>
+   471→  1118→        <div className="space-y-1">
+   472→  1119→          <Label htmlFor="hpd" className="text-xs">{t('hoursLabel')}</Label>
+   473→  1120→          <Input id="hpd" type="number" min="1" value={hoursPerDay} onChange={(e) => setHoursPerDay(e.target.value)} className="h-9 w-24 text-sm" />
+   474→  1121→        </div>
+   475→  1122→        <Button onClick={() => scheduleRun.mutate()} disabled={scheduleRun.isPending} className="bg-emerald-700 hover:bg-emerald-800">
+   476→  1123→          {scheduleRun.isPending ? t('scheduling') : t('scheduleOps')}
+   477→  1124→        </Button>
+   478→  1125→      </div>
+   479→  1126→      <ErrorNote error={error ?? ops.error} />
+   480→  1127→
+   481→  1128→      <div className="grid gap-3 lg:grid-cols-2">
+   482→  1129→        <Card className="border-stone-200">
+   483→  1130→          <CardHeader className="pb-2">
+   484→  1131→            <CardTitle className="text-sm">{t('opsTitle')}</CardTitle>
+   485→  1132→            <CardDescription>
+   486→  1133→              {t('opsDesc')}
+   487→  1134→            </CardDescription>
+   488→  1135→          </CardHeader>
+   489→  1136→          <CardContent className="space-y-2">
+   490→  1137→            {ops.isLoading ? <Skeleton className="h-24 w-full" /> : null}
+   491→  1138→            {ops.data && ops.data.items.length === 0 ? (
+   492→  1139→              <HonestEmpty>{t('noOpsYet')}</HonestEmpty>
+   493→  1140→            ) : null}
+   494→  1141→            {ops.data?.items.map((op) => {
+   495→  1142→              const entry = schedule?.result.entries.find((e) => e.operation_id === op.id)
+   496→  1143→              return (
+   497→  1144→                <div key={op.id} className="rounded-lg border border-stone-100 p-2 text-xs">
+   498→  1145→                  <div className="flex flex-wrap items-center gap-2">
+   499→  1146→                    <StatusBadge status={op.status} />
+   500→  1147→                    <span className="font-medium text-stone-800">{op.title}</span>
+   501→  1148→                    <span className="text-stone-500">
+   502→  1149→                      {op.scheduled_start ?? op.earliest_start ?? t('noWindow')}
+   503→  1150→                      {op.scheduled_end ?? op.latest_finish ? ` → ${op.scheduled_end ?? op.latest_finish}` : ''}
+   504→  1151→                    </span>
+   505→  1152→                    {op.status !== 'completed' ? (
+   506→  1153→                      <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-[11px]" onClick={() => complete.mutate(op.id)} disabled={complete.isPending}>
+   507→  1154→                        {t('markDone')}
+   508→  1155→                      </Button>
+   509→  1156→                    ) : null}
+   510→  1157→                  </div>
+   511→  1158→                  {entry && entry.status === 'unscheduled' && entry.reason ? (
+   512→  1159→                    <p className="mt-1 text-[11px] text-amber-800">{entry.reason}</p>
+   513→  1160→                  ) : null}
+   514→  1161→                  {op.status_reason ? <p className="mt-1 text-[11px] text-amber-800">{op.status_reason}</p> : null}
+   515→  1162→                </div>
+   516→  1163→              )
+   517→  1164→            })}
+   518→  1165→          </CardContent>
+   519→  1166→        </Card>
+   520→  1167→
+   521→  1168→        <Card className="border-stone-200">
+   522→  1169→          <CardHeader className="pb-2">
+   523→  1170→            <CardTitle className="text-sm">{t('resourcesTitle')}</CardTitle>
+   524→  1171→            <CardDescription>{t('resourcesDesc')}</CardDescription>
+   525→  1172→          </CardHeader>
+   526→  1173→          <CardContent className="space-y-2">
+   527→  1174→            <div className="flex flex-wrap items-end gap-2">
+   528→  1175→              <div className="space-y-1">
+   529→  1176→                <Label htmlFor="res-type" className="text-xs">{t('typeLabel')}</Label>
+   530→  1177→                <Select value={resourceType} onValueChange={setResourceType}>
+   531→  1178→                  <SelectTrigger id="res-type" className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
+   532→  1179→                  <SelectContent>
+   533→  1180→                    <SelectItem value="tractor">{t('resTractor')}</SelectItem>
+   534→  1181→                    <SelectItem value="implement">{t('resImplement')}</SelectItem>
+   535→  1182→                    <SelectItem value="seeder">{t('resSeeder')}</SelectItem>
+   536→  1183→                    <SelectItem value="sprayer">{t('resSprayer')}</SelectItem>
+   537→  1184→                    <SelectItem value="harvester">{t('resHarvester')}</SelectItem>
+   538→  1185→                    <SelectItem value="baler">{t('resBaler')}</SelectItem>
+   539→  1186→                    <SelectItem value="contractor">{t('resContractor')}</SelectItem>
+   540→  1187→                    <SelectItem value="labor_crew">{t('resLabourCrew')}</SelectItem>
+   541→  1188→                  </SelectContent>
+   542→  1189→                </Select>
+   543→  1190→              </div>
+   544→  1191→              <div className="space-y-1">
+   545→  1192→                <Label htmlFor="res-name" className="text-xs">{t('nameLabel')}</Label>
+   546→  1193→                <Input id="res-name" value={resourceName} onChange={(e) => setResourceName(e.target.value)} placeholder={t('namePlaceholder')} className="h-9 w-36 text-sm" />
+   547→  1194→              </div>
+   548→  1195→              <Button size="sm" variant="outline" className="h-9" onClick={() => addResource.mutate()} disabled={addResource.isPending || !farmId}>
+   549→  1196→                {t('addResource')}
+   550→  1197→              </Button>
+   551→  1198→            </div>
+   552→  1199→            {resources.data?.items.length ? (
+   553→  1200→              <div className="flex flex-wrap gap-1">
+   554→  1201→                {resources.data.items.map((r) => (
+   555→  1202→                  <Badge key={r.id} variant="outline" className="px-1.5 py-0 text-[10px]">{r.name}</Badge>
+   556→  1203→                ))}
+   557→  1204→              </div>
+   558→  1205→            ) : (
+   559→  1206→              <HonestEmpty>{t('noResources')}</HonestEmpty>
+   560→  1207→            )}
+   561→  1208→            {schedule ? (
+   562→  1209→              <div className="border-t border-stone-100 pt-2 text-[11px] text-stone-600">
+   563→  1210→                <p className="font-medium text-stone-700">{t('lastSchedule')}</p>
+   564→  1211→                <p>
+   565→  1212→                  {t('scheduleSummary', {
+   566→  1213→                    status: schedule.result.solver.status,
+   567→  1214→                    scheduled: schedule.result.entries.filter((e) => e.status === 'scheduled').length,
+   568→  1215→                    unscheduled: schedule.result.entries.filter((e) => e.status === 'unscheduled').length,
+   569→  1216→                  })}
+   570→  1217→                </p>
+   571→  1218→                <p className="text-stone-500">
+   572→  1219→                  {t('weatherPending')}
+   573→  1220→                </p>
+   574→  1221→                {schedule.result.conflicts.map((c, i) => (
+   575→  1222→                  <p key={i} className="text-red-700">{c.message}</p>
+   576→  1223→                ))}
+   577→  1224→              </div>
+   578→  1225→            ) : null}
+   579→  1226→            {expert && templates.data ? (
+   580→  1227→              <p className="text-[11px] text-stone-400">
+   581→  1228→                {t('templatePack', {
+   582→  1229→                  total: templates.data.total,
+   583→  1230→                  status: templates.data.operation_templates[0]?.validation_status ?? '—',
+   584→  1231→                })}
+   585→  1232→              </p>
+   586→  1233→            ) : null}
+   587→  1234→          </CardContent>
+   588→  1235→        </Card>
+   589→  1236→      </div>
+   590→  1237→    </div>
+   591→  1238→  )
+   592→  1239→}
+   593→  1240→

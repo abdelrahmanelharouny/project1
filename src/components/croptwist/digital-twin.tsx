@@ -29,7 +29,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { FieldPicker } from '@/components/croptwist/field-picker'
 import { ApiError, getDigitalTwin, listTwinValidations, validateDigitalTwin } from '@/lib/api'
 import type { DigitalTwinView, TwinValidationResponse } from '@/lib/types'
 import { useCropTwistUi } from '@/lib/store'

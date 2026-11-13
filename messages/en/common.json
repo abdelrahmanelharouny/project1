@@ -11,6 +11,8 @@
   "actions": "Actions",
   "noData": "No data yet.",
   "selectField": "Select a field",
+  "clear": "Clear",
+  "fieldUnavailable": "not in your accessible fields",
   "noFieldsYet": "No fields yet.",
   "createFarmField": "Create a farm & field",
   "goToFarms": "Go to Farms & Fields",

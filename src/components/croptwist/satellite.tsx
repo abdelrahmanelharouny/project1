@@ -27,7 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { FieldPicker } from '@/components/croptwist/field-picker'
+import { FieldContextGate } from '@/components/croptwist/field-context'
 import { SyntheticBadge } from '@/components/croptwist/badges'
 import { useVegetationScenes, useVegetationSummary } from '@/hooks/use-croptwist'
 import { useCropTwistUi } from '@/lib/store'
@@ -43,7 +43,6 @@ function severityVariant(severity: string): 'default' | 'secondary' | 'destructi
 export function SatelliteIntelligence() {
   const t = useTranslations('satellite')
   const selectedField = useCropTwistUi((s) => s.selectedField)
-  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const [index, setIndex] = useState<string>('ndvi')
 
   const summary = useVegetationSummary(selectedField?.id ?? null, index)
@@ -58,18 +57,7 @@ export function SatelliteIntelligence() {
     }))
   }, [summary.data])
 
-  if (!selectedField) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-stone-500">
-          <p>{t('pickFieldHint')}</p>
-          <div className="mx-auto mt-4 max-w-xs">
-            <FieldPicker value={null} onValueChange={setSelectedField} />
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (!selectedField) return <FieldContextGate hint={t('pickFieldHint')} />
 
   return (
     <div className="space-y-4" dir="ltr">
@@ -93,7 +81,6 @@ export function SatelliteIntelligence() {
                   </option>
                 ))}
               </select>
-              <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
             </div>
           </div>
         </CardHeader>

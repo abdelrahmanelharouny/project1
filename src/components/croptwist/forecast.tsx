@@ -27,7 +27,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
-import { FieldPicker } from '@/components/croptwist/field-picker'
+import { FieldContextGate } from '@/components/croptwist/field-context'
 import {
   useClimateCapabilities,
   useForecastRisks,
@@ -45,7 +45,6 @@ const FORECAST_VARIABLES = [
 export function ClimateForecast() {
   const t = useTranslations('forecast')
   const selectedField = useCropTwistUi((s) => s.selectedField)
-  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const [variable, setVariable] = useState<string>('air_temperature_max')
 
   const capabilities = useClimateCapabilities()
@@ -53,18 +52,7 @@ export function ClimateForecast() {
   const risks = useForecastRisks(selectedField?.id ?? null)
   const ingest = useIngestForecast(selectedField?.id ?? null)
 
-  if (!selectedField) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-stone-500">
-          <p>{t('pickFieldHint')}</p>
-          <div className="mx-auto mt-4 max-w-xs">
-            <FieldPicker value={null} onValueChange={setSelectedField} />
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (!selectedField) return <FieldContextGate hint={t('pickFieldHint')} />
 
   const values = window_.data?.values ?? []
   const maxAbs = Math.max(1, ...values.map((v) => Math.abs(v.value ?? 0)))
@@ -91,7 +79,6 @@ export function ClimateForecast() {
                   </option>
                 ))}
               </select>
-              <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
             </div>
           </div>
         </CardHeader>

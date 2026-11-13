@@ -23,6 +23,7 @@ export const LOCALE_COOKIE = 'NEXT_LOCALE'
 export const messageNamespaces = [
   'common',
   'nav',
+  'destinations',
   'auth',
   'overview',
   'map',

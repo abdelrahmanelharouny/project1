@@ -541,7 +541,6 @@ export function Observations() {
           <h2 className="text-lg font-semibold text-stone-900">{tNav('observations')}</h2>
           <p className="text-sm text-stone-500">{t('desc')}</p>
         </div>
-        <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
       </div>
 
       {catalog.isLoading ? <Skeleton className="h-4 w-64" /> : null}

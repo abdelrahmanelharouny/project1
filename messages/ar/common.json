@@ -11,6 +11,8 @@
   "actions": "الإجراءات",
   "noData": "لا توجد بيانات بعد.",
   "selectField": "اختر حقلًا",
+  "clear": "مسح",
+  "fieldUnavailable": "غير موجود ضمن حقولك المتاحة",
   "noFieldsYet": "لا توجد حقول بعد.",
   "createFarmField": "أنشئ مزرعة وحقلًا",
   "goToFarms": "الانتقال إلى المزارع والحقول",

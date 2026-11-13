@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { FieldPicker } from '@/components/croptwist/field-picker'
+import { FieldContextGate } from '@/components/croptwist/field-context'
 import {
   useApplyEvidence,
   useCreateEvidenceAction,
@@ -53,7 +53,6 @@ function importanceVariant(importance: string): 'destructive' | 'default' | 'sec
 export function AdaptiveEvidence() {
   const t = useTranslations('adaptiveevidence')
   const selectedField = useCropTwistUi((s) => s.selectedField)
-  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const [applyReport, setApplyReport] = useState<EvidenceApplyReport | null>(null)
   const [refKind, setRefKind] = useState<string>('ingestion_job')
   const [refId, setRefId] = useState<string>('')
@@ -65,18 +64,7 @@ export function AdaptiveEvidence() {
   const transition = useTransitionEvidenceAction(selectedField?.id ?? null)
   const apply = useApplyEvidence(selectedField?.id ?? null)
 
-  if (!selectedField) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-stone-500">
-          <p>{t('pickFieldHint')}</p>
-          <div className="mx-auto mt-4 max-w-xs">
-            <FieldPicker value={null} onValueChange={setSelectedField} />
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (!selectedField) return <FieldContextGate hint={t('pickFieldHint')} />
 
   return (
     <div className="space-y-4" dir="ltr">
@@ -87,7 +75,6 @@ export function AdaptiveEvidence() {
               <CardTitle>{t('title')}</CardTitle>
               <CardDescription>{t('description')}</CardDescription>
             </div>
-            <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -30,7 +30,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   ApiError,
   createDecisionComparison,

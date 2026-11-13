@@ -14,6 +14,8 @@
   "defaultPlanName": "Water plan {date}",
   "planCreatedToast": "Water plan created",
   "planCreatedDesc": "Checksum {checksum}…",
+  "planLoading": "Loading the active plan…",
+  "planError": "Could not load the active water plan.",
   "seasonLabelAria": "Season {number} label",
   "seasonStartAria": "Season {number} start",
   "seasonEndAria": "Season {number} end",

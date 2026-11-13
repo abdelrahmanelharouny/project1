@@ -14,6 +14,8 @@
   "defaultPlanName": "خطة مياه {date}",
   "planCreatedToast": "تم إنشاء خطة المياه",
   "planCreatedDesc": "البصمة {checksum}…",
+  "planLoading": "جارٍ تحميل الخطة النشطة…",
+  "planError": "تعذّر تحميل خطة المياه النشطة.",
   "seasonLabelAria": "تسمية الموسم {number}",
   "seasonStartAria": "بداية الموسم {number}",
   "seasonEndAria": "نهاية الموسم {number}",

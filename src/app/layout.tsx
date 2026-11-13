@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
@@ -23,6 +23,15 @@ export const metadata: Metadata = {
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
+};
+
+// W0 (audit P10): without a viewport export the footer's
+// `pb-[env(safe-area-inset-bottom)]` was inert on iOS — no viewport-fit=cover
+// was ever emitted. `viewportFit: "cover"` activates the existing safe-area
+// CSS without changing any layout on non-notched devices.
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({

@@ -91,7 +91,6 @@ export function DataPassport() {
             {t('honestySuffix')}
           </p>
         </div>
-        <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
       </div>
 
       {passportQuery.isLoading ? (

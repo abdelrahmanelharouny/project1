@@ -1,0 +1,593 @@
+   648→                  className={`h-3 w-3 shrink-0 rounded-sm ${CLASS_COLOR[d.classification] ?? CLASS_COLOR.unknown}`}
+   649→                />
+   650→              ))}
+   651→            </div>
+   652→          </div>
+   653→
+   654→          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+   655→            <Metric label={t('metricProtective')} value={`${data.metrics.days_protective_cover} d`} />
+   656→            <Metric label={t('metricBare')} value={`${data.metrics.days_known_bare} d`} />
+   657→            <Metric label={t('metricUnknown')} value={`${data.metrics.days_unknown} d`} />
+   658→            <Metric
+   659→              label={t('metricLongestBare')}
+   660→              value={data.metrics.longest_bare_interval_days ? `${data.metrics.longest_bare_interval_days} d` : '—'}
+   661→              hint={data.metrics.longest_bare_interval ? data.metrics.longest_bare_interval.join(' → ') : t('noBareEvidence')}
+   662→            />
+   663→          </div>
+   664→
+   665→          <p className="text-[11px] text-stone-500">{data.thresholds.note}</p>
+   666→
+   667→          <Separator />
+   668→
+   669→          <div className="space-y-2">
+   670→            <p className="text-xs font-semibold text-stone-700">{t('recordObs')}</p>
+   671→            <div className="flex flex-wrap items-end gap-2">
+   672→              <div className="space-y-1">
+   673→                <Label htmlFor="obs-date" className="text-xs">{t('dateLabel')}</Label>
+   674→                <Input id="obs-date" type="date" value={obsDate} onChange={(e) => setObsDate(e.target.value)} className="h-9 text-sm" />
+   675→              </div>
+   676→              <div className="space-y-1">
+   677→                <Label htmlFor="obs-state" className="text-xs">{t('stateLabel')}</Label>
+   678→                <Select value={obsState} onValueChange={setObsState}>
+   679→                  <SelectTrigger id="obs-state" className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+   680→                  <SelectContent>
+   681→                    <SelectItem value="bare">{t('stateBare')}</SelectItem>
+   682→                    <SelectItem value="living_main_crop">{t('stateLivingMain')}</SelectItem>
+   683→                    <SelectItem value="living_cover_crop">{t('stateLivingCover')}</SelectItem>
+   684→                    <SelectItem value="surface_residue">{t('stateResidue')}</SelectItem>
+   685→                    <SelectItem value="mulch">{t('stateMulch')}</SelectItem>
+   686→                    <SelectItem value="unknown">{t('stateUnknown')}</SelectItem>
+   687→                  </SelectContent>
+   688→                </Select>
+   689→              </div>
+   690→              <Button size="sm" variant="outline" className="h-9" onClick={() => addObs.mutate()} disabled={addObs.isPending}>
+   691→                {addObs.isPending ? t('saving') : t('addObservation')}
+   692→              </Button>
+   693→            </div>
+   694→            <ErrorNote error={error} />
+   695→          </div>
+   696→
+   697→          {expert ? (
+   698→            <Accordion type="single" collapsible>
+   699→              <AccordionItem value="method">
+   700→                <AccordionTrigger className="text-xs">{t('methodNotes')}</AccordionTrigger>
+   701→                <AccordionContent className="space-y-1 text-[11px] text-stone-600">
+   702→                  <p>{data.method.engine} · {data.method.version}</p>
+   703→                  {data.method.rules.map((r, i) => <p key={i}>· {r}</p>)}
+   704→                  {data.evidence_notes.map((n, i) => <p key={i} className="text-amber-800">· {n.detail}</p>)}
+   705→                  <p>{t('inputsLine', { inputs: Object.entries(data.inputs_summary).map(([k, v]) => `${k}=${v}`).join(' · ') })}</p>
+   706→                </AccordionContent>
+   707→              </AccordionItem>
+   708→            </Accordion>
+   709→          ) : null}
+   710→        </div>
+   711→      ) : null}
+   712→    </div>
+   713→  )
+   714→}
+   715→
+   716→// ------------------------------------------------------------ residue view
+   717→
+   718→function ResidueView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   719→  const t = useTranslations('management')
+   720→  const qc = useQueryClient()
+   721→  const ledger = useQuery({
+   722→    queryKey: ['residue-ledger', fieldId],
+   723→    queryFn: () => getResidueLedger(fieldId),
+   724→    enabled: Boolean(fieldId),
+   725→  })
+   726→  const [crop, setCrop] = useState('')
+   727→  const [produced, setProduced] = useState('')
+   728→  const [flowType, setFlowType] = useState('retained_surface')
+   729→  const [flowKg, setFlowKg] = useState('')
+   730→  const [targetRecord, setTargetRecord] = useState<string | null>(null)
+   731→  const [error, setError] = useState<unknown>(null)
+   732→
+   733→  const addRecord = useMutation({
+   734→    mutationFn: () =>
+   735→      createResidueRecord(fieldId, {
+   736→        crop_label: crop,
+   737→        production_status: produced ? 'farmer_reported' : 'missing',
+   738→        produced_dm_kg: produced ? Number(produced) : undefined,
+   739→      }),
+   740→    onSuccess: (rec) => {
+   741→      setError(null)
+   742→      setCrop('')
+   743→      setProduced('')
+   744→      setTargetRecord(rec.id)
+   745→      qc.invalidateQueries({ queryKey: ['residue-ledger', fieldId] })
+   746→    },
+   747→    onError: setError,
+   748→  })
+   749→
+   750→  const addFlow = useMutation({
+   751→    mutationFn: () =>
+   752→      createResidueFlow(targetRecord as string, {
+   753→        flow_type: flowType,
+   754→        dm_kg: flowKg ? Number(flowKg) : undefined,
+   755→        dm_kg_status: flowKg ? 'farmer_reported' : 'unknown',
+   756→      }),
+   757→    onSuccess: () => {
+   758→      setError(null)
+   759→      setFlowKg('')
+   760→      qc.invalidateQueries({ queryKey: ['residue-ledger', fieldId] })
+   761→    },
+   762→    onError: setError,
+   763→  })
+   764→
+   765→  const data: ResidueLedgerResponse | undefined = ledger.data
+   766→
+   767→  return (
+   768→    <div className="space-y-4">
+   769→      <p className="text-sm text-stone-600">
+   770→        {t('residueIntro')}
+   771→      </p>
+   772→
+   773→      <div className="flex flex-wrap items-end gap-2">
+   774→        <div className="space-y-1">
+   775→          <Label htmlFor="res-crop" className="text-xs">{t('cropLabel')}</Label>
+   776→          <Input id="res-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder={t('cropPlaceholder')} className="h-9 w-40 text-sm" />
+   777→        </div>
+   778→        <div className="space-y-1">
+   779→          <Label htmlFor="res-prod" className="text-xs">{t('producedLabel')}</Label>
+   780→          <Input id="res-prod" type="number" min="0" value={produced} onChange={(e) => setProduced(e.target.value)} className="h-9 w-44 text-sm" />
+   781→        </div>
+   782→        <Button variant="outline" className="h-9" onClick={() => addRecord.mutate()} disabled={addRecord.isPending || !crop}>
+   783→          {addRecord.isPending ? t('saving') : t('addRecord')}
+   784→        </Button>
+   785→      </div>
+   786→      <ErrorNote error={error} />
+   787→
+   788→      {ledger.isLoading ? <Skeleton className="h-32 w-full" /> : null}
+   789→      <ErrorNote error={ledger.error} />
+   790→
+   791→      {data ? (
+   792→        <div className="space-y-3">
+   793→          {data.warnings.map((w, i) => (
+   794→            <p key={i} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{w}</p>
+   795→          ))}
+   796→          {data.records.length === 0 ? (
+   797→            <HonestEmpty>{t('noRecords')}</HonestEmpty>
+   798→          ) : (
+   799→            data.records.map((rec) => (
+   800→              <Card key={rec.record.id} className="border-stone-200">
+   801→                <CardHeader className="pb-2">
+   802→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   803→                    <CardTitle className="text-sm">{rec.record.crop_label}</CardTitle>
+   804→                    <StatusBadge status={rec.balance.status} />
+   805→                  </div>
+   806→                  <CardDescription>
+   807→                    {t('recordDesc', {
+   808→                      amount: rec.record.produced_dm_kg !== null ? `${rec.record.produced_dm_kg} kg DM` : t('unknownAmount'),
+   809→                      status: rec.record.production_status.replace(/_/g, ' '),
+   810→                    })}
+   811→                  </CardDescription>
+   812→                </CardHeader>
+   813→                <CardContent className="space-y-2 text-xs text-stone-600">
+   814→                  {rec.flows.map((f) => (
+   815→                    <div key={f.id} className="flex flex-wrap items-center gap-2">
+   816→                      <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{f.flow_type.replace(/_/g, ' ')}</Badge>
+   817→                      <span>{f.dm_kg !== null ? `${f.dm_kg} kg` : t('massUnknown')}</span>
+   818→                      <span className="text-stone-400">{f.dm_kg_status}</span>
+   819→                    </div>
+   820→                  ))}
+   821→                  <p>
+   822→                    {t('balanceLine', {
+   823→                      flows: rec.balance.total_flow_dm_kg,
+   824→                      unaccounted: rec.balance.unaccounted_dm_kg !== null ? `${rec.balance.unaccounted_dm_kg} kg` : t('notComputable'),
+   825→                    })}
+   826→                  </p>
+   827→                  {expert && rec.derived.total_nitrogen_kg !== undefined ? (
+   828→                    <p className="text-[11px]">
+   829→                      {t('nitrogenNote', { value: String(rec.derived.total_nitrogen_kg) })}
+   830→                    </p>
+   831→                  ) : null}
+   832→                  {targetRecord === rec.record.id ? (
+   833→                    <div className="flex flex-wrap items-end gap-2 border-t border-stone-100 pt-2">
+   834→                      <div className="space-y-1">
+   835→                        <Label htmlFor={`flow-type-${rec.record.id}`} className="text-xs">{t('flowLabel')}</Label>
+   836→                        <Select value={flowType} onValueChange={setFlowType}>
+   837→                          <SelectTrigger id={`flow-type-${rec.record.id}`} className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+   838→                          <SelectContent>
+   839→                            <SelectItem value="retained_surface">{t('flowRetained')}</SelectItem>
+   840→                            <SelectItem value="incorporated">{t('flowIncorporated')}</SelectItem>
+   841→                            <SelectItem value="removed_baled">{t('flowRemoved')}</SelectItem>
+   842→                            <SelectItem value="grazed">{t('flowGrazed')}</SelectItem>
+   843→                            <SelectItem value="burned">{t('flowBurned')}</SelectItem>
+   844→                            <SelectItem value="other_loss">{t('flowOther')}</SelectItem>
+   845→                            <SelectItem value="unknown">{t('flowUnknownFate')}</SelectItem>
+   846→                          </SelectContent>
+   847→                        </Select>
+   848→                      </div>
+   849→                      <div className="space-y-1">
+   850→                        <Label htmlFor={`flow-kg-${rec.record.id}`} className="text-xs">{t('dmKgLabel')}</Label>
+   851→                        <Input id={`flow-kg-${rec.record.id}`} type="number" min="0" value={flowKg} onChange={(e) => setFlowKg(e.target.value)} className="h-9 w-36 text-sm" />
+   852→                      </div>
+   853→                      <Button size="sm" variant="outline" className="h-9" onClick={() => addFlow.mutate()} disabled={addFlow.isPending}>
+   854→                        {t('addFlow')}
+   855→                      </Button>
+   856→                    </div>
+   857→                  ) : (
+   858→                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setTargetRecord(rec.record.id)}>
+   859→                      {t('addFlowToRecord')}
+   860→                    </Button>
+   861→                  )}
+   862→                </CardContent>
+   863→              </Card>
+   864→            ))
+   865→          )}
+   866→        </div>
+   867→      ) : null}
+   868→    </div>
+   869→  )
+   870→}
+   871→
+   872→// ------------------------------------------------------------ erosion view
+   873→
+   874→function ErosionView({ fieldId, expert }: { fieldId: string; expert: boolean }) {
+   875→  const t = useTranslations('management')
+   876→  const qc = useQueryClient()
+   877→  const [slopeClass, setSlopeClass] = useState('unknown')
+   878→  const [useRusle, setUseRusle] = useState(false)
+   879→  const [factors, setFactors] = useState({ R: '100', K: '0.25', LS: '1.0', C: '0.3', P: '0.5' })
+   880→  const [factorSource, setFactorSource] = useState('')
+   881→  const [run, setRun] = useState<ErosionRun | null>(null)
+   882→  const [error, setError] = useState<unknown>(null)
+   883→
+   884→  const assess = useMutation({
+   885→    mutationFn: () => {
+   886→      const input: Parameters<typeof createErosionAssessment>[1] = {
+   887→        window_start: daysAgo(365),
+   888→        window_end: today(),
+   889→        slope_evidence: slopeClass !== 'unknown' ? { slope_class: slopeClass } : undefined,
+   890→      }
+   891→      if (useRusle) {
+   892→        input.rusle_factors = Object.fromEntries(
+   893→          Object.entries(factors).map(([code, value]) => [
+   894→            code,
+   895→            {
+   896→              value: Number(value),
+   897→              source_reference: factorSource || 'unspecified local source',
+   898→              region_scope: 'farm_declared',
+   899→              unit_convention: 'metric_si',
+   900→            },
+   901→          ]),
+   902→        )
+   903→      }
+   904→      return createErosionAssessment(fieldId, input)
+   905→    },
+   906→    onSuccess: (r) => {
+   907→      setRun(r)
+   908→      setError(null)
+   909→      qc.invalidateQueries({ queryKey: ['erosion', fieldId] })
+   910→    },
+   911→    onError: setError,
+   912→  })
+   913→
+   914→  return (
+   915→    <div className="space-y-4">
+   916→      <p className="text-sm text-stone-600">
+   917→        {t.rich('erosionIntro', { b: (chunks) => <span className="font-medium">{chunks}</span> })}
+   918→      </p>
+   919→
+   920→      <div className="flex flex-wrap items-end gap-2">
+   921→        <div className="space-y-1">
+   922→          <Label htmlFor="slope" className="text-xs">{t('slopeLabel')}</Label>
+   923→          <Select value={slopeClass} onValueChange={setSlopeClass}>
+   924→            <SelectTrigger id="slope" className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
+   925→            <SelectContent>
+   926→              <SelectItem value="unknown">{t('slopeUndeclared')}</SelectItem>
+   927→              <SelectItem value="flat">{t('slopeFlat')}</SelectItem>
+   928→              <SelectItem value="gentle">{t('slopeGentle')}</SelectItem>
+   929→              <SelectItem value="moderate">{t('slopeModerate')}</SelectItem>
+   930→              <SelectItem value="steep">{t('slopeSteep')}</SelectItem>
+   931→            </SelectContent>
+   932→          </Select>
+   933→        </div>
+   934→        <div className="flex items-center gap-2 pb-2 text-xs text-stone-500">
+   935→          <Switch checked={useRusle} onCheckedChange={setUseRusle} aria-label={t('rusleAria')} id="rusle-toggle" />
+   936→          <Label htmlFor="rusle-toggle" className="text-xs">{t('rusleLabel')}</Label>
+   937→        </div>
+   938→        {useRusle ? (
+   939→          <div className="space-y-1">
+   940→            <Label htmlFor="factor-src" className="text-xs">{t('factorSourceLabel')}</Label>
+   941→            <Input id="factor-src" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} placeholder={t('factorSourcePlaceholder')} className="h-9 w-52 text-sm" />
+   942→          </div>
+   943→        ) : null}
+   944→        <Button onClick={() => assess.mutate()} disabled={assess.isPending} className="bg-emerald-700 hover:bg-emerald-800">
+   945→          {assess.isPending ? t('assessing') : t('runAssessment')}
+   946→        </Button>
+   947→      </div>
+   948→
+   949→      {useRusle ? (
+   950→        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+   951→          {(['R', 'K', 'LS', 'C', 'P'] as const).map((code) => (
+   952→            <div key={code} className="space-y-1">
+   953→              <Label htmlFor={`factor-${code}`} className="text-xs">{code}</Label>
+   954→              <Input id={`factor-${code}`} value={factors[code]} onChange={(e) => setFactors({ ...factors, [code]: e.target.value })} className="h-9 text-sm" />
+   955→            </div>
+   956→          ))}
+   957→        </div>
+   958→      ) : null}
+   959→      <ErrorNote error={error} />
+   960→
+   961→      {run ? (
+   962→        <div className="space-y-3" data-testid="erosion-result">
+   963→          <Card className="border-stone-200">
+   964→            <CardHeader className="pb-2">
+   965→              <CardTitle className="flex items-center gap-2 text-sm">
+   966→                {t('screeningTitle')} <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{t('screeningBadge')}</Badge>
+   967→              </CardTitle>
+   968→            </CardHeader>
+   969→            <CardContent className="space-y-2 text-xs text-stone-600">
+   970→              {run.result.screening.concerns.length === 0 ? (
+   971→                <HonestEmpty>{t('noConcerns', { count: run.result.screening.unknowns.length })}</HonestEmpty>
+   972→              ) : (
+   973→                run.result.screening.concerns.map((c, i) => (
+   974→                  <div key={i} className="flex items-start gap-2">
+   975→                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+   976→                    <span>{c.evidence} <span className="text-stone-400">({c.processes.join(', ')})</span></span>
+   977→                  </div>
+   978→                ))
+   979→              )}
+   980→              {run.result.screening.field_observed_signs.length > 0 ? (
+   981→                <div className="rounded-md border border-stone-200 bg-stone-50 p-2">
+   982→                  <p className="font-medium text-stone-700">{t('observedSigns')}</p>
+   983→                  {run.result.screening.field_observed_signs.map((s, i) => <p key={i}>{s.description}</p>)}
+   984→                </div>
+   985→              ) : null}
+   986→              {run.result.screening.unknowns.length > 0 && expert ? (
+   987→                <ul className="space-y-0.5 text-[11px] text-stone-500">
+   988→                  {run.result.screening.unknowns.map((u, i) => <li key={i}>· {u}</li>)}
+   989→                </ul>
+   990→              ) : null}
+   991→            </CardContent>
+   992→          </Card>
+   993→
+   994→          {run.result.rusle.status !== 'not_evaluated' ? (
+   995→            <Card className="border-stone-200">
+   996→              <CardHeader className="pb-2">
+   997→                <CardTitle className="text-sm">{t('rusleTitle')}</CardTitle>
+   998→                <CardDescription>
+   999→                  {run.result.rusle.annual_soil_loss_a !== undefined
+  1000→                    ? t('rusleEstimate', {
+  1001→                        value: run.result.rusle.annual_soil_loss_a,
+  1002→                        unit: run.result.rusle.unit_convention ?? '',
+  1003→                      })
+  1004→                    : run.result.rusle.message}
+  1005→                </CardDescription>
+  1006→              </CardHeader>
+  1007→              {expert && run.result.rusle.scope_disclosures ? (
+  1008→                <CardContent>
+  1009→                  <ul className="space-y-0.5 text-[11px] text-stone-500">
+  1010→                    {run.result.rusle.scope_disclosures.map((d, i) => <li key={i}>· {d}</li>)}
+  1011→                  </ul>
+  1012→                </CardContent>
+  1013→              ) : null}
+  1014→            </Card>
+  1015→          ) : null}
+  1016→
+  1017→          {run.result.alternatives.length > 0 ? (
+  1018→            <Card className="border-stone-200">
+  1019→              <CardHeader className="pb-2">
+  1020→                <CardTitle className="text-sm">{t('alternativesTitle')}</CardTitle>
+  1021→              </CardHeader>
+  1022→              <CardContent>
+  1023→                <Accordion type="single" collapsible className="w-full">
+  1024→                  {run.result.alternatives.map((a) => (
+  1025→                    <AccordionItem key={a.practice_code} value={a.practice_code}>
+  1026→                      <AccordionTrigger className="text-xs">{a.name}</AccordionTrigger>
+  1027→                      <AccordionContent className="space-y-1 text-[11px] text-stone-600">
+  1028→                        {a.mechanisms.map((m, i) => (
+  1029→                          <p key={i}>· {m.text} {m.citation ? <span className="text-stone-400">— {m.citation.citation_text}</span> : null}</p>
+  1030→                        ))}
+  1031→                        <p className="text-stone-400">{a.quantitative_note}</p>
+  1032→                      </AccordionContent>
+  1033→                    </AccordionItem>
+  1034→                  ))}
+  1035→                </Accordion>
+  1036→              </CardContent>
+  1037→            </Card>
+  1038→          ) : null}
+  1039→        </div>
+  1040→      ) : null}
+  1041→    </div>
+  1042→  )
+  1043→}
+  1044→
+  1045→// ------------------------------------------------------------ operations view
+  1046→
+  1047→function OperationsView({ fieldId, farmId, expert }: { fieldId: string; farmId: string | null; expert: boolean }) {
+  1048→  const t = useTranslations('management')
+  1049→  const qc = useQueryClient()
+  1050→  const [crop, setCrop] = useState('')
+  1051→  const [hoursPerDay, setHoursPerDay] = useState('8')
+  1052→  const [resourceType, setResourceType] = useState('tractor')
+  1053→  const [resourceName, setResourceName] = useState('')
+  1054→  const [schedule, setSchedule] = useState<ScheduleRun | null>(null)
+  1055→  const [error, setError] = useState<unknown>(null)
+  1056→
+  1057→  const ops = useQuery({
+  1058→    queryKey: ['operations', fieldId],
+  1059→    queryFn: () => listFieldOperations(fieldId),
+  1060→    enabled: Boolean(fieldId),
+  1061→  })
+  1062→  const resources = useQuery({
+  1063→    queryKey: ['resources', farmId],
+  1064→    queryFn: () => listFarmResources(farmId as string),
+  1065→    enabled: Boolean(farmId),
+  1066→  })
+  1067→  const templates = useQuery({
+  1068→    queryKey: ['operation-templates'],
+  1069→    queryFn: listOperationTemplates,
+  1070→  })
+  1071→
+  1072→  const generate = useMutation({
+  1073→    mutationFn: () => generateOperations(fieldId, { crop_label: crop, window_year: new Date().getFullYear() + 1 }),
+  1074→    onSuccess: () => {
+  1075→      setError(null)
+  1076→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+  1077→    },
+  1078→    onError: setError,
+  1079→  })
+  1080→  const addResource = useMutation({
+  1081→    mutationFn: () => createFarmResource(farmId as string, { resource_type: resourceType, name: resourceName || resourceType }),
+  1082→    onSuccess: () => {
+  1083→      setError(null)
+  1084→      setResourceName('')
+  1085→      qc.invalidateQueries({ queryKey: ['resources', farmId] })
+  1086→    },
+  1087→    onError: setError,
+  1088→  })
+  1089→  const scheduleRun = useMutation({
+  1090→    mutationFn: () =>
+  1091→      createScheduleRun(fieldId, { hours_per_workday: Number(hoursPerDay) || undefined }),
+  1092→    onSuccess: (r) => {
+  1093→      setSchedule(r)
+  1094→      setError(null)
+  1095→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+  1096→    },
+  1097→    onError: setError,
+  1098→  })
+  1099→  const complete = useMutation({
+  1100→    mutationFn: (opId: string) => patchOperation(opId, { status: 'completed', completion_date: today() }),
+  1101→    onSuccess: () => {
+  1102→      setError(null)
+  1103→      qc.invalidateQueries({ queryKey: ['operations', fieldId] })
+  1104→    },
+  1105→    onError: setError,
+  1106→  })
+  1107→
+  1108→  return (
+  1109→    <div className="space-y-4">
+  1110→      <div className="flex flex-wrap items-end gap-2">
+  1111→        <div className="space-y-1">
+  1112→          <Label htmlFor="gen-crop" className="text-xs">{t('generateCropLabel')}</Label>
+  1113→          <Input id="gen-crop" value={crop} onChange={(e) => setCrop(e.target.value)} placeholder={t('cropPlaceholder')} className="h-9 w-40 text-sm" />
+  1114→        </div>
+  1115→        <Button variant="outline" className="h-9" onClick={() => generate.mutate()} disabled={generate.isPending || !crop}>
+  1116→          {generate.isPending ? t('generating') : t('generateFromTemplates')}
+  1117→        </Button>
+  1118→        <div className="space-y-1">
+  1119→          <Label htmlFor="hpd" className="text-xs">{t('hoursLabel')}</Label>
+  1120→          <Input id="hpd" type="number" min="1" value={hoursPerDay} onChange={(e) => setHoursPerDay(e.target.value)} className="h-9 w-24 text-sm" />
+  1121→        </div>
+  1122→        <Button onClick={() => scheduleRun.mutate()} disabled={scheduleRun.isPending} className="bg-emerald-700 hover:bg-emerald-800">
+  1123→          {scheduleRun.isPending ? t('scheduling') : t('scheduleOps')}
+  1124→        </Button>
+  1125→      </div>
+  1126→      <ErrorNote error={error ?? ops.error} />
+  1127→
+  1128→      <div className="grid gap-3 lg:grid-cols-2">
+  1129→        <Card className="border-stone-200">
+  1130→          <CardHeader className="pb-2">
+  1131→            <CardTitle className="text-sm">{t('opsTitle')}</CardTitle>
+  1132→            <CardDescription>
+  1133→              {t('opsDesc')}
+  1134→            </CardDescription>
+  1135→          </CardHeader>
+  1136→          <CardContent className="space-y-2">
+  1137→            {ops.isLoading ? <Skeleton className="h-24 w-full" /> : null}
+  1138→            {ops.data && ops.data.items.length === 0 ? (
+  1139→              <HonestEmpty>{t('noOpsYet')}</HonestEmpty>
+  1140→            ) : null}
+  1141→            {ops.data?.items.map((op) => {
+  1142→              const entry = schedule?.result.entries.find((e) => e.operation_id === op.id)
+  1143→              return (
+  1144→                <div key={op.id} className="rounded-lg border border-stone-100 p-2 text-xs">
+  1145→                  <div className="flex flex-wrap items-center gap-2">
+  1146→                    <StatusBadge status={op.status} />
+  1147→                    <span className="font-medium text-stone-800">{op.title}</span>
+  1148→                    <span className="text-stone-500">
+  1149→                      {op.scheduled_start ?? op.earliest_start ?? t('noWindow')}
+  1150→                      {op.scheduled_end ?? op.latest_finish ? ` → ${op.scheduled_end ?? op.latest_finish}` : ''}
+  1151→                    </span>
+  1152→                    {op.status !== 'completed' ? (
+  1153→                      <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-[11px]" onClick={() => complete.mutate(op.id)} disabled={complete.isPending}>
+  1154→                        {t('markDone')}
+  1155→                      </Button>
+  1156→                    ) : null}
+  1157→                  </div>
+  1158→                  {entry && entry.status === 'unscheduled' && entry.reason ? (
+  1159→                    <p className="mt-1 text-[11px] text-amber-800">{entry.reason}</p>
+  1160→                  ) : null}
+  1161→                  {op.status_reason ? <p className="mt-1 text-[11px] text-amber-800">{op.status_reason}</p> : null}
+  1162→                </div>
+  1163→              )
+  1164→            })}
+  1165→          </CardContent>
+  1166→        </Card>
+  1167→
+  1168→        <Card className="border-stone-200">
+  1169→          <CardHeader className="pb-2">
+  1170→            <CardTitle className="text-sm">{t('resourcesTitle')}</CardTitle>
+  1171→            <CardDescription>{t('resourcesDesc')}</CardDescription>
+  1172→          </CardHeader>
+  1173→          <CardContent className="space-y-2">
+  1174→            <div className="flex flex-wrap items-end gap-2">
+  1175→              <div className="space-y-1">
+  1176→                <Label htmlFor="res-type" className="text-xs">{t('typeLabel')}</Label>
+  1177→                <Select value={resourceType} onValueChange={setResourceType}>
+  1178→                  <SelectTrigger id="res-type" className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
+  1179→                  <SelectContent>
+  1180→                    <SelectItem value="tractor">{t('resTractor')}</SelectItem>
+  1181→                    <SelectItem value="implement">{t('resImplement')}</SelectItem>
+  1182→                    <SelectItem value="seeder">{t('resSeeder')}</SelectItem>
+  1183→                    <SelectItem value="sprayer">{t('resSprayer')}</SelectItem>
+  1184→                    <SelectItem value="harvester">{t('resHarvester')}</SelectItem>
+  1185→                    <SelectItem value="baler">{t('resBaler')}</SelectItem>
+  1186→                    <SelectItem value="contractor">{t('resContractor')}</SelectItem>
+  1187→                    <SelectItem value="labor_crew">{t('resLabourCrew')}</SelectItem>
+  1188→                  </SelectContent>
+  1189→                </Select>
+  1190→              </div>
+  1191→              <div className="space-y-1">
+  1192→                <Label htmlFor="res-name" className="text-xs">{t('nameLabel')}</Label>
+  1193→                <Input id="res-name" value={resourceName} onChange={(e) => setResourceName(e.target.value)} placeholder={t('namePlaceholder')} className="h-9 w-36 text-sm" />
+  1194→              </div>
+  1195→              <Button size="sm" variant="outline" className="h-9" onClick={() => addResource.mutate()} disabled={addResource.isPending || !farmId}>
+  1196→                {t('addResource')}
+  1197→              </Button>
+  1198→            </div>
+  1199→            {resources.data?.items.length ? (
+  1200→              <div className="flex flex-wrap gap-1">
+  1201→                {resources.data.items.map((r) => (
+  1202→                  <Badge key={r.id} variant="outline" className="px-1.5 py-0 text-[10px]">{r.name}</Badge>
+  1203→                ))}
+  1204→              </div>
+  1205→            ) : (
+  1206→              <HonestEmpty>{t('noResources')}</HonestEmpty>
+  1207→            )}
+  1208→            {schedule ? (
+  1209→              <div className="border-t border-stone-100 pt-2 text-[11px] text-stone-600">
+  1210→                <p className="font-medium text-stone-700">{t('lastSchedule')}</p>
+  1211→                <p>
+  1212→                  {t('scheduleSummary', {
+  1213→                    status: schedule.result.solver.status,
+  1214→                    scheduled: schedule.result.entries.filter((e) => e.status === 'scheduled').length,
+  1215→                    unscheduled: schedule.result.entries.filter((e) => e.status === 'unscheduled').length,
+  1216→                  })}
+  1217→                </p>
+  1218→                <p className="text-stone-500">
+  1219→                  {t('weatherPending')}
+  1220→                </p>
+  1221→                {schedule.result.conflicts.map((c, i) => (
+  1222→                  <p key={i} className="text-red-700">{c.message}</p>
+  1223→                ))}
+  1224→              </div>
+  1225→            ) : null}
+  1226→            {expert && templates.data ? (
+  1227→              <p className="text-[11px] text-stone-400">
+  1228→                {t('templatePack', {
+  1229→                  total: templates.data.total,
+  1230→                  status: templates.data.operation_templates[0]?.validation_status ?? '—',
+  1231→                })}
+  1232→              </p>
+  1233→            ) : null}
+  1234→          </CardContent>
+  1235→        </Card>
+  1236→      </div>
+  1237→    </div>
+  1238→  )
+  1239→}
+  1240→

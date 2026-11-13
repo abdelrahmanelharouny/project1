@@ -78,6 +78,26 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/*
+ * W0.6 — design-token decision (P01 audit P2/P3), recorded here deliberately:
+ *
+ * CropTwist is LIGHT-ONLY by formal decision in P02. Rationale:
+ *   - No ThemeProvider is mounted (providers.tsx), no `.dark` class is ever
+ *     applied, and grep confirms zero `dark:` usage in app code — the audit
+ *     measured dark mode as unreachable dead weight.
+ *   - The `@custom-variant dark` line BELOW must STAY: removing it would make
+ *     Tailwind's default `dark:` variant fall back to prefers-color-scheme,
+ *     which would visually flip shadcn/ui primitives for users with a dark OS
+ *     preference — a regression we refuse in a foundation phase.
+ *   - The `.dark` token block is therefore kept as DORMANT scaffolding for the
+ *     later visual redesign (W5/P03): it changes nothing today (the class is
+ *     never applied) and gives that phase a ready token set.
+ *   - App surfaces still use hardcoded stone-/emerald- utilities (~1,690
+ *     occurrences); migrating them onto semantic tokens is deferred to the
+ *     visual redesign phase, tracked in docs/p02/P02_KNOWN_LIMITATIONS.md.
+ * The misleading dead `tailwind.config.ts` (hsl vars + wrong globs) was
+ * DELETED in this phase — Tailwind v4 reads `@theme inline` here only.
+ */
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

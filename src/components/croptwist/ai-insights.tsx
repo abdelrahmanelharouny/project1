@@ -50,7 +50,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   useAdvisorHistory,
   useAdvisorQuery,
@@ -233,7 +232,6 @@ export default function AiInsights() {
   return (
     <div className="space-y-4">
       <Header />
-      <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
       <OverviewCard fieldId={fieldId} />
       <RecommendationsSection fieldId={fieldId} />
       <InsightsStrip fieldId={fieldId} />

@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { FieldContextGate } from '@/components/croptwist/field-context'
 import { FieldPicker } from '@/components/croptwist/field-picker'
 import {
   useCreateRotationStressRun,
@@ -64,18 +65,7 @@ export function FailureLab() {
   })
   const latest: RotationStressRun | null = latestDetail.data ?? latestSummary as RotationStressRun | null
 
-  if (!selectedField) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-stone-500">
-          <p>{t('pickFieldHint')}</p>
-          <div className="mx-auto mt-4 max-w-xs">
-            <FieldPicker value={null} onValueChange={setSelectedField} />
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (!selectedField) return <FieldContextGate hint={t('pickFieldHint')} />
 
   const togglePack = (code: string) =>
     setSelectedPacks((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]))

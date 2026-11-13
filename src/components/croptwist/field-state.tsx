@@ -360,7 +360,6 @@ export function FieldStateView() {
             {t('forField', { name: selectedField.name })}
           </p>
         </div>
-        <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
       </div>
 
       <Card className="border-stone-200 bg-white shadow-sm">

@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { FieldPicker } from '@/components/croptwist/field-picker'
+import { FieldContextGate } from '@/components/croptwist/field-context'
 import {
   useCreatePortfolioRun,
   usePortfolioConstraints,
@@ -29,7 +29,6 @@ import { describeError } from '@/lib/api'
 export function FarmPortfolio() {
   const t = useTranslations('portfolio')
   const selectedField = useCropTwistUi((s) => s.selectedField)
-  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const farms = useCropTwistUi((s) => s.selectedFarmId)
   const [waterAllocation, setWaterAllocation] = useState<string>('5000')
   const [familyShare, setFamilyShare] = useState<string>('')
@@ -43,18 +42,7 @@ export function FarmPortfolio() {
   const runMutation = useCreatePortfolioRun(farmId)
   const runDetail = usePortfolioRun(lastRunId)
 
-  if (!selectedField) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-stone-500">
-          <p>{t('pickFarmHint')}</p>
-          <div className="mx-auto mt-4 max-w-xs">
-            <FieldPicker value={null} onValueChange={setSelectedField} />
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (!selectedField) return <FieldContextGate hint={t('pickFarmHint')} />
 
   const payload = {
     season_count: 1,
@@ -81,7 +69,6 @@ export function FarmPortfolio() {
               <CardTitle>{t('title')}</CardTitle>
               <CardDescription>{t('description')}</CardDescription>
             </div>
-            <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
           </div>
         </CardHeader>
         <CardContent className="space-y-3">

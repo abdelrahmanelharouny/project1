@@ -54,6 +54,7 @@ import { Switch } from '@/components/ui/switch'
 import { ExportButton } from '@/components/croptwist/export-button'
 import { FieldPicker } from '@/components/croptwist/field-picker'
 import { WaterMonthlyChart } from '@/components/croptwist/charts/water-monthly'
+import { ErrorState, SectionLoader } from '@/components/croptwist/state-views'
 import { useCropTwistUi } from '@/lib/store'
 import {
   useKnowledgeCrops,
@@ -971,7 +972,7 @@ export function Water() {
   const tCommon = useTranslations('common')
   const selectedField = useCropTwistUi((s) => s.selectedField)
   const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
-  const goToObservationsFor = useCropTwistUi((s) => s.goToObservationsFor)
+  const goToFarms = useCropTwistUi((s) => s.setActiveTab)
   const [activePlanId, setActivePlanId] = useState<string | null>(null)
   const plan = useWaterPlan(activePlanId)
   const methods = useWaterMethods()
@@ -995,7 +996,7 @@ export function Water() {
                 value={null}
                 onValueChange={setSelectedField}
                 emptyHint={
-                  <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
+                  <Button variant="outline" size="sm" onClick={() => goToFarms('farms')}>
                     {tCommon('createFarmField')}
                   </Button>
                 }
@@ -1005,8 +1006,26 @@ export function Water() {
         </Card>
       ) : (
         <>
-          <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
+          {/* W1: the per-tab field picker moved to the shared header context
+              bar (same store slice — selection stays synchronized). The
+              no-field empty state above is kept for tab-specific guidance. */}
           <PlanBuilderCard onPlanCreated={setActivePlanId} />
+          {/* W0.4 (audit P5): the active plan view previously rendered with no
+              loading skeleton and no error branch — a failed fetch looked like
+              an empty workspace. Explicit states + retry now cover it. */}
+          {activePlanId && plan.isLoading ? (
+            <Card>
+              <CardContent className="py-2">
+                <SectionLoader label={t('planLoading')} />
+              </CardContent>
+            </Card>
+          ) : null}
+          {activePlanId && plan.isError ? (
+            <ErrorState
+              message={`${t('planError')} ${plan.error instanceof Error ? plan.error.message : ''}`}
+              onRetry={() => plan.refetch()}
+            />
+          ) : null}
           {plan.data?.warnings && plan.data.warnings.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <ul className="list-disc space-y-0.5 pl-4">

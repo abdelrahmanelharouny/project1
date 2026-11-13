@@ -543,7 +543,7 @@ export function Features() {
   const tNav = useTranslations('nav')
   const selectedField = useCropTwistUi((s) => s.selectedField)
   const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
-  const goToObservationsFor = useCropTwistUi((s) => s.goToObservationsFor)
+  const goToFarms = useCropTwistUi((s) => s.setActiveTab)
   const catalogQuery = useFeatureCatalog()
   const runsQuery = useFeatureRuns(selectedField?.id ?? null)
   const [openRunId, setOpenRunId] = useState<string | null>(null)
@@ -570,7 +570,7 @@ export function Features() {
             emptyHint={
               <div className="flex flex-wrap items-center gap-2 text-sm text-stone-500">
                 <span>{t('createFirst')}</span>
-                <Button variant="outline" size="sm" onClick={() => goToObservationsFor({ id: '', name: '', farmId: '' })}>
+                <Button variant="outline" size="sm" onClick={() => goToFarms('farms')}>
                   {tCommon('goToFarms')} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
                 </Button>
               </div>
@@ -596,7 +596,6 @@ export function Features() {
               </CardDescription>
             </div>
             <div className="min-w-0">
-              <FieldPicker value={selectedField.id} onValueChange={setSelectedField} />
             </div>
           </div>
         </CardHeader>
