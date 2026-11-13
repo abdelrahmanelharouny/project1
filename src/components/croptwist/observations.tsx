@@ -63,6 +63,7 @@ import {
 import { useTranslations } from 'next-intl'
 import { ExportButton } from '@/components/croptwist/export-button'
 import { FieldPicker, GoToFarmsButton } from '@/components/croptwist/field-picker'
+import { ErrorState } from '@/components/croptwist/state-views'
 import { JobStatusBadge, QualityBadge, SyntheticBadge } from '@/components/croptwist/badges'
 import { useCatalog, useDataCoverage, useObservations, useProvidersHealth } from '@/hooks/use-croptwist'
 import {
@@ -640,7 +641,7 @@ export function Observations() {
                   <Skeleton className="h-5 w-3/4" />
                 </div>
               ) : catalog.isError ? (
-                <p className="text-sm text-red-700">{t('catalogError')}</p>
+                <ErrorState message={t('catalogError')} onRetry={() => catalog.refetch()} />
               ) : (
                 <div className="grid gap-2 rounded-lg border border-stone-200 p-3 sm:grid-cols-2">
                   {selectableVariables.map((variable) => {
@@ -1044,11 +1045,10 @@ export function Observations() {
                 <Skeleton className="h-8 w-3/4" />
               </div>
             ) : coverageQuery.isError ? (
-              <Alert variant="destructive">
-                <XCircle className="h-4 w-4" />
-                <AlertTitle>{t('coverageError')}</AlertTitle>
-                <AlertDescription>{t('tryAgainShortly')}</AlertDescription>
-              </Alert>
+              <ErrorState
+                message={`${t('coverageError')} — ${t('tryAgainShortly')}`}
+                onRetry={() => coverageQuery.refetch()}
+              />
             ) : (coverageQuery.data?.variables.length ?? 0) === 0 ? (
               <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
                 <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />

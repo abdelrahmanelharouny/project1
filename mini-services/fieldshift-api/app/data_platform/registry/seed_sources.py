@@ -316,6 +316,71 @@ def seed_data_registry(db: Session) -> None:
         },
     )
 
+    # ------------------------------------------------ NASA HLS (P04 acquisition)
+    hls_source = _ensure_source(
+        db,
+        provider_code="nasa_hls",
+        provider_name="NASA HLS (Harmonized Landsat Sentinel-2, LP DAAC)",
+        base_url="https://cmr.earthdata.nasa.gov/stac/LPCLOUD",
+        license_name="NASA open data (no restrictions on use)",
+        license_url="https://earthdata.nasa.gov/earth-observation-data/data-use-policy",
+        attribution_text=(
+            "NASA Harmonized Landsat Sentinel-2 (HLS) surface reflectance "
+            "courtesy of NASA LP DAAC; contains Landsat data (USGS) and "
+            "modified Copernicus Sentinel-2 data (ESA) harmonized by NASA. "
+            "Sentinel-2 is an ESA/Copernicus mission, not a NASA satellite."
+        ),
+        documentation_url="https://lpdaac.usgs.gov/products/hlsl30v2.0/",
+        status="optional",
+        known_limitations=(
+            "30 m harmonized surface reflectance: sub-field variability claims "
+            "below the zonal pixel threshold are refused. Cloud/shadow/cirrus/"
+            "snow pixels are masked via HLS Fmask; masking is imperfect. HLS "
+            "is an atmospheric-corrected estimate, not a ground measurement. "
+            "Asset downloads require NASA Earthdata Login (env-injected "
+            "credentials); discovery via CMR STAC is public. HLS does NOT "
+            "provide parcel-level soil moisture — coarse SMAP products, when "
+            "added later, must never be presented as field-scale soil moisture."
+        ),
+    )
+    _ensure_product(
+        db,
+        hls_source.id,
+        product_code="HLSL30",
+        product_version="2.0",
+        description="HLS Landsat 8/9 OLI harmonized surface reflectance, 30 m grid (v2.0).",
+        spatial_resolution_m=30.0,
+        temporal_resolution="16-day per Landsat; ~2-4 d combined",
+        coverage_start=None,
+        coverage_end=None,
+        metadata={
+            "evidence_class": "satellite_derived_estimate",
+            "is_synthetic": False,
+            "sensor": "OLI (Landsat 8/9)",
+            "catalog": "NASA CMR STAC (LPCLOUD)",
+        },
+    )
+    _ensure_product(
+        db,
+        hls_source.id,
+        product_code="HLSS30",
+        product_version="2.0",
+        description=(
+            "HLS Sentinel-2 MSI L2A harmonized surface reflectance, 30 m grid "
+            "(v2.0; Sentinel-2 is ESA/Copernicus data ingested by the NASA HLS product)."
+        ),
+        spatial_resolution_m=30.0,
+        temporal_resolution="5-day per Sentinel-2; ~2-4 d combined",
+        coverage_start=None,
+        coverage_end=None,
+        metadata={
+            "evidence_class": "satellite_derived_estimate",
+            "is_synthetic": False,
+            "sensor": "MSI (Sentinel-2 A/B/C)",
+            "catalog": "NASA CMR STAC (LPCLOUD)",
+        },
+    )
+
     # ------------------------------------------------ Open-Meteo forecast (P2.B)
     omf_source = _ensure_source(
         db,

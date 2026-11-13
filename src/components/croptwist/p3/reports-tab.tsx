@@ -52,7 +52,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ApiError, describeError } from '@/lib/api'
 import { formatDateTime, formatDay } from '@/lib/format'
 import { useFarms } from '@/hooks/use-croptwist'
-import { useCropTwistUi } from '@/lib/store'
+import { InlineError, NoOrgEmptyState } from './settings-shared'
 import {
   createReport,
   deleteReport,
@@ -153,23 +153,6 @@ function toastMutationError(t: T, err: unknown): void {
   }
   const d = describeError(err)
   toast.error(d.title, { description: d.description })
-}
-
-function NoOrgEmptyState({ t }: { t: T }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-        <p className="text-base font-semibold text-stone-900">{t('common.noOrgTitle')}</p>
-        <p className="max-w-md text-sm text-stone-500">{t('common.noOrgBody')}</p>
-        <Button
-          className="mt-2 bg-emerald-700 text-white hover:bg-emerald-800"
-          onClick={() => useCropTwistUi.getState().setActiveTab('team')}
-        >
-          {t('common.noOrgCta')}
-        </Button>
-      </CardContent>
-    </Card>
-  )
 }
 
 async function saveBlob(blob: Blob, filename: string): Promise<void> {
@@ -332,7 +315,7 @@ export default function ReportsTab() {
       </div>
     )
   }
-  if (!org) return <NoOrgEmptyState t={t} />
+  if (!org) return <NoOrgEmptyState />
 
   const rows = listQuery.data?.items ?? []
 
@@ -490,7 +473,7 @@ export default function ReportsTab() {
           {listQuery.isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : listQuery.isError ? (
-            <InlineError err={listQuery.error} t={t} />
+            <InlineError error={listQuery.error} />
           ) : rows.length === 0 ? (
             <p className="py-6 text-center text-sm text-stone-500">{t('reports.empty')}</p>
           ) : (
@@ -798,18 +781,6 @@ function ReportCardMobile({
           t={t}
         />
       </div>
-    </div>
-  )
-}
-
-function InlineError({ err, t }: { err: unknown; t: T }) {
-  const forbidden = err instanceof ApiError && err.status === 403
-  return (
-    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-      <p className="font-semibold">{forbidden ? t('errors.forbiddenTitle') : t('common.loadError')}</p>
-      <p className="mt-1 text-xs leading-relaxed">
-        {forbidden ? t('errors.forbiddenBody') : describeError(err).title}
-      </p>
     </div>
   )
 }

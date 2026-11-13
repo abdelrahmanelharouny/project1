@@ -19,6 +19,7 @@
   "value": "Value",
   "quality": "Quality",
   "scenes": "Scene provenance",
+  "openCatalog": "Open scene catalog",
   "syntheticBadge": "SYNTHETIC FIXTURE — never real satellite data",
   "zLabel": "z",
   "baseline": "Baseline",

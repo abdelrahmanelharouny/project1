@@ -97,6 +97,25 @@ class Settings(BaseSettings):
     open_meteo_forecast_days: int = 16
     forecast_freshness_max_age_hours: float = 12.0
 
+    # P04 — NASA HLS (Harmonized Landsat Sentinel-2) via CMR STAC / LP DAAC.
+    # CMR STAC discovery is unauthenticated; asset reads require a free NASA
+    # Earthdata Login. Credentials arrive ONLY via env/secret manager and are
+    # never hardcoded. With no credentials configured, discovery still works
+    # and protected asset reads fail loudly (never fabricated).
+    nasa_hls_stac_base_url: str = "https://cmr.earthdata.nasa.gov/stac/LPCLOUD"
+    nasa_hls_l30_collection_id: str = "HLSL30_2.0"
+    nasa_hls_s30_collection_id: str = "HLSS30_2.0"
+    nasa_hls_timeout_seconds: float = 30.0
+    nasa_hls_default_max_cloud_cover: float = 80.0
+    nasa_hls_search_page_size: int = 100
+    nasa_hls_max_pages: int = 5
+    nasa_hls_max_scenes_per_job: int = 30
+    nasa_hls_max_discovery_span_days: int = 730
+    earthdata_username: str = ""
+    earthdata_password: str = ""
+    earthdata_bearer_token: str = ""
+    earthdata_token_url: str = "https://urs.earthdata.nasa.gov/api/users/token"
+
     # P3 — billing (W2). Only the sandbox provider is wired; a real provider
     # adapter must supply verified credentials via the secret manager before
     # any live processing is claimed. The webhook secret signs/verifies

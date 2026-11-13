@@ -5,6 +5,12 @@ Honest record of what W0+W1 does NOT cover, plus follow-ups for W2+.
 > **P03 W2 update (2026-11-13):** §1 items 1–4 (W2.1–W2.4) are now
 > implemented — see `docs/p03/P03_IMPLEMENTATION_SUMMARY.md` for scope and
 > verification. Items 5–7 of §1 (W3 scope) and all of §2 remain open.
+>
+> **P04 update (2026-11-13):** §1 item 5 (Overview dedupe, W3.2), item 6
+> (`verifyForecasts` UI, W3.4) and item 7 (state-primitive rollout, W0.7 —
+> satellite, forecast, overview charts, soil memory, observations, data
+> passport, reports/analytics) are now implemented — see
+> `docs/p04/P04_IMPLEMENTATION_SUMMARY.md`.
 
 ## 1. Deferred to W2 (per P01 plan sequencing — not defects)
 
@@ -14,9 +20,9 @@ Honest record of what W0+W1 does NOT cover, plus follow-ups for W2+.
 | ~~Preferences remains a section inside team-tab~~ **RESOLVED in W2.2** | W2.2 | PreferencesCard moved verbatim to `?tab=settings&sub=preferences` (+ additive `?tab=preferences` alias); `?tab=team` still lands on Organization & members. |
 | ~~Shared execution-picker across sensitivity/robust/decisions not extracted~~ **RESOLVED in W2.3** | W2.3 | `field-context.tsx` (useFieldContext / FieldContextGate / useFieldAvailability) adopted by six views; ContextBar is the single validating picker (unavailable-field notice instead of silent zeroing); per-tab guidance gates kept by design (P02 §5.2). |
 | ~~Command palette = navigation commands ONLY~~ **RESOLVED in W2.4** | W2.4 | Four real command groups (Navigation destinations, Sections incl. promoted management sub-pages + Preferences, Farm & field context from the user's accessible resources, Actions: create farm/field + copy share link) plus a memory-only Recent group. Reachable on desktop (trigger + Ctrl/Cmd+K) and mobile (nav-sheet "Search & commands" row). |
-| Overview dedupe (retire its map instance, fold "how it works" prose) | W3.2 | Overview keeps its map + charts; nothing removed in W1/W2. |
-| Forecast `verifyForecasts` UI still unwired | W3.4 | Pre-existing gap (P01 audit §4.4), unchanged. |
-| Loading/error primitive rollout beyond water+overview | W0.7 | Shared primitives exist (`state-views.tsx`); other tabs keep their existing (working) states. |
+| ~~Overview dedupe (retire its map instance)~~ **RESOLVED in P04 (W3.2)** | W3.2 | Overview's FarmMap card and DataCoverage chart removed (exact duplicates of Map & Satellite / Data Hub → Observations); replaced with deep-link "Explore" card. `ClimateOverview` kept (unique cross-variable snapshot). |
+| ~~Forecast `verifyForecasts` UI still unwired~~ **RESOLVED in P04 (W3.4)** | W3.4 | Verification card in `cropintel:forecast` calls `POST /fields/{id}/forecast-verifications`; loading/empty/error/retry states; zero-pairs renders the backend's own limitations text verbatim. |
+| ~~Loading/error primitive rollout beyond water+overview~~ **RESOLVED in P04 (W0.7, high-value set)** | W0.7 | Shared primitives applied to satellite, forecast, overview charts, soil-memory, observations, data-passport, reports/analytics (shared `InlineError`/`NoOrgEmptyState`); management's parallel family intentionally left scoped. |
 
 ## 2. In-scope but partial
 

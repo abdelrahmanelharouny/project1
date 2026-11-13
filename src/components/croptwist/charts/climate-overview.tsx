@@ -26,7 +26,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   ChartContainer,
   ChartLegend,
@@ -36,6 +35,7 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart'
 import { useObservations } from '@/hooks/use-croptwist'
+import { ErrorState, SectionLoader } from '@/components/croptwist/state-views'
 import { COVERAGE_END, COVERAGE_START } from '@/lib/api'
 
 const WINDOW_DAYS = 120
@@ -109,9 +109,16 @@ export function ClimateOverview({ fieldId }: { fieldId: string | null }) {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <Skeleton className="h-[280px] w-full" aria-label={t('loading')} />
+          <SectionLoader label={t('loading')} className="h-[280px]" />
         ) : isError ? (
-          <p className="text-sm text-red-700">{t('loadError')}</p>
+          <ErrorState
+            message={t('loadError')}
+            onRetry={() => {
+              if (recentQuery.isError) recentQuery.refetch()
+              if (fallbackQuery.isError) fallbackQuery.refetch()
+            }}
+            className="shadow-none"
+          />
         ) : series.length === 0 ? (
           <div className="flex h-[280px] items-center justify-center rounded-md border border-dashed border-stone-200 bg-stone-50/60">
             <p className="text-sm text-stone-500">{t('noData')}</p>

@@ -31,5 +31,17 @@
   "loadError": "تعذر تحميل بيانات التنبؤ.",
   "model": "النموذج",
   "issuedAt": "تاريخ الإصدار",
-  "value": "القيمة"
+  "value": "القيمة",
+  "verifyTitle": "التحقق من التنبؤات",
+  "verifyHint": "يقارن التنبؤات المستوعبة سابقًا بالقياسات المسجّلة لاحقًا؛ المقاييس تأتي من البيانات المخزّنة فقط — لا شيء مُلفّق.",
+  "verifyRun": "تحقّق من التنبؤات",
+  "verifyRunning": "جارٍ التحقق…",
+  "verifySummary": "تمت مقارنة {pairs} زوج تنبؤ/رصد · {persisted} سجل تحقق محفوظ.",
+  "verifyNoPairs": "لا توجد أزواج تنبؤ/رصد بعد — لا شيء للتحقق، ولا تُلفّق أي مقاييس.",
+  "verifyColVariable": "المتغير",
+  "verifyColHorizon": "الأفق",
+  "verifyColPairs": "الأزواج",
+  "verifyColBias": "الانحياز",
+  "verifyColMae": "MAE",
+  "verifyColRmse": "RMSE"
 }

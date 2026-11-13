@@ -125,9 +125,9 @@ describe('destination resolution', () => {
     expect(new Set(DESTINATIONS.map((d) => d.labelKey)).size).toBe(9)
   })
 
-  test('sub-page totals: 30 sub-pages across 6 multi-sub destinations (P03: 6 management views promoted + preferences)', () => {
+  test('sub-page totals: 31 sub-pages across 6 multi-sub destinations (P03: 6 management views promoted + preferences; P04: datahub scene catalog)', () => {
     const total = DESTINATIONS.reduce((acc, d) => acc + d.subPages.length, 0)
-    expect(total).toBe(30)
+    expect(total).toBe(31)
     expect(DESTINATIONS.filter((d) => d.subPages.length > 0)).toHaveLength(6)
   })
 

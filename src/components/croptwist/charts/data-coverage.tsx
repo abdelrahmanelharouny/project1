@@ -16,7 +16,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   ChartContainer,
   ChartTooltip,
@@ -24,6 +23,7 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart'
 import { useDataCoverage } from '@/hooks/use-croptwist'
+import { ErrorState, SectionLoader } from '@/components/croptwist/state-views'
 import { humanizeCode } from '@/lib/format'
 
 const MAX_VARIABLES = 16
@@ -64,9 +64,9 @@ export function DataCoverage({ fieldId }: { fieldId: string | null }) {
       </CardHeader>
       <CardContent>
         {coverageQuery.isLoading ? (
-          <Skeleton className="h-[330px] w-full" aria-label={t('loading')} />
+          <SectionLoader label={t('loading')} className="h-[330px]" />
         ) : coverageQuery.isError ? (
-          <p className="text-sm text-red-700">{t('loadError')}</p>
+          <ErrorState message={t('loadError')} onRetry={() => coverageQuery.refetch()} className="shadow-none" />
         ) : rows.length === 0 ? (
           <div className="flex h-[240px] items-center justify-center rounded-md border border-dashed border-stone-200 bg-stone-50/60">
             <p className="text-sm text-stone-500">{t('noData')}</p>

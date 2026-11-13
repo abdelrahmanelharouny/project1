@@ -66,6 +66,13 @@ import type {
   ObservationManifest,
   VegetationSummary,
   SatelliteScenesResponse,
+  SatelliteSceneStatus,
+  SatelliteCatalogResponse,
+  SatelliteDiscoveryInput,
+  SatelliteDiscoveryResponse,
+  SatelliteAcquisitionInput,
+  SatelliteAcquisitionResponse,
+  SatelliteJobCancelResponse,
   ClimateCapabilities,
   ForecastWindowResponse,
   ForecastRisksResponse,
@@ -446,6 +453,51 @@ export const CSV_TEMPLATE_URL = withPort('/api/v1/data/imports/observations-csv/
 
 export function getJob(jobId: string): Promise<DataJob> {
   return request<DataJob>(`/api/v1/jobs/${jobId}`)
+}
+
+// --- P04 satellite scene discovery & acquisition -------------------------------
+
+export function discoverSatelliteScenes(
+  fieldId: string,
+  input: SatelliteDiscoveryInput,
+): Promise<SatelliteDiscoveryResponse> {
+  return request<SatelliteDiscoveryResponse>(`/api/v1/fields/${fieldId}/satellite/discovery`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export interface SatelliteSceneQuery {
+  provider_code?: string
+  status?: SatelliteSceneStatus
+  limit?: number
+  offset?: number
+}
+
+export function listSatelliteScenes(fieldId: string, query: SatelliteSceneQuery = {}): Promise<SatelliteCatalogResponse> {
+  const params = new URLSearchParams()
+  if (query.provider_code) params.set('provider_code', query.provider_code)
+  if (query.status) params.set('status', query.status)
+  if (query.limit !== undefined) params.set('limit', String(query.limit))
+  if (query.offset !== undefined) params.set('offset', String(query.offset))
+  const qs = params.toString()
+  return request<SatelliteCatalogResponse>(
+    `/api/v1/fields/${fieldId}/satellite/scenes${qs ? `?${qs}` : ''}`,
+  )
+}
+
+export function acquireSatelliteScenes(
+  fieldId: string,
+  input: SatelliteAcquisitionInput,
+): Promise<SatelliteAcquisitionResponse> {
+  return request<SatelliteAcquisitionResponse>(`/api/v1/fields/${fieldId}/satellite/acquisitions`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export function cancelSatelliteJob(jobId: string): Promise<SatelliteJobCancelResponse> {
+  return request<SatelliteJobCancelResponse>(`/api/v1/jobs/${jobId}/cancel`, { method: 'POST' })
 }
 
 const JOB_TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled'])

@@ -88,6 +88,13 @@ class SatelliteScene(Base):
     observations; index values live in `observations`. Idempotent per
     (field_id, provider_code, scene_id) so re-ingestion updates nothing and
     duplicates nothing.
+
+    P04 acquisition lifecycle (nullable for legacy P2 rows, which were always
+    ingested-on-arrival and are displayed as 'ready' via COALESCE):
+    - acquisition_status: discovered | queued | running | ready | failed
+      (NULL = already ingested by the pre-P04 path).
+    - acquisition_detail: JSONB {job_id, error/reason, cancelled, ...}.
+    - discovered_at / acquisition_updated_at: lifecycle timestamps.
     """
 
     __tablename__ = "satellite_scenes"
@@ -108,6 +115,13 @@ class SatelliteScene(Base):
     is_synthetic: Mapped[bool] = mapped_column(nullable=False, default=False)
     processing_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
+    # P04 acquisition lifecycle (see class docstring).
+    acquisition_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    acquisition_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acquisition_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -117,6 +131,11 @@ class SatelliteScene(Base):
             "cloud_cover_pct IS NULL OR (cloud_cover_pct >= 0 AND cloud_cover_pct <= 100)",
             name="ck_satellite_scene_cloud_range",
         ),
+        CheckConstraint(
+            "acquisition_status IS NULL OR acquisition_status IN "
+            "('discovered','queued','running','ready','failed')",
+            name="ck_satellite_scene_acquisition_status",
+        ),
         Index(
             "uq_satellite_scene_natural_key",
             "field_id",
@@ -125,6 +144,12 @@ class SatelliteScene(Base):
             unique=True,
         ),
         Index("ix_satellite_scenes_field_acquired", "field_id", "acquired_at"),
+        Index(
+            "ix_satellite_scenes_field_status",
+            "field_id",
+            "acquisition_status",
+            postgresql_where=text_("acquisition_status IS NOT NULL"),
+        ),
     )
 
 

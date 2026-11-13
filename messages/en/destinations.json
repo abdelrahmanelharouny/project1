@@ -33,6 +33,7 @@
     "observations": "Observations & ingestion",
     "features": "Feature runs",
     "passport": "Data passport",
+    "scenes": "Scene catalog",
     "evidence": "Evidence gaps & actions",
     "rotation": "Rotation optimizer",
     "irrigation": "Irrigation planning",

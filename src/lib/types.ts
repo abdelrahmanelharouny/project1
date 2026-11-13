@@ -3479,6 +3479,85 @@ export interface SatelliteScenesResponse {
   }>
 }
 
+// ------------------------------------------------------------- P04 satellite acquisition
+
+/** Lifecycle status of a discovered/acquired satellite scene. */
+export type SatelliteSceneStatus = 'discovered' | 'queued' | 'running' | 'ready' | 'failed'
+
+export interface SatelliteCatalogScene {
+  id: string
+  provider_code: string
+  product_code: string
+  scene_id: string
+  acquired_at: string | null
+  cloud_cover_pct: number | null
+  spatial_resolution_m: number | null
+  platform: string | null
+  coverage_fraction: number | null
+  acquisition_status: SatelliteSceneStatus
+  acquisition_detail: Record<string, unknown>
+  is_synthetic: boolean
+  processing_version: string | null
+  asset_refs: Record<string, unknown> | null
+  band_mapping: Record<string, string> | null
+  discovered_at: string | null
+  acquisition_updated_at: string | null
+  created_at: string | null
+}
+
+export interface SatelliteCatalogResponse {
+  field_id: string
+  total: number
+  limit: number
+  offset: number
+  scenes: SatelliteCatalogScene[]
+}
+
+export interface SatelliteDiscoveryInput {
+  start_date: string
+  end_date: string
+  max_cloud_cover?: number | null
+  limit?: number
+}
+
+export interface SatelliteDiscoveryResponse {
+  field_id: string
+  provider_code: string
+  catalog: { base_url: string; collections: string[]; products: string[] }
+  discovered: number
+  new: number
+  unchanged: number
+  scenes: SatelliteCatalogScene[]
+  warnings: string[]
+}
+
+export interface SatelliteAcquisitionInput {
+  scene_ids: string[]
+  variables: string[]
+}
+
+export interface SatelliteAcquisitionResponse {
+  field_id: string
+  provider_code: string
+  jobs: Array<{
+    job_id: string
+    provider_code: string
+    product_code: string
+    status: string
+    scene_ids: string[]
+    status_url: string
+    replayed?: boolean
+  }>
+  queued_scenes: string[]
+  warnings: string[]
+}
+
+export interface SatelliteJobCancelResponse {
+  job_id: string
+  status: string
+  scenes_released: string[]
+}
+
 export interface ClimateCapabilities {
   capability_matrix: Array<{
     provider_code: string

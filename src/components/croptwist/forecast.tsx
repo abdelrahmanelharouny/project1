@@ -27,12 +27,15 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { FieldContextGate } from '@/components/croptwist/field-context'
+import { ErrorState, SectionLoader } from '@/components/croptwist/state-views'
 import {
   useClimateCapabilities,
   useForecastRisks,
   useForecastWindow,
   useIngestForecast,
+  useVerifyForecasts,
 } from '@/hooks/use-croptwist'
 import { useCropTwistUi } from '@/lib/store'
 import { describeError } from '@/lib/api'
@@ -41,6 +44,11 @@ const FORECAST_VARIABLES = [
   { code: 'air_temperature_max', label: 'T max (°C)' },
   { code: 'precipitation', label: 'Precipitation (mm)' },
 ] as const
+
+/** Metric cell: null renders an honest en-dash (never a fabricated zero). */
+function metric(value: number | null): string {
+  return value === null ? '—' : value.toFixed(2)
+}
 
 export function ClimateForecast() {
   const t = useTranslations('forecast')
@@ -51,6 +59,7 @@ export function ClimateForecast() {
   const window_ = useForecastWindow(selectedField?.id ?? null, variable)
   const risks = useForecastRisks(selectedField?.id ?? null)
   const ingest = useIngestForecast(selectedField?.id ?? null)
+  const verify = useVerifyForecasts(selectedField?.id ?? null)
 
   if (!selectedField) return <FieldContextGate hint={t('pickFieldHint')} />
 
@@ -207,6 +216,99 @@ export function ClimateForecast() {
               ))}
             </Accordion>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t('verifyTitle')}</CardTitle>
+          <CardDescription>{t('verifyHint')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" disabled={verify.isPending} onClick={() => verify.mutate()}>
+              {verify.isPending ? t('verifyRunning') : t('verifyRun')}
+            </Button>
+          </div>
+
+          {verify.isPending && <SectionLoader label={t('verifyRunning')} />}
+
+          {verify.isError && (
+            <ErrorState message={describeError(verify.error).title} onRetry={() => verify.mutate()} />
+          )}
+
+          {verify.data &&
+            (verify.data.verifications.length === 0 || verify.data.pairs_total === 0 ? (
+              <div className="rounded-md border border-dashed border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-900">
+                <p>{t('verifyNoPairs')}</p>
+                {verify.data.limitations[0] ? (
+                  <p className="mt-1 text-xs text-amber-800">{verify.data.limitations[0]}</p>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-stone-600">
+                  {t('verifySummary', { pairs: verify.data.pairs_total, persisted: verify.data.persisted })}
+                </p>
+                {/* Desktop: compact metrics table. */}
+                <div className="hidden overflow-x-auto md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('verifyColVariable')}</TableHead>
+                        <TableHead>{t('verifyColHorizon')}</TableHead>
+                        <TableHead className="text-right">{t('verifyColPairs')}</TableHead>
+                        <TableHead className="text-right">{t('verifyColBias')}</TableHead>
+                        <TableHead className="text-right">{t('verifyColMae')}</TableHead>
+                        <TableHead className="text-right">{t('verifyColRmse')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {verify.data.verifications.map((row) => (
+                        <TableRow key={`${row.variable_code}-${row.horizon_bucket_hours}`}>
+                          <TableCell className="text-sm">{row.variable_code}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{row.horizon_bucket_hours}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{row.pair_count}</TableCell>
+                          <TableCell className="text-right tabular-nums">{metric(row.bias)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{metric(row.mae)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{metric(row.rmse)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                {/* Mobile: stacked cards (same pattern as the reports library). */}
+                <div className="space-y-2 md:hidden">
+                  {verify.data.verifications.map((row) => (
+                    <div
+                      key={`${row.variable_code}-${row.horizon_bucket_hours}`}
+                      className="rounded-md border border-stone-200 p-3 text-sm"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-stone-800">{row.variable_code}</span>
+                        <Badge variant="secondary">{row.horizon_bucket_hours}</Badge>
+                        <span className="text-xs text-stone-500">
+                          {t('verifyColPairs')}: {row.pair_count}
+                        </span>
+                      </div>
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-xs text-stone-600">
+                        <span>
+                          {t('verifyColBias')}: <span className="tabular-nums">{metric(row.bias)}</span>
+                        </span>
+                        <span>
+                          {t('verifyColMae')}: <span className="tabular-nums">{metric(row.mae)}</span>
+                        </span>
+                        <span>
+                          {t('verifyColRmse')}: <span className="tabular-nums">{metric(row.rmse)}</span>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ))}
         </CardContent>
       </Card>
     </div>

@@ -17,7 +17,7 @@ import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Table,
@@ -28,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { FieldContextGate } from '@/components/croptwist/field-context'
+import { ErrorState, SectionSkeleton } from '@/components/croptwist/state-views'
 import { SyntheticBadge } from '@/components/croptwist/badges'
 import { useVegetationScenes, useVegetationSummary } from '@/hooks/use-croptwist'
 import { useCropTwistUi } from '@/lib/store'
@@ -43,6 +44,8 @@ function severityVariant(severity: string): 'default' | 'secondary' | 'destructi
 export function SatelliteIntelligence() {
   const t = useTranslations('satellite')
   const selectedField = useCropTwistUi((s) => s.selectedField)
+  const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
+  const setActiveSub = useCropTwistUi((s) => s.setActiveSub)
   const [index, setIndex] = useState<string>('ndvi')
 
   const summary = useVegetationSummary(selectedField?.id ?? null, index)
@@ -85,8 +88,10 @@ export function SatelliteIntelligence() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {summary.isLoading && <Skeleton className="h-40 w-full" />}
-          {summary.isError && <p className="text-sm text-red-700">{t('loadError')}</p>}
+          {summary.isLoading && <SectionSkeleton lines={4} />}
+          {summary.isError && (
+            <ErrorState message={t('loadError')} onRetry={() => summary.refetch()} />
+          )}
           {summary.data && (
             <>
               {summary.data.series_state.state === 'no_data' ? (
@@ -194,10 +199,22 @@ export function SatelliteIntelligence() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('scenes')}</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">{t('scenes')}</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setActiveTab('datahub')
+                setActiveSub('scenes')
+              }}
+            >
+              {t('openCatalog')}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {scenes.isLoading && <Skeleton className="h-24 w-full" />}
+          {scenes.isLoading && <SectionSkeleton lines={2} />}
           {scenes.data && scenes.data.total === 0 && (
             <div className="flex h-20 items-center justify-center rounded-md border border-dashed border-stone-200 bg-stone-50/60 text-sm text-stone-500">
               {t('noData')}

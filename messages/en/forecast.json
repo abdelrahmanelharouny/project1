@@ -31,5 +31,17 @@
   "loadError": "Could not load forecast data.",
   "model": "Model",
   "issuedAt": "Issued",
-  "value": "Value"
+  "value": "Value",
+  "verifyTitle": "Forecast verification",
+  "verifyHint": "Compares previously ingested forecasts against the observations recorded afterwards. Metrics come from stored data only — nothing is fabricated.",
+  "verifyRun": "Verify forecasts",
+  "verifyRunning": "Verifying…",
+  "verifySummary": "Compared {pairs} forecast–observation pairs · {persisted} verification rows persisted.",
+  "verifyNoPairs": "No forecast–observation pairs available yet — there is nothing to verify, and no metrics are fabricated.",
+  "verifyColVariable": "Variable",
+  "verifyColHorizon": "Horizon",
+  "verifyColPairs": "Pairs",
+  "verifyColBias": "Bias",
+  "verifyColMae": "MAE",
+  "verifyColRmse": "RMSE"
 }

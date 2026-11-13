@@ -34,5 +34,10 @@
   "howObservationsName": "Observations",
   "howObservations": "runs ingestion jobs against the synthetic fixtures and the real Open-Meteo reanalysis archive, or imports your CSV records and CHIRPS rasters — every source keeps its own honest evidence label.",
   "howPassportName": "Data Passport",
-  "howPassport": "is the honesty layer: what data exists, how fresh it is, and which analyses are actually available."
+  "howPassport": "is the honesty layer: what data exists, how fresh it is, and which analyses are actually available.",
+  "exploreTitle": "Explore",
+  "exploreMap": "Map & Satellite",
+  "exploreMapHint": "Open the full-screen field map — boundaries, selection and satellite scenes.",
+  "exploreCoverage": "Data coverage",
+  "exploreCoverageHint": "Per-variable, per-provider coverage in Data Hub → Observations."
 }

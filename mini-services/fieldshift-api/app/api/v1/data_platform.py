@@ -97,6 +97,10 @@ class DataJobRequest(BaseModel):
     profile: str | None = "temperate_seasonal"
     seed: int = 42
     model: str | None = None  # open_meteo product selection (era5_land | era5)
+    # P04: nasa_hls acquisition targets (scene ids discovered via the
+    # satellite discovery endpoint). Without them the provider runs its own
+    # bounded auto-discovery; the acquisition API is the preferred path.
+    scene_ids: list[str] | None = None
     # M7.1 F-30: optional field-scoped idempotency key (replay is scoped to
     # THIS field — a colliding key from another field/tenant can never leak a
     # foreign job). Matches the feature-run contract.
@@ -108,6 +112,8 @@ def _provider_options(provider_code: str, payload: DataJobRequest) -> dict[str, 
         return {"profile": payload.profile, "seed": payload.seed}
     if provider_code == "open_meteo":
         return {"model": payload.model or "era5_land"}
+    if provider_code == "nasa_hls":
+        return {"scene_ids": [s for s in (payload.scene_ids or []) if s]}
     return {}
 
 

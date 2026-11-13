@@ -13,8 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
 import { FieldContextGate } from '@/components/croptwist/field-context'
+import { ErrorState, SectionSkeleton } from '@/components/croptwist/state-views'
 import {
   useCreateSoilChangeEstimate,
   useCreateSoilSnapshot,
@@ -85,8 +85,8 @@ export function SoilMemory() {
             </Button>
           </div>
 
-          {timeline.isLoading && <Skeleton className="h-40 w-full" />}
-          {timeline.isError && <p className="text-sm text-red-700">{t('loadError')}</p>}
+          {timeline.isLoading && <SectionSkeleton lines={4} />}
+          {timeline.isError && <ErrorState message={t('loadError')} onRetry={() => timeline.refetch()} />}
           {timeline.data && (
             <>
               <div>
@@ -178,7 +178,7 @@ export function SoilMemory() {
           <CardTitle className="text-base">{t('alerts')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {alerts.isLoading && <Skeleton className="h-16 w-full" />}
+          {alerts.isLoading && <SectionSkeleton lines={2} />}
           {alerts.data && alerts.data.alerts.length === 0 && (
             <div className="flex h-14 items-center justify-center rounded-md border border-dashed border-stone-200 bg-stone-50/60 text-sm text-stone-500">
               {t('noAlerts')}

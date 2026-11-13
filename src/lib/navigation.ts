@@ -65,6 +65,7 @@ export const DESTINATIONS: readonly DestinationDef[] = [
       { id: 'observations', labelKey: 'observations' },
       { id: 'features', labelKey: 'features' },
       { id: 'passport', labelKey: 'passport' },
+      { id: 'scenes', labelKey: 'scenes' },
       { id: 'evidence', labelKey: 'evidence' },
     ],
   },

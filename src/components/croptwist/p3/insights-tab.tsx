@@ -39,10 +39,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ApiError, describeError } from '@/lib/api'
 import { formatDay, formatDateTime, humanizeCode, pct } from '@/lib/format'
 import { useFarms } from '@/hooks/use-croptwist'
-import { useCropTwistUi } from '@/lib/store'
+import { InlineError, NoOrgEmptyState } from './settings-shared'
+import { ExportButton } from '@/components/croptwist/export-button'
 import {
   getBenchmarks,
   getCommercialMetrics,
@@ -56,35 +56,6 @@ import {
 type T = ReturnType<typeof useTranslations>
 
 // --------------------------------------------------------------- helpers
-
-function InlineError({ err, t }: { err: unknown; t: T }) {
-  const forbidden = err instanceof ApiError && err.status === 403
-  return (
-    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-      <p className="font-semibold">{forbidden ? t('errors.forbiddenTitle') : t('common.loadError')}</p>
-      <p className="mt-1 text-xs leading-relaxed">
-        {forbidden ? t('errors.forbiddenBody') : describeError(err).title}
-      </p>
-    </div>
-  )
-}
-
-function NoOrgEmptyState({ t }: { t: T }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-        <p className="text-base font-semibold text-stone-900">{t('common.noOrgTitle')}</p>
-        <p className="max-w-md text-sm text-stone-500">{t('common.noOrgBody')}</p>
-        <Button
-          className="mt-2 bg-emerald-700 text-white hover:bg-emerald-800"
-          onClick={() => useCropTwistUi.getState().setActiveTab('team')}
-        >
-          {t('common.noOrgCta')}
-        </Button>
-      </CardContent>
-    </Card>
-  )
-}
 
 function provenanceClass(p: Provenance): string {
   switch (p) {
@@ -340,7 +311,7 @@ export default function InsightsTab() {
       </div>
     )
   }
-  if (!org) return <NoOrgEmptyState t={t} />
+  if (!org) return <NoOrgEmptyState />
 
   const dash = dashboardQuery.data
 
@@ -433,7 +404,7 @@ export default function InsightsTab() {
       </Card>
 
       {dashboardQuery.isError ? (
-        <InlineError err={dashboardQuery.error} t={t} />
+        <InlineError error={dashboardQuery.error} />
       ) : dashboardQuery.isLoading ? (
         <Skeleton className="h-56 w-full" />
       ) : dash ? (
@@ -604,7 +575,7 @@ export default function InsightsTab() {
           ) : perfQuery.isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : perfQuery.isError ? (
-            <InlineError err={perfQuery.error} t={t} />
+            <InlineError error={perfQuery.error} />
           ) : perfQuery.data ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -747,7 +718,7 @@ export default function InsightsTab() {
               {commercialQuery.isLoading ? (
                 <Skeleton className="h-40 w-full" />
               ) : commercialQuery.isError ? (
-                <InlineError err={commercialQuery.error} t={t} />
+                <InlineError error={commercialQuery.error} />
               ) : commercialQuery.data ? (
                 <>
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -788,22 +759,37 @@ export default function InsightsTab() {
               <CardTitle className="text-base">{t('insights.benchmarksTitle')}</CardTitle>
               <CardDescription className="text-sm text-stone-500">{t('insights.benchmarksDesc')}</CardDescription>
             </div>
-            <Select value={benchScope} onValueChange={(v) => setBenchScope(v as 'farm' | 'field')}>
-              <SelectTrigger className="h-9 w-40 bg-white" aria-label={t('insights.benchmarksTitle')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="farm">{t('insights.scopeFarm')}</SelectItem>
-                <SelectItem value="field">{t('insights.scopeField')}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={benchScope} onValueChange={(v) => setBenchScope(v as 'farm' | 'field')}>
+                <SelectTrigger className="h-9 w-40 bg-white" aria-label={t('insights.benchmarksTitle')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="farm">{t('insights.scopeFarm')}</SelectItem>
+                  <SelectItem value="field">{t('insights.scopeField')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <ExportButton
+                baseFilename="benchmarks"
+                getRows={() =>
+                  (benchQuery.data?.entries ?? []).map((entry) => ({
+                    name: entry.name,
+                    farm: entry.farm ?? null,
+                    area_ha: entry.area_ha,
+                    field_count: entry.field_count ?? null,
+                    active_recommendations: entry.active_recommendations,
+                  }))
+                }
+                disabled={benchQuery.isLoading || !benchQuery.data}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {benchQuery.isLoading ? (
             <Skeleton className="h-40 w-full" />
           ) : benchQuery.isError ? (
-            <InlineError err={benchQuery.error} t={t} />
+            <InlineError error={benchQuery.error} />
           ) : benchQuery.data ? (
             <>
               <p className="text-[11px] text-stone-400">

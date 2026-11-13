@@ -28,6 +28,7 @@ from app.api.v1 import (
     onboarding,
     ops,
     orgs,
+    satellite,
     portfolio,
     preferences,
     public_v1,
@@ -55,6 +56,7 @@ api_router.include_router(fields.router)
 # registration order).
 api_router.include_router(jobs.router)
 api_router.include_router(data_platform.router)
+api_router.include_router(satellite.router)
 api_router.include_router(features.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(rotation.router)

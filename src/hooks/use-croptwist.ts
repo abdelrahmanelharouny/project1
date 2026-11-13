@@ -66,6 +66,10 @@ import type {
   ScenarioCapabilities,
   WaterPlanListResponse,
   WaterReadinessResponse,
+  SatelliteCatalogResponse,
+  SatelliteDiscoveryInput,
+  SatelliteAcquisitionInput,
+  SatelliteSceneStatus,
 } from '@/lib/types'
 
 /**
@@ -645,6 +649,60 @@ export function useVegetationScenes(fieldId: string | null) {
   })
 }
 
+// -------------------------------------------------------------
+// P04 hooks (satellite scene discovery & acquisition)
+// -------------------------------------------------------------
+
+export function useSatelliteScenes(
+  fieldId: string | null,
+  params: { status?: SatelliteSceneStatus; limit?: number; offset?: number } = {},
+) {
+  return useQuery({
+    queryKey: ['satellite-scenes', fieldId, params.status ?? null, params.offset ?? 0],
+    queryFn: () => listSatelliteScenes(fieldId!, params),
+    enabled: !!fieldId,
+    // Live job feedback: refetch while any scene is queued/running.
+    refetchInterval: (query) => {
+      const data = query.state.data as SatelliteCatalogResponse | undefined
+      const busy = data?.scenes.some(
+        (s) => s.acquisition_status === 'queued' || s.acquisition_status === 'running',
+      )
+      return busy ? 3000 : false
+    },
+  })
+}
+
+export function useDiscoverScenes(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: SatelliteDiscoveryInput) => discoverSatelliteScenes(fieldId!, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['satellite-scenes', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['vegetation-scenes', fieldId] })
+    },
+  })
+}
+
+export function useAcquireScenes(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: SatelliteAcquisitionInput) => acquireSatelliteScenes(fieldId!, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['satellite-scenes', fieldId] })
+    },
+  })
+}
+
+export function useCancelSceneJob(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => cancelSatelliteJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['satellite-scenes', fieldId] })
+    },
+  })
+}
+
 export function useClimateCapabilities() {
   return useQuery({
     queryKey: ['climate-capabilities'],
@@ -678,6 +736,22 @@ export function useIngestForecast(fieldId: string | null) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['forecast-window', fieldId] })
       queryClient.invalidateQueries({ queryKey: ['forecast-risks', fieldId] })
+    },
+  })
+}
+
+/**
+ * Run forecast verification (archived forecasts vs later observations).
+ * Mutation — results are returned and cached under ['forecast-verification']
+ * for the card to render; a zero-pair response is an honest empty state, not
+ * an error.
+ */
+export function useVerifyForecasts(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => verifyForecasts(fieldId!),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['forecast-verification', fieldId], data)
     },
   })
 }
@@ -872,6 +946,11 @@ import {
   getStressPacks,
   getVegetationScenes,
   getVegetationSummary,
+  acquireSatelliteScenes,
+  cancelSatelliteJob,
+  discoverSatelliteScenes,
   ingestForecast,
+  listSatelliteScenes,
   transitionEvidenceAction,
+  verifyForecasts,
 } from '@/lib/api'

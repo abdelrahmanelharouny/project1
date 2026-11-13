@@ -10,14 +10,12 @@ import {
   ClipboardCheck,
   Info,
   Lock,
-  ShieldAlert,
 } from 'lucide-react'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { FieldPicker } from '@/components/croptwist/field-picker'
 import { PassportStatusBadge, PassportStatusExplanation, SyntheticBadge } from '@/components/croptwist/badges'
+import { ErrorState, SectionSkeleton } from '@/components/croptwist/state-views'
 import { useCatalog, useDataPassport } from '@/hooks/use-croptwist'
 import { formatDateTime, humanizeCode, pct } from '@/lib/format'
 import { useCropTwistUi } from '@/lib/store'
@@ -94,24 +92,16 @@ export function DataPassport() {
       </div>
 
       {passportQuery.isLoading ? (
-        <div className="space-y-4">
-          <Skeleton className="h-24 w-full rounded-lg" />
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-48 rounded-lg" />
-            ))}
-          </div>
-        </div>
+        <SectionSkeleton lines={6} className="py-2" />
       ) : passportQuery.isError || !passportQuery.data ? (
-        <Alert variant="destructive">
-          <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
-          <AlertDescription>
-            {passportQuery.error instanceof Error
-              ? passportQuery.error.message
-              : t('loadErrorDesc')}
-          </AlertDescription>
-        </Alert>
+        <ErrorState
+          message={
+            passportQuery.error instanceof Error
+              ? `${t('loadErrorTitle')} — ${passportQuery.error.message}`
+              : `${t('loadErrorTitle')} — ${t('loadErrorDesc')}`
+          }
+          onRetry={() => passportQuery.refetch()}
+        />
       ) : (
         <>
           {/* ---------- overall status ---------- */}

@@ -53,6 +53,7 @@ export const messageNamespaces = [
   'p3',
   'p3b',
   'system',
+  'scenecatalog',
 ] as const
 
 export type MessageNamespace = (typeof messageNamespaces)[number]

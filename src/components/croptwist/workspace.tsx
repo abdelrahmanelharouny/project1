@@ -28,6 +28,7 @@ import AiInsights from '@/components/croptwist/ai-insights'
 import DigitalTwin from '@/components/croptwist/digital-twin'
 import RobustPlan from '@/components/croptwist/robust-plan'
 import { SatelliteIntelligence } from '@/components/croptwist/satellite'
+import SatelliteScenesPage from '@/components/croptwist/satellite-scenes'
 import { ClimateForecast } from '@/components/croptwist/forecast'
 import { SoilMemory } from '@/components/croptwist/soil-memory'
 import { FailureLab } from '@/components/croptwist/failure-lab'
@@ -333,6 +334,7 @@ const SUB_PAGE_CONTENT: Record<string, React.ReactNode> = {
   'datahub:observations': <Observations />,
   'datahub:features': <Features />,
   'datahub:passport': <DataPassport />,
+  'datahub:scenes': <SatelliteScenesPage />,
   'datahub:evidence': <AdaptiveEvidence />,
   // Crop Intelligence — P03 W2.1: management's six internal views are
   // promoted to URL-keyed sub-pages (blueprint §C2); `?sub=management`

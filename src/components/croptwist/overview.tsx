@@ -1,15 +1,12 @@
 'use client'
 
-import { useCallback } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { FlaskConical, Map, Plus, Ruler, Sprout, Tractor } from 'lucide-react'
+import { FlaskConical, Layers, Map, Plus, Ruler, Sprout, Tractor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFields, useFarms, useHealthReady } from '@/hooks/use-croptwist'
 import { ClimateOverview } from '@/components/croptwist/charts/climate-overview'
-import { DataCoverage } from '@/components/croptwist/charts/data-coverage'
-import { FarmMap } from '@/components/croptwist/farm-map'
 import { ErrorState } from '@/components/croptwist/state-views'
 import { formatArea } from '@/lib/format'
 import { useCropTwistUi } from '@/lib/store'
@@ -54,7 +51,6 @@ function StatCard({
 
 export function Overview() {
   const t = useTranslations('overview')
-  const tMap = useTranslations('map')
   const locale = useLocale()
   const farmsQuery = useFarms()
   const farms = farmsQuery.data?.items ?? []
@@ -85,17 +81,8 @@ export function Overview() {
         null
 
   const setActiveTab = useCropTwistUi((s) => s.setActiveTab)
-  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const openCreateFarm = useCropTwistUi((s) => s.openCreateFarm)
   const goToPassportFor = useCropTwistUi((s) => s.goToPassportFor)
-
-  const handleMapSelect = useCallback(
-    (field: { id: string; name: string; farm_id: string }) => {
-      setSelectedField({ id: field.id, name: field.name, farmId: field.farm_id })
-      setActiveTab('farms')
-    },
-    [setActiveTab, setSelectedField],
-  )
 
   const fieldCount = farms.reduce((acc, farm) => acc + (farm.field_count ?? 0), 0)
   const totalAreaHa = farms.reduce((acc, farm) => acc + (farm.total_area_ha ?? 0), 0)
@@ -160,11 +147,44 @@ export function Overview() {
         </Card>
       </div>
 
-      {!empty && activeField ? (
-        <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
-          <ClimateOverview fieldId={activeField.id} />
-          <DataCoverage fieldId={activeField.id} />
-        </div>
+      {!empty && activeField ? <ClimateOverview fieldId={activeField.id} /> : null}
+
+      {!empty ? (
+        <Card className="border-stone-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">{t('exploreTitle')}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <Button
+              variant="outline"
+              className="h-auto min-h-14 justify-start whitespace-normal border-stone-300 p-3 text-left"
+              aria-label={t('exploreMap')}
+              onClick={() => setActiveTab('geo')}
+            >
+              <span className="flex items-start gap-2">
+                <Map className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-stone-800">{t('exploreMap')}</span>
+                  <span className="block text-xs font-normal text-stone-500">{t('exploreMapHint')}</span>
+                </span>
+              </span>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto min-h-14 justify-start whitespace-normal border-stone-300 p-3 text-left"
+              aria-label={t('exploreCoverage')}
+              onClick={() => setActiveTab('observations')}
+            >
+              <span className="flex items-start gap-2">
+                <Layers className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-stone-800">{t('exploreCoverage')}</span>
+                  <span className="block text-xs font-normal text-stone-500">{t('exploreCoverageHint')}</span>
+                </span>
+              </span>
+            </Button>
+          </CardContent>
+        </Card>
       ) : null}
 
       {empty ? (
@@ -189,20 +209,6 @@ export function Overview() {
             <Button className="bg-emerald-700 hover:bg-emerald-800" onClick={openCreateFarm}>
               <Plus className="h-4 w-4" aria-hidden /> {t('createFirstFarm')}
             </Button>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {!empty && activeFarm ? (
-        <Card className="border-stone-200 bg-white shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{tMap('farmMapTitle')} — {activeFarm.name}</CardTitle>
-            <CardDescription>
-              {tMap('farmMapDesc')} {tMap('clickHint')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FarmMap fields={fieldsQuery.data?.items ?? []} onFieldSelect={handleMapSelect} />
           </CardContent>
         </Card>
       ) : null}

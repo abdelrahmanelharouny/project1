@@ -40,8 +40,15 @@ exists it is named; nothing in this list is simulated elsewhere in the code.
   (ERA5/ERA5-Land reanalysis) is implemented. Forecast APIs are not wired.
 - **No climate-projection provider.** Climate scenarios cannot be built from
   projection datasets; the scenario type exists as a contract only.
-- **No satellite / NASA connectors.** The adapter seam exists in the
-  provider registry, but no satellite product is ingested.
+- **NASA HLS connector (P04) — real adapter, live-verified discovery only.**
+  Catalog discovery via NASA CMR STAC is live-verified in the sandbox (real
+  HLSL30/HLSS30 scenes discovered and persisted). Authenticated asset reads
+  (`/vsicurl/` COG range reads via NASA Earthdata Login) are implemented but
+  NOT live-tested — no Earthdata credentials in this environment; without
+  credentials the acquisition path fails loudly per scene (RasterioIOError
+  surfaced in scene `acquisition_detail`), never fabricating data. Vegetation
+  indices are derived per scene during acquisition (documented HLS scaling +
+  Fmask masking); no agronomic conclusions in the ingestion layer.
 - CHIRPS support is limited to local GeoTIFF extraction (`extractor.py`);
   there is no live CHIRPS API client.
 - Provider availability probes and timeouts are best-effort; a provider being

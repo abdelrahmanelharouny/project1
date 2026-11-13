@@ -34,6 +34,52 @@ from app.db.models import (
 logger = logging.getLogger("croptwist.ingestion")
 
 
+def set_scene_acquisition_status(
+    db: Session,
+    field_id: Any,
+    provider_code: str,
+    scene_ids: list[str],
+    status: str,
+    detail: dict[str, Any] | None = None,
+) -> int:
+    """Move satellite scenes along the acquisition lifecycle (P04).
+
+    Rows that do not exist are silently skipped (direct /data-jobs calls may
+    reference scenes never discovered); rows already 'ready' are never
+    downgraded — re-ingestion of ingested scenes must not resurrect stale
+    statuses. Returns the number of rows updated.
+    """
+    from app.db.models_p2 import SatelliteScene
+
+    updated = 0
+    now = datetime.now(UTC)
+    for scene_id in scene_ids:
+        row = db.scalar(
+            select(SatelliteScene).where(
+                SatelliteScene.field_id == field_id,
+                SatelliteScene.provider_code == provider_code,
+                SatelliteScene.scene_id == str(scene_id)[:255],
+            )
+        )
+        if row is None or row.acquisition_status == "ready":
+            continue
+        row.acquisition_status = status
+        row.acquisition_detail = detail or {}
+        row.acquisition_updated_at = now
+        updated += 1
+    if updated:
+        logger.info(
+            "satellite scene status updated",
+            extra={
+                "field_id": str(field_id),
+                "provider_code": provider_code,
+                "status": status,
+                "scenes": updated,
+            },
+        )
+    return updated
+
+
 def _record_satellite_scenes(db: Session, job: IngestionJob, field: Field, result) -> int:
     """Record scene-level provenance for satellite providers (P2.A).
 
@@ -74,6 +120,7 @@ def _record_satellite_scenes(db: Session, job: IngestionJob, field: Field, resul
             },
         }
     recorded = 0
+    now = datetime.now(UTC)
     for key, payload in scenes.items():
         exists = db.scalar(
             _select(SatelliteScene.id).where(
@@ -83,12 +130,28 @@ def _record_satellite_scenes(db: Session, job: IngestionJob, field: Field, resul
             )
         )
         if exists is not None:
+            # Idempotent replay: never duplicate, and mark the scene 'ready'
+            # (it produced observations in THIS job). Legacy rows keep their
+            # other metadata untouched.
+            row = db.get(SatelliteScene, exists)
+            if row is not None and row.acquisition_status != "ready":
+                row.acquisition_status = "ready"
+                row.acquisition_detail = {"job_id": str(job.id)}
+                row.acquisition_updated_at = now
+            if row is not None:
+                zonal_coverage = (payload.get("coverage_fraction"))
+                if zonal_coverage is not None and row.coverage_fraction is None:
+                    row.coverage_fraction = zonal_coverage
             continue
         db.add(
             SatelliteScene(
                 field_id=field.id,
                 provider_code=job.provider_code,
                 product_code=payload["metadata_json"].get("product_code") or "",
+                acquisition_status="ready",
+                acquisition_detail={"job_id": str(job.id)},
+                discovered_at=now,
+                acquisition_updated_at=now,
                 **payload,
             )
         )
@@ -311,6 +374,15 @@ def _execute_job(
     job.started_at = datetime.now(UTC)
     db.commit()
 
+    # P04: move explicitly-targeted satellite scenes along the acquisition
+    # lifecycle so scene status always mirrors real ingestion state.
+    scene_ids = [str(s) for s in (options or {}).get("scene_ids") or []]
+    if scene_ids:
+        set_scene_acquisition_status(
+            db, field.id, job.provider_code, scene_ids, "running", {"job_id": str(job.id)}
+        )
+        db.commit()
+
     try:
         provider = get_provider_registry().get(job.provider_code)
         aoi = AreaOfInterest(
@@ -329,11 +401,50 @@ def _execute_job(
         job.status = "failed"
         job.error_summary = f"{type(exc).__name__}: {exc}"
         job.completed_at = datetime.now(UTC)
+        if scene_ids:
+            set_scene_acquisition_status(
+                db,
+                field.id,
+                job.provider_code,
+                scene_ids,
+                "failed",
+                {
+                    "job_id": str(job.id),
+                    "error": f"{type(exc).__name__}: {exc}"[:1000],
+                },
+            )
         db.commit()
         logger.warning("ingestion job failed", extra={"job_id": str(job.id), "error": str(exc)})
         return
 
     _persist_result(db, job, field=field, result=result)
+
+    # P04: scenes that were requested but produced no observations (degraded,
+    # unreadable, or filtered out by the provider) surface honestly as failed.
+    if scene_ids:
+        returned = {
+            str((obs.metadata or {}).get("scene_id"))
+            for obs in result.observations
+            if (obs.metadata or {}).get("scene_id")
+        }
+        missing = [s for s in scene_ids if s not in returned]
+        if missing:
+            relevant_warnings = [
+                w for w in result.warnings if any(s in w for s in missing)
+            ][:10]
+            set_scene_acquisition_status(
+                db,
+                field.id,
+                job.provider_code,
+                missing,
+                "failed",
+                {
+                    "job_id": str(job.id),
+                    "reason": "scene not returned by provider",
+                    "warnings": relevant_warnings,
+                },
+            )
+        db.commit()
 
 
 def _persist_result(db: Session, job: IngestionJob, *, field: Field, result) -> None:

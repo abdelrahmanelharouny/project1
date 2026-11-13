@@ -24,6 +24,11 @@ from app.data_platform.providers.chirps.registry_info import (
     documented_limitations as chirps_limitations,
     stub_fetch_message as chirps_stub_message,
 )
+from app.data_platform.providers.nasa_hls.provider import NasaHlsProvider
+from app.data_platform.providers.nasa_hls.registry_info import (
+    KNOWN_LIMITATIONS as NASA_HLS_LIMITATIONS,
+    PROVIDER_CODE as NASA_HLS_CODE,
+)
 from app.data_platform.providers.open_meteo.provider import OpenMeteoProvider, health_probe as om_probe
 from app.data_platform.providers.open_meteo_forecast.provider import OpenMeteoForecastProvider
 from app.data_platform.providers.satellite_sim.provider import SatelliteSimProvider
@@ -47,6 +52,35 @@ def _sentinel2_probe() -> dict[str, Any]:
         latency = int((time.time() - started) * 1000)
         if response.status_code < 500:
             return {"status": "ok", "latency_ms": latency, "detail": f"STAC responded HTTP {response.status_code}"}
+        return {"status": "degraded", "latency_ms": latency, "detail": f"HTTP {response.status_code}"}
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "unreachable",
+            "latency_ms": int((time.time() - started) * 1000),
+            "detail": f"external network unavailable: {exc}",
+        }
+
+
+def _nasa_hls_probe() -> dict[str, Any]:
+    """Best-effort CMR STAC reachability probe (never raises, never blocks).
+
+    CMR STAC discovery is unauthenticated by design, so the probe can verify
+    catalog reachability without Earthdata credentials; it says nothing about
+    authenticated asset-download availability.
+    """
+    import httpx
+
+    from app.core.config import settings as s
+
+    started = time.time()
+    try:
+        response = httpx.get(
+            s.nasa_hls_stac_base_url.rstrip("/"),
+            timeout=s.provider_probe_timeout_seconds,
+        )
+        latency = int((time.time() - started) * 1000)
+        if response.status_code < 500:
+            return {"status": "ok", "latency_ms": latency, "detail": f"CMR STAC responded HTTP {response.status_code}"}
         return {"status": "degraded", "latency_ms": latency, "detail": f"HTTP {response.status_code}"}
     except Exception as exc:  # noqa: BLE001
         return {
@@ -325,6 +359,39 @@ def get_provider_registry() -> ProviderRegistry:
                 ),
             },
             probe=_sentinel2_probe,
+        )
+
+        # ------------------------------------------------ P04 NASA HLS
+        # Real NASA satellite acquisition: CMR STAC discovery (public) +
+        # LP DAAC asset reads via /vsicurl/ (Earthdata Login required).
+        nasa_hls = NasaHlsProvider()
+        registry.register(
+            nasa_hls,
+            kind="api_stac",
+            status="optional",
+            details={
+                "collections": nasa_hls.collections(),
+                "variables": nasa_hls.supported_variables(),
+                "is_synthetic": False,
+                "workflow": (
+                    "POST /fields/{field_id}/satellite/discovery -> "
+                    "POST /fields/{field_id}/satellite/acquisitions"
+                ),
+                "known_limitations": NASA_HLS_LIMITATIONS,
+                "earthdata_credentials_configured": bool(
+                    settings.earthdata_bearer_token
+                    or (settings.earthdata_username and settings.earthdata_password)
+                ),
+                "note": (
+                    "NASA HLS (Landsat+Sentinel-2 harmonized SR, 30 m) via "
+                    "CMR STAC + LP DAAC COGs. Catalog discovery is public; "
+                    "asset reads need NASA Earthdata Login credentials "
+                    "(env-injected). Status 'optional': the adapter and "
+                    "tests run fully mocked; live use needs connectivity + "
+                    "credentials only."
+                ),
+            },
+            probe=_nasa_hls_probe,
         )
 
         # ------------------------------------------------ P2.B forecast
