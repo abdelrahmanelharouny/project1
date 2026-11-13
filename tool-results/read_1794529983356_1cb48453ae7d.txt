@@ -1,0 +1,680 @@
+   561→            <CardDescription>
+   562→              {provider === 'synthetic'
+   563→                ? t('ingestDescSynthetic')
+   564→                : t('ingestDescOpenMeteo')}
+   565→            </CardDescription>
+   566→          </CardHeader>
+   567→          <CardContent className="space-y-4">
+   568→            <div className="space-y-1.5">
+   569→              <Label htmlFor="obs-provider">{t('providerLabel')}</Label>
+   570→              <Select
+   571→                value={provider}
+   572→                onValueChange={(value) => {
+   573→                  setProvider(value as JobProviderCode)
+   574→                  setJob(null)
+   575→                  setFormError(null)
+   576→                  if (value === 'open_meteo' && !models.some((m) => m.code === model)) {
+   577→                    setModel(openMeteoProvider?.details.default_model ?? 'era5_land')
+   578→                  }
+   579→                }}
+   580→              >
+   581→                <SelectTrigger id="obs-provider" className="w-full">
+   582→                  <SelectValue />
+   583→                </SelectTrigger>
+   584→                <SelectContent>
+   585→                  {JOB_PROVIDERS.map((code) => {
+   586→                    const health =
+   587→                      code === 'synthetic'
+   588→                        ? syntheticProvider
+   589→                        : openMeteoProvider
+   590→                    return (
+   591→                      <SelectItem key={code} value={code}>
+   592→                        <span className="flex flex-col">
+   593→                          <span>{t(`provider.${code}`)}</span>
+   594→                          {health ? (
+   595→                            <span className="text-[11px] font-normal text-stone-500">
+   596→                              {health.kind} · {health.status}
+   597→                            </span>
+   598→                          ) : null}
+   599→                        </span>
+   600→                      </SelectItem>
+   601→                    )
+   602→                  })}
+   603→                </SelectContent>
+   604→              </Select>
+   605→              {activeProvider ? <ProviderStatusDot provider={activeProvider} /> : null}
+   606→            </div>
+   607→
+   608→            {provider === 'open_meteo' ? (
+   609→              <div className="space-y-1.5">
+   610→                <Label htmlFor="obs-model">{t('modelLabel')}</Label>
+   611→                <Select value={model} onValueChange={setModel}>
+   612→                  <SelectTrigger id="obs-model" className="w-full">
+   613→                    <SelectValue />
+   614→                  </SelectTrigger>
+   615→                  <SelectContent>
+   616→                    {models.map((m) => (
+   617→                      <SelectItem key={m.code} value={m.code}>
+   618→                        <span className="flex flex-col">
+   619→                          <span>{t('modelGrid', { code: m.code, km: Math.round(m.spatial_resolution_m / 1000) })}</span>
+   620→                          <span className="max-w-72 truncate text-[11px] font-normal text-stone-500">
+   621→                            {m.description}
+   622→                          </span>
+   623→                        </span>
+   624→                      </SelectItem>
+   625→                    ))}
+   626→                  </SelectContent>
+   627→                </Select>
+   628→                <p className="text-xs text-stone-500">
+   629→                  {activeModel
+   630→                    ? t('publishes', { variables: activeModel.variables.map((v) => humanizeCode(v)).join(', ') })
+   631→                    : t('pickModelHint')}
+   632→                </p>
+   633→              </div>
+   634→            ) : null}
+   635→
+   636→            <div className="space-y-1.5">
+   637→              <Label>{t('variablesLabel')}</Label>
+   638→              {catalog.isLoading ? (
+   639→                <div className="space-y-2">
+   640→                  <Skeleton className="h-5 w-full" />
+   641→                  <Skeleton className="h-5 w-3/4" />
+   642→                </div>
+   643→              ) : catalog.isError ? (
+   644→                <p className="text-sm text-red-700">{t('catalogError')}</p>
+   645→              ) : (
+   646→                <div className="grid gap-2 rounded-lg border border-stone-200 p-3 sm:grid-cols-2">
+   647→                  {selectableVariables.map((variable) => {
+   648→                    const checked = effectiveSelectedVariables.includes(variable.code)
+   649→                    return (
+   650→                      <label
+   651→                        key={variable.code}
+   652→                        className="flex cursor-pointer items-start gap-2 text-sm text-stone-700"
+   653→                      >
+   654→                        <Checkbox
+   655→                          checked={checked}
+   656→                          onCheckedChange={(value) => {
+   657→                            setSelectedVariables((previous) =>
+   658→                              value
+   659→                                ? [...previous, variable.code]
+   660→                                : previous.filter((code) => code !== variable.code),
+   661→                            )
+   662→                          }}
+   663→                          aria-label={`${variable.name} (${variable.code})`}
+   664→                        />
+   665→                        <span className="leading-tight">
+   666→                          {variable.name}
+   667→                          <span className="block text-[11px] text-stone-500">
+   668→                            {variable.code} · {variable.unit}
+   669→                          </span>
+   670→                        </span>
+   671→                      </label>
+   672→                    )
+   673→                  })}
+   674→                </div>
+   675→              )}
+   676→              {selectableVariables.length === 0 && !catalog.isLoading ? (
+   677→                <p className="text-xs text-stone-500">{t('noCatalogVars')}</p>
+   678→              ) : null}
+   679→            </div>
+   680→
+   681→            {provider === 'synthetic' ? (
+   682→              <div className="grid gap-4 sm:grid-cols-2">
+   683→                <div className="space-y-1.5">
+   684→                  <Label htmlFor="obs-profile">{t('profileLabel')}</Label>
+   685→                  <Select value={profile} onValueChange={(value) => setProfile(value as SyntheticProfile)}>
+   686→                    <SelectTrigger id="obs-profile" className="w-full">
+   687→                      <SelectValue />
+   688→                    </SelectTrigger>
+   689→                    <SelectContent>
+   690→                      {PROFILES.map((entry) => (
+   691→                        <SelectItem key={entry} value={entry}>
+   692→                          {t(`profile.${entry}`)}
+   693→                        </SelectItem>
+   694→                      ))}
+   695→                    </SelectContent>
+   696→                  </Select>
+   697→                  <p className="text-xs text-stone-500">{t('profileHint')}</p>
+   698→                </div>
+   699→                <div className="space-y-1.5">
+   700→                  <Label htmlFor="obs-seed">{t('seedLabel')}</Label>
+   701→                  <Input
+   702→                    id="obs-seed"
+   703→                    type="number"
+   704→                    min={0}
+   705→                    value={seed}
+   706→                    onChange={(event) => setSeed(Number(event.target.value) || 0)}
+   707→                  />
+   708→                  <p className="text-xs text-stone-500">{t('seedHint')}</p>
+   709→                </div>
+   710→              </div>
+   711→            ) : null}
+   712→
+   713→            <div className="grid gap-4 sm:grid-cols-2">
+   714→              <div className="space-y-1.5">
+   715→                <Label htmlFor="obs-start">{t('startDate')}</Label>
+   716→                <Input
+   717→                  id="obs-start"
+   718→                  type="date"
+   719→                  value={jobStart}
+   720→                  onChange={(event) => setJobStart(event.target.value)}
+   721→                />
+   722→              </div>
+   723→              <div className="space-y-1.5">
+   724→                <Label htmlFor="obs-end">{t('endDate')}</Label>
+   725→                <Input
+   726→                  id="obs-end"
+   727→                  type="date"
+   728→                  value={jobEnd}
+   729→                  onChange={(event) => setJobEnd(event.target.value)}
+   730→                />
+   731→              </div>
+   732→            </div>
+   733→            <p className="-mt-2 text-xs text-stone-500">
+   734→              {provider === 'synthetic'
+   735→                ? t('fixtureCoverage', { start: COVERAGE_START, end: COVERAGE_END, years: MAX_JOB_YEARS })
+   736→                : t('archiveCoverage')}
+   737→            </p>
+   738→
+   739→            {formError ? (
+   740→              <p className="text-sm font-medium text-red-700" role="alert">
+   741→                {visibleFormError}
+   742→              </p>
+   743→            ) : null}
+   744→
+   745→            <Button
+   746→              className="w-full bg-emerald-700 hover:bg-emerald-800 sm:w-auto"
+   747→              onClick={submitJob}
+   748→              disabled={ingestMutation.isPending}
+   749→            >
+   750→              {ingestMutation.isPending ? (
+   751→                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   752→              ) : (
+   753→                <Database className="h-4 w-4" aria-hidden />
+   754→              )}
+   755→              {t('runJob')}
+   756→            </Button>
+   757→          </CardContent>
+   758→
+   759→          {visibleJob ? (
+   760→            <CardFooter className="block border-t border-stone-100 pt-4">
+   761→              <JobFooter job={visibleJob} />
+   762→            </CardFooter>
+   763→          ) : null}
+   764→        </Card>
+   765→
+   766→        {/* ---------------- window + charts ---------------- */}
+   767→        <div className="space-y-4">
+   768→          <Card className="border-stone-200 bg-white shadow-sm">
+   769→            <CardHeader className="pb-3">
+   770→              <CardTitle className="flex items-center gap-2 text-base">
+   771→                <CalendarRange className="h-4 w-4 text-emerald-700" aria-hidden />
+   772→                {t('loadedWindowTitle')}
+   773→              </CardTitle>
+   774→              <CardDescription>
+   775→                {observationsQuery.data
+   776→                  ? t.rich('showingFor', {
+   777→                      shown: observationsQuery.data.items.length,
+   778→                      total: observationsQuery.data.total,
+   779→                      field: selectedField.name,
+   780→                      strong: (chunks) => <strong className="font-medium text-stone-700">{chunks}</strong>,
+   781→                    })
+   782→                  : t.rich('showingForLoading', {
+   783→                      field: selectedField.name,
+   784→                      strong: (chunks) => <strong className="font-medium text-stone-700">{chunks}</strong>,
+   785→                    })}
+   786→              </CardDescription>
+   787→            </CardHeader>
+   788→            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+   789→              <div className="flex-1 space-y-1.5">
+   790→                <Label htmlFor="window-start">{t('fromLabel')}</Label>
+   791→                <Input
+   792→                  id="window-start"
+   793→                  type="date"
+   794→                  value={windowStart}
+   795→                  onChange={(event) => setWindowStart(event.target.value)}
+   796→                />
+   797→              </div>
+   798→              <div className="flex-1 space-y-1.5">
+   799→                <Label htmlFor="window-end">{t('toLabel')}</Label>
+   800→                <Input
+   801→                  id="window-end"
+   802→                  type="date"
+   803→                  value={windowEnd}
+   804→                  onChange={(event) => setWindowEnd(event.target.value)}
+   805→                />
+   806→              </div>
+   807→              <Button variant="outline" className="border-stone-300" onClick={loadWindow} disabled={observationsQuery.isFetching}>
+   808→                {observationsQuery.isFetching ? (
+   809→                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   810→                ) : (
+   811→                  <RefreshCw className="h-4 w-4" aria-hidden />
+   812→                )}
+   813→                {t('load')}
+   814→              </Button>
+   815→            </CardContent>
+   816→          </Card>
+   817→
+   818→          {observationsQuery.isLoading ? (
+   819→            <div className="grid gap-4 sm:grid-cols-2">
+   820→              <Skeleton className="h-56 rounded-lg" />
+   821→              <Skeleton className="h-56 rounded-lg" />
+   822→            </div>
+   823→          ) : (
+   824→            <div className="grid gap-4 sm:grid-cols-2">
+   825→              <ChartCard
+   826→                title={t('chartTempTitle')}
+   827→                unit="°C"
+   828→                note={
+   829→                  tempSeries.length === 0
+   830→                    ? t('noTempData')
+   831→                    : chartProvenanceNote(tempSeries)
+   832→                }
+   833→              >
+   834→                {tempSeries.length > 0 ? (
+   835→                  <ResponsiveContainer width="100%" height={190}>
+   836→                    <LineChart data={tempSeries} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+   837→                      <CartesianGrid stroke="#e7e5e4" strokeDasharray="3 3" />
+   838→                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} minTickGap={36} />
+   839→                      <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} />
+   840→                      <ReTooltip labelFormatter={(label) => t('tooltipDate', { label })} />
+   841→                      <Line type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} dot={false} />
+   842→                    </LineChart>
+   843→                  </ResponsiveContainer>
+   844→                ) : (
+   845→                  <div className="flex h-[190px] items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-500">
+   846→                    {t('ingestToSeeTemp')}
+   847→                  </div>
+   848→                )}
+   849→              </ChartCard>
+   850→              <ChartCard
+   851→                title={t('chartPrecipTitle')}
+   852→                unit="mm"
+   853→                note={
+   854→                  precipSeries.length === 0
+   855→                    ? t('noPrecipData')
+   856→                    : chartProvenanceNote(precipSeries)
+   857→                }
+   858→              >
+   859→                {precipSeries.length > 0 ? (
+   860→                  <ResponsiveContainer width="100%" height={190}>
+   861→                    <BarChart data={precipSeries} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+   862→                      <CartesianGrid stroke="#e7e5e4" strokeDasharray="3 3" />
+   863→                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} minTickGap={36} />
+   864→                      <YAxis tick={{ fontSize: 10 }} />
+   865→                      <ReTooltip labelFormatter={(label) => t('tooltipDate', { label })} />
+   866→                      <Bar dataKey="value" fill="#78716c" radius={[2, 2, 0, 0]} />
+   867→                    </BarChart>
+   868→                  </ResponsiveContainer>
+   869→                ) : (
+   870→                  <div className="flex h-[190px] items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-500">
+   871→                    {t('ingestToSeePrecip')}
+   872→                  </div>
+   873→                )}
+   874→              </ChartCard>
+   875→            </div>
+   876→          )}
+   877→        </div>
+   878→      </div>
+   879→
+   880→      {/* ---------------- file imports + coverage ---------------- */}
+   881→      <div className="grid gap-6 lg:grid-cols-2">
+   882→        <Card className="border-stone-200 bg-white shadow-sm">
+   883→          <CardHeader className="pb-3">
+   884→            <CardTitle className="flex items-center gap-2 text-base">
+   885→              <Upload className="h-4 w-4 text-emerald-700" aria-hidden />
+   886→              {t('fileImportsTitle')}
+   887→            </CardTitle>
+   888→            <CardDescription>
+   889→              {t('fileImportsDesc')}
+   890→            </CardDescription>
+   891→          </CardHeader>
+   892→          <CardContent>
+   893→            <Tabs defaultValue="csv">
+   894→              <TabsList className="grid w-full grid-cols-2">
+   895→                <TabsTrigger value="csv">
+   896→                  <FileSpreadsheet className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> {t('tabCsv')}
+   897→                </TabsTrigger>
+   898→                <TabsTrigger value="chirps">
+   899→                  <Layers className="mr-1.5 inline h-3.5 w-3.5" aria-hidden /> {t('tabChirps')}
+   900→                </TabsTrigger>
+   901→              </TabsList>
+   902→
+   903→              <TabsContent value="csv" className="mt-3 space-y-3">
+   904→                <p className="text-xs text-stone-500">
+   905→                  {t.rich('csvHelp', {
+   906→                    code: (chunks) => <code className="rounded bg-stone-100 px-1">{chunks}</code>,
+   907→                    strong: (chunks) => <strong>{chunks}</strong>,
+   908→                  })}
+   909→                </p>
+   910→                <div className="flex flex-wrap items-center gap-2">
+   911→                  <Input
+   912→                    ref={csvInputRef}
+   913→                    type="file"
+   914→                    accept=".csv,text/csv"
+   915→                    className="max-w-xs"
+   916→                    onChange={(event) => setCsvFile(event.target.files?.[0] ?? null)}
+   917→                    aria-label={t('csvFileAria')}
+   918→                  />
+   919→                  <a
+   920→                    href={CSV_TEMPLATE_URL}
+   921→                    className="text-xs font-medium text-emerald-700 underline-offset-2 hover:underline"
+   922→                    download
+   923→                  >
+   924→                    {t('downloadTemplate')}
+   925→                  </a>
+   926→                </div>
+   927→                <Button
+   928→                  className="bg-emerald-700 hover:bg-emerald-800"
+   929→                  disabled={!csvFile || csvImportMutation.isPending}
+   930→                  onClick={() => selectedField && csvImportMutation.mutate(selectedField.id)}
+   931→                >
+   932→                  {csvImportMutation.isPending ? (
+   933→                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   934→                  ) : (
+   935→                    <Upload className="h-4 w-4" aria-hidden />
+   936→                  )}
+   937→                  {t('importCsv')}
+   938→                </Button>
+   939→                {visibleCsvJob ? (
+   940→                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+   941→                    <JobFooter job={visibleCsvJob} />
+   942→                  </div>
+   943→                ) : null}
+   944→              </TabsContent>
+   945→
+   946→              <TabsContent value="chirps" className="mt-3 space-y-3">
+   947→                <p className="text-xs text-stone-500">
+   948→                  {t('chirpsHelp')}
+   949→                  {chirpsProvider && chirpsProvider.status !== 'active' ? (
+   950→                    <span className="mt-1 block font-medium text-amber-700">
+   951→                      {t('providerDegraded', {
+   952→                        reason: String(chirpsProvider.details.degradation_reason ?? 'unavailable'),
+   953→                      })}
+   954→                    </span>
+   955→                  ) : null}
+   956→                </p>
+   957→                <div className="flex flex-wrap items-center gap-2">
+   958→                  <Input
+   959→                    ref={chirpsInputRef}
+   960→                    type="file"
+   961→                    accept=".tif,.tiff,application/x-geotiff,image/tiff"
+   962→                    className="max-w-xs"
+   963→                    onChange={(event) => setChirpsFile(event.target.files?.[0] ?? null)}
+   964→                    aria-label={t('chirpsFileAria')}
+   965→                  />
+   966→                </div>
+   967→                <div className="grid gap-3 sm:grid-cols-3">
+   968→                  <div className="space-y-1.5">
+   969→                    <Label htmlFor="chirps-date">{t('rasterDate')}</Label>
+   970→                    <Input
+   971→                      id="chirps-date"
+   972→                      type="date"
+   973→                      value={chirpsDate}
+   974→                      onChange={(event) => setChirpsDate(event.target.value)}
+   975→                    />
+   976→                  </div>
+   977→                  <div className="space-y-1.5">
+   978→                    <Label htmlFor="chirps-kind">{t('productKind')}</Label>
+   979→                    <Select value={chirpsKind} onValueChange={(value) => setChirpsKind(value as typeof chirpsKind)}>
+   980→                      <SelectTrigger id="chirps-kind" className="w-full">
+   981→                        <SelectValue />
+   982→                      </SelectTrigger>
+   983→                      <SelectContent>
+   984→                        <SelectItem value="daily">{t('kindDaily')}</SelectItem>
+   985→                        <SelectItem value="pentad">{t('kindPentad')}</SelectItem>
+   986→                        <SelectItem value="monthly">{t('kindMonthly')}</SelectItem>
+   987→                      </SelectContent>
+   988→                    </Select>
+   989→                  </div>
+   990→                  <div className="space-y-1.5">
+   991→                    <Label htmlFor="chirps-status">{t('productStatus')}</Label>
+   992→                    <Select
+   993→                      value={chirpsStatus}
+   994→                      onValueChange={(value) => setChirpsStatus(value as typeof chirpsStatus)}
+   995→                    >
+   996→                      <SelectTrigger id="chirps-status" className="w-full">
+   997→                        <SelectValue />
+   998→                      </SelectTrigger>
+   999→                      <SelectContent>
+  1000→                        <SelectItem value="final">{t('statusFinal')}</SelectItem>
+  1001→                        <SelectItem value="preliminary">{t('statusPreliminary')}</SelectItem>
+  1002→                      </SelectContent>
+  1003→                    </Select>
+  1004→                  </div>
+  1005→                </div>
+  1006→                <Button
+  1007→                  className="bg-emerald-700 hover:bg-emerald-800"
+  1008→                  disabled={!chirpsFile || chirpsMutation.isPending}
+  1009→                  onClick={() => selectedField && chirpsMutation.mutate(selectedField.id)}
+  1010→                >
+  1011→                  {chirpsMutation.isPending ? (
+  1012→                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+  1013→                  ) : (
+  1014→                    <Upload className="h-4 w-4" aria-hidden />
+  1015→                  )}
+  1016→                  {t('extractRainfall')}
+  1017→                </Button>
+  1018→                {visibleChirpsJob ? (
+  1019→                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+  1020→                    <JobFooter job={visibleChirpsJob} />
+  1021→                  </div>
+  1022→                ) : null}
+  1023→              </TabsContent>
+  1024→            </Tabs>
+  1025→          </CardContent>
+  1026→        </Card>
+  1027→
+  1028→        <Card className="border-stone-200 bg-white shadow-sm">
+  1029→          <CardHeader className="pb-3">
+  1030→            <CardTitle className="flex items-center gap-2 text-base">
+  1031→              <Layers className="h-4 w-4 text-emerald-700" aria-hidden />
+  1032→              {t('coverageTitle')}
+  1033→            </CardTitle>
+  1034→            <CardDescription>
+  1035→              {t.rich('coverageDesc', {
+  1036→                field: selectedField.name,
+  1037→                strong: (chunks) => <strong className="font-medium text-stone-700">{chunks}</strong>,
+  1038→              })}
+  1039→            </CardDescription>
+  1040→          </CardHeader>
+  1041→          <CardContent>
+  1042→            {coverageQuery.isLoading ? (
+  1043→              <div className="space-y-2">
+  1044→                <Skeleton className="h-8 w-full" />
+  1045→                <Skeleton className="h-8 w-3/4" />
+  1046→              </div>
+  1047→            ) : coverageQuery.isError ? (
+  1048→              <Alert variant="destructive">
+  1049→                <XCircle className="h-4 w-4" />
+  1050→                <AlertTitle>{t('coverageError')}</AlertTitle>
+  1051→                <AlertDescription>{t('tryAgainShortly')}</AlertDescription>
+  1052→              </Alert>
+  1053→            ) : (coverageQuery.data?.variables.length ?? 0) === 0 ? (
+  1054→              <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
+  1055→                <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />
+  1056→                <p className="mt-2 text-sm text-stone-600">{t('noObservationsYet')}</p>
+  1057→              </div>
+  1058→            ) : (
+  1059→              <div className="max-h-80 overflow-y-auto rounded-md border scrollbar-thin">
+  1060→                <Table>
+  1061→                  <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
+  1062→                    <TableRow className="hover:bg-transparent">
+  1063→                      <TableHead>{t('colVariable')}</TableHead>
+  1064→                      <TableHead className="text-right">{t('colRows')}</TableHead>
+  1065→                      <TableHead className="text-right">{t('colValid')}</TableHead>
+  1066→                      <TableHead>{t('colPeriod')}</TableHead>
+  1067→                      <TableHead>{t('colProviders')}</TableHead>
+  1068→                    </TableRow>
+  1069→                  </TableHeader>
+  1070→                  <TableBody>
+  1071→                    {(coverageQuery.data?.variables ?? []).map((entry) => (
+  1072→                      <TableRow key={entry.variable_code}>
+  1073→                        <TableCell>
+  1074→                          <span className="font-medium text-stone-800">{variableName(entry.variable_code)}</span>
+  1075→                          <span className="block text-[11px] text-stone-500">
+  1076→                            {entry.variable_code} · {entry.unit}
+  1077→                          </span>
+  1078→                        </TableCell>
+  1079→                        <TableCell className="text-right tabular-nums">{entry.total}</TableCell>
+  1080→                        <TableCell className="text-right tabular-nums">{entry.valid}</TableCell>
+  1081→                        <TableCell className="whitespace-nowrap text-xs text-stone-600">
+  1082→                          {entry.providers[0]?.first ?? '—'} → {entry.providers[0]?.last ?? '—'}
+  1083→                        </TableCell>
+  1084→                        <TableCell>
+  1085→                          <div className="flex flex-wrap gap-1">
+  1086→                            {entry.providers.map((p) => (
+  1087→                              <Badge
+  1088→                                key={`${entry.variable_code}-${p.provider_code}-${p.product_code}`}
+  1089→                                variant="outline"
+  1090→                                className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-900"
+  1091→                              >
+  1092→                                {p.provider_code}
+  1093→                              </Badge>
+  1094→                            ))}
+  1095→                          </div>
+  1096→                        </TableCell>
+  1097→                      </TableRow>
+  1098→                    ))}
+  1099→                  </TableBody>
+  1100→                </Table>
+  1101→              </div>
+  1102→            )}
+  1103→          </CardContent>
+  1104→        </Card>
+  1105→      </div>
+  1106→
+  1107→      {/* ---------------- observations table ---------------- */}
+  1108→      <Card className="border-stone-200 bg-white shadow-sm">
+  1109→        <CardHeader className="pb-3">
+  1110→          <div className="flex flex-wrap items-center justify-between gap-3">
+  1111→            <div>
+  1112→              <CardTitle className="flex items-center gap-2 text-base">
+  1113→                <BarChart3 className="h-4 w-4 text-emerald-700" aria-hidden />
+  1114→                {t('tableTitle')}
+  1115→              </CardTitle>
+  1116→              <CardDescription>
+  1117→                {t('windowRange', { start: appliedWindow.start, end: appliedWindow.end })}
+  1118→                {observationsQuery.data && observationsQuery.data.total > observationsQuery.data.items.length
+  1119→                  ? t('windowTruncated', {
+  1120→                      shown: observationsQuery.data.items.length,
+  1121→                      total: observationsQuery.data.total,
+  1122→                    })
+  1123→                  : ''}
+  1124→              </CardDescription>
+  1125→            </div>
+  1126→            <div className="flex w-full items-center gap-2 sm:w-auto">
+  1127→              <div className="w-full sm:w-56">
+  1128→                <Select value={tableVariable} onValueChange={setTableVariable}>
+  1129→                  <SelectTrigger aria-label={t('filterByVariable')} className="w-full bg-white">
+  1130→                    <SelectValue placeholder={t('allVariables')} />
+  1131→                  </SelectTrigger>
+  1132→                  <SelectContent>
+  1133→                    <SelectItem value="all">{t('allVariables')}</SelectItem>
+  1134→                    {presentVariables.map((code) => (
+  1135→                      <SelectItem key={code} value={code}>
+  1136→                        {variableName(code)}
+  1137→                      </SelectItem>
+  1138→                    ))}
+  1139→                  </SelectContent>
+  1140→                </Select>
+  1141→              </div>
+  1142→              <ExportButton
+  1143→                baseFilename="observations"
+  1144→                getRows={exportObservationRows}
+  1145→                columns={[
+  1146→                  { key: 'observed_at', label: t('colDate') },
+  1147→                  { key: 'variable_code', label: t('colVariable') },
+  1148→                  { key: 'value', label: t('colValue') },
+  1149→                  { key: 'unit', label: t('colUnit') },
+  1150→                  { key: 'quality_status', label: t('colQuality') },
+  1151→                  { key: 'uncertainty_value', label: t('colUncertainty') },
+  1152→                  { key: 'is_synthetic', label: t('colProvenance') },
+  1153→                ]}
+  1154→                getJsonPayload={() => observationsQuery.data}
+  1155→              />
+  1156→            </div>
+  1157→          </div>
+  1158→        </CardHeader>
+  1159→        <CardContent>
+  1160→          {observationsQuery.isLoading ? (
+  1161→            <div className="space-y-2">
+  1162→              {Array.from({ length: 6 }).map((_, index) => (
+  1163→                <Skeleton key={index} className="h-9 w-full" />
+  1164→              ))}
+  1165→            </div>
+  1166→          ) : observationsQuery.isError ? (
+  1167→            <Alert variant="destructive">
+  1168→              <XCircle className="h-4 w-4" />
+  1169→              <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
+  1170→              <AlertDescription>
+  1171→                {observationsQuery.error instanceof Error ? observationsQuery.error.message : t('tryLoadingAgain')}
+  1172→              </AlertDescription>
+  1173→            </Alert>
+  1174→          ) : filteredItems.length === 0 ? (
+  1175→            <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
+  1176→              <CheckCircle2 className="mx-auto h-6 w-6 text-stone-300" aria-hidden />
+  1177→              <p className="mt-2 text-sm text-stone-600">
+  1178→                {t('emptyWindow', { scope: tableVariable !== 'all' ? 'variable' : 'any' })}
+  1179→              </p>
+  1180→              <p className="mt-1 text-xs text-stone-500">{t('emptyWindowHint')}</p>
+  1181→              <div className="mt-3 flex justify-center">
+  1182→                <GoToFarmsButton label={t('manageFields')} />
+  1183→              </div>
+  1184→            </div>
+  1185→          ) : (
+  1186→            <div className="max-h-96 overflow-y-auto rounded-md border scrollbar-thin">
+  1187→              <Table>
+  1188→                <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
+  1189→                  <TableRow className="hover:bg-transparent">
+  1190→                    <TableHead className="w-28">{t('colDate')}</TableHead>
+  1191→                    <TableHead>{t('colVariable')}</TableHead>
+  1192→                    <TableHead className="text-right">{t('colValue')}</TableHead>
+  1193→                    <TableHead>{t('colQuality')}</TableHead>
+  1194→                    <TableHead>{t('colProvenance')}</TableHead>
+  1195→                  </TableRow>
+  1196→                </TableHeader>
+  1197→                <TableBody>
+  1198→                  {filteredItems.map((observation) => (
+  1199→                    <TableRow key={observation.id}>
+  1200→                      <TableCell className="whitespace-nowrap tabular-nums text-stone-600">
+  1201→                        {observation.observed_at.slice(0, 10)}
+  1202→                      </TableCell>
+  1203→                      <TableCell>
+  1204→                        <span className="font-medium text-stone-800">{variableName(observation.variable_code)}</span>
+  1205→                        <span className="block text-[11px] text-stone-500">{observation.variable_code}</span>
+  1206→                      </TableCell>
+  1207→                      <TableCell className="text-right tabular-nums">
+  1208→                        {observation.value === null ? (
+  1209→                          <span className="text-stone-400">—</span>
+  1210→                        ) : (
+  1211→                          <>
+  1212→                            {observation.value}
+  1213→                            <span className="ml-1 text-xs text-stone-500">{observation.unit}</span>
+  1214→                          </>
+  1215→                        )}
+  1216→                      </TableCell>
+  1217→                      <TableCell>
+  1218→                        <QualityBadge status={observation.quality_status} />
+  1219→                      </TableCell>
+  1220→                      <TableCell>
+  1221→                        {observation.is_synthetic ? (
+  1222→                          <SyntheticBadge />
+  1223→                        ) : (
+  1224→                          <ExternalProvenanceBadge observation={observation} />
+  1225→                        )}
+  1226→                      </TableCell>
+  1227→                    </TableRow>
+  1228→                  ))}
+  1229→                </TableBody>
+  1230→              </Table>
+  1231→            </div>
+  1232→          )}
+  1233→        </CardContent>
+  1234→      </Card>
+  1235→    </div>
+  1236→  )
+  1237→}
+  1238→
+  1239→export default Observations
+  1240→

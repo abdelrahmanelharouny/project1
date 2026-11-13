@@ -1,0 +1,1124 @@
+     1→'use client'
+     2→
+     3→import { useMemo, useState, type FormEvent } from 'react'
+     4→import { useMutation, useQueryClient } from '@tanstack/react-query'
+     5→import { toast } from 'sonner'
+     6→import {
+     7→  Loader2,
+     8→  MapPin,
+     9→  Pencil,
+    10→  Plus,
+    11→  RefreshCw,
+    12→  SquareStack,
+    13→  TriangleAlert,
+    14→  Tractor,
+    15→} from 'lucide-react'
+    16→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+    17→import { Badge } from '@/components/ui/badge'
+    18→import { Button } from '@/components/ui/button'
+    19→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogDescription,
+    24→  DialogFooter,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→} from '@/components/ui/dialog'
+    28→import { Input } from '@/components/ui/input'
+    29→import { Label } from '@/components/ui/label'
+    30→import {
+    31→  Select,
+    32→  SelectContent,
+    33→  SelectItem,
+    34→  SelectTrigger,
+    35→  SelectValue,
+    36→} from '@/components/ui/select'
+    37→import { Skeleton } from '@/components/ui/skeleton'
+    38→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+    39→import { Textarea } from '@/components/ui/textarea'
+    40→import { useTranslations } from 'next-intl'
+    41→import { ExportButton } from '@/components/croptwist/export-button'
+    42→import { FarmMap } from '@/components/croptwist/farm-map'
+    43→import { FieldMap } from '@/components/croptwist/field-map'
+    44→import { useBoundaryVersions, useFieldMap, useFields, useFarms } from '@/hooks/use-croptwist'
+    45→import {
+    46→  createBoundaryVersion,
+    47→  createFarm,
+    48→  createField,
+    49→  describeError,
+    50→  EXAMPLE_GEOMETRY,
+    51→  parseGeometryInput,
+    52→  patchField,
+    53→} from '@/lib/api'
+    54→import { formatArea, formatDay, formatDateTime } from '@/lib/format'
+    55→import { useCropTwistUi } from '@/lib/store'
+    56→import type {
+    57→  BoundaryVersionCreateResponse,
+    58→  Farm,
+    59→  FarmCreateInput,
+    60→  Field,
+    61→  FieldCreateResponse,
+    62→  GeoJSONGeometry,
+    63→  UnitSystem,
+    64→} from '@/lib/types'
+    65→
+    66→// ---------------------------------------------------------------------------
+    67→// Shared geometry input (add field + update boundary)
+    68→// ---------------------------------------------------------------------------
+    69→
+    70→function GeometryInput({
+    71→  id,
+    72→  value,
+    73→  onChange,
+    74→  error,
+    75→}: {
+    76→  id: string
+    77→  value: string
+    78→  onChange: (value: string) => void
+    79→  error?: string | null
+    80→}) {
+    81→  const t = useTranslations('farms')
+    82→
+    83→  return (
+    84→    <div className="space-y-1.5">
+    85→      <div className="flex items-center justify-between gap-2">
+    86→        <Label htmlFor={id}>{t('geometryLabel')}</Label>
+    87→        <Button
+    88→          type="button"
+    89→          variant="ghost"
+    90→          size="sm"
+    91→          className="h-7 px-2 text-xs text-emerald-700 hover:text-emerald-800"
+    92→          onClick={() => onChange(EXAMPLE_GEOMETRY)}
+    93→        >
+    94→          <SquareStack className="h-3.5 w-3.5" aria-hidden /> {t('useExampleSquare')}
+    95→        </Button>
+    96→      </div>
+    97→      <Textarea
+    98→        id={id}
+    99→        rows={7}
+   100→        spellCheck={false}
+   101→        className="font-mono text-xs"
+   102→        placeholder='{"type":"Polygon","coordinates":[[[31.40,31.10],[31.42,31.10],[31.42,31.12],[31.40,31.12],[31.40,31.10]]]}'
+   103→        value={value}
+   104→        onChange={(event) => onChange(event.target.value)}
+   105→        aria-invalid={Boolean(error)}
+   106→      />
+   107→      {error ? (
+   108→        <p className="text-xs font-medium text-red-700" role="alert">
+   109→          {error}
+   110→        </p>
+   111→      ) : (
+   112→        <p className="text-xs text-stone-500">{t('geometryHint')}</p>
+   113→      )}
+   114→    </div>
+   115→  )
+   116→}
+   117→
+   118→function GeometryWarningsAlert({
+   119→  warnings,
+   120→  repaired,
+   121→  title,
+   122→}: {
+   123→  warnings: string[]
+   124→  repaired?: boolean
+   125→  title: string
+   126→}) {
+   127→  const t = useTranslations('farms')
+   128→
+   129→  if (warnings.length === 0 && !repaired) return null
+   130→  return (
+   131→    <Alert className="border-amber-300 bg-amber-50 [&>svg]:text-amber-600">
+   132→      <TriangleAlert className="h-4 w-4" />
+   133→      <AlertTitle className="text-amber-900">{title}</AlertTitle>
+   134→      <AlertDescription className="text-amber-900">
+   135→        {repaired ? (
+   136→          <p className="mb-1 text-xs font-medium">{t('geometryRepaired')}</p>
+   137→        ) : null}
+   138→        <ul className="list-disc space-y-0.5 pl-4 text-xs">
+   139→          {warnings.map((warning, index) => (
+   140→            <li key={index}>{warning}</li>
+   141→          ))}
+   142→        </ul>
+   143→      </AlertDescription>
+   144→    </Alert>
+   145→  )
+   146→}
+   147→
+   148→// ---------------------------------------------------------------------------
+   149→// Create farm dialog
+   150→// ---------------------------------------------------------------------------
+   151→
+   152→const TIMEZONES = ['UTC', 'Africa/Cairo', 'Europe/Rome', 'America/Chicago', 'Asia/Bangkok']
+   153→
+   154→function CreateFarmDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+   155→  const queryClient = useQueryClient()
+   156→  const t = useTranslations('farms')
+   157→  const tCommon = useTranslations('common')
+   158→  const [name, setName] = useState('')
+   159→  const [country, setCountry] = useState('')
+   160→  const [adminRegion, setAdminRegion] = useState('')
+   161→  const [timezone, setTimezone] = useState('UTC')
+   162→  const [currency, setCurrency] = useState('')
+   163→  const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric')
+   164→  const [language, setLanguage] = useState('en')
+   165→  const [formError, setFormError] = useState<string | null>(null)
+   166→
+   167→  // Reset form state when the dialog closes (handler-based, no effect needed).
+   168→  const handleOpenChange = (next: boolean) => {
+   169→    if (!next) {
+   170→      setName('')
+   171→      setCountry('')
+   172→      setAdminRegion('')
+   173→      setTimezone('UTC')
+   174→      setCurrency('')
+   175→      setUnitSystem('metric')
+   176→      setLanguage('en')
+   177→      setFormError(null)
+   178→    }
+   179→    onOpenChange(next)
+   180→  }
+   181→
+   182→  const mutation = useMutation({
+   183→    mutationFn: (input: FarmCreateInput) => createFarm(input),
+   184→    onSuccess: (farm) => {
+   185→      queryClient.invalidateQueries({ queryKey: ['farms'] })
+   186→      toast.success(t('farmCreated', { name: farm.name }), {
+   187→        description: `${farm.timezone} · ${farm.currency_code} · ${farm.unit_system}`,
+   188→      })
+   189→      handleOpenChange(false)
+   190→    },
+   191→    onError: (err) => {
+   192→      const { title, description } = describeError(err)
+   193→      setFormError(title)
+   194→      toast.error(title, { description })
+   195→    },
+   196→  })
+   197→
+   198→  const submit = (event: FormEvent) => {
+   199→    event.preventDefault()
+   200→    const countryClean = country.trim().toUpperCase()
+   201→    const currencyClean = currency.trim().toUpperCase()
+   202→    const languageClean = language.trim().toLowerCase()
+   203→    if (!name.trim()) return setFormError(t('nameRequired'))
+   204→    if (!/^[A-Z]{2}$/.test(countryClean)) return setFormError(t('countryRequired'))
+   205→    if (!/^[A-Z]{3}$/.test(currencyClean)) return setFormError(t('currencyRequired'))
+   206→    if (!/^[a-z]{2}$/.test(languageClean)) return setFormError(t('languageRequired'))
+   207→    setFormError(null)
+   208→    mutation.mutate({
+   209→      name: name.trim(),
+   210→      country_code: countryClean,
+   211→      admin_region: adminRegion.trim() || undefined,
+   212→      timezone,
+   213→      currency_code: currencyClean,
+   214→      unit_system: unitSystem,
+   215→      preferred_language: languageClean,
+   216→    })
+   217→  }
+   218→
+   219→  return (
+   220→    <Dialog open={open} onOpenChange={handleOpenChange}>
+   221→      <DialogContent className="max-h-[85vh] overflow-y-auto scrollbar-thin sm:max-w-lg">
+   222→        <DialogHeader>
+   223→          <DialogTitle>{t('createTitle')}</DialogTitle>
+   224→          <DialogDescription>
+   225→            {t('createDesc')}
+   226→          </DialogDescription>
+   227→        </DialogHeader>
+   228→        <form onSubmit={submit} className="space-y-4" aria-label={t('createFormAria')}>
+   229→          <div className="space-y-1.5">
+   230→            <Label htmlFor="farm-name">{t('nameLabel')}</Label>
+   231→            <Input
+   232→              id="farm-name"
+   233→              placeholder={t('namePlaceholder')}
+   234→              value={name}
+   235→              onChange={(event) => setName(event.target.value)}
+   236→            />
+   237→          </div>
+   238→          <div className="grid gap-4 sm:grid-cols-2">
+   239→            <div className="space-y-1.5">
+   240→              <Label htmlFor="farm-country">{t('countryLabel')}</Label>
+   241→              <Input
+   242→                id="farm-country"
+   243→                maxLength={2}
+   244→                placeholder="EG"
+   245→                value={country}
+   246→                onChange={(event) => setCountry(event.target.value.toUpperCase())}
+   247→                className="uppercase"
+   248→              />
+   249→              <p className="text-xs text-stone-500">{t('countryHint')}</p>
+   250→            </div>
+   251→            <div className="space-y-1.5">
+   252→              <Label htmlFor="farm-region">{t('regionLabel')}</Label>
+   253→              <Input
+   254→                id="farm-region"
+   255→                placeholder={t('regionPlaceholder')}
+   256→                value={adminRegion}
+   257→                onChange={(event) => setAdminRegion(event.target.value)}
+   258→              />
+   259→            </div>
+   260→          </div>
+   261→          <div className="grid gap-4 sm:grid-cols-2">
+   262→            <div className="space-y-1.5">
+   263→              <Label htmlFor="farm-timezone">{t('timezoneLabel')}</Label>
+   264→              <Select value={timezone} onValueChange={setTimezone}>
+   265→                <SelectTrigger id="farm-timezone" className="w-full">
+   266→                  <SelectValue />
+   267→                </SelectTrigger>
+   268→                <SelectContent>
+   269→                  {TIMEZONES.map((tz) => (
+   270→                    <SelectItem key={tz} value={tz}>
+   271→                      {tz}
+   272→                    </SelectItem>
+   273→                  ))}
+   274→                </SelectContent>
+   275→              </Select>
+   276→            </div>
+   277→            <div className="space-y-1.5">
+   278→              <Label htmlFor="farm-currency">{t('currencyLabel')}</Label>
+   279→              <Input
+   280→                id="farm-currency"
+   281→                maxLength={3}
+   282→                placeholder="USD"
+   283→                value={currency}
+   284→                onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+   285→                className="uppercase"
+   286→              />
+   287→              <p className="text-xs text-stone-500">{t('currencyHint')}</p>
+   288→            </div>
+   289→          </div>
+   290→          <div className="grid gap-4 sm:grid-cols-2">
+   291→            <div className="space-y-1.5">
+   292→              <Label htmlFor="farm-units">{t('unitSystemLabel')}</Label>
+   293→              <Select value={unitSystem} onValueChange={(value) => setUnitSystem(value as UnitSystem)}>
+   294→                <SelectTrigger id="farm-units" className="w-full">
+   295→                  <SelectValue />
+   296→                </SelectTrigger>
+   297→                <SelectContent>
+   298→                  <SelectItem value="metric">{t('unitsMetric')}</SelectItem>
+   299→                  <SelectItem value="imperial">{t('unitsImperial')}</SelectItem>
+   300→                </SelectContent>
+   301→              </Select>
+   302→            </div>
+   303→            <div className="space-y-1.5">
+   304→              <Label htmlFor="farm-language">{t('languageLabel')}</Label>
+   305→              <Input
+   306→                id="farm-language"
+   307→                maxLength={2}
+   308→                placeholder="en"
+   309→                value={language}
+   310→                onChange={(event) => setLanguage(event.target.value.toLowerCase())}
+   311→              />
+   312→              <p className="text-xs text-stone-500">{t('languageHint')}</p>
+   313→            </div>
+   314→          </div>
+   315→          {formError ? (
+   316→            <p className="text-sm font-medium text-red-700" role="alert">
+   317→              {formError}
+   318→            </p>
+   319→          ) : null}
+   320→          <DialogFooter>
+   321→            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+   322→              {tCommon('cancel')}
+   323→            </Button>
+   324→            <Button type="submit" className="bg-emerald-700 hover:bg-emerald-800" disabled={mutation.isPending}>
+   325→              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+   326→              {t('createSubmit')}
+   327→            </Button>
+   328→          </DialogFooter>
+   329→        </form>
+   330→      </DialogContent>
+   331→    </Dialog>
+   332→  )
+   333→}
+   334→
+   335→// ---------------------------------------------------------------------------
+   336→// Add field dialog
+   337→// ---------------------------------------------------------------------------
+   338→
+   339→function AddFieldDialog({
+   340→  farm,
+   341→  open,
+   342→  onOpenChange,
+   343→  onFieldSelected,
+   344→}: {
+   345→  farm: Farm
+   346→  open: boolean
+   347→  onOpenChange: (open: boolean) => void
+   348→  onFieldSelected: (field: { id: string; name: string; farmId: string }) => void
+   349→}) {
+   350→  const queryClient = useQueryClient()
+   351→  const t = useTranslations('farms')
+   352→  const tCommon = useTranslations('common')
+   353→  const [name, setName] = useState('')
+   354→  const [geometry, setGeometry] = useState('')
+   355→  const [parseError, setParseError] = useState<string | null>(null)
+   356→  const [apiError, setApiError] = useState<{ title: string; description?: string } | null>(null)
+   357→  const [created, setCreated] = useState<FieldCreateResponse | null>(null)
+   358→
+   359→  // Reset form state when the dialog closes.
+   360→  const handleOpenChange = (next: boolean) => {
+   361→    if (!next) {
+   362→      setName('')
+   363→      setGeometry('')
+   364→      setParseError(null)
+   365→      setApiError(null)
+   366→      setCreated(null)
+   367→    }
+   368→    onOpenChange(next)
+   369→  }
+   370→
+   371→  const mutation = useMutation({
+   372→    mutationFn: (payload: { name: string; geometry: GeoJSONGeometry }) =>
+   373→      createField(farm.id, { name: payload.name, geometry: payload.geometry }),
+   374→    onSuccess: (result) => {
+   375→      queryClient.invalidateQueries({ queryKey: ['fields', farm.id] })
+   376→      queryClient.invalidateQueries({ queryKey: ['farms'] })
+   377→      if (result.geometry_warnings.length > 0) {
+   378→        setCreated(result)
+   379→        toast.warning(t('fieldCreatedWarnings'), {
+   380→          description: t('warningsFromPostgis', { count: result.geometry_warnings.length }),
+   381→        })
+   382→      } else {
+   383→        toast.success(t('fieldCreated', { name: result.name }), {
+   384→          description: t('fieldCreatedDesc', {
+   385→            area: formatArea(result.area_ha),
+   386→            unit: tCommon('ha'),
+   387→            version: result.boundary_version,
+   388→          }),
+   389→        })
+   390→        onFieldSelected({ id: result.id, name: result.name, farmId: farm.id })
+   391→        handleOpenChange(false)
+   392→      }
+   393→    },
+   394→    onError: (err) => {
+   395→      const { title, description } = describeError(err)
+   396→      setApiError({ title, description })
+   397→      toast.error(title, { description })
+   398→    },
+   399→  })
+   400→
+   401→  const submit = (event: FormEvent) => {
+   402→    event.preventDefault()
+   403→    setApiError(null)
+   404→    setCreated(null)
+   405→    if (!name.trim()) {
+   406→      setParseError(t('fieldNameRequired'))
+   407→      return
+   408→    }
+   409→    const parsed = parseGeometryInput(geometry)
+   410→    if (!parsed.ok) {
+   411→      setParseError(parsed.error)
+   412→      return
+   413→    }
+   414→    setParseError(null)
+   415→    mutation.mutate({ name: name.trim(), geometry: parsed.geometry })
+   416→  }
+   417→
+   418→  return (
+   419→    <Dialog open={open} onOpenChange={handleOpenChange}>
+   420→      <DialogContent className="max-h-[85vh] overflow-y-auto scrollbar-thin sm:max-w-xl">
+   421→        <DialogHeader>
+   422→          <DialogTitle>{t('addFieldTitle', { farm: farm.name })}</DialogTitle>
+   423→          <DialogDescription>
+   424→            {t('addFieldDesc')}
+   425→          </DialogDescription>
+   426→        </DialogHeader>
+   427→        <form onSubmit={submit} className="space-y-4" aria-label={t('addFieldFormAria')}>
+   428→          <div className="space-y-1.5">
+   429→            <Label htmlFor="field-name">{t('fieldLabel')}</Label>
+   430→            <Input
+   431→              id="field-name"
+   432→              placeholder={t('fieldPlaceholder')}
+   433→              value={name}
+   434→              onChange={(event) => setName(event.target.value)}
+   435→            />
+   436→          </div>
+   437→          <GeometryInput id="field-geometry" value={geometry} onChange={setGeometry} error={parseError} />
+   438→
+   439→          {created ? (
+   440→            <div className="space-y-2">
+   441→              <Alert className="border-emerald-300 bg-emerald-50 [&>svg]:text-emerald-700">
+   442→                <MapPin className="h-4 w-4" />
+   443→                <AlertTitle className="text-emerald-900">
+   444→                  {t('fieldCreatedArea', {
+   445→                    name: created.name,
+   446→                    area: formatArea(created.area_ha),
+   447→                    unit: tCommon('ha'),
+   448→                  })}
+   449→                </AlertTitle>
+   450→                <AlertDescription className="text-emerald-900">
+   451→                  {t('boundaryPassport', {
+   452→                    version: created.boundary_version,
+   453→                    status: created.data_passport_status,
+   454→                  })}
+   455→                </AlertDescription>
+   456→              </Alert>
+   457→              <GeometryWarningsAlert
+   458→                warnings={created.geometry_warnings}
+   459→                repaired={created.geometry_repaired}
+   460→                title={t('postgisWarnings')}
+   461→              />
+   462→              <div className="flex justify-end gap-2">
+   463→                <Button
+   464→                  type="button"
+   465→                  variant="outline"
+   466→                  onClick={() => {
+   467→                    onFieldSelected({ id: created.id, name: created.name, farmId: farm.id })
+   468→                    handleOpenChange(false)
+   469→                  }}
+   470→                >
+   471→                  {t('openNewField')}
+   472→                </Button>
+   473→              </div>
+   474→            </div>
+   475→          ) : null}
+   476→
+   477→          {apiError ? (
+   478→            <Alert variant="destructive">
+   479→              <TriangleAlert className="h-4 w-4" />
+   480→              <AlertTitle>{apiError.title}</AlertTitle>
+   481→              <AlertDescription>{apiError.description ?? t('adjustGeometryRetry')}</AlertDescription>
+   482→            </Alert>
+   483→          ) : null}
+   484→
+   485→          <DialogFooter>
+   486→            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+   487→              {created ? tCommon('close') : tCommon('cancel')}
+   488→            </Button>
+   489→            <Button type="submit" className="bg-emerald-700 hover:bg-emerald-800" disabled={mutation.isPending}>
+   490→              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+   491→              {t('createFieldSubmit')}
+   492→            </Button>
+   493→          </DialogFooter>
+   494→        </form>
+   495→      </DialogContent>
+   496→    </Dialog>
+   497→  )
+   498→}
+   499→
+   500→// ---------------------------------------------------------------------------
+   501→// Rename + update boundary dialogs
+   502→// ---------------------------------------------------------------------------
+   503→
+   504→function RenameFieldDialog({
+   505→  field,
+   506→  open,
+   507→  onOpenChange,
+   508→}: {
+   509→  field: Field
+   510→  open: boolean
+   511→  onOpenChange: (open: boolean) => void
+   512→}) {
+   513→  const queryClient = useQueryClient()
+   514→  const t = useTranslations('farms')
+   515→  const tCommon = useTranslations('common')
+   516→  const renameSelectedField = useCropTwistUi((s) => s.renameSelectedField)
+   517→  const [name, setName] = useState(field.name)
+   518→
+   519→  // Sync the input with the current field name each time the dialog opens.
+   520→  const handleOpenChange = (next: boolean) => {
+   521→    if (next) setName(field.name)
+   522→    onOpenChange(next)
+   523→  }
+   524→
+   525→  const mutation = useMutation({
+   526→    mutationFn: () => patchField(field.id, { name: name.trim() }),
+   527→    onSuccess: (updated) => {
+   528→      queryClient.invalidateQueries({ queryKey: ['fields'] })
+   529→      renameSelectedField(updated.id, updated.name)
+   530→      toast.success(t('fieldRenamed', { name: updated.name }))
+   531→      onOpenChange(false)
+   532→    },
+   533→    onError: (err) => {
+   534→      const { title, description } = describeError(err)
+   535→      toast.error(title, { description })
+   536→    },
+   537→  })
+   538→
+   539→  const submit = (event: FormEvent) => {
+   540→    event.preventDefault()
+   541→    if (!name.trim() || name.trim() === field.name) {
+   542→      onOpenChange(false)
+   543→      return
+   544→    }
+   545→    mutation.mutate()
+   546→  }
+   547→
+   548→  return (
+   549→    <Dialog open={open} onOpenChange={handleOpenChange}>
+   550→      <DialogContent className="sm:max-w-sm">
+   551→        <DialogHeader>
+   552→          <DialogTitle>{t('renameTitle')}</DialogTitle>
+   553→          <DialogDescription>{t('renameDesc')}</DialogDescription>
+   554→        </DialogHeader>
+   555→        <form onSubmit={submit} className="space-y-4" aria-label={t('renameFormAria')}>
+   556→          <div className="space-y-1.5">
+   557→            <Label htmlFor="rename-field">{t('fieldLabel')}</Label>
+   558→            <Input id="rename-field" value={name} onChange={(event) => setName(event.target.value)} />
+   559→          </div>
+   560→          <DialogFooter>
+   561→            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+   562→              {tCommon('cancel')}
+   563→            </Button>
+   564→            <Button type="submit" className="bg-emerald-700 hover:bg-emerald-800" disabled={mutation.isPending}>
+   565→              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+   566→              {t('saveName')}
+   567→            </Button>
+   568→          </DialogFooter>
+   569→        </form>
+   570→      </DialogContent>
+   571→    </Dialog>
+   572→  )
+   573→}
+   574→
+   575→function UpdateBoundaryDialog({
+   576→  field,
+   577→  open,
+   578→  onOpenChange,
+   579→}: {
+   580→  field: Field
+   581→  open: boolean
+   582→  onOpenChange: (open: boolean) => void
+   583→}) {
+   584→  const queryClient = useQueryClient()
+   585→  const t = useTranslations('farms')
+   586→  const tCommon = useTranslations('common')
+   587→  const [geometry, setGeometry] = useState('')
+   588→  const [reason, setReason] = useState('')
+   589→  const [parseError, setParseError] = useState<string | null>(null)
+   590→  const [result, setResult] = useState<BoundaryVersionCreateResponse | null>(null)
+   591→
+   592→  // Reset form state when the dialog closes.
+   593→  const handleOpenChange = (next: boolean) => {
+   594→    if (!next) {
+   595→      setGeometry('')
+   596→      setReason('')
+   597→      setParseError(null)
+   598→      setResult(null)
+   599→    }
+   600→    onOpenChange(next)
+   601→  }
+   602→
+   603→  const mutation = useMutation({
+   604→    mutationFn: (payload: { geometry: GeoJSONGeometry; change_reason?: string }) =>
+   605→      createBoundaryVersion(field.id, payload),
+   606→    onSuccess: (response) => {
+   607→      queryClient.invalidateQueries({ queryKey: ['fields'] })
+   608→      queryClient.invalidateQueries({ queryKey: ['field-map', field.id] })
+   609→      queryClient.invalidateQueries({ queryKey: ['boundary-versions', field.id] })
+   610→      queryClient.invalidateQueries({ queryKey: ['data-passport', field.id] })
+   611→      if (response.geometry_warnings.length > 0) {
+   612→        setResult(response)
+   613→        toast.warning(t('boundaryStoredWarnings', { version: response.boundary_version }), {
+   614→          description: t('reviewWarningsBelow'),
+   615→        })
+   616→      } else {
+   617→        toast.success(t('boundaryUpdated', { version: response.boundary_version }), {
+   618→          description: t('boundaryUpdatedDesc', {
+   619→            area: formatArea(response.area_ha),
+   620→            unit: tCommon('ha'),
+   621→          }),
+   622→        })
+   623→        handleOpenChange(false)
+   624→      }
+   625→    },
+   626→    onError: (err) => {
+   627→      const { title, description } = describeError(err)
+   628→      setParseError(title)
+   629→      toast.error(title, { description })
+   630→    },
+   631→  })
+   632→
+   633→  const submit = (event: FormEvent) => {
+   634→    event.preventDefault()
+   635→    setResult(null)
+   636→    const parsed = parseGeometryInput(geometry)
+   637→    if (!parsed.ok) {
+   638→      setParseError(parsed.error)
+   639→      return
+   640→    }
+   641→    setParseError(null)
+   642→    mutation.mutate({ geometry: parsed.geometry, change_reason: reason.trim() || undefined })
+   643→  }
+   644→
+   645→  return (
+   646→    <Dialog open={open} onOpenChange={handleOpenChange}>
+   647→      <DialogContent className="max-h-[85vh] overflow-y-auto scrollbar-thin sm:max-w-xl">
+   648→        <DialogHeader>
+   649→          <DialogTitle>{t('updateBoundaryTitle', { version: field.boundary_version + 1 })}</DialogTitle>
+   650→          <DialogDescription>
+   651→            {t('updateBoundaryDesc')}
+   652→          </DialogDescription>
+   653→        </DialogHeader>
+   654→        <form onSubmit={submit} className="space-y-4" aria-label={t('updateBoundaryFormAria')}>
+   655→          <GeometryInput id="boundary-geometry" value={geometry} onChange={setGeometry} error={parseError} />
+   656→          <div className="space-y-1.5">
+   657→            <Label htmlFor="boundary-reason">{t('reasonLabel')}</Label>
+   658→            <Input
+   659→              id="boundary-reason"
+   660→              placeholder={t('reasonPlaceholder')}
+   661→              value={reason}
+   662→              onChange={(event) => setReason(event.target.value)}
+   663→            />
+   664→          </div>
+   665→
+   666→          {result ? (
+   667→            <div className="space-y-2">
+   668→              <Alert className="border-emerald-300 bg-emerald-50 [&>svg]:text-emerald-700">
+   669→                <MapPin className="h-4 w-4" />
+   670→                <AlertTitle className="text-emerald-900">
+   671→                  {t('boundaryStoredArea', {
+   672→                    version: result.boundary_version,
+   673→                    area: formatArea(result.area_ha),
+   674→                    unit: tCommon('ha'),
+   675→                  })}
+   676→                </AlertTitle>
+   677→                <AlertDescription className="text-emerald-900">
+   678→                  {t('mapWillRefresh')}
+   679→                </AlertDescription>
+   680→              </Alert>
+   681→              <GeometryWarningsAlert
+   682→                warnings={result.geometry_warnings}
+   683→                repaired={result.geometry_repaired}
+   684→                title={t('postgisWarnings')}
+   685→              />
+   686→            </div>
+   687→          ) : null}
+   688→
+   689→          <DialogFooter>
+   690→            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+   691→              {result ? tCommon('close') : tCommon('cancel')}
+   692→            </Button>
+   693→            <Button type="submit" className="bg-emerald-700 hover:bg-emerald-800" disabled={mutation.isPending}>
+   694→              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+   695→              {t('storeVersion')}
+   696→            </Button>
+   697→          </DialogFooter>
+   698→        </form>
+   699→      </DialogContent>
+   700→    </Dialog>
+   701→  )
+   702→}
+   703→
+   704→// ---------------------------------------------------------------------------
+   705→// Field detail (map + versions + actions)
+   706→// ---------------------------------------------------------------------------
+   707→
+   708→function FieldDetail({ field }: { field: Field }) {
+   709→  const t = useTranslations('farms')
+   710→  const tCommon = useTranslations('common')
+   711→  const mapQuery = useFieldMap(field.id)
+   712→  const versionsQuery = useBoundaryVersions(field.id)
+   713→  const [renameOpen, setRenameOpen] = useState(false)
+   714→  const [boundaryOpen, setBoundaryOpen] = useState(false)
+   715→
+   716→  return (
+   717→    <Card className="border-stone-200 bg-white shadow-sm" aria-label={t('detailAria', { name: field.name })}>
+   718→      <CardHeader className="pb-3">
+   719→        <div className="flex flex-wrap items-start justify-between gap-3">
+   720→          <div className="min-w-0">
+   721→            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+   722→              <MapPin className="h-4 w-4 text-emerald-700" aria-hidden />
+   723→              <span className="truncate">{field.name}</span>
+   724→              <Badge variant="outline" className="border-stone-300 font-normal text-stone-600">
+   725→                {t('boundaryShort', { version: field.boundary_version })}
+   726→              </Badge>
+   727→              <Badge variant="outline" className="border-stone-300 font-normal capitalize text-stone-600">
+   728→                {t('passportBadge', { status: field.data_passport_status })}
+   729→              </Badge>
+   730→            </CardTitle>
+   731→            <CardDescription className="mt-1">
+   732→              {t('createdUpdated', {
+   733→                created: formatDay(field.created_at),
+   734→                updated: formatDay(field.updated_at),
+   735→              })}
+   736→            </CardDescription>
+   737→          </div>
+   738→          <div className="flex shrink-0 gap-2">
+   739→            <Button variant="outline" size="sm" className="border-stone-300" onClick={() => setRenameOpen(true)}>
+   740→              <Pencil className="h-3.5 w-3.5" aria-hidden /> {t('rename')}
+   741→            </Button>
+   742→            <Button
+   743→              size="sm"
+   744→              className="bg-emerald-700 hover:bg-emerald-800"
+   745→              onClick={() => setBoundaryOpen(true)}
+   746→            >
+   747→              <Plus className="h-3.5 w-3.5" aria-hidden /> {t('updateBoundary')}
+   748→            </Button>
+   749→          </div>
+   750→        </div>
+   751→      </CardHeader>
+   752→      <CardContent className="space-y-4">
+   753→        <div className="grid gap-4 lg:grid-cols-5">
+   754→          <div className="space-y-2 lg:col-span-3">
+   755→            {mapQuery.isLoading ? (
+   756→              <Skeleton className="h-[300px] w-full rounded-lg md:h-[360px]" aria-label={t('loadingMapAria')} />
+   757→            ) : mapQuery.isError || !mapQuery.data ? (
+   758→              <div className="flex h-[300px] items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-50 text-sm text-stone-500 md:h-[360px]">
+   759→                {t('mapUnavailable')}
+   760→              </div>
+   761→            ) : (
+   762→              <FieldMap key={`${mapQuery.data.field.id}-v${mapQuery.data.field.boundary_version}`} mapData={mapQuery.data} />
+   763→            )}
+   764→            {mapQuery.data ? (
+   765→              <div>
+   766→                <p className="text-sm font-semibold text-stone-900">
+   767→                  {formatArea(mapQuery.data.field.area_ha)} {tCommon('ha')}{' '}
+   768→                  <span className="font-normal text-stone-500">{t('geodesicWgs84')}</span>
+   769→                </p>
+   770→                <p className="text-xs text-stone-500">
+   771→                  {mapQuery.data.area_method} · {mapQuery.data.crs} · bbox [{mapQuery.data.bbox.map((n) => n.toFixed(4)).join(', ')}]
+   772→                </p>
+   773→              </div>
+   774→            ) : null}
+   775→          </div>
+   776→
+   777→          <div className="space-y-3 lg:col-span-2">
+   778→            <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+   779→              <p className="text-xs font-medium uppercase tracking-wide text-stone-500">{t('boundaryVersions')}</p>
+   780→              {versionsQuery.isLoading ? (
+   781→                <div className="mt-2 space-y-2">
+   782→                  <Skeleton className="h-8 w-full" />
+   783→                  <Skeleton className="h-8 w-full" />
+   784→                </div>
+   785→              ) : versionsQuery.data && versionsQuery.data.items.length > 0 ? (
+   786→                <ul className="mt-2 max-h-44 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+   787→                  {versionsQuery.data.items.map((version) => (
+   788→                    <li
+   789→                      key={version.id}
+   790→                      className="rounded-md border border-stone-200 bg-white px-2.5 py-2 text-xs"
+   791→                    >
+   792→                      <div className="flex items-center justify-between gap-2">
+   793→                        <span className="font-semibold text-stone-800">v{version.version_number}</span>
+   794→                        <span className="text-stone-600">{formatArea(version.area_ha)} {tCommon('ha')}</span>
+   795→                      </div>
+   796→                      <p className="mt-0.5 text-stone-500">
+   797→                        {formatDateTime(version.created_at)}
+   798→                        {version.change_reason ? ` · ${version.change_reason}` : ''}
+   799→                      </p>
+   800→                    </li>
+   801→                  ))}
+   802→                </ul>
+   803→              ) : (
+   804→                <p className="mt-2 text-xs text-stone-500">{t('noVersionsYet')}</p>
+   805→              )}
+   806→            </div>
+   807→            <p className="text-xs text-stone-500">{t('technicalNote')}</p>
+   808→          </div>
+   809→        </div>
+   810→      </CardContent>
+   811→
+   812→      <RenameFieldDialog field={field} open={renameOpen} onOpenChange={setRenameOpen} />
+   813→      <UpdateBoundaryDialog field={field} open={boundaryOpen} onOpenChange={setBoundaryOpen} />
+   814→    </Card>
+   815→  )
+   816→}
+   817→
+   818→// ---------------------------------------------------------------------------
+   819→// Main section
+   820→// ---------------------------------------------------------------------------
+   821→
+   822→/**
+   823→ * P1 farm map: every field of the selected farm on one offline map, colored
+   824→ * per field with a legend; clicking a field selects it in the workspace.
+   825→ */
+   826→function FarmMapCard({
+   827→  farmName,
+   828→  fields,
+   829→  selectedFieldId,
+   830→  onSelectField,
+   831→}: {
+   832→  farmName: string | null
+   833→  fields: Field[]
+   834→  selectedFieldId: string | null
+   835→  onSelectField: (field: Field) => void
+   836→}) {
+   837→  const tMap = useTranslations('map')
+   838→  if (fields.length === 0) return null
+   839→  return (
+   840→    <Card className="border-stone-200 bg-white shadow-sm">
+   841→      <CardHeader className="pb-2">
+   842→        <CardTitle className="text-base">
+   843→          {tMap('farmMapTitle')}
+   844→          {farmName ? ` — ${farmName}` : ''}
+   845→        </CardTitle>
+   846→        <CardDescription>
+   847→          {tMap('farmMapDesc')} {tMap('clickHint')}
+   848→        </CardDescription>
+   849→      </CardHeader>
+   850→      <CardContent>
+   851→        <FarmMap fields={fields} selectedFieldId={selectedFieldId} onFieldSelect={onSelectField} />
+   852→      </CardContent>
+   853→    </Card>
+   854→  )
+   855→}
+   856→
+   857→export function FarmsFields() {
+   858→  const t = useTranslations('farms')
+   859→  const tCommon = useTranslations('common')
+   860→  const tNav = useTranslations('nav')
+   861→  const farmsQuery = useFarms()
+   862→  const storedFarmId = useCropTwistUi((s) => s.selectedFarmId)
+   863→  const setSelectedFarmId = useCropTwistUi((s) => s.setSelectedFarmId)
+   864→  const selectedField = useCropTwistUi((s) => s.selectedField)
+   865→  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
+   866→  const createFarmOpen = useCropTwistUi((s) => s.createFarmDialogOpen)
+   867→  const setCreateFarmOpen = useCropTwistUi((s) => s.setCreateFarmDialogOpen)
+   868→
+   869→  const [addFieldOpen, setAddFieldOpen] = useState(false)
+   870→
+   871→  const farms = farmsQuery.data?.items ?? []
+   872→  // Default to the first farm without syncing state in an effect.
+   873→  const effectiveFarmId = storedFarmId ?? farms[0]?.id ?? null
+   874→  const selectedFarm = useMemo(
+   875→    () => farms.find((farm) => farm.id === effectiveFarmId) ?? null,
+   876→    [farms, effectiveFarmId],
+   877→  )
+   878→  const fieldsQuery = useFields(effectiveFarmId, Boolean(effectiveFarmId))
+   879→  const fields = fieldsQuery.data?.items ?? []
+   880→  // Flat records for the CSV/JSON export of the fields table.
+   881→  const exportFieldRows = () =>
+   882→    fields.map((field) => ({
+   883→      name: field.name,
+   884→      area_ha: field.area_ha,
+   885→      status: field.status,
+   886→      observation_count: field.observation_count,
+   887→      boundary_version: field.boundary_version,
+   888→      created_at: field.created_at,
+   889→    }))
+   890→  // The detail panel simply renders when the selected field is part of the
+   891→  // currently loaded farm — no effect-driven state clearing needed.
+   892→  const detailField = selectedField ? (fields.find((f) => f.id === selectedField.id) ?? null) : null
+   893→
+   894→  return (
+   895→    <div className="space-y-6" aria-label={t('sectionAria')}>
+   896→      <div className="flex flex-wrap items-center justify-between gap-3">
+   897→        <div>
+   898→          <h2 className="text-lg font-semibold text-stone-900">{tNav('farms')}</h2>
+   899→          <p className="text-sm text-stone-500">{t('pickFarmDesc')}</p>
+   900→        </div>
+   901→        <Button className="bg-emerald-700 hover:bg-emerald-800" onClick={() => setCreateFarmOpen(true)}>
+   902→          <Plus className="h-4 w-4" aria-hidden /> {t('newFarm')}
+   903→        </Button>
+   904→      </div>
+   905→
+   906→      <FarmMapCard
+   907→        farmName={selectedFarm?.name ?? null}
+   908→        fields={fields}
+   909→        selectedFieldId={selectedField?.id ?? null}
+   910→        onSelectField={(field) =>
+   911→          setSelectedField({ id: field.id, name: field.name, farmId: field.farm_id })
+   912→        }
+   913→      />
+   914→
+   915→      {farmsQuery.isLoading ? (
+   916→        <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+   917→          <div className="space-y-2">
+   918→            <Skeleton className="h-20 w-full rounded-lg" />
+   919→            <Skeleton className="h-20 w-full rounded-lg" />
+   920→          </div>
+   921→          <Skeleton className="h-64 w-full rounded-lg" />
+   922→        </div>
+   923→      ) : farmsQuery.isError ? (
+   924→        <Card className="border-red-200 bg-red-50">
+   925→          <CardContent className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+   926→            <p className="text-sm text-red-900">{t('loadFarmsError')}</p>
+   927→            <Button variant="outline" size="sm" onClick={() => farmsQuery.refetch()}>
+   928→              <RefreshCw className="h-4 w-4" aria-hidden /> {tCommon('retry')}
+   929→            </Button>
+   930→          </CardContent>
+   931→        </Card>
+   932→      ) : farms.length === 0 ? (
+   933→        <Card className="border-dashed border-stone-300 bg-white">
+   934→          <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+   935→            <Tractor className="h-8 w-8 text-stone-400" aria-hidden />
+   936→            <div>
+   937→              <p className="font-medium text-stone-900">{t('noFarmsYet')}</p>
+   938→              <p className="text-sm text-stone-500">{t('noFarmsDesc')}</p>
+   939→            </div>
+   940→            <Button className="bg-emerald-700 hover:bg-emerald-800" onClick={() => setCreateFarmOpen(true)}>
+   941→              <Plus className="h-4 w-4" aria-hidden /> {t('openCreateFarm')}
+   942→            </Button>
+   943→          </CardContent>
+   944→        </Card>
+   945→      ) : (
+   946→        <div className="grid items-start gap-6 lg:grid-cols-[300px_1fr]">
+   947→          <section aria-label={t('farmListAria')} className="space-y-2">
+   948→            {farms.map((farm) => {
+   949→              const active = farm.id === effectiveFarmId
+   950→              return (
+   951→                <button
+   952→                  key={farm.id}
+   953→                  type="button"
+   954→                  aria-pressed={active}
+   955→                  onClick={() => setSelectedFarmId(farm.id)}
+   956→                  className={`w-full rounded-lg border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-emerald-700 ${
+   957→                    active
+   958→                      ? 'border-emerald-300 bg-emerald-50 ring-1 ring-emerald-300'
+   959→                      : 'border-stone-200 bg-white hover:border-stone-300'
+   960→                  }`}
+   961→                >
+   962→                  <p className="flex items-center gap-1.5 font-medium text-stone-900">
+   963→                    <Tractor className="h-4 w-4 text-emerald-700" aria-hidden />
+   964→                    {farm.name}
+   965→                  </p>
+   966→                  <p className="mt-0.5 text-xs text-stone-500">
+   967→                    {farm.country_code} · {farm.timezone} · {farm.currency_code}
+   968→                  </p>
+   969→                  <p className="mt-1 text-xs text-stone-600">
+   970→                    {t('fieldCount', { count: farm.field_count })} · {formatArea(farm.total_area_ha)} {tCommon('ha')}
+   971→                  </p>
+   972→                </button>
+   973→              )
+   974→            })}
+   975→          </section>
+   976→
+   977→          <section aria-label={t('fieldsSectionAria')} className="min-w-0 space-y-4">
+   978→            {selectedFarm ? (
+   979→              <Card className="border-stone-200 bg-white shadow-sm">
+   980→                <CardHeader className="pb-3">
+   981→                  <div className="flex flex-wrap items-center justify-between gap-3">
+   982→                    <div>
+   983→                      <CardTitle className="text-base">{t('farmFieldsTitle', { farm: selectedFarm.name })}</CardTitle>
+   984→                      <CardDescription>
+   985→                        {selectedFarm.admin_region ? `${selectedFarm.admin_region} · ` : ''}
+   986→                        {t('unitsLabel', { units: selectedFarm.unit_system })} · {selectedFarm.preferred_language.toUpperCase()}
+   987→                      </CardDescription>
+   988→                    </div>
+   989→                    <div className="flex items-center gap-2">
+   990→                      <Button
+   991→                        size="sm"
+   992→                        variant="outline"
+   993→                        className="border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+   994→                        onClick={() => setAddFieldOpen(true)}
+   995→                      >
+   996→                        <Plus className="h-4 w-4" aria-hidden /> {t('addField')}
+   997→                      </Button>
+   998→                      <ExportButton
+   999→                        baseFilename="fields"
+  1000→                        getRows={exportFieldRows}
+  1001→                        columns={[
+  1002→                          { key: 'name', label: t('colName') },
+  1003→                          { key: 'area_ha', label: t('colArea') },
+  1004→                          { key: 'status', label: t('colStatus') },
+  1005→                          { key: 'observation_count', label: t('colObservations') },
+  1006→                          { key: 'boundary_version', label: t('colBoundary') },
+  1007→                          { key: 'created_at', label: t('colCreatedAt') },
+  1008→                        ]}
+  1009→                        getJsonPayload={() => fields}
+  1010→                      />
+  1011→                    </div>
+  1012→                  </div>
+  1013→                </CardHeader>
+  1014→                <CardContent>
+  1015→                  {fieldsQuery.isLoading ? (
+  1016→                    <div className="space-y-2">
+  1017→                      <Skeleton className="h-10 w-full" />
+  1018→                      <Skeleton className="h-10 w-full" />
+  1019→                    </div>
+  1020→                  ) : fieldsQuery.isError ? (
+  1021→                    <p className="text-sm text-red-700">{t('loadFieldsError')}</p>
+  1022→                  ) : fields.length === 0 ? (
+  1023→                    <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
+  1024→                      <p className="font-medium text-stone-800">{t('noFieldsYetTitle')}</p>
+  1025→                      <p className="mt-1 text-sm text-stone-500">{t('noFieldsDesc')}</p>
+  1026→                      <Button
+  1027→                        variant="outline"
+  1028→                        className="mt-3 border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+  1029→                        onClick={() => setAddFieldOpen(true)}
+  1030→                      >
+  1031→                        <Plus className="h-4 w-4" aria-hidden /> {t('addFirstField')}
+  1032→                      </Button>
+  1033→                    </div>
+  1034→                  ) : (
+  1035→                    <div className="overflow-x-auto">
+  1036→                      <Table>
+  1037→                        <TableHeader>
+  1038→                          <TableRow className="hover:bg-transparent">
+  1039→                            <TableHead>{t('colName')}</TableHead>
+  1040→                            <TableHead className="text-right">{t('colArea')}</TableHead>
+  1041→                            <TableHead className="text-right">{t('colBoundary')}</TableHead>
+  1042→                            <TableHead className="text-right">{t('colObservations')}</TableHead>
+  1043→                            <TableHead className="text-right">
+  1044→                              <span className="sr-only">{tCommon('actions')}</span>
+  1045→                            </TableHead>
+  1046→                          </TableRow>
+  1047→                        </TableHeader>
+  1048→                        <TableBody>
+  1049→                          {fields.map((field) => {
+  1050→                            const active = selectedField?.id === field.id
+  1051→                            return (
+  1052→                              <TableRow
+  1053→                                key={field.id}
+  1054→                                className={`cursor-pointer ${active ? 'bg-emerald-50/70' : ''}`}
+  1055→                                onClick={() => setSelectedField({ id: field.id, name: field.name, farmId: field.farm_id })}
+  1056→                              >
+  1057→                                <TableCell className="font-medium text-stone-900">
+  1058→                                  <span className="inline-flex items-center gap-1.5">
+  1059→                                    <MapPin
+  1060→                                      className={`h-3.5 w-3.5 ${active ? 'text-emerald-700' : 'text-stone-400'}`}
+  1061→                                      aria-hidden
+  1062→                                    />
+  1063→                                    {field.name}
+  1064→                                  </span>
+  1065→                                </TableCell>
+  1066→                                <TableCell className="text-right tabular-nums">{formatArea(field.area_ha)} ha</TableCell>
+  1067→                                <TableCell className="text-right">v{field.boundary_version}</TableCell>
+  1068→                                <TableCell className="text-right tabular-nums">{field.observation_count}</TableCell>
+  1069→                                <TableCell className="text-right">
+  1070→                                  <Button
+  1071→                                    size="sm"
+  1072→                                    variant={active ? 'secondary' : 'ghost'}
+  1073→                                    className="h-8 text-xs text-emerald-800"
+  1074→                                    onClick={(event) => {
+  1075→                                      event.stopPropagation()
+  1076→                                      setSelectedField({ id: field.id, name: field.name, farmId: field.farm_id })
+  1077→                                    }}
+  1078→                                  >
+  1079→                                    {t('open')}
+  1080→                                  </Button>
+  1081→                                </TableCell>
+  1082→                              </TableRow>
+  1083→                            )
+  1084→                          })}
+  1085→                        </TableBody>
+  1086→                      </Table>
+  1087→                    </div>
+  1088→                  )}
+  1089→                </CardContent>
+  1090→              </Card>
+  1091→            ) : (
+  1092→              <Card className="border-dashed border-stone-300 bg-white">
+  1093→                <CardContent className="p-8 text-center text-sm text-stone-500">
+  1094→                  {t('selectFarmHint')}
+  1095→                </CardContent>
+  1096→              </Card>
+  1097→            )}
+  1098→
+  1099→            {detailField ? (
+  1100→              <FieldDetail field={detailField} />
+  1101→            ) : selectedField && !detailField ? (
+  1102→              <Skeleton className="h-64 w-full rounded-lg" aria-label={t('loadingFieldDetailAria')} />
+  1103→            ) : selectedFarm && fields.length > 0 ? (
+  1104→              <p className="px-1 text-xs text-stone-500">{t('selectFieldHint')}</p>
+  1105→            ) : null}
+  1106→          </section>
+  1107→        </div>
+  1108→      )}
+  1109→
+  1110→      <CreateFarmDialog open={createFarmOpen} onOpenChange={setCreateFarmOpen} />
+  1111→      {selectedFarm ? (
+  1112→        <AddFieldDialog
+  1113→          farm={selectedFarm}
+  1114→          open={addFieldOpen}
+  1115→          onOpenChange={setAddFieldOpen}
+  1116→          onFieldSelected={setSelectedField}
+  1117→        />
+  1118→      ) : null}
+  1119→    </div>
+  1120→  )
+  1121→}
+  1122→
+  1123→export default FarmsFields
+  1124→
