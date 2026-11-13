@@ -26,6 +26,16 @@ exists it is named; nothing in this list is simulated elsewhere in the code.
   documented caps (e.g. `MAX_SCENARIO_SET_SIZE = 5`), but there is no job
   queue yet. An async mode is being added behind the reserved
   background worker pool for provider ingestion (`CROPTWIST_JOB_WORKERS`); domain run endpoints (rotation, sensitivity, robust rotation, SOC) still execute inside the request and can adopt the same pool per-domain as their UIs gain progress polling.
+- **Raster processing jobs use Postgres-backed queues, not a distributed
+  broker.** P05 satellite preprocessing runs through `background_jobs` +
+  `raster_processing_jobs` rows and the standalone `python -m app.worker`
+  process (durable rows, restart replay, graceful drain). At current scale a
+  Postgres-backed queue satisfies durability and single-active-job
+  idempotency; a broker (Redis/RabbitMQ/Celery) is intentionally NOT
+  introduced — revisit only if multi-region fan-out or thousands of
+  concurrent scene jobs are required. Workers must be deployed separately
+  from the API (independently scalable); the API never runs raster work
+  in-request.
 - **Metrics are in-process only.** `opentelemetry-api` is pinned in
   `requirements.txt` but no exporter, collector or external metrics endpoint
   is configured. Observability today: structured logging, `x-request-id`

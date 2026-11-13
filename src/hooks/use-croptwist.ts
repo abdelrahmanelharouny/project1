@@ -70,6 +70,9 @@ import type {
   SatelliteDiscoveryInput,
   SatelliteAcquisitionInput,
   SatelliteSceneStatus,
+  SatelliteProcessingResponse,
+  SatelliteProcessingInput,
+  SatelliteProfileResponse,
 } from '@/lib/types'
 
 /**
@@ -703,6 +706,62 @@ export function useCancelSceneJob(fieldId: string | null) {
   })
 }
 
+// -------------------------------------------------------------
+// P05/P06 hooks (satellite derived products, field profile)
+// -------------------------------------------------------------
+
+/**
+ * P05 processing ledger: per-scene derivation states + derived products.
+ * Polls every 5s while any scene is mid-derivation so the map layer card and
+ * the scene catalog's Process column see live state transitions.
+ */
+export function useSatelliteProcessing(fieldId: string | null) {
+  return useQuery({
+    queryKey: ['satellite-processing', fieldId],
+    queryFn: () => getSatelliteProcessing(fieldId!),
+    enabled: !!fieldId,
+    refetchInterval: (query) => {
+      const data = query.state.data as SatelliteProcessingResponse | undefined
+      const busy = data?.scenes.some((scene) => scene.processing_state === 'processing')
+      return busy ? 5000 : false
+    },
+  })
+}
+
+/** Queue index derivation for acquired scenes; invalidates ledger + catalog. */
+export function useCreateSatelliteProcessing(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: SatelliteProcessingInput) => createSatelliteProcessing(fieldId!, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['satellite-processing', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['satellite-scenes', fieldId] })
+    },
+  })
+}
+
+/** Cancel a queued/running derivation job. */
+export function useCancelSatelliteProcessingJob(fieldId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => cancelSatelliteProcessingJob(fieldId!, jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['satellite-processing', fieldId] })
+      queryClient.invalidateQueries({ queryKey: ['satellite-scenes', fieldId] })
+    },
+  })
+}
+
+/** P06 field satellite profile for one index (evidence-bounded temporal view). */
+export function useSatelliteProfile(fieldId: string | null, index: string) {
+  return useQuery({
+    queryKey: ['satellite-profile', fieldId, index],
+    queryFn: () => getSatelliteProfile(fieldId!, index),
+    enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
 export function useClimateCapabilities() {
   return useQuery({
     queryKey: ['climate-capabilities'],
@@ -925,9 +984,11 @@ export function useCreatePortfolioRun(farmId: string | null) {
 
 import {
   applyEvidence,
+  cancelSatelliteProcessingJob,
   createEvidenceAction,
   createPortfolioRun,
   createRotationStressRun,
+  createSatelliteProcessing,
   createSoilChangeEstimate,
   createSoilSnapshot,
   getClimateCapabilities,
@@ -940,6 +1001,8 @@ import {
   getPortfolioRuns,
   getRotationStressRun,
   getRotationStressRuns,
+  getSatelliteProfile,
+  getSatelliteProcessing,
   getSoilAlerts,
   getSoilTimeline,
   getStaleness,

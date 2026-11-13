@@ -83,8 +83,18 @@ def compute_index_arrays(
                 value = np.where(np.abs(denom) >= _EPS, 1.5 * (nir - red) / denom, np.nan)
         elif index == "ndmi":
             value = _diff_ratio(clean["nir"], clean["swir1"])
-        else:  # ndwi
+        elif index == "ndwi":
             value = _diff_ratio(clean["green"], clean["nir"])
+        elif index == "bsi":
+            swir1, red, nir, blue = (
+                clean["swir1"],
+                clean["red"],
+                clean["nir"],
+                clean["blue"],
+            )
+            pos = swir1 + red
+            neg = nir + blue
+            value = _diff_ratio(pos, neg)
         value = np.asarray(value, dtype="float64")
         lo, hi = INDEX_VALID_RANGE[index]
         value = np.where(np.isfinite(value) & (value >= lo) & (value <= hi), value, np.nan)

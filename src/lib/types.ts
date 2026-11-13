@@ -3853,3 +3853,244 @@ export interface PortfolioRun {
     status: string
   }>
 }
+
+// -------------------------------------------------------------
+// P05/P06 — satellite derived products, processing ledger, field profile
+// -------------------------------------------------------------
+
+/** Server-side derivation state of an acquired scene (processing endpoint). */
+export type SatelliteProcessingState = 'unprocessed' | 'processing' | 'processed' | 'failed'
+
+/**
+ * processing_detail is state-dependent (live-verified against the P05 API):
+ *   - processing: { job_ids, indices, stage, progress }
+ *   - failed:     { job_id, error }
+ *   - processed / unprocessed: null
+ */
+export interface SatelliteProcessingDetail {
+  job_ids?: string[]
+  job_id?: string
+  indices?: string[]
+  stage?: string
+  progress?: number
+  error?: string
+}
+
+/** Zonal statistics block attached to a derived index raster. */
+export interface SatelliteZonalStats {
+  mean: number
+  std: number
+  p5: number
+  p25?: number
+  p75?: number
+  p95: number
+  median?: number
+  valid_pixels: number
+  masked_pixels?: number
+  coverage_fraction: number
+  flags: string[]
+  index?: string
+  version?: string
+}
+
+/** One tercile partition row (value_terciles_rank method). */
+export interface SatelliteZonePartition {
+  zone: string
+  value_range: [number, number]
+  pixel_share: number
+  mean: number
+}
+
+export interface SatelliteZoneSummary {
+  method: string
+  description?: string
+  version?: string
+  valid_pixels?: number
+  zones: SatelliteZonePartition[]
+}
+
+/** One derived index raster (P05) attached to a processed scene. */
+export interface SatelliteDerivedProduct {
+  index_code: string
+  asset_id: string
+  valid_pixel_fraction: number
+  zonal: SatelliteZonalStats
+  zone_summary: SatelliteZoneSummary | null
+  preview_asset_id: string | null
+  crs: string
+  /** [minLon, minLat, maxLon, maxLat] — null when the scene has no WGS84 footprint. */
+  bbox_wgs84: [number, number, number, number] | null
+  spatial_resolution_m: number
+  processing_version: string
+  derived_at: string
+}
+
+export interface SatelliteProcessingScene {
+  scene_id: string
+  product_code: string
+  provider_code: string
+  is_synthetic: boolean
+  acquired_at: string
+  cloud_cover_pct: number | null
+  acquisition_status: SatelliteSceneStatus
+  processing_state: SatelliteProcessingState
+  processing_detail: SatelliteProcessingDetail | null
+  processing_version: string | null
+  products: SatelliteDerivedProduct[]
+}
+
+export interface SatelliteProcessingResponse {
+  field_id: string
+  processing_version: string
+  total: number
+  scenes: SatelliteProcessingScene[]
+}
+
+export interface SatelliteProcessingInput {
+  scene_ids: string[]
+  /** Allowed: ndvi, evi, savi, ndmi, ndwi, bsi. */
+  indices: string[]
+}
+
+export interface SatelliteProcessingJob {
+  job_id: string
+  background_job_id: string | null
+  scene_id: string
+  status: string
+  status_url: string
+  replayed?: boolean
+}
+
+/** 202 response of POST /fields/{id}/satellite/processing. */
+export interface SatelliteProcessingJobResponse {
+  field_id: string
+  provider_code: string
+  indices: string[]
+  processing_version: string
+  jobs: SatelliteProcessingJob[]
+  skipped: Array<{ scene_id: string; reason: string }>
+  queued_scenes: number
+  warnings: string[]
+}
+
+export interface SatelliteProcessingCancelResponse {
+  cancelled: boolean
+  job_id?: string | null
+  detail?: string | null
+}
+
+/** One timeline/observation entry of the field satellite profile (P06). */
+export interface SatelliteProfileObservation {
+  observed_at: string
+  value: number
+  quality_status: string
+  processing_version: string | null
+  scene_id: string | null
+  cloud_cover_pct: number | null
+  valid_pixel_fraction: number | null
+  valid_pixels: number | null
+  subfield_statistics_ok: boolean | null
+  spatial_resolution_m: number | null
+  evidence_class: string | null
+  is_synthetic: boolean | null
+}
+
+export interface SatelliteProfileGap {
+  from: string
+  to: string
+  days: number
+  note: string | null
+}
+
+export interface SatelliteProfileCoverage {
+  first_scene_acquired: string | null
+  last_scene_acquired: string | null
+  scene_records: number
+  gaps: SatelliteProfileGap[]
+  gaps_note: string | null
+  expected_revisit_note: string | null
+}
+
+export interface SatelliteProfileQualitySummary {
+  valid_observations: number
+  excluded_no_value: number
+  total_scene_records: number
+  avg_valid_pixel_fraction: number | null
+  min_valid_pixel_fraction: number | null
+  freshness_days_since_last: number | null
+  fresh: boolean
+  freshness_window_days: number
+}
+
+export interface SatelliteProfileBaseline {
+  kind: string
+  count: number
+  mean: number
+  std: number | null
+  min: number | null
+  max: number | null
+}
+
+export interface SatelliteProfileComparison {
+  latest_value: number
+  delta_vs_baseline_mean: number | null
+  z_score_vs_baseline: number | null
+  uncertainty_note: string | null
+  weak_evidence: boolean
+}
+
+export interface SatelliteProfileTrend {
+  slope_per_day: number
+  slope_per_30d: number
+  points: number
+  method: string
+}
+
+export interface SatelliteSpatialVariation {
+  std: number
+  p5: number
+  p25: number
+  p75: number
+  p95: number
+  valid_pixels: number
+  coverage_fraction: number
+  supports_subfield_claims: boolean
+}
+
+export interface SatelliteDerivedAssetRecord {
+  asset_id: string
+  scene_id: string
+  processing_version: string
+  acquired_at: string
+  storage_backend: string
+  valid_pixel_fraction: number
+  checksum_sha256: string
+}
+
+export interface SatelliteInsufficientEvidence {
+  status: 'insufficient_evidence'
+  reasons: string[]
+  note: string | null
+}
+
+/** GET /fields/{id}/satellite/profile?index=… — evidence-bounded temporal profile. */
+export interface SatelliteProfileResponse {
+  profile_version: string
+  field_id: string
+  index: string
+  index_formula: string
+  documented_range: [number, number]
+  interpretation_levels: Record<string, string>
+  latest_valid_observation: SatelliteProfileObservation | null
+  timeline: SatelliteProfileObservation[]
+  excluded_observations: SatelliteProfileObservation[]
+  coverage: SatelliteProfileCoverage
+  quality_summary: SatelliteProfileQualitySummary
+  baseline: SatelliteProfileBaseline | null
+  comparison: SatelliteProfileComparison | null
+  trend: SatelliteProfileTrend | null
+  spatial_variation: SatelliteSpatialVariation | null
+  statistical_zones: SatelliteZoneSummary | null
+  derived_assets: SatelliteDerivedAssetRecord[]
+  insufficient_evidence: SatelliteInsufficientEvidence | null
+}

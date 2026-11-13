@@ -73,6 +73,11 @@ import type {
   SatelliteAcquisitionInput,
   SatelliteAcquisitionResponse,
   SatelliteJobCancelResponse,
+  SatelliteProcessingResponse,
+  SatelliteProcessingInput,
+  SatelliteProcessingJobResponse,
+  SatelliteProcessingCancelResponse,
+  SatelliteProfileResponse,
   ClimateCapabilities,
   ForecastWindowResponse,
   ForecastRisksResponse,
@@ -1692,4 +1697,81 @@ export async function getPortfolioRun(runId: string): Promise<PortfolioRun> {
 
 export async function verifyPortfolioRun(runId: string): Promise<{ run_id: string; valid: boolean; stored_checksum: string | null; recomputed_checksum: string | null }> {
   return request(`/api/v1/portfolio-runs/${runId}/verify`, { method: 'POST' })
+}
+
+// -------------------------------------------------------------
+// P05/P06 endpoints (satellite derived products, processing, field profile)
+// -------------------------------------------------------------
+
+/** P05 processing ledger: per-scene derivation states + derived products. */
+export function getSatelliteProcessing(fieldId: string): Promise<SatelliteProcessingResponse> {
+  return request<SatelliteProcessingResponse>(`/api/v1/fields/${fieldId}/satellite/processing`)
+}
+
+/** Queue index derivation (ndvi/evi/savi/ndmi/ndwi/bsi) for acquired scenes; 202. */
+export function createSatelliteProcessing(
+  fieldId: string,
+  input: SatelliteProcessingInput,
+): Promise<SatelliteProcessingJobResponse> {
+  return request<SatelliteProcessingJobResponse>(`/api/v1/fields/${fieldId}/satellite/processing`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+/** P06 evidence-bounded temporal profile of one vegetation index. */
+export function getSatelliteProfile(fieldId: string, index = 'ndvi'): Promise<SatelliteProfileResponse> {
+  return request<SatelliteProfileResponse>(
+    `/api/v1/fields/${fieldId}/satellite/profile?index=${encodeURIComponent(index)}`,
+  )
+}
+
+/** Cancel a queued/running derivation job. */
+export function cancelSatelliteProcessingJob(
+  fieldId: string,
+  jobId: string,
+): Promise<SatelliteProcessingCancelResponse> {
+  return request<SatelliteProcessingCancelResponse>(
+    `/api/v1/fields/${fieldId}/satellite/processing/${jobId}/cancel`,
+    { method: 'POST' },
+  )
+}
+
+/**
+ * Binary asset content (PNG preview renderings of derived index rasters).
+ *
+ * Bypasses the JSON `request` pipeline because the payload is image bytes:
+ * auth flows through the same session cookies, with the usual one-shot 401 →
+ * refresh retry. Callers turn the returned Blob into an object URL for
+ * MapLibre image sources / <img> previews and MUST revoke that URL when done.
+ */
+export async function fetchSatelliteAssetBlob(fieldId: string, assetId: string): Promise<Blob> {
+  const load = () =>
+    fetch(withPort(`/api/v1/fields/${fieldId}/satellite/assets/${assetId}/content`), {
+      cache: 'no-store',
+    })
+  let response: Response
+  try {
+    response = await load()
+  } catch {
+    throw new ApiError({
+      status: 0,
+      code: 'NETWORK_ERROR',
+      message: 'Could not reach the CropTwist API.',
+      details: [],
+    })
+  }
+  if (response.status === 401) {
+    const refreshed = await refreshSession()
+    if (refreshed) response = await load()
+  }
+  if (!response.ok) {
+    throw new ApiError({
+      status: response.status,
+      code: `HTTP_${response.status}`,
+      message: `Satellite asset request failed with status ${response.status}.`,
+      details: [],
+    })
+  }
+  return response.blob()
 }

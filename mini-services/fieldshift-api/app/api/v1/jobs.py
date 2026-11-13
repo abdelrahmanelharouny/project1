@@ -67,6 +67,16 @@ def _visible(db: Session, principal: Any, job: BackgroundJob) -> bool:
                 return True
             except Exception:
                 return False
+    if job.ref_kind == "raster_processing" and job.ref_id is not None:
+        from app.db.models_p2 import RasterProcessingJob
+
+        rp = db.get(RasterProcessingJob, job.ref_id)
+        if rp is not None:
+            try:
+                get_field_for_principal(db, principal, rp.field_id)
+                return True
+            except Exception:
+                return False
     return False
 
 

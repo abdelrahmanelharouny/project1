@@ -362,6 +362,79 @@ def _management_section(db: Session, field_id: Any) -> dict[str, Any] | None:
     return section or None
 
 
+def _satellite_section(db: Session, field: dbm.Field) -> dict[str, Any] | None:
+    """Compact vegetation/satellite section (P06) from the field profile.
+
+    Deterministic read-model projection of the persisted satellite
+    observations (evidence_class=satellite_derived_estimate). Carries
+    measurement provenance (scene id, resolution, cloud, valid-pixel
+    fraction), the freshness window and an explicit insufficient-evidence
+    status — never an agronomic claim. None when no satellite observation
+    exists for the field (the domain then lands in data_gaps).
+    """
+    from app.vegetation.field_profile import field_satellite_profile
+
+    try:
+        profile = field_satellite_profile(db, field, index="ndvi")
+    except Exception:  # noqa: BLE001 — evidence must never break the pack
+        logger.exception("satellite evidence section failed")
+        return None
+
+    latest = profile.get("latest_valid_observation")
+    quality = profile.get("quality_summary") or {}
+    if latest is None:
+        return None
+    comparison = profile.get("comparison") or {}
+    spatial = profile.get("spatial_variation") or {}
+    insufficient = profile.get("insufficient_evidence")
+    section = {
+        "index": "ndvi",
+        "index_formula": profile.get("index_formula"),
+        "latest_observation": {
+            "observed_at": latest.get("observed_at"),
+            "value": latest.get("value"),
+            "unit": "index",
+            "cloud_cover_pct": latest.get("cloud_cover_pct"),
+            "valid_pixel_fraction": latest.get("valid_pixel_fraction"),
+            "spatial_resolution_m": latest.get("spatial_resolution_m"),
+            "processing_version": latest.get("processing_version"),
+            "scene_id": latest.get("scene_id"),
+            "evidence_class": latest.get("evidence_class"),
+        },
+        "valid_observations": quality.get("valid_observations"),
+        "excluded_no_value": quality.get("excluded_no_value"),
+        "freshness_days_since_last": quality.get("freshness_days_since_last"),
+        "fresh": quality.get("fresh"),
+        "supports_subfield_claims": spatial.get("supports_subfield_claims"),
+        "baseline_comparison": (
+            {
+                "delta_vs_baseline_mean": comparison.get("delta_vs_baseline_mean"),
+                "z_score_vs_baseline": comparison.get("z_score_vs_baseline"),
+                "weak_evidence": comparison.get("weak_evidence"),
+            }
+            if comparison
+            else None
+        ),
+        "statistical_zones": profile.get("statistical_zones"),
+        "insufficient_evidence": insufficient,
+        "source": {
+            "provider_code": "nasa_hls",
+            "product": "HLS v2.0 surface reflectance (HLSL30/HLSS30)",
+            "attribution": (
+                "NASA HLS courtesy of NASA LP DAAC; contains Landsat data "
+                "(USGS) and modified Copernicus Sentinel-2 data (ESA) "
+                "harmonized by NASA."
+            ),
+        },
+        "is_synthetic": False,
+        "not_claims": (
+            "NDVI values are spectral statistics; this section does not "
+            "diagnose disease, drought or nutrient status."
+        ),
+    }
+    return section
+
+
 def build_field_evidence(db: Session, field: dbm.Field) -> dict[str, Any]:
     """Assemble the compact, provenance-labeled evidence pack for one field.
 
@@ -423,5 +496,10 @@ def build_field_evidence(db: Session, field: dbm.Field) -> dict[str, Any]:
         pack["management"] = management
     else:
         data_gaps.append("management")
+    satellite = _satellite_section(db, field)
+    if satellite is not None:
+        pack["vegetation"] = satellite
+    else:
+        data_gaps.append("vegetation")
     pack["data_gaps"] = data_gaps
     return pack

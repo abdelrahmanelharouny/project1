@@ -175,11 +175,30 @@ def assess_evidence_quality(
         ),
     }
 
-    # Not computable today — declared, never fabricated (spec E.4-6).
-    components["spatial_resolution"] = {
-        "value": None,
-        "basis": "no spatial resolution metadata reaches the evidence pack yet",
-    }
+    # Spatial resolution: computable when the satellite (vegetation) section
+    # reaches the pack with its scene resolution metadata (P06). Otherwise
+    # declared not-computable — never fabricated.
+    vegetation = ctx.evidence.get("vegetation")
+    spatial_component: dict[str, Any] | None = None
+    if isinstance(vegetation, dict):
+        latest = vegetation.get("latest_observation") or {}
+        res_m = latest.get("spatial_resolution_m")
+        if res_m:
+            # 30 m scene pixels over multi-hectare fields resolve sub-field
+            # structure; the score is deliberately conservative and documented.
+            score = 1.0 if res_m <= 30 else 0.5
+            spatial_component = {
+                "value": score,
+                "basis": f"satellite scene resolution {res_m} m (HLS 30 m grid)",
+            }
+        elif vegetation.get("insufficient_evidence"):
+            spatial_component = {"value": None, "basis": "satellite evidence insufficient"}
+    if spatial_component is None:
+        spatial_component = {
+            "value": None,
+            "basis": "no spatial resolution metadata reaches the evidence pack yet",
+        }
+    components["spatial_resolution"] = spatial_component
     components["agreement"] = {
         "value": None,
         "basis": "no independent redundant sources wired for cross-validation yet",

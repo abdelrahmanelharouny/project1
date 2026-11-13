@@ -202,3 +202,146 @@ def vegetation_stress_advisories(db, field, ctx: RecommendationContext) -> list[
             )
         )
     return recommendations[:5]
+
+
+@registry.generator("vegetation")
+def vegetation_condition_context(db, field, ctx: RecommendationContext) -> list[Recommendation]:
+    """P06: satellite-condition context from the field satellite profile.
+
+    Deterministic and quality-gated: an ADVISORY condition-context signal is
+    emitted ONLY when the freshest valid NDVI observation is materially below
+    its prior-observation baseline (z <= -1.5), the evidence is fresh within
+    the documented 45-day window, pixel support is real (>= 5 valid pixels)
+    and the baseline comparison is not flagged weak. Nothing is emitted when
+    evidence is insufficient — no squeeze, no extrapolation, no diagnosis.
+
+    Confidence comes ONLY from the evidence-quality heuristic (never bumped
+    because satellite data exists); the rationale carries quality context and
+    the explicit non-claim.
+    """
+    from app.vegetation.field_profile import FRESH_SATELLITE_DAYS, field_satellite_profile
+
+    try:
+        profile = field_satellite_profile(db, field, index="ndvi")
+    except Exception as exc:  # noqa: BLE001 — profile failure must not break refresh
+        logger.warning("satellite profile failed: %s", exc)
+        return []
+
+    latest = profile.get("latest_valid_observation")
+    if latest is None:
+        return []
+    # De-duplication: the monthly stress engine gets priority. When it
+    # already produced signals, the same decline must NOT be re-counted as
+    # independent evidence at scene granularity (one observation, one vote).
+    try:
+        from app.vegetation.service import vegetation_summary
+
+        stress = vegetation_summary(db, field, index="ndvi").get("stress_signals") or []
+        if stress:
+            return []
+    except Exception:  # noqa: BLE001 — screen failure should not double-count either
+        return []
+    quality_summary = profile.get("quality_summary") or {}
+    comparison = profile.get("comparison") or {}
+    z = comparison.get("z_score_vs_baseline")
+    fresh = quality_summary.get("fresh")
+    valid_pixels = (latest.get("valid_pixels") or 0) or 0
+    coverage = latest.get("valid_pixel_fraction")
+
+    if profile.get("insufficient_evidence") or comparison.get("weak_evidence"):
+        quality = assess_evidence_quality(ctx, "vegetation", expected_sections=())
+        return [
+            Recommendation(
+                domain="vegetation",
+                severity=Severity.INFO,
+                title="Satellite evidence is not sufficient for condition screening",
+                summary=(
+                    "Satellite observations exist but cannot support a condition "
+                    "comparison yet (single scene, weak baseline or sub-threshold "
+                    "pixel support)."
+                ),
+                rationale=(
+                    "Insufficient-evidence gate from the field satellite profile: "
+                    + "; ".join(
+                        (profile.get("insufficient_evidence") or {}).get("reasons", [])
+                        or ["baseline comparison flagged weak"]
+                    )
+                ),
+                evidence=[
+                    evidence_item(
+                        type="vegetation_signal",
+                        id=None,
+                        label="satellite_profile",
+                        detail=(
+                            f"{quality_summary.get('valid_observations')} valid observation(s); "
+                            f"latest {latest.get('observed_at')}"
+                        ),
+                    )
+                ],
+                confidence=0.9,
+                confidence_kind="deterministic_rule",
+                confidence_basis="Observation counts are directly observable.",
+                evidence_quality=quality,
+                actions=[
+                    "Acquire more scenes over subsequent passes to accumulate a baseline.",
+                ],
+            )
+        ]
+
+    if z is None or z > -1.5 or not fresh or valid_pixels < 5 or (coverage is not None and coverage < 0.5):
+        return []
+
+    quality = assess_evidence_quality(ctx, "vegetation", expected_sections=("climate",))
+    delta = comparison.get("delta_vs_baseline_mean")
+    return [
+        Recommendation(
+            domain="vegetation",
+            severity=Severity.ADVISORY,
+            title="Latest satellite NDVI is statistically below its prior baseline",
+            summary=(
+                f"NDVI {latest.get('value')} at {str(latest.get('observed_at'))[:10]} sits "
+                f"{delta} below the mean of prior valid observations "
+                f"(z={z}, {valid_pixels} valid field pixels)."
+            ),
+            rationale=(
+                "Deterministic statistical screening of the freshest valid "
+                f"satellite observation (scene {latest.get('scene_id')}, "
+                f"{latest.get('spatial_resolution_m')} m, cloud "
+                f"{latest.get('cloud_cover_pct')}%). Evidence is fresh "
+                f"({quality_summary.get('freshness_days_since_last')} days). This is a "
+                "vegetation-condition CONTEXT signal, not a diagnosis: it does not "
+                "identify disease, pest, nutrient deficiency or drought. Corroborate "
+                "with field observation and the environmental engines before action."
+            ),
+            evidence=[
+                evidence_item(
+                    type="vegetation_signal",
+                    id=None,
+                    label="satellite_profile",
+                    detail=(
+                        f"z={z}, delta={delta}, valid_pixels={valid_pixels}, "
+                        f"coverage={coverage}"
+                    ),
+                ),
+                *[
+                    evidence_item(
+                        type="environment_context",
+                        id=None,
+                        label="climate",
+                        detail="cross-check temperature/rainfall context in the evidence pack",
+                    )
+                ],
+            ],
+            confidence=evidence_backed_confidence(quality),
+            confidence_kind="evidence_quality",
+            confidence_basis=(
+                "Evidence-quality heuristic; satellite resolution component is "
+                "documented, never silently inflated."
+            ),
+            evidence_quality=quality,
+            actions=[
+                "Inspect the field and compare against the scene preview in Map & Satellite.",
+                "Record crop stage and management events to sharpen future comparisons.",
+            ],
+        )
+    ]

@@ -15,10 +15,17 @@
 
 import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart'
 import {
   Table,
   TableBody,
@@ -30,8 +37,13 @@ import {
 import { FieldContextGate } from '@/components/croptwist/field-context'
 import { ErrorState, SectionSkeleton } from '@/components/croptwist/state-views'
 import { SyntheticBadge } from '@/components/croptwist/badges'
-import { useVegetationScenes, useVegetationSummary } from '@/hooks/use-croptwist'
+import {
+  useSatelliteProfile,
+  useVegetationScenes,
+  useVegetationSummary,
+} from '@/hooks/use-croptwist'
 import { useCropTwistUi } from '@/lib/store'
+import type { SatelliteProfileResponse } from '@/lib/types'
 
 const INDEX_OPTIONS = ['ndvi', 'evi', 'savi', 'ndmi', 'ndwi'] as const
 
@@ -39,6 +51,282 @@ function severityVariant(severity: string): 'default' | 'secondary' | 'destructi
   if (severity === 'recommended' || severity === 'required') return 'destructive'
   if (severity === 'advisory') return 'default'
   return 'secondary'
+}
+
+// --- P06 field satellite profile helpers -----------------------------------
+
+function fmtNum(value: number | null | undefined, digits = 3): string {
+  return value == null ? '—' : value.toFixed(digits)
+}
+
+function fmtSigned(value: number | null | undefined, digits = 3): string {
+  if (value == null) return '—'
+  return `${value > 0 ? '+' : ''}${value.toFixed(digits)}`
+}
+
+const ZONE_LABEL_KEYS: Record<string, string> = {
+  lowest_tercile: 'zoneLowestTercile',
+  middle_tercile: 'zoneMiddleTercile',
+  highest_tercile: 'zoneHighestTercile',
+}
+
+/**
+ * P06 "Field satellite profile" — evidence-bounded temporal analysis for the
+ * selected index. Honesty rules preserved from the backend contract:
+ *   - insufficient_evidence replaces trend/comparison/zones as findings
+ *   - weak-evidence comparisons are flagged, never interpreted
+ *   - coverage gaps are surfaced, never interpolated
+ *   - provenance (derived assets + checksums) is always visible
+ */
+function SatelliteProfileSection({ fieldId, index }: { fieldId: string; index: string }) {
+  const t = useTranslations('satellite')
+  const profile = useSatelliteProfile(fieldId, index)
+
+  const timelineData = useMemo(() => {
+    const timeline = profile.data?.timeline ?? []
+    return timeline.map((obs) => ({
+      date: obs.observed_at.slice(0, 10),
+      value: Number(obs.value.toFixed(4)),
+    }))
+  }, [profile.data])
+
+  if (profile.isLoading) return <SectionSkeleton lines={5} />
+  if (profile.isError) {
+    return <ErrorState message={t('profileLoadError')} onRetry={() => profile.refetch()} />
+  }
+  if (!profile.data) return null
+
+  const data: SatelliteProfileResponse = profile.data
+  const quality = data.quality_summary
+  const insufficient = data.insufficient_evidence
+  const comparison = data.comparison
+  const baseline = data.baseline
+  const trend = data.trend
+  const zones = data.statistical_zones
+  const gaps = data.coverage.gaps
+  const derivedAssets = data.derived_assets
+  const provenanceVersion =
+    data.latest_valid_observation?.processing_version ?? derivedAssets[0]?.processing_version ?? '—'
+
+  const chartConfig = {
+    value: { label: index.toUpperCase(), color: '#059669' },
+  } satisfies ChartConfig
+
+  return (
+    <div className="space-y-4">
+      {/* Freshness + observation quality counts */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {quality.freshness_days_since_last != null ? (
+          <Badge
+            className={
+              quality.fresh
+                ? 'gap-1.5 border-transparent bg-emerald-100 text-emerald-900'
+                : 'gap-1.5 border-amber-300 bg-amber-50 text-amber-900'
+            }
+          >
+            {quality.fresh
+              ? t('freshnessFresh', { days: quality.freshness_days_since_last })
+              : t('freshnessStale', { days: quality.freshness_days_since_last })}
+          </Badge>
+        ) : (
+          <Badge variant="outline">{t('noObservations')}</Badge>
+        )}
+        <Badge variant="outline">
+          {t('validObservations')}: {quality.valid_observations}
+        </Badge>
+        <Badge variant="outline">
+          {t('excludedObservations')}: {quality.excluded_no_value}
+        </Badge>
+        {quality.avg_valid_pixel_fraction != null && (
+          <Badge variant="outline">
+            {t('avgValidPixel')}: {Math.round(quality.avg_valid_pixel_fraction * 100)}%
+          </Badge>
+        )}
+      </div>
+
+      {/* Insufficient evidence — visible amber banner; replaces findings */}
+      {insufficient && (
+        <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900" role="status">
+          <p className="font-semibold">{t('insufficientTitle')}</p>
+          <ul className="mt-1 list-disc space-y-0.5 ps-4">
+            {insufficient.reasons.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+          {insufficient.note && <p className="mt-1 text-[11px] text-amber-800">{insufficient.note}</p>}
+        </div>
+      )}
+
+      {!insufficient && timelineData.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold">{t('profileTimeline')}</h3>
+            <span className="text-xs text-stone-500">{data.index_formula}</span>
+          </div>
+          <div dir="ltr">
+            <ChartContainer config={chartConfig} className="h-[200px] w-full">
+              <LineChart data={timelineData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value: string) => value.slice(5)}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  width={44}
+                  domain={[data.documented_range[0], data.documented_range[1]]}
+                  tickFormatter={(value: number) => value.toFixed(1)}
+                />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#059669"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+              </LineChart>
+            </ChartContainer>
+          </div>
+        </div>
+      )}
+
+      {!insufficient && (
+        <div className="grid gap-3 md:grid-cols-2">
+          {/* Baseline comparison — observed statistics only */}
+          {comparison && (
+            <div className="rounded-md border border-stone-200 bg-white p-3">
+              <p className="text-sm font-semibold text-stone-800">{t('baselineComparison')}</p>
+              <dl className="mt-2 space-y-1 text-xs text-stone-600">
+                <div className="flex justify-between gap-2">
+                  <dt>{t('latestValue')}</dt>
+                  <dd className="tabular-nums font-medium text-stone-900">{fmtNum(comparison.latest_value)}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>{t('deltaVsBaseline')}</dt>
+                  <dd className="tabular-nums">{fmtSigned(comparison.delta_vs_baseline_mean)}</dd>
+                </div>
+                {comparison.z_score_vs_baseline != null && (
+                  <div className="flex justify-between gap-2">
+                    <dt>{t('zScore')}</dt>
+                    <dd className="tabular-nums">{fmtSigned(comparison.z_score_vs_baseline, 2)}</dd>
+                  </div>
+                )}
+                {baseline && (
+                  <div className="flex justify-between gap-2">
+                    <dt>{t('baselineStats')}</dt>
+                    <dd className="tabular-nums">
+                      {t('baselineStatsValue', {
+                        count: baseline.count,
+                        mean: fmtNum(baseline.mean),
+                        std: fmtNum(baseline.std),
+                      })}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              {comparison.weak_evidence && (
+                <p className="mt-2 rounded bg-amber-50 p-2 text-[11px] text-amber-900">
+                  {t('weakEvidenceNote')}
+                  {comparison.uncertainty_note ? ` ${comparison.uncertainty_note}` : ''}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Trend — slope over 30 days, with method + point count */}
+          {trend && (
+            <div className="rounded-md border border-stone-200 bg-white p-3">
+              <p className="text-sm font-semibold text-stone-800">{t('trendTitle')}</p>
+              <dl className="mt-2 space-y-1 text-xs text-stone-600">
+                <div className="flex justify-between gap-2">
+                  <dt>{t('slopePer30d')}</dt>
+                  <dd className="tabular-nums">{fmtSigned(trend.slope_per_30d)}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>{t('trendPoints')}</dt>
+                  <dd className="tabular-nums">{trend.points}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>{t('trendMethod')}</dt>
+                  <dd>{trend.method}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Statistical zones — data-description aid, not agronomic zonation */}
+      {!insufficient && zones && zones.zones.length > 0 && (
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">{t('zonesTitle')}</h3>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('zonesZone')}</TableHead>
+                  <TableHead>{t('zonesMean')}</TableHead>
+                  <TableHead>{t('zonesPixelShare')}</TableHead>
+                  <TableHead>{t('zonesValueRange')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...zones.zones]
+                  .sort((a, b) => a.mean - b.mean)
+                  .map((zone) => (
+                    <TableRow key={zone.zone}>
+                      <TableCell className="text-xs font-medium">
+                        {ZONE_LABEL_KEYS[zone.zone] ? t(ZONE_LABEL_KEYS[zone.zone]) : zone.zone}
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums">{fmtNum(zone.mean)}</TableCell>
+                      <TableCell className="text-xs tabular-nums">
+                        {Math.round(zone.pixel_share * 100)}%
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums">
+                        {fmtNum(zone.value_range[0], 2)} … {fmtNum(zone.value_range[1], 2)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </div>
+          {zones.description && (
+            <p className="text-[11px] text-stone-500">{zones.description}</p>
+          )}
+        </div>
+      )}
+
+      {/* Coverage gaps — honest amber box, never interpolated */}
+      {gaps.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900">
+          <p className="font-semibold">{t('gapsTitle')}</p>
+          <ul className="mt-1 list-disc space-y-0.5 ps-4">
+            {gaps.map((gap, i) => (
+              <li key={i} className="tabular-nums">
+                {t('gapWindow', { from: gap.from.slice(0, 10), to: gap.to.slice(0, 10), days: gap.days })}
+              </li>
+            ))}
+          </ul>
+          {data.coverage.gaps_note && (
+            <p className="mt-1 text-[11px] text-amber-800">{data.coverage.gaps_note}</p>
+          )}
+        </div>
+      )}
+
+      {/* Provenance — derived assets, processing version, checksum short forms */}
+      {derivedAssets.length > 0 && (
+        <p className="text-[11px] text-stone-400">
+          {t('provenance', { count: derivedAssets.length, version: provenanceVersion })}
+          {' · '}
+          {t('checksumLabel')}: {derivedAssets.map((a) => a.checksum_sha256.slice(0, 8)).join(' · ')}
+        </p>
+      )}
+    </div>
+  )
 }
 
 export function SatelliteIntelligence() {
@@ -194,6 +482,17 @@ export function SatelliteIntelligence() {
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* P06 — field satellite profile (temporal analysis for the selected index) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{t('profileTitle')}</CardTitle>
+          <CardDescription className="text-sm text-stone-500">{t('profileDesc')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {selectedField && <SatelliteProfileSection fieldId={selectedField.id} index={index} />}
         </CardContent>
       </Card>
 

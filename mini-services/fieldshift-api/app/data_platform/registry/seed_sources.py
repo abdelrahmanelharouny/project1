@@ -316,6 +316,50 @@ def seed_data_registry(db: Session) -> None:
         },
     )
 
+    # -------------------------------------------------- P05 raster-pipeline demo fixture
+    # Explicitly-labeled synthetic scenes processed through the REAL
+    # preprocessing pipeline (windowed reads, Fmask, COG storage) so the
+    # derived-product UX can be exercised without Earthdata credentials.
+    # Every row is is_synthetic=true; observations carry evidence_class
+    # synthetic_test_data; the UI labels fixture products. NEVER mixed with
+    # real nasa_hls scene identity.
+    fixture_source = _ensure_source(
+        db,
+        provider_code="fixture_demo",
+        provider_name="CropTwist Raster-Pipeline Demo Fixture (P05)",
+        base_url=None,
+        license_name="MIT (fixture code)",
+        license_url="https://opensource.org/licenses/MIT",
+        attribution_text=(
+            "SYNTHETIC RASTER FIXTURE — small deterministic GeoTIFFs processed "
+            "by the CropTwist preprocessing pipeline for demonstration and "
+            "verification; not satellite imagery; no agronomic validity."
+        ),
+        documentation_url=None,
+        status="active",
+        known_limitations=(
+            "Fixture rasters are invented (40x40 pixels, idealized "
+            "reflectances in EPSG:32636). Derived products from these scenes "
+            "exercise the pipeline mechanics only and must never be used for "
+            "real-world conclusions."
+        ),
+    )
+    _ensure_product(
+        db,
+        fixture_source.id,
+        product_code="fixture_demo_raster",
+        product_version="v1",
+        description="Synthetic UTM raster scene fixture for the P05 preprocessing pipeline.",
+        spatial_resolution_m=30.0,
+        temporal_resolution="static fixture",
+        coverage_start=None,
+        coverage_end=None,
+        metadata={
+            "evidence_class": "synthetic_test_data",
+            "is_synthetic": True,
+        },
+    )
+
     # ------------------------------------------------ NASA HLS (P04 acquisition)
     hls_source = _ensure_source(
         db,

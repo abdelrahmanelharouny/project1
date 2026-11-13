@@ -46,6 +46,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     Float,
@@ -591,3 +592,176 @@ class PortfolioAllocation(Base):
             unique=True,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# P05 — geospatial derived products (storage + processing)
+# ---------------------------------------------------------------------------
+RASTER_ASSET_KINDS = ("source", "derived", "preview")
+RASTER_ASSET_BACKENDS = ("local", "s3")
+PROCESSING_JOB_STATUSES = ("queued", "running", "succeeded", "failed", "cancelled")
+
+
+class RasterAsset(Base, TimestampMixin):
+    """Metadata for a raster asset stored OUTSIDE PostgreSQL (P05).
+
+    Binary raster content (COGs, preview PNGs) lives in the object store
+    (local disk in development, S3-compatible storage in production). This
+    table stores only references, checksums, searchable metadata and
+    provenance — never raster bytes.
+
+    Honesty rules:
+    - `asset_kind="source"` rows point at ORIGINAL NASA scenes (or references
+      to them); `asset_kind="derived"` rows point at CropTwist-computed
+      index products. The two are never mixed under one identity.
+    - No metadata value is invented: fields a source does not provide stay
+      NULL.
+    - Natural key (field_id, scene_id, index_code, processing_version,
+      asset_name, asset_kind) makes reprocessing idempotent — a repeated
+      processing run for the same scene/product/version updates nothing.
+    """
+
+    __tablename__ = "raster_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    scene_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    product_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    index_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    asset_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    asset_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    processing_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_backend: Mapped[str] = mapped_column(String(16), nullable=False, default="local")
+    storage_key: Mapped[str] = mapped_column(String(400), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    crs: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    spatial_resolution_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bbox_json: Mapped[dict[str, Any] | None] = mapped_column(
+        "bbox", JSONB, nullable=True
+    )  # [minx, miny, maxx, maxy] in the asset CRS
+    transform_json: Mapped[dict[str, Any] | None] = mapped_column(
+        "transform", JSONB, nullable=True
+    )  # GDAL-style 6-tuple affine
+    valid_pixel_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    boundary_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stats_json: Mapped[dict[str, Any] | None] = mapped_column("stats", JSONB, nullable=True)
+    provenance_json: Mapped[dict[str, Any] | None] = mapped_column(
+        "provenance", JSONB, nullable=True
+    )
+    acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "asset_kind IN ('source','derived','preview')",
+            name="ck_raster_asset_kind",
+        ),
+        CheckConstraint(
+            "storage_backend IN ('local','s3')",
+            name="ck_raster_asset_backend",
+        ),
+        CheckConstraint("byte_size >= 0", name="ck_raster_asset_size_nonneg"),
+        CheckConstraint(
+            "valid_pixel_fraction IS NULL OR (valid_pixel_fraction >= 0 AND "
+            "valid_pixel_fraction <= 1)",
+            name="ck_raster_asset_valid_fraction_range",
+        ),
+        Index(
+            "uq_raster_asset_natural_key",
+            "field_id",
+            "asset_kind",
+            "scene_id",
+            "index_code",
+            "processing_version",
+            "asset_name",
+            unique=True,
+        ),
+        Index("ix_raster_assets_field_index", "field_id", "index_code", "acquired_at"),
+        Index("ix_raster_assets_field_scene", "field_id", "scene_id"),
+    )
+
+
+class RasterProcessingJob(Base, TimestampMixin):
+    """Domain row for one satellite preprocessing job (P05).
+
+    Companion to a `background_jobs` row (kind='raster_processing'). The
+    BackgroundJob carries queue state; this row carries the processing
+    request (scene, indices, processing version), per-scene progress and
+    failure details so workers and the API can rebuild inputs without
+    keeping callables in memory.
+
+    Idempotency: at most one active (queued|running) job per
+    (scene_id, processing_version, indices_digest) — enforced with a partial
+    unique index. Re-submission while an equivalent job is active replays the
+    SAME job instead of duplicating work.
+    """
+
+    __tablename__ = "raster_processing_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    background_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, unique=True
+    )
+    field_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fields.id", ondelete="CASCADE"), nullable=False
+    )
+    scene_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    indices: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    indices_digest: Mapped[str] = mapped_column(String(32), nullable=False)
+    processing_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stage: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    warnings: Mapped[list[Any]] = mapped_column(JSONB, nullable=True, default=list)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled')",
+            name="ck_raster_processing_job_status",
+        ),
+        CheckConstraint(
+            "progress >= 0 AND progress <= 100",
+            name="ck_raster_processing_job_progress_range",
+        ),
+        Index(
+            "uq_raster_processing_active",
+            "scene_id",
+            "processing_version",
+            "indices_digest",
+            unique=True,
+            postgresql_where=text_("status IN ('queued','running')"),
+        ),
+        Index(
+            "ix_raster_processing_field_scene",
+            "field_id",
+            "scene_id",
+            "status",
+        ),
+    )
+
+
+__all__ = [
+    "SatelliteScene",
+    "WeatherForecast",
+    "ForecastVerification",
+    "ClimateProjectionRecord",
+    "SoilStateSnapshot",
+    "SoilChangeEstimate",
+    "RotationStressRun",
+    "EvidenceGapReport",
+    "EvidenceAcquisitionAction",
+    "EvidenceAcquisitionEvent",
+    "PortfolioRun",
+    "PortfolioAllocation",
+    "RasterAsset",
+    "RasterProcessingJob",
+]

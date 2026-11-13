@@ -107,6 +107,11 @@ INDEX_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "savi": ("red", "nir"),
     "ndmi": ("nir", "swir1"),
     "ndwi": ("green", "nir"),
+    # Bare Soil Index: normalized difference of (SWIR1+Red) vs (NIR+Blue).
+    # Valid for HLS L30/S30 (both provide B02 blue, B04 red, B05/B08 NIR,
+    # B06/B11 SWIR1 at 30 m) and Sentinel-2 L2A. Computed only when the
+    # sensor provides ALL four surfaces — never with substitutes.
+    "bsi": ("swir1", "red", "nir", "blue"),
 }
 
 # Documented formula per index (citation strings reused in provenance).
@@ -116,6 +121,10 @@ INDEX_FORMULAS: dict[str, str] = {
     "savi": "SAVI = ((NIR - Red) / (NIR + Red + 0.5)) * 1.5 [Huete 1988]",
     "ndmi": "NDMI = (NIR - SWIR1) / (NIR + SWIR1) [Gao 1996]",
     "ndwi": "NDWI = (Green - NIR) / (Green + NIR) [McFeeters 1996]",
+    "bsi": (
+        "BSI = ((SWIR1 + Red) - (NIR + Blue)) / ((SWIR1 + Red) + (NIR + Blue)) "
+        "[Rikimaru et al. 2002 / Chen et al. 2004; bare soil exposure]"
+    ),
 }
 
 # Physical validity bounds (outside -> None + flag, never clamped).
@@ -125,6 +134,7 @@ INDEX_VALID_RANGE: dict[str, tuple[float, float]] = {
     "savi": (-1.5, 1.5),
     "ndmi": (-1.0, 1.0),
     "ndwi": (-1.0, 1.0),
+    "bsi": (-1.0, 1.0),
 }
 
 # Reflectance validity: physically meaningful surface reflectance after
@@ -245,8 +255,15 @@ def compute_indices(
             value = 1.5 * (nir - red) / denom if abs(denom) >= 1e-9 else None
         elif index == "ndmi":
             value = _diff_ratio(nir, swir1)
-        else:  # ndwi
+        elif index == "ndwi":
             value = _diff_ratio(green, nir)
+        elif index == "bsi":
+            pos = swir1 + red
+            neg = nir + blue
+            if abs(pos + neg) < 1e-9:
+                value = None
+            else:
+                value = (pos - neg) / (pos + neg)
         if value is not None and not math.isfinite(value):
             values[index] = None
             flags.append(f"{index}_nonfinite")

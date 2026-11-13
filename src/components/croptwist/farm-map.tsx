@@ -91,6 +91,23 @@ function geometryBbox(geometry: GeoJSONGeometry): [number, number, number, numbe
   return [minx, miny, maxx, maxy]
 }
 
+/**
+ * P05 optional satellite raster overlay: a preview PNG of one derived index
+ * product (fetched to a blob URL by the parent) georeferenced to the product's
+ * WGS84 bbox. Rendered as a MapLibre image source clipped to that bbox.
+ */
+export interface SatelliteMapOverlay {
+  /** Stable id used for the MapLibre source/layer (e.g. derived from asset id). */
+  id: string
+  /** Blob object URL of the preview PNG (owned + revoked by the parent). */
+  imageUrl: string
+  /** [minLon, minLat, maxLon, maxLat] of the product's WGS84 footprint. */
+  bbox: [number, number, number, number]
+  /** 0..1 raster opacity. */
+  opacity: number
+  visible: boolean
+}
+
 /** Light graticule so the offline base reads as a map, not a void. */
 function buildGraticule(bounds: [number, number, number, number]): GeoJSON.FeatureCollection {
   const [minx, miny, maxx, maxy] = bounds
@@ -123,11 +140,14 @@ export function FarmMap({
   fields,
   selectedFieldId,
   onFieldSelect,
+  satelliteOverlay = null,
   className,
 }: {
   fields: Field[]
   selectedFieldId?: string | null
   onFieldSelect?: (field: Field) => void
+  /** P05 optional derived-index raster overlay (image source clipped to bbox). */
+  satelliteOverlay?: SatelliteMapOverlay | null
   className?: string
 }) {
   const tMap = useTranslations('map')
@@ -236,6 +256,7 @@ export function FarmMap({
           ],
         },
       })
+
       map.addLayer({
         id: 'farm-field-outline',
         type: 'line',
@@ -257,6 +278,41 @@ export function FarmMap({
           source: 'selected-field',
           paint: { 'line-color': '#1c1917', 'line-width': 3.5 },
         })
+      }
+
+      // P05 satellite raster overlay sits ABOVE the field fill but BELOW the
+      // outlines, so field boundaries stay legible through the rendered index.
+      // Inserted via beforeId AFTER 'farm-field-outline' exists (MapLibre v6
+      // rejects beforeIds that do not resolve to an existing layer).
+      const overlay = satelliteOverlay
+      if (overlay && overlay.visible) {
+        try {
+          const [minLon, minLat, maxLon, maxLat] = overlay.bbox
+          const sourceId = `croptwist-satellite-layer-${overlay.id}`
+          map.addSource(sourceId, {
+            type: 'image',
+            url: overlay.imageUrl,
+            coordinates: [
+              [minLon, maxLat],
+              [maxLon, maxLat],
+              [maxLon, minLat],
+              [minLon, minLat],
+            ],
+          })
+          map.addLayer(
+            {
+              id: sourceId,
+              type: 'raster',
+              source: sourceId,
+              paint: { 'raster-opacity': overlay.opacity, 'raster-fade-duration': 0 },
+            },
+            'farm-field-outline',
+          )
+        } catch (err) {
+          // The overlay is decorative — an invalid bbox/url must never take
+          // down the base map. The fill/outlines below still render.
+          console.warn('satellite overlay skipped', err)
+        }
       }
 
       // Name/area labels as DOM markers at each field's bbox center.
@@ -314,8 +370,19 @@ export function FarmMap({
     return () => {
       map.remove()
     }
-    // Rebuild only when the field set or the explicit selection changes.
-  }, [collection, drawable, flatBbox, overallBbox, selectedFieldId, onFieldSelect, tCommon])
+    // Rebuild only when the field set, the explicit selection or the optional
+    // satellite overlay changes. When overlay is null the base map still
+    // renders exactly as before (overlay is purely additive).
+  }, [
+    collection,
+    drawable,
+    flatBbox,
+    overallBbox,
+    selectedFieldId,
+    satelliteOverlay,
+    onFieldSelect,
+    tCommon,
+  ])
 
   if (drawable.length === 0) {
     return (

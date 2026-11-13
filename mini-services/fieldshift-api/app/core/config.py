@@ -116,6 +116,25 @@ class Settings(BaseSettings):
     earthdata_bearer_token: str = ""
     earthdata_token_url: str = "https://urs.earthdata.nasa.gov/api/users/token"
 
+    # P05 — geospatial raster storage + processing workers.
+    # Object storage backend for raster assets: 'local' (development) or
+    # 's3' (any S3-compatible store). Credentials/endpoint ONLY via env or
+    # secret manager — never code, never the database.
+    raster_storage_backend: str = "local"
+    raster_storage_root: str = "/home/z/my-project/raster_storage"
+    s3_endpoint_url: str = ""
+    s3_region: str = ""
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_kms_key_id: str = ""
+    raster_url_secret: str = ""
+    # Derived-product processing: index codes a processing job may request,
+    # default processing version stamp, and per-scene window read cap.
+    raster_processing_default_version: str = "hls-derivation-1.0.0"
+    raster_max_field_window_mb: float = 256.0
+    raster_preview_max_px: int = 512
+
     # P3 — billing (W2). Only the sandbox provider is wired; a real provider
     # adapter must supply verified credentials via the secret manager before
     # any live processing is claimed. The webhook secret signs/verifies

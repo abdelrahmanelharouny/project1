@@ -24,7 +24,6 @@ import { useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Check, Loader2 } from 'lucide-react'
-
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -57,13 +56,19 @@ import { SyntheticBadge } from '@/components/croptwist/badges'
 import {
   useAcquireScenes,
   useCancelSceneJob,
+  useCreateSatelliteProcessing,
   useDiscoverScenes,
+  useSatelliteProcessing,
   useSatelliteScenes,
 } from '@/hooks/use-croptwist'
 import { ApiError, describeError } from '@/lib/api'
 import { formatDateTime, pct } from '@/lib/format'
 import { listOrganizations, roleAtLeast } from '@/lib/api-p3-account'
-import type { SatelliteCatalogScene } from '@/lib/types'
+import type {
+  SatelliteCatalogScene,
+  SatelliteProcessingScene,
+  SatelliteProcessingState,
+} from '@/lib/types'
 
 type Translator = ReturnType<typeof useTranslations>
 
@@ -133,24 +138,116 @@ function SceneStatusBadge({ scene, t }: { scene: SatelliteCatalogScene; t: Trans
 
 interface SceneActionProps {
   scene: SatelliteCatalogScene
+  processingScene: SatelliteProcessingScene | null
   canOperate: boolean
   busy: boolean
   t: Translator
+  tSat: Translator
   onAcquire: () => void
   onCancel: () => void
+  onProcess: () => void
+}
+
+/**
+ * P05 per-scene index-derivation badge:
+ *   unprocessed → outline/secondary · processing → pulsing dot + stage %
+ *   processed → emerald · failed → destructive with the server error in a
+ *   tooltip AND sr-only text (never a silent failure).
+ */
+function ProcessingStateBadge({
+  state,
+  detail,
+  tSat,
+}: {
+  state: SatelliteProcessingState
+  detail: SatelliteProcessingScene['processing_detail']
+  tSat: Translator
+}) {
+  const label = tSat(`procState${state.charAt(0).toUpperCase()}${state.slice(1)}`)
+
+  if (state === 'processing') {
+    const progress = typeof detail?.progress === 'number' ? Math.round(detail.progress) : null
+    return (
+      <Badge variant="outline" className="gap-1.5 border-amber-300 bg-amber-50 text-amber-900">
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" aria-hidden />
+        {label}
+        {progress != null && <span className="tabular-nums">{progress}%</span>}
+      </Badge>
+    )
+  }
+  if (state === 'processed') {
+    return <Badge className="border-transparent bg-emerald-100 text-emerald-900">{label}</Badge>
+  }
+  if (state === 'failed') {
+    const error = typeof detail?.error === 'string' && detail.error.trim() ? detail.error : null
+    const badge = <Badge variant="destructive">{label}</Badge>
+    if (!error) return badge
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help" aria-label={`${tSat('detailErrorLabel')}: ${error}`}>
+              {badge}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-80">
+            <p className="break-words">{error}</p>
+          </TooltipContent>
+        </Tooltip>
+        <span className="sr-only">{error}</span>
+      </span>
+    )
+  }
+  return <Badge variant="secondary">{label}</Badge>
 }
 
 /** Row-level actions, gated on org role (desktop table + mobile card share it). */
-function SceneActionButtons({ scene, canOperate, busy, t, onAcquire, onCancel }: SceneActionProps) {
+function SceneActionButtons({
+  scene,
+  processingScene,
+  canOperate,
+  busy,
+  t,
+  tSat,
+  onAcquire,
+  onCancel,
+  onProcess,
+}: SceneActionProps) {
   if (!canOperate) return <span className="text-xs text-stone-300">—</span>
 
   if (scene.acquisition_status === 'ready') {
-    return (
-      <span className="inline-flex items-center gap-1 text-emerald-700" title={t('readyHint')}>
-        <Check className="h-4 w-4" aria-hidden />
-        <span className="sr-only">{t('readyHint')}</span>
-      </span>
-    )
+    const processState = processingScene?.processing_state ?? 'unprocessed'
+    // P05 honesty gate: only scenes the preprocessing pipeline can accept
+    // offer derivation — real NASA HLS scenes and the explicitly-labeled
+    // fixture_demo demo fixtures. Every other provider (e.g. P2 SIM-*)
+    // is refused by the backend, so the action is never offered for them.
+    const processable =
+      scene.provider_code === 'nasa_hls' ||
+      (scene.provider_code === 'fixture_demo' && scene.is_synthetic)
+    if (processState === 'unprocessed' && processable) {
+      return (
+        <Button variant="outline" size="sm" className="h-8 px-2 text-xs" disabled={busy} onClick={onProcess}>
+          {tSat('processNdvi')}
+        </Button>
+      )
+    }
+    if (processState === 'failed') {
+      return (
+        <Button variant="outline" size="sm" className="h-8 px-2 text-xs" disabled={busy} onClick={onProcess}>
+          {tSat('retryProcessing')}
+        </Button>
+      )
+    }
+    if (processState === 'processed') {
+      return (
+        <span className="inline-flex items-center gap-1 text-emerald-700" title={t('readyHint')}>
+          <Check className="h-4 w-4" aria-hidden />
+          <span className="sr-only">{t('readyHint')}</span>
+        </span>
+      )
+    }
+    // 'processing' — derivation is running; nothing actionable.
+    return null
   }
 
   if (scene.acquisition_status === 'queued' || scene.acquisition_status === 'running') {
@@ -175,7 +272,7 @@ function SceneActionButtons({ scene, canOperate, busy, t, onAcquire, onCancel }:
 }
 
 function SceneRow(props: SceneActionProps) {
-  const { scene, t } = props
+  const { scene, t, tSat, processingScene } = props
   return (
     <TableRow>
       <TableCell className="whitespace-nowrap text-xs text-stone-600">
@@ -194,6 +291,17 @@ function SceneRow(props: SceneActionProps) {
       <TableCell>
         <SceneStatusBadge scene={scene} t={t} />
       </TableCell>
+      <TableCell>
+        {processingScene ? (
+          <ProcessingStateBadge
+            state={processingScene.processing_state}
+            detail={processingScene.processing_detail}
+            tSat={tSat}
+          />
+        ) : (
+          <span className="text-xs text-stone-300">—</span>
+        )}
+      </TableCell>
       <TableCell className="text-xs tabular-nums text-stone-600">
         {pct(scene.coverage_fraction)}
       </TableCell>
@@ -207,7 +315,7 @@ function SceneRow(props: SceneActionProps) {
 }
 
 function SceneCard(props: SceneActionProps) {
-  const { scene, t } = props
+  const { scene, t, tSat, processingScene } = props
   const failure =
     scene.acquisition_status === 'failed'
       ? detailText(scene.acquisition_detail, ['error', 'reason'])
@@ -222,6 +330,15 @@ function SceneCard(props: SceneActionProps) {
         {scene.product_code} · {formatDateTime(scene.acquired_at)} · {t('colCloud')}{' '}
         {cloudText(scene)} · {t('colCoverage')} {pct(scene.coverage_fraction)}
       </p>
+      {processingScene && (
+        <div className="mt-1">
+          <ProcessingStateBadge
+            state={processingScene.processing_state}
+            detail={processingScene.processing_detail}
+            tSat={tSat}
+          />
+        </div>
+      )}
       {scene.is_synthetic && (
         <div className="mt-1">
           <SyntheticBadge />
@@ -230,7 +347,7 @@ function SceneCard(props: SceneActionProps) {
       {failure && (
         <p className="mt-1 break-words rounded bg-red-50 p-1.5 text-[11px] text-red-700">{failure}</p>
       )}
-      {scene.acquisition_status === 'ready' && (
+      {scene.acquisition_status === 'ready' && processingScene?.processing_state === 'processed' && (
         <p className="mt-1 text-[11px] text-emerald-800">{t('readyHint')}</p>
       )}
       <div className="mt-2 flex justify-end">
@@ -242,6 +359,7 @@ function SceneCard(props: SceneActionProps) {
 
 export default function SatelliteScenesPage() {
   const t = useTranslations('scenecatalog')
+  const tSat = useTranslations('satellite')
   const { selectedField, setSelectedField } = useFieldContext()
   const availability = useFieldAvailability()
 
@@ -281,6 +399,11 @@ export default function SatelliteScenesPage() {
   const acquire = useAcquireScenes(fieldId)
   const cancelJob = useCancelSceneJob(fieldId)
 
+  // P05 processing ledger — per-scene derivation states + live polling while
+  // any scene is mid-derivation (shared query with the map layers card).
+  const processing = useSatelliteProcessing(fieldId)
+  const process = useCreateSatelliteProcessing(fieldId)
+
   if (availability === 'none') return <FieldContextGate hint={t('pickFieldHint')} />
   if (availability === 'unavailable' && selectedField) {
     return <UnavailableFieldNotice field={selectedField} onClear={() => setSelectedField(null)} />
@@ -290,6 +413,9 @@ export default function SatelliteScenesPage() {
   const scenes = catalog.data?.scenes ?? []
   const total = catalog.data?.total ?? 0
   const discoveredScenes = scenes.filter((s) => s.acquisition_status === 'discovered')
+  const processingByScene = new Map(
+    (processing.data?.scenes ?? []).map((entry) => [entry.scene_id, entry]),
+  )
 
   const mutationErrorToast = (err: unknown) => {
     if (err instanceof ApiError && err.status === 403) {
@@ -343,13 +469,31 @@ export default function SatelliteScenesPage() {
     })
   }
 
+  const handleProcess = (scene: SatelliteCatalogScene) => {
+    process.mutate(
+      { scene_ids: [scene.scene_id], indices: ['ndvi'] },
+      {
+        onSuccess: (res) => {
+          toast.success(tSat('processQueued', { count: res.queued_scenes }))
+          if (res.skipped.length > 0) {
+            toast.info(tSat('processSkipped', { count: res.skipped.length }))
+          }
+        },
+        onError: mutationErrorToast,
+      },
+    )
+  }
+
   const actionProps = (scene: SatelliteCatalogScene) => ({
     scene,
+    processingScene: processingByScene.get(scene.scene_id) ?? null,
     canOperate,
-    busy: acquire.isPending || cancelJob.isPending,
+    busy: acquire.isPending || cancelJob.isPending || process.isPending,
     t,
+    tSat,
     onAcquire: () => handleAcquire(scene),
     onCancel: () => handleCancel(scene),
+    onProcess: () => handleProcess(scene),
   })
 
   return (
@@ -491,6 +635,7 @@ export default function SatelliteScenesPage() {
                       <TableHead>{t('colProduct')}</TableHead>
                       <TableHead>{t('colCloud')}</TableHead>
                       <TableHead>{t('colStatus')}</TableHead>
+                      <TableHead>{tSat('colProcess')}</TableHead>
                       <TableHead>{t('colCoverage')}</TableHead>
                       <TableHead className="text-end">{t('colActions')}</TableHead>
                     </TableRow>
