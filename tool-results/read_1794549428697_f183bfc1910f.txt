@@ -1,0 +1,816 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→/**
+     4→     4→ * P3 — Reports tab: generation form (10 report types, pdf/xlsx/csv, en/ar
+     5→     5→ * locale, org/farm scope, date range, optional recurrence) plus the report
+     6→     6→ * library with download / regenerate / schedule / delete.
+     7→     7→ *
+     8→     8→ * Data honesty: failed jobs surface the exact API error string; statuses and
+     9→     9→ * sizes come from the server only. While any job is queued/running the list
+    10→    10→ * re-polls every 3 seconds.
+    11→    11→ */
+    12→    12→
+    13→    13→import { useState } from 'react'
+    14→    14→import { useTranslations } from 'next-intl'
+    15→    15→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+    16→    16→import { toast } from 'sonner'
+    17→    17→import { Download, FileText, RefreshCw, Repeat, Trash2 } from 'lucide-react'
+    18→    18→import {
+    19→    19→  AlertDialog,
+    20→    20→  AlertDialogAction,
+    21→    21→  AlertDialogCancel,
+    22→    22→  AlertDialogContent,
+    23→    23→  AlertDialogDescription,
+    24→    24→  AlertDialogFooter,
+    25→    25→  AlertDialogHeader,
+    26→    26→  AlertDialogTitle,
+    27→    27→} from '@/components/ui/alert-dialog'
+    28→    28→import { Badge } from '@/components/ui/badge'
+    29→    29→import { Button } from '@/components/ui/button'
+    30→    30→import {
+    31→    31→  Card,
+    32→    32→  CardContent,
+    33→    33→  CardDescription,
+    34→    34→  CardHeader,
+    35→    35→  CardTitle,
+    36→    36→} from '@/components/ui/card'
+    37→    37→import { Checkbox } from '@/components/ui/checkbox'
+    38→    38→import {
+    39→    39→  Dialog,
+    40→    40→  DialogContent,
+    41→    41→  DialogDescription,
+    42→    42→  DialogFooter,
+    43→    43→  DialogHeader,
+    44→    44→  DialogTitle,
+    45→    45→} from '@/components/ui/dialog'
+    46→    46→import { Input } from '@/components/ui/input'
+    47→    47→import { Label } from '@/components/ui/label'
+    48→    48→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    49→    49→import { Skeleton } from '@/components/ui/skeleton'
+    50→    50→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+    51→    51→import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+    52→    52→import { ApiError, describeError } from '@/lib/api'
+    53→    53→import { formatDateTime, formatDay } from '@/lib/format'
+    54→    54→import { useFarms } from '@/hooks/use-croptwist'
+    55→    55→import { useCropTwistUi } from '@/lib/store'
+    56→    56→import {
+    57→    57→  createReport,
+    58→    58→  deleteReport,
+    59→    59→  downloadReport,
+    60→    60→  listMyOrganizations,
+    61→    61→  listReports,
+    62→    62→  regenerateReport,
+    63→    63→  scheduleReport,
+    64→    64→  type ReportJob,
+    65→    65→} from '@/lib/api-p3-commercial'
+    66→    66→
+    67→    67→type T = ReturnType<typeof useTranslations>
+    68→    68→
+    69→    69→/** Mirrors app/reports/contracts.py REPORT_TYPES (fixed registry). */
+    70→    70→const REPORT_TYPES: { value: string; labelKey: string }[] = [
+    71→    71→  { value: 'farm_performance', labelKey: 'typeFarmPerformance' },
+    72→    72→  { value: 'field_analysis', labelKey: 'typeFieldAnalysis' },
+    73→    73→  { value: 'soil_health', labelKey: 'typeSoilHealth' },
+    74→    74→  { value: 'water', labelKey: 'typeWater' },
+    75→    75→  { value: 'rotation', labelKey: 'typeRotation' },
+    76→    76→  { value: 'seasonal', labelKey: 'typeSeasonal' },
+    77→    77→  { value: 'environmental_risk', labelKey: 'typeEnvironmentalRisk' },
+    78→    78→  { value: 'recommendations', labelKey: 'typeRecommendations' },
+    79→    79→  { value: 'org_executive', labelKey: 'typeOrgExecutive' },
+    80→    80→  { value: 'custom_range', labelKey: 'typeCustomRange' },
+    81→    81→]
+    82→    82→
+    83→    83→function reportTypeLabel(t: T, reportType: string): string {
+    84→    84→  const entry = REPORT_TYPES.find((r) => r.value === reportType)
+    85→    85→  return entry ? t(`reports.${entry.labelKey}`) : reportType
+    86→    86→}
+    87→    87→
+    88→    88→function statusLabel(t: T, status: string): string {
+    89→    89→  switch (status) {
+    90→    90→    case 'queued':
+    91→    91→      return t('reports.statusQueued')
+    92→    92→    case 'running':
+    93→    93→      return t('reports.statusRunning')
+    94→    94→    case 'succeeded':
+    95→    95→      return t('reports.statusSucceeded')
+    96→    96→    case 'failed':
+    97→    97→      return t('reports.statusFailed')
+    98→    98→    case 'expired':
+    99→    99→      return t('reports.statusExpired')
+   100→   100→    default:
+   101→   101→      return status
+   102→   102→  }
+   103→   103→}
+   104→   104→
+   105→   105→function statusBadge(t: T, status: string) {
+   106→   106→  switch (status) {
+   107→   107→    case 'succeeded':
+   108→   108→      return (
+   109→   109→        <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-800">
+   110→   110→          {statusLabel(t, status)}
+   111→   111→        </Badge>
+   112→   112→      )
+   113→   113→    case 'running':
+   114→   114→      return (
+   115→   115→        <Badge variant="outline" className="gap-1.5 border-emerald-200 bg-white text-emerald-800">
+   116→   116→          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+   117→   117→          {statusLabel(t, status)}
+   118→   118→        </Badge>
+   119→   119→      )
+   120→   120→    case 'queued':
+   121→   121→      return (
+   122→   122→        <Badge variant="outline" className="gap-1.5 border-stone-300 bg-white text-stone-600">
+   123→   123→          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-stone-400" aria-hidden />
+   124→   124→          {statusLabel(t, status)}
+   125→   125→        </Badge>
+   126→   126→      )
+   127→   127→    case 'failed':
+   128→   128→      return (
+   129→   129→        <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">
+   130→   130→          {statusLabel(t, status)}
+   131→   131→        </Badge>
+   132→   132→      )
+   133→   133→    default:
+   134→   134→      return (
+   135→   135→        <Badge variant="outline" className="border-stone-200 bg-stone-50 text-stone-400">
+   136→   136→          {statusLabel(t, status)}
+   137→   137→        </Badge>
+   138→   138→      )
+   139→   139→  }
+   140→   140→}
+   141→   141→
+   142→   142→function formatSize(bytes: number | null): string {
+   143→   143→  if (bytes === null || bytes === undefined) return '—'
+   144→   144→  if (bytes < 1024) return `${bytes} B`
+   145→   145→  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+   146→   146→  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+   147→   147→}
+   148→   148→
+   149→   149→function toastMutationError(t: T, err: unknown): void {
+   150→   150→  if (err instanceof ApiError && err.status === 403) {
+   151→   151→    toast.error(t('errors.forbiddenTitle'), { description: t('errors.forbiddenBody') })
+   152→   152→    return
+   153→   153→  }
+   154→   154→  const d = describeError(err)
+   155→   155→  toast.error(d.title, { description: d.description })
+   156→   156→}
+   157→   157→
+   158→   158→function NoOrgEmptyState({ t }: { t: T }) {
+   159→   159→  return (
+   160→   160→    <Card>
+   161→   161→      <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+   162→   162→        <p className="text-base font-semibold text-stone-900">{t('common.noOrgTitle')}</p>
+   163→   163→        <p className="max-w-md text-sm text-stone-500">{t('common.noOrgBody')}</p>
+   164→   164→        <Button
+   165→   165→          className="mt-2 bg-emerald-700 text-white hover:bg-emerald-800"
+   166→   166→          onClick={() => useCropTwistUi.getState().setActiveTab('team')}
+   167→   167→        >
+   168→   168→          {t('common.noOrgCta')}
+   169→   169→        </Button>
+   170→   170→      </CardContent>
+   171→   171→    </Card>
+   172→   172→  )
+   173→   173→}
+   174→   174→
+   175→   175→async function saveBlob(blob: Blob, filename: string): Promise<void> {
+   176→   176→  const url = URL.createObjectURL(blob)
+   177→   177→  try {
+   178→   178→    const a = document.createElement('a')
+   179→   179→    a.href = url
+   180→   180→    a.download = filename
+   181→   181→    document.body.appendChild(a)
+   182→   182→    a.click()
+   183→   183→    a.remove()
+   184→   184→  } finally {
+   185→   185→    URL.revokeObjectURL(url)
+   186→   186→  }
+   187→   187→}
+   188→   188→
+   189→   189→// --------------------------------------------------------------- component
+   190→   190→
+   191→   191→export default function ReportsTab() {
+   192→   192→  const t = useTranslations('p3b')
+   193→   193→  const queryClient = useQueryClient()
+   194→   194→
+   195→   195→  const orgsQuery = useQuery({
+   196→   196→    queryKey: ['p3-orgs'],
+   197→   197→    queryFn: listMyOrganizations,
+   198→   198→    staleTime: 60_000,
+   199→   199→    retry: 1,
+   200→   200→  })
+   201→   201→  const org = orgsQuery.data?.items[0] ?? null
+   202→   202→  const orgId = org?.id ?? null
+   203→   203→  const farmsQuery = useFarms(Boolean(orgId))
+   204→   204→
+   205→   205→  const [type, setType] = useState('farm_performance')
+   206→   206→  const [format, setFormat] = useState<'pdf' | 'xlsx' | 'csv'>('pdf')
+   207→   207→  const [reportLocale, setReportLocale] = useState<'en' | 'ar'>('en')
+   208→   208→  const [scope, setScope] = useState('org')
+   209→   209→  const [instant, setInstant] = useState(true)
+   210→   210→  const [repeat, setRepeat] = useState<'none' | 'weekly' | 'monthly'>('none')
+   211→   211→  const today = new Date().toISOString().slice(0, 10)
+   212→   212→  const monthAgo = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10)
+   213→   213→  const [dateFrom, setDateFrom] = useState(monthAgo)
+   214→   214→  const [dateTo, setDateTo] = useState(today)
+   215→   215→
+   216→   216→  const listQuery = useQuery({
+   217→   217→    queryKey: ['p3-reports', orgId],
+   218→   218→    queryFn: () => listReports({ limit: 50 }),
+   219→   219→    enabled: Boolean(orgId),
+   220→   220→    staleTime: 5_000,
+   221→   221→    retry: 1,
+   222→   222→    refetchInterval: (query) => {
+   223→   223→      const rows = query.state.data?.items ?? []
+   224→   224→      return rows.some((r) => r.status === 'queued' || r.status === 'running') ? 3000 : false
+   225→   225→    },
+   226→   226→  })
+   227→   227→
+   228→   228→  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['p3-reports'] })
+   229→   229→
+   230→   230→  const createM = useMutation({
+   231→   231→    mutationFn: async () => {
+   232→   232→      const job = await createReport({
+   233→   233→        report_type: type,
+   234→   234→        format,
+   235→   235→        locale: reportLocale,
+   236→   236→        farm_id: scope === 'org' ? null : scope,
+   237→   237→        date_from: dateFrom || null,
+   238→   238→        date_to: dateTo || null,
+   239→   239→        sync: instant && format !== 'pdf',
+   240→   240→      })
+   241→   241→      if (repeat !== 'none') {
+   242→   242→        await scheduleReport(job.id, repeat === 'weekly' ? 7 : 30)
+   243→   243→      }
+   244→   244→      return job
+   245→   245→    },
+   246→   246→    onSuccess: async (job) => {
+   247→   247→      if (job.status === 'failed') {
+   248→   248→        toast.error(t('reports.genFailed'), { description: job.error ?? undefined })
+   249→   249→      } else if (job.status === 'succeeded') {
+   250→   250→        toast.success(t('reports.genInstant'))
+   251→   251→        try {
+   252→   252→          const dl = await downloadReport(job.id)
+   253→   253→          await saveBlob(dl.blob, dl.filename)
+   254→   254→          toast.success(t('reports.downloadDone'))
+   255→   255→        } catch (err) {
+   256→   256→          toastMutationError(t, err)
+   257→   257→        }
+   258→   258→      } else {
+   259→   259→        toast.success(t('reports.genQueued'))
+   260→   260→      }
+   261→   261→      invalidate()
+   262→   262→    },
+   263→   263→    onError: (err) => toastMutationError(t, err),
+   264→   264→  })
+   265→   265→
+   266→   266→  const [downloadJob, setDownloadJob] = useState<ReportJob | null>(null)
+   267→   267→  const downloadM = useMutation({
+   268→   268→    mutationFn: async (job: ReportJob) => {
+   269→   269→      setDownloadJob(job)
+   270→   270→      const dl = await downloadReport(job.id)
+   271→   271→      await saveBlob(dl.blob, dl.filename)
+   272→   272→    },
+   273→   273→    onSuccess: () => {
+   274→   274→      toast.success(t('reports.downloadDone'))
+   275→   275→      setDownloadJob(null)
+   276→   276→      invalidate()
+   277→   277→    },
+   278→   278→    onError: (err) => {
+   279→   279→      setDownloadJob(null)
+   280→   280→      toastMutationError(t, err)
+   281→   281→    },
+   282→   282→  })
+   283→   283→
+   284→   284→  const regenM = useMutation({
+   285→   285→    mutationFn: (job: ReportJob) => regenerateReport(job.id),
+   286→   286→    onSuccess: (job) => {
+   287→   287→      if (job.status === 'failed') {
+   288→   288→        toast.error(t('reports.genFailed'), { description: job.error ?? undefined })
+   289→   289→      } else {
+   290→   290→        toast.success(t('reports.regenDone'))
+   291→   291→      }
+   292→   292→      invalidate()
+   293→   293→    },
+   294→   294→    onError: (err) => toastMutationError(t, err),
+   295→   295→  })
+   296→   296→
+   297→   297→  const [deleteJob, setDeleteJob] = useState<ReportJob | null>(null)
+   298→   298→  const deleteM = useMutation({
+   299→   299→    mutationFn: (job: ReportJob) => deleteReport(job.id),
+   300→   300→    onSuccess: () => {
+   301→   301→      setDeleteJob(null)
+   302→   302→      invalidate()
+   303→   303→    },
+   304→   304→    onError: (err) => {
+   305→   305→      setDeleteJob(null)
+   306→   306→      toastMutationError(t, err)
+   307→   307→    },
+   308→   308→  })
+   309→   309→
+   310→   310→  const [schedJob, setSchedJob] = useState<ReportJob | null>(null)
+   311→   311→  const [schedValue, setSchedValue] = useState<'none' | 'weekly' | 'monthly'>('none')
+   312→   312→  const schedM = useMutation({
+   313→   313→    mutationFn: (input: { jobId: string; interval: number | null }) =>
+   314→   314→      scheduleReport(input.jobId, input.interval),
+   315→   315→    onSuccess: () => {
+   316→   316→      toast.success(t('reports.schedSaved'))
+   317→   317→      setSchedJob(null)
+   318→   318→      invalidate()
+   319→   319→    },
+   320→   320→    onError: (err) => {
+   321→   321→      setSchedJob(null)
+   322→   322→      toastMutationError(t, err)
+   323→   323→    },
+   324→   324→  })
+   325→   325→
+   326→   326→  if (orgsQuery.isLoading) {
+   327→   327→    return (
+   328→   328→      <div className="space-y-4">
+   329→   329→        <Skeleton className="h-8 w-48" />
+   330→   330→        <Skeleton className="h-56 w-full" />
+   331→   331→        <Skeleton className="h-64 w-full" />
+   332→   332→      </div>
+   333→   333→    )
+   334→   334→  }
+   335→   335→  if (!org) return <NoOrgEmptyState t={t} />
+   336→   336→
+   337→   337→  const rows = listQuery.data?.items ?? []
+   338→   338→
+   339→   339→  return (
+   340→   340→    <div className="space-y-4">
+   341→   341→      <header>
+   342→   342→        <h2 className="text-lg font-semibold text-stone-900">{t('reports.title')}</h2>
+   343→   343→        <p className="mt-0.5 text-sm text-stone-500">{t('reports.intro')}</p>
+   344→   344→      </header>
+   345→   345→
+   346→   346→      {/* Generate */}
+   347→   347→      <Card>
+   348→   348→        <CardHeader className="pb-2">
+   349→   349→          <CardTitle className="text-base">{t('reports.genTitle')}</CardTitle>
+   350→   350→          <CardDescription className="text-sm text-stone-500">{t('reports.genDesc')}</CardDescription>
+   351→   351→        </CardHeader>
+   352→   352→        <CardContent className="space-y-3">
+   353→   353→          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+   354→   354→            <div className="flex flex-col gap-1">
+   355→   355→              <Label className="text-xs text-stone-600" htmlFor="p3-rep-type">
+   356→   356→                {t('reports.typeLabel')}
+   357→   357→              </Label>
+   358→   358→              <Select value={type} onValueChange={setType}>
+   359→   359→                <SelectTrigger id="p3-rep-type" className="h-9 bg-white">
+   360→   360→                  <SelectValue />
+   361→   361→                </SelectTrigger>
+   362→   362→                <SelectContent>
+   363→   363→                  {REPORT_TYPES.map((r) => (
+   364→   364→                    <SelectItem key={r.value} value={r.value}>
+   365→   365→                      {t(`reports.${r.labelKey}`)}
+   366→   366→                    </SelectItem>
+   367→   367→                  ))}
+   368→   368→                </SelectContent>
+   369→   369→              </Select>
+   370→   370→            </div>
+   371→   371→            <div className="flex flex-col gap-1">
+   372→   372→              <Label className="text-xs text-stone-600" htmlFor="p3-rep-format">
+   373→   373→                {t('reports.formatLabel')}
+   374→   374→              </Label>
+   375→   375→              <Select value={format} onValueChange={(v) => setFormat(v as 'pdf' | 'xlsx' | 'csv')}>
+   376→   376→                <SelectTrigger id="p3-rep-format" className="h-9 bg-white">
+   377→   377→                  <SelectValue />
+   378→   378→                </SelectTrigger>
+   379→   379→                <SelectContent>
+   380→   380→                  <SelectItem value="pdf">PDF</SelectItem>
+   381→   381→                  <SelectItem value="xlsx">XLSX</SelectItem>
+   382→   382→                  <SelectItem value="csv">CSV</SelectItem>
+   383→   383→                </SelectContent>
+   384→   384→              </Select>
+   385→   385→            </div>
+   386→   386→            <div className="flex flex-col gap-1">
+   387→   387→              <Label className="text-xs text-stone-600" htmlFor="p3-rep-locale">
+   388→   388→                {t('reports.localeLabel')}
+   389→   389→              </Label>
+   390→   390→              <Select value={reportLocale} onValueChange={(v) => setReportLocale(v as 'en' | 'ar')}>
+   391→   391→                <SelectTrigger id="p3-rep-locale" className="h-9 bg-white">
+   392→   392→                  <SelectValue />
+   393→   393→                </SelectTrigger>
+   394→   394→                <SelectContent>
+   395→   395→                  <SelectItem value="en">{t('reports.localeEn')}</SelectItem>
+   396→   396→                  <SelectItem value="ar">{t('reports.localeAr')}</SelectItem>
+   397→   397→                </SelectContent>
+   398→   398→              </Select>
+   399→   399→            </div>
+   400→   400→            <div className="flex flex-col gap-1">
+   401→   401→              <Label className="text-xs text-stone-600" htmlFor="p3-rep-scope">
+   402→   402→                {t('reports.scopeLabel')}
+   403→   403→              </Label>
+   404→   404→              <Select value={scope} onValueChange={setScope}>
+   405→   405→                <SelectTrigger id="p3-rep-scope" className="h-9 bg-white">
+   406→   406→                  <SelectValue />
+   407→   407→                </SelectTrigger>
+   408→   408→                <SelectContent>
+   409→   409→                  <SelectItem value="org">{t('reports.scopeOrg')}</SelectItem>
+   410→   410→                  {(farmsQuery.data?.items ?? []).map((farm) => (
+   411→   411→                    <SelectItem key={farm.id} value={farm.id}>
+   412→   412→                      {farm.name}
+   413→   413→                    </SelectItem>
+   414→   414→                  ))}
+   415→   415→                </SelectContent>
+   416→   416→              </Select>
+   417→   417→            </div>
+   418→   418→            <div className="flex flex-col gap-1">
+   419→   419→              <Label className="text-xs text-stone-600" htmlFor="p3-rep-from">
+   420→   420→                {t('common.from')}
+   421→   421→              </Label>
+   422→   422→              <Input
+   423→   423→                id="p3-rep-from"
+   424→   424→                className="h-9"
+   425→   425→                type="date"
+   426→   426→                value={dateFrom}
+   427→   427→                onChange={(e) => setDateFrom(e.target.value)}
+   428→   428→              />
+   429→   429→            </div>
+   430→   430→            <div className="flex flex-col gap-1">
+   431→   431→              <Label className="text-xs text-stone-600" htmlFor="p3-rep-to">
+   432→   432→                {t('common.to')}
+   433→   433→              </Label>
+   434→   434→              <Input
+   435→   435→                id="p3-rep-to"
+   436→   436→                className="h-9"
+   437→   437→                type="date"
+   438→   438→                value={dateTo}
+   439→   439→                onChange={(e) => setDateTo(e.target.value)}
+   440→   440→              />
+   441→   441→            </div>
+   442→   442→          </div>
+   443→   443→          <div className="flex flex-wrap items-center justify-between gap-3">
+   444→   444→            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+   445→   445→              <div className="flex items-center gap-2">
+   446→   446→                <Checkbox
+   447→   447→                  id="p3-rep-instant"
+   448→   448→                  checked={instant && format !== 'pdf'}
+   449→   449→                  disabled={format === 'pdf'}
+   450→   450→                  onCheckedChange={(v) => setInstant(v === true)}
+   451→   451→                />
+   452→   452→                <Label htmlFor="p3-rep-instant" className="text-xs text-stone-600">
+   453→   453→                  {t('reports.instantLabel')}
+   454→   454→                </Label>
+   455→   455→              </div>
+   456→   456→              <div className="flex items-center gap-2">
+   457→   457→                <Label className="text-xs text-stone-600" htmlFor="p3-rep-repeat">
+   458→   458→                  {t('reports.schedTitle')}
+   459→   459→                </Label>
+   460→   460→                <Select value={repeat} onValueChange={(v) => setRepeat(v as 'none' | 'weekly' | 'monthly')}>
+   461→   461→                  <SelectTrigger id="p3-rep-repeat" className="h-8 w-36 bg-white">
+   462→   462→                    <SelectValue />
+   463→   463→                  </SelectTrigger>
+   464→   464→                  <SelectContent>
+   465→   465→                    <SelectItem value="none">{t('reports.schedNone')}</SelectItem>
+   466→   466→                    <SelectItem value="weekly">{t('reports.schedWeekly')}</SelectItem>
+   467→   467→                    <SelectItem value="monthly">{t('reports.schedMonthly')}</SelectItem>
+   468→   468→                  </SelectContent>
+   469→   469→                </Select>
+   470→   470→              </div>
+   471→   471→            </div>
+   472→   472→            <Button
+   473→   473→              className="bg-emerald-700 text-white hover:bg-emerald-800"
+   474→   474→              disabled={createM.isPending}
+   475→   475→              onClick={() => createM.mutate()}
+   476→   476→            >
+   477→   477→              {createM.isPending ? t('common.loading') : t('reports.generate')}
+   478→   478→            </Button>
+   479→   479→          </div>
+   480→   480→        </CardContent>
+   481→   481→      </Card>
+   482→   482→
+   483→   483→      {/* Library */}
+   484→   484→      <Card>
+   485→   485→        <CardHeader className="pb-2">
+   486→   486→          <CardTitle className="text-base">{t('reports.libTitle')}</CardTitle>
+   487→   487→          <CardDescription className="text-sm text-stone-500">{t('reports.libDesc')}</CardDescription>
+   488→   488→        </CardHeader>
+   489→   489→        <CardContent>
+   490→   490→          {listQuery.isLoading ? (
+   491→   491→            <Skeleton className="h-48 w-full" />
+   492→   492→          ) : listQuery.isError ? (
+   493→   493→            <InlineError err={listQuery.error} t={t} />
+   494→   494→          ) : rows.length === 0 ? (
+   495→   495→            <p className="py-6 text-center text-sm text-stone-500">{t('reports.empty')}</p>
+   496→   496→          ) : (
+   497→   497→            <>
+   498→   498→              <div className="hidden overflow-x-auto md:block">
+   499→   499→                <Table>
+   500→   500→                  <TableHeader>
+   501→   501→                    <TableRow>
+   502→   502→                      <TableHead>{t('reports.colType')}</TableHead>
+   503→   503→                      <TableHead>{t('reports.colFormat')}</TableHead>
+   504→   504→                      <TableHead>{t('reports.colScope')}</TableHead>
+   505→   505→                      <TableHead>{t('reports.colStatus')}</TableHead>
+   506→   506→                      <TableHead>{t('reports.colCreated')}</TableHead>
+   507→   507→                      <TableHead>{t('reports.colSize')}</TableHead>
+   508→   508→                      <TableHead className="text-end">{t('reports.colActions')}</TableHead>
+   509→   509→                    </TableRow>
+   510→   510→                  </TableHeader>
+   511→   511→                  <TableBody>
+   512→   512→                    {rows.map((job) => (
+   513→   513→                      <ReportRow
+   514→   514→                        key={job.id}
+   515→   515→                        t={t}
+   516→   516→                        farmName={
+   517→   517→                          job.farm_id
+   518→   518→                            ? farmsQuery.data?.items.find((f) => f.id === job.farm_id)?.name ?? null
+   519→   519→                            : null
+   520→   520→                        }
+   521→   521→                        job={job}
+   522→   522→                        busy={
+   523→   523→                          downloadM.isPending ||
+   524→   524→                          regenM.isPending ||
+   525→   525→                          deleteM.isPending ||
+   526→   526→                          schedM.isPending ||
+   527→   527→                          (downloadJob?.id === job.id)
+   528→   528→                        }
+   529→   529→                        onDownload={() => downloadM.mutate(job)}
+   530→   530→                        onRegen={() => regenM.mutate(job)}
+   531→   531→                        onSchedule={() => {
+   532→   532→                          setSchedJob(job)
+   533→   533→                          setSchedValue(job.interval_days === 7 ? 'weekly' : job.interval_days === 30 ? 'monthly' : 'none')
+   534→   534→                        }}
+   535→   535→                        onDelete={() => setDeleteJob(job)}
+   536→   536→                      />
+   537→   537→                    ))}
+   538→   538→                  </TableBody>
+   539→   539→                </Table>
+   540→   540→              </div>
+   541→   541→              <div className="space-y-2 md:hidden">
+   542→   542→                {rows.map((job) => (
+   543→   543→                  <ReportCardMobile
+   544→   544→                    key={job.id}
+   545→   545→                    t={t}
+   546→   546→                    job={job}
+   547→   547→                    farmName={
+   548→   548→                      job.farm_id ? farmsQuery.data?.items.find((f) => f.id === job.farm_id)?.name ?? null : null
+   549→   549→                    }
+   550→   550→                    busy={downloadM.isPending || regenM.isPending || deleteM.isPending || schedM.isPending}
+   551→   551→                    onDownload={() => downloadM.mutate(job)}
+   552→   552→                    onRegen={() => regenM.mutate(job)}
+   553→   553→                    onSchedule={() => {
+   554→   554→                      setSchedJob(job)
+   555→   555→                      setSchedValue(job.interval_days === 7 ? 'weekly' : job.interval_days === 30 ? 'monthly' : 'none')
+   556→   556→                    }}
+   557→   557→                    onDelete={() => setDeleteJob(job)}
+   558→   558→                  />
+   559→   559→                ))}
+   560→   560→              </div>
+   561→   561→            </>
+   562→   562→          )}
+   563→   563→        </CardContent>
+   564→   564→      </Card>
+   565→   565→
+   566→   566→      {/* Delete confirmation */}
+   567→   567→      <AlertDialog open={deleteJob !== null} onOpenChange={(open) => !open && setDeleteJob(null)}>
+   568→   568→        <AlertDialogContent>
+   569→   569→          <AlertDialogHeader>
+   570→   570→            <AlertDialogTitle>{t('reports.delDialogTitle')}</AlertDialogTitle>
+   571→   571→            <AlertDialogDescription>{t('reports.delDialogBody')}</AlertDialogDescription>
+   572→   572→          </AlertDialogHeader>
+   573→   573→          <AlertDialogFooter>
+   574→   574→            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+   575→   575→            <AlertDialogAction
+   576→   576→              className="bg-red-700 text-white hover:bg-red-800"
+   577→   577→              onClick={(e) => {
+   578→   578→                e.preventDefault()
+   579→   579→                if (deleteJob) deleteM.mutate(deleteJob)
+   580→   580→              }}
+   581→   581→            >
+   582→   582→              {t('reports.del')}
+   583→   583→            </AlertDialogAction>
+   584→   584→          </AlertDialogFooter>
+   585→   585→        </AlertDialogContent>
+   586→   586→      </AlertDialog>
+   587→   587→
+   588→   588→      {/* Schedule dialog */}
+   589→   589→      <Dialog open={schedJob !== null} onOpenChange={(open) => !open && setSchedJob(null)}>
+   590→   590→        <DialogContent className="sm:max-w-md">
+   591→   591→          <DialogHeader>
+   592→   592→            <DialogTitle>{t('reports.schedTitle')}</DialogTitle>
+   593→   593→            <DialogDescription>{t('reports.schedDesc')}</DialogDescription>
+   594→   594→          </DialogHeader>
+   595→   595→          <div className="flex flex-col gap-1">
+   596→   596→            <Label className="text-xs text-stone-600" htmlFor="p3-rep-sched-interval">
+   597→   597→              {t('reports.schedTitle')}
+   598→   598→            </Label>
+   599→   599→            <Select
+   600→   600→              value={schedValue}
+   601→   601→              onValueChange={(v) => setSchedValue(v as 'none' | 'weekly' | 'monthly')}
+   602→   602→            >
+   603→   603→              <SelectTrigger id="p3-rep-sched-interval" className="h-9 bg-white">
+   604→   604→                <SelectValue />
+   605→   605→              </SelectTrigger>
+   606→   606→              <SelectContent>
+   607→   607→                <SelectItem value="none">{t('reports.schedNone')}</SelectItem>
+   608→   608→                <SelectItem value="weekly">{t('reports.schedWeekly')}</SelectItem>
+   609→   609→                <SelectItem value="monthly">{t('reports.schedMonthly')}</SelectItem>
+   610→   610→              </SelectContent>
+   611→   611→            </Select>
+   612→   612→          </div>
+   613→   613→          <DialogFooter>
+   614→   614→            <Button variant="outline" onClick={() => setSchedJob(null)}>
+   615→   615→              {t('common.cancel')}
+   616→   616→            </Button>
+   617→   617→            <Button
+   618→   618→              className="bg-emerald-700 text-white hover:bg-emerald-800"
+   619→   619→              disabled={schedM.isPending}
+   620→   620→              onClick={() => {
+   621→   621→                if (!schedJob) return
+   622→   622→                schedM.mutate({
+   623→   623→                  jobId: schedJob.id,
+   624→   624→                  interval: schedValue === 'none' ? null : schedValue === 'weekly' ? 7 : 30,
+   625→   625→                })
+   626→   626→              }}
+   627→   627→            >
+   628→   628→              {t('reports.schedule')}
+   629→   629→            </Button>
+   630→   630→          </DialogFooter>
+   631→   631→        </DialogContent>
+   632→   632→      </Dialog>
+   633→   633→    </div>
+   634→   634→  )
+   635→   635→}
+   636→   636→
+   637→   637→// --------------------------------------------------------------- row pieces
+   638→   638→
+   639→   639→interface RowActions {
+   640→   640→  onDownload: () => void
+   641→   641→  onRegen: () => void
+   642→   642→  onSchedule: () => void
+   643→   643→  onDelete: () => void
+   644→   644→  busy: boolean
+   645→   645→  t: T
+   646→   646→}
+   647→   647→
+   648→   648→function ActionButtons({ job, onDownload, onRegen, onSchedule, onDelete, busy, t }: RowActions & { job: ReportJob }) {
+   649→   649→  return (
+   650→   650→    <div className="flex items-center justify-end gap-1">
+   651→   651→      {job.status === 'succeeded' ? (
+   652→   652→        <Button
+   653→   653→          size="icon"
+   654→   654→          variant="ghost"
+   655→   655→          className="h-8 w-8 text-stone-600 hover:text-emerald-800"
+   656→   656→          disabled={busy}
+   657→   657→          onClick={onDownload}
+   658→   658→          aria-label={t('reports.download')}
+   659→   659→          title={t('reports.download')}
+   660→   660→        >
+   661→   661→          <Download className="h-4 w-4" aria-hidden />
+   662→   662→        </Button>
+   663→   663→      ) : null}
+   664→   664→      <Button
+   665→   665→        size="icon"
+   666→   666→        variant="ghost"
+   667→   667→        className="h-8 w-8 text-stone-600 hover:text-emerald-800"
+   668→   668→        disabled={busy}
+   669→   669→        onClick={onRegen}
+   670→   670→        aria-label={t('reports.regen')}
+   671→   671→        title={t('reports.regen')}
+   672→   672→      >
+   673→   673→        <RefreshCw className="h-4 w-4" aria-hidden />
+   674→   674→      </Button>
+   675→   675→      <Button
+   676→   676→        size="icon"
+   677→   677→        variant="ghost"
+   678→   678→        className="h-8 w-8 text-stone-600 hover:text-emerald-800"
+   679→   679→        disabled={busy}
+   680→   680→        onClick={onSchedule}
+   681→   681→        aria-label={t('reports.schedule')}
+   682→   682→        title={t('reports.schedule')}
+   683→   683→      >
+   684→   684→        <Repeat className="h-4 w-4" aria-hidden />
+   685→   685→      </Button>
+   686→   686→      <Button
+   687→   687→        size="icon"
+   688→   688→        variant="ghost"
+   689→   689→        className="h-8 w-8 text-stone-600 hover:text-red-700"
+   690→   690→        disabled={busy}
+   691→   691→        onClick={onDelete}
+   692→   692→        aria-label={t('reports.del')}
+   693→   693→        title={t('reports.del')}
+   694→   694→      >
+   695→   695→        <Trash2 className="h-4 w-4" aria-hidden />
+   696→   696→      </Button>
+   697→   697→    </div>
+   698→   698→  )
+   699→   699→}
+   700→   700→
+   701→   701→function ReportRow({
+   702→   702→  t,
+   703→   703→  job,
+   704→   704→  farmName,
+   705→   705→  ...actions
+   706→   706→}: RowActions & { job: ReportJob; farmName: string | null }) {
+   707→   707→  return (
+   708→   708→    <TableRow>
+   709→   709→      <TableCell className="text-sm">
+   710→   710→        <span className="font-medium text-stone-900">{reportTypeLabel(t, job.report_type)}</span>
+   711→   711→        {job.interval_days ? (
+   712→   712→          <span className="ms-2 inline-flex items-center gap-1 text-[11px] text-stone-400">
+   713→   713→            <Repeat className="h-3 w-3" aria-hidden />
+   714→   714→            {t('reports.repeatEvery', { days: job.interval_days })}
+   715→   715→          </span>
+   716→   716→        ) : null}
+   717→   717→        {job.next_run_at ? (
+   718→   718→          <span className="ms-2 text-[11px] text-stone-400">
+   719→   719→            {t('reports.nextRun', { date: formatDay(job.next_run_at) })}
+   720→   720→          </span>
+   721→   721→        ) : null}
+   722→   722→      </TableCell>
+   723→   723→      <TableCell>
+   724→   724→        <span className="inline-flex items-center gap-1.5 text-xs uppercase text-stone-600">
+   725→   725→          <FileText className="h-3.5 w-3.5" aria-hidden />
+   726→   726→          {job.output_format}
+   727→   727→        </span>
+   728→   728→      </TableCell>
+   729→   729→      <TableCell className="text-xs text-stone-600">
+   730→   730→        {farmName ?? (job.farm_id ? job.farm_id.slice(0, 8) + '…' : '—')}
+   731→   731→      </TableCell>
+   732→   732→      <TableCell>
+   733→   733→        <span className="inline-flex items-center gap-1.5">
+   734→   734→          {statusBadge(t, job.status)}
+   735→   735→          {job.status === 'failed' && job.error ? (
+   736→   736→            <Tooltip>
+   737→   737→              <TooltipTrigger asChild>
+   738→   738→                <span
+   739→   739→                  className="cursor-help text-[11px] font-medium text-red-700 underline decoration-dotted"
+   740→   740→                  aria-label={t('reports.errorLabel')}
+   741→   741→                >
+   742→   742→                  {t('reports.errorLabel')}
+   743→   743→                </span>
+   744→   744→              </TooltipTrigger>
+   745→   745→              <TooltipContent className="max-w-80">
+   746→   746→                <p className="break-words">{job.error}</p>
+   747→   747→              </TooltipContent>
+   748→   748→            </Tooltip>
+   749→   749→          ) : null}
+   750→   750→        </span>
+   751→   751→      </TableCell>
+   752→   752→      <TableCell className="text-xs text-stone-600">{formatDateTime(job.created_at)}</TableCell>
+   753→   753→      <TableCell className="text-xs tabular-nums text-stone-600">{formatSize(job.file_size_bytes)}</TableCell>
+   754→   754→      <TableCell>
+   755→   755→        <ActionButtons job={job} {...actions} t={t} />
+   756→   756→      </TableCell>
+   757→   757→    </TableRow>
+   758→   758→  )
+   759→   759→}
+   760→   760→
+   761→   761→function ReportCardMobile({
+   762→   762→  t,
+   763→   763→  job,
+   764→   764→  farmName,
+   765→   765→  onDownload,
+   766→   766→  onRegen,
+   767→   767→  onSchedule,
+   768→   768→  onDelete,
+   769→   769→  busy,
+   770→   770→}: RowActions & { job: ReportJob; farmName: string | null }) {
+   771→   771→  return (
+   772→   772→    <div className="rounded-lg border border-stone-200 bg-white p-3">
+   773→   773→      <div className="flex items-center justify-between gap-2">
+   774→   774→        <span className="text-sm font-medium text-stone-900">{reportTypeLabel(t, job.report_type)}</span>
+   775→   775→        {statusBadge(t, job.status)}
+   776→   776→      </div>
+   777→   777→      <p className="mt-1 text-xs text-stone-600">
+   778→   778→        {job.output_format.toUpperCase()} · {farmName ?? '—'} · {formatSize(job.file_size_bytes)}
+   779→   779→      </p>
+   780→   780→      <p className="text-xs text-stone-500">{formatDateTime(job.created_at)}</p>
+   781→   781→      {job.status === 'failed' && job.error ? (
+   782→   782→        <p className="mt-1 break-words rounded bg-red-50 p-1.5 text-[11px] text-red-700">{job.error}</p>
+   783→   783→      ) : null}
+   784→   784→      {job.interval_days ? (
+   785→   785→        <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-stone-400">
+   786→   786→          <Repeat className="h-3 w-3" aria-hidden />
+   787→   787→          {t('reports.repeatEvery', { days: job.interval_days })}
+   788→   788→        </p>
+   789→   789→      ) : null}
+   790→   790→      <div className="mt-2 flex justify-end">
+   791→   791→        <ActionButtons
+   792→   792→          job={job}
+   793→   793→          onDownload={onDownload}
+   794→   794→          onRegen={onRegen}
+   795→   795→          onSchedule={onSchedule}
+   796→   796→          onDelete={onDelete}
+   797→   797→          busy={busy}
+   798→   798→          t={t}
+   799→   799→        />
+   800→   800→      </div>
+   801→   801→    </div>
+   802→   802→  )
+   803→   803→}
+   804→   804→
+   805→   805→function InlineError({ err, t }: { err: unknown; t: T }) {
+   806→   806→  const forbidden = err instanceof ApiError && err.status === 403
+   807→   807→  return (
+   808→   808→    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+   809→   809→      <p className="font-semibold">{forbidden ? t('errors.forbiddenTitle') : t('common.loadError')}</p>
+   810→   810→      <p className="mt-1 text-xs leading-relaxed">
+   811→   811→        {forbidden ? t('errors.forbiddenBody') : describeError(err).title}
+   812→   812→      </p>
+   813→   813→    </div>
+   814→   814→  )
+   815→   815→}
+   816→   816→
