@@ -12,6 +12,7 @@
   "subRailAria": "{destination} sections",
   "openMenuAria": "Open navigation menu",
   "menuTitle": "CropTwist navigation",
+  "paletteOpenLabel": "Search & commands",
   "paletteOpenAria": "Search destinations",
   "palettePlaceholder": "Go to…",
   "paletteEmpty": "No matching commands.",

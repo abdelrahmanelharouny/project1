@@ -3255,7 +3255,13 @@ export interface TwinValidationListResponse {
 
 export type RecommendationSeverity = 'info' | 'advisory' | 'recommended' | 'required'
 
-export type RecommendationDomain = 'climate' | 'water' | 'soil' | 'rotation' | 'management'
+export type RecommendationDomain =
+  | 'climate'
+  | 'vegetation' // P2 backend contract (app/recommendations/contracts.py DOMAINS) — frontend label added in P03 W2
+  | 'water'
+  | 'soil'
+  | 'rotation'
+  | 'management'
 
 export interface AiEngineInfo {
   mode: string

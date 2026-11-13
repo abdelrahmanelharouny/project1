@@ -22,7 +22,7 @@
  * restores focus to the trigger.
  */
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
@@ -59,7 +59,10 @@ const subscribeNoop = () => () => {}
 export function CommandPalette({ onNavigate }: { onNavigate: (tab: DestinationId, sub: string | null) => void }) {
   const t = useTranslations('destinations')
   const tCommon = useTranslations('common')
-  const [open, setOpen] = useState(false)
+  // Open state lives in the UI store so the mobile nav sheet's search row can
+  // open the same palette instance (the header trigger is ≥sm only).
+  const open = useCropTwistUi((s) => s.commandPaletteOpen)
+  const setOpen = useCropTwistUi((s) => s.setCommandPaletteOpen)
   // Platform-aware shortcut hint without hydration mismatch: the server
   // snapshot renders "Ctrl K", the client upgrades to "⌘K" after hydration.
   const shortcut = useSyncExternalStore(
@@ -79,12 +82,12 @@ export function CommandPalette({ onNavigate }: { onNavigate: (tab: DestinationId
     const down = (e: KeyboardEvent) => {
       if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
-        setOpen((prev) => !prev)
+        setOpen(!useCropTwistUi.getState().commandPaletteOpen)
       }
     }
     document.addEventListener('keydown', down)
     return () => document.removeEventListener('keydown', down)
-  }, [])
+  }, [setOpen])
 
   const go = (tab: DestinationId, sub: string | null) => {
     setOpen(false)
@@ -128,18 +131,23 @@ export function CommandPalette({ onNavigate }: { onNavigate: (tab: DestinationId
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label={t('paletteOpenAria')}
-        aria-keyshortcuts="Meta+K Control+K"
+      <CommandDialog
+        open={open}
+        onOpenChange={setOpen}
         title={shortcutTitle}
-        onClick={() => setOpen(true)}
-        className="hidden h-11 w-11 text-stone-600 hover:text-stone-900 sm:inline-flex"
+        trigger={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t('paletteOpenAria')}
+            aria-keyshortcuts="Meta+K Control+K"
+            title={shortcutTitle}
+            className="hidden h-11 w-11 text-stone-600 hover:text-stone-900 sm:inline-flex"
+          >
+            <Search className="h-4.5 w-4.5" aria-hidden />
+          </Button>
+        }
       >
-        <Search className="h-4.5 w-4.5" aria-hidden />
-      </Button>
-      <CommandDialog open={open} onOpenChange={setOpen} title={shortcutTitle}>
         <CommandInput placeholder={t('palettePlaceholder')} />
         <CommandList>
           <CommandEmpty>{t('paletteEmpty')}</CommandEmpty>

@@ -16,11 +16,12 @@
 
 import { useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { ChevronRight, Menu } from 'lucide-react'
+import { ChevronRight, Menu, Search } from 'lucide-react'
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { DESTINATIONS, type DestinationId } from '@/lib/navigation'
+import { useCropTwistUi } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 export function MobileNavSheet({
@@ -36,10 +37,18 @@ export function MobileNavSheet({
   const tNav = useTranslations('nav')
   const [open, setOpen] = useState(false)
   const activeRef = useRef<HTMLButtonElement | null>(null)
+  const openPalette = useCropTwistUi((s) => s.setCommandPaletteOpen)
 
   const handleNavigate = (tab: DestinationId, sub: string | null) => {
     onNavigate(tab, sub)
     setOpen(false) // closes the sheet; Radix restores focus to the trigger
+  }
+
+  /** P03 W2.4 — the command center is reachable on mobile too: the sheet's
+   * search row opens the same palette instance the desktop header uses. */
+  const handleOpenPalette = () => {
+    setOpen(false)
+    openPalette(true)
   }
 
   return (
@@ -64,6 +73,17 @@ export function MobileNavSheet({
           <SheetTitle className="text-sm font-semibold text-stone-900">{t('menuTitle')}</SheetTitle>
         </SheetHeader>
         <nav aria-label={t('railAria')} className="flex-1 px-2 py-2">
+          <button
+            type="button"
+            onClick={handleOpenPalette}
+            className="mb-2 flex min-h-11 w-full items-center gap-2.5 rounded-md border border-stone-200 bg-white px-3 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+          >
+            <Search className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+            <span className="truncate">{t('paletteOpenLabel')}</span>
+            <kbd className="ml-auto hidden rounded border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-medium text-stone-500 sm:inline-block">
+              ⌘K
+            </kbd>
+          </button>
           <ul className="space-y-1">
             {DESTINATIONS.map((dest) => {
               const isDestActive = dest.id === activeTab

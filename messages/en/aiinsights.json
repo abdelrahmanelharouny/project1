@@ -15,6 +15,7 @@
   "severityRecommended": "Recommended",
   "severityRequired": "Required",
   "domainClimate": "Climate",
+  "domainVegetation": "Vegetation",
   "domainWater": "Water",
   "domainSoil": "Soil",
   "domainRotation": "Rotation",

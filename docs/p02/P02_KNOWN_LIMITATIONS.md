@@ -2,15 +2,19 @@
 
 Honest record of what W0+W1 does NOT cover, plus follow-ups for W2+.
 
+> **P03 W2 update (2026-11-13):** §1 items 1–4 (W2.1–W2.4) are now
+> implemented — see `docs/p03/P03_IMPLEMENTATION_SUMMARY.md` for scope and
+> verification. Items 5–7 of §1 (W3 scope) and all of §2 remain open.
+
 ## 1. Deferred to W2 (per P01 plan sequencing — not defects)
 
 | Item | Plan ref | Note |
 |---|---|---|
-| Management's 6 internal sub-views stay behind its in-component switcher (not URL-keyed `?sub=`) | W2.1 | Moved verbatim by design; state-loss semantics unchanged from pre-P02. |
-| Preferences remains a section inside team-tab (no true Settings sub-page yet) | W2.2 | `settings/organization` renders the team tab incl. preferences until extraction. |
-| Shared execution-picker across sensitivity/robust/decisions not extracted | W2.3 | Artifacts still re-selected per view (journey J9 friction unchanged). |
-| Command palette = navigation commands ONLY (9 destinations + 24 sub-pages) | W2.4 | No field commands, no artifact actions — deliberately, to avoid inventing actions. |
-| Overview dedupe (retire its map instance, fold "how it works" prose) | W3.2 | Overview keeps its map + charts; nothing removed in W1. |
+| ~~Management's 6 internal sub-views stay behind its in-component switcher~~ **RESOLVED in W2.1** | W2.1 | Six views promoted to URL-keyed `?sub=` sub-pages of Crop Intelligence; `?sub=management` aliases to `plan` forever (`SUB_ALIASES`); Simple/Expert toggle store-backed (`managementExpert`) so the mode survives moving between the sub-pages. |
+| ~~Preferences remains a section inside team-tab~~ **RESOLVED in W2.2** | W2.2 | PreferencesCard moved verbatim to `?tab=settings&sub=preferences` (+ additive `?tab=preferences` alias); `?tab=team` still lands on Organization & members. |
+| ~~Shared execution-picker across sensitivity/robust/decisions not extracted~~ **RESOLVED in W2.3** | W2.3 | `field-context.tsx` (useFieldContext / FieldContextGate / useFieldAvailability) adopted by six views; ContextBar is the single validating picker (unavailable-field notice instead of silent zeroing); per-tab guidance gates kept by design (P02 §5.2). |
+| ~~Command palette = navigation commands ONLY~~ **RESOLVED in W2.4** | W2.4 | Four real command groups (Navigation destinations, Sections incl. promoted management sub-pages + Preferences, Farm & field context from the user's accessible resources, Actions: create farm/field + copy share link) plus a memory-only Recent group. Reachable on desktop (trigger + Ctrl/Cmd+K) and mobile (nav-sheet "Search & commands" row). |
+| Overview dedupe (retire its map instance, fold "how it works" prose) | W3.2 | Overview keeps its map + charts; nothing removed in W1/W2. |
 | Forecast `verifyForecasts` UI still unwired | W3.4 | Pre-existing gap (P01 audit §4.4), unchanged. |
 | Loading/error primitive rollout beyond water+overview | W0.7 | Shared primitives exist (`state-views.tsx`); other tabs keep their existing (working) states. |
 
@@ -36,10 +40,10 @@ Honest record of what W0+W1 does NOT cover, plus follow-ups for W2+.
 - **agent-browser network route:** request interception matched with glob `**/water-plans/**` but not `**/api/v1/water-plans/*`; browser HTTP-cache also serves previously-fetched GETs while "offline". Verification used real network failure + cold cache instead.
 - Backend pytest battery remains host-unrunnable (no psycopg2/sqlalchemy in the host python env).
 
-## 5. Open risks for W2
+## 5. Open risks for W2 (all addressed in W2 — kept for the record)
 
-1. **Sub-page state loss is Radix-unmount semantics** (same as the old 27-tab strip). If W2 URL-keys management's sub-views, keep the internal state keyed consistently or users lose scroll/selection on destination switches.
-2. **Context-bar + per-tab empty-state pickers coexist by design** (tab-specific guidance kept). If W2 removes any empty-state picker, its CTA target must be preserved.
-3. **Rail fits at ≥xl (1280px)** via the max-w-7xl shell. If a tenth destination or longer labels arrive (e.g. localizations longer than English), re-measure or the rail will rely on the scroll+scrollIntoView fallback below the fit threshold.
-4. **Palette growth:** W2 adds field commands; keep the "real commands only" contract — palette items must map to existing actions.
-5. **`?sub=` grammar is now part of the URL contract.** W2 extractions (management sub-pages, preferences) must keep old URLs resolving: `?tab=cropintel&sub=management` must keep working after sub-pages split (default to the first sub-view, never 404/loop).
+1. **Sub-page state loss is Radix-unmount semantics** (same as the old 27-tab strip). → W2 URL-keys management's sub-views and keeps the shared Simple/Expert mode in the store (`managementExpert`); per-view local state (e.g. a drafted cover-crop window) still resets on view change — unchanged semantics, same as pre-W2.
+2. **Context-bar + per-tab empty-state pickers coexist by design** (tab-specific guidance kept). → W2.3 extracted the six verbatim copies into `FieldContextGate` and kept the remaining custom guidance gates intact with their CTA targets.
+3. **Rail fits at ≥xl (1280px)** via the max-w-7xl shell. → W2.1 grows the Crop Intelligence rail from 8 to 11 sub-pages; vertical (desktop) / horizontal scrollable (mobile) rails absorb the growth without horizontal page overflow (verified 1440 + 390, LTR + RTL). Destination rail unchanged (still nine).
+4. **Palette growth:** W2 adds field commands; keep the "real commands only" contract — palette items must map to existing actions. → W2.4 keeps the contract: every command maps to an existing capability; context commands come from the user's accessible farms/fields only; empty/loading and no-field states render honest entries.
+5. **`?sub=` grammar is now part of the URL contract.** → W2 keeps old URLs resolving: `?tab=cropintel&sub=management` aliases to `plan` forever via `SUB_ALIASES` (never 404, never loops); the legacy `?tab=management` redirect lands on the same default view the old tab opened (plan); `?tab=preferences` is additive. Unit-tested in `tests/frontend/navigation.test.ts` (45 tests).

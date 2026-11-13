@@ -113,6 +113,7 @@ const SEVERITY_KEY: Record<RecommendationSeverity, string> = {
 
 const DOMAIN_KEY: Record<RecommendationDomain, string> = {
   climate: 'domainClimate',
+  vegetation: 'domainVegetation', // P2 backend domain — label existed server-side, frontend mapping was missing (MISSING_MESSAGE)
   water: 'domainWater',
   soil: 'domainSoil',
   rotation: 'domainRotation',

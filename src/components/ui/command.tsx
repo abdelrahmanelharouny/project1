@@ -11,6 +11,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
 
 function Command({
@@ -35,15 +36,22 @@ function CommandDialog({
   children,
   className,
   showCloseButton = true,
+  /** Optional trigger element rendered as the Dialog's Radix trigger. When
+   * provided, Radix restores focus to it on close (Escape/outside click) —
+   * required for state-driven command dialogs opened without pointer
+   * interaction (e.g. Cmd/Ctrl+K). */
+  trigger,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string
   description?: string
   className?: string
   showCloseButton?: boolean
+  trigger?: React.ReactNode
 }) {
   return (
     <Dialog {...props}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogHeader className="sr-only">
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>

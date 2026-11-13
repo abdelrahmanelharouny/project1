@@ -12,6 +12,7 @@
   "subRailAria": "أقسام {destination}",
   "openMenuAria": "فتح قائمة التنقل",
   "menuTitle": "تنقل CropTwist",
+  "paletteOpenLabel": "البحث والأوامر",
   "paletteOpenAria": "البحث في الوجهات",
   "palettePlaceholder": "الانتقال إلى…",
   "paletteEmpty": "لا توجد أوامر مطابقة.",

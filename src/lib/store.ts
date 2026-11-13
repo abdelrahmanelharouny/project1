@@ -45,6 +45,10 @@ interface CropTwistUiState {
   managementExpert: boolean
   /** Farms & Fields dialog; Overview quick action opens it cross-tab. */
   createFarmDialogOpen: boolean
+  /** P03 W2.4 — command center open state, so any shell surface (desktop
+   * header trigger, Cmd/Ctrl+K, the mobile nav sheet's search row) can open
+   * the ONE palette instance. */
+  commandPaletteOpen: boolean
   setActiveTab: (tab: WorkspaceTab) => void
   /** Navigate with an explicit destination + optional sub-page (URL-sync + rails). */
   navigateTo: (tab: WorkspaceTab, sub?: string | null) => void
@@ -55,6 +59,7 @@ interface CropTwistUiState {
   renameSelectedField: (fieldId: string, name: string) => void
   setCreateFarmDialogOpen: (open: boolean) => void
   openCreateFarm: () => void
+  setCommandPaletteOpen: (open: boolean) => void
   goToPassportFor: (field: SelectedField) => void
   goToObservationsFor: (field: SelectedField) => void
   goToFeaturesFor: (field: SelectedField) => void
@@ -140,6 +145,7 @@ export const useCropTwistUi = create<CropTwistUiState>((set) => ({
   selectedField: null,
   managementExpert: false,
   createFarmDialogOpen: false,
+  commandPaletteOpen: false,
   setActiveTab: (tab) => set((state) => tabState(state, tab)),
   navigateTo: (tab, sub) => set((state) => tabState(state, tab, sub)),
   setActiveSub: (sub) =>
@@ -170,6 +176,7 @@ export const useCropTwistUi = create<CropTwistUiState>((set) => ({
       const next = tabState(state, 'farms')
       return { ...next, createFarmDialogOpen: true }
     }),
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   goToPassportFor: (field) =>
     set((state) => ({ ...tabState(state, 'passport'), selectedField: field, selectedFarmId: field.farmId })),
   goToFeaturesFor: (field) =>
