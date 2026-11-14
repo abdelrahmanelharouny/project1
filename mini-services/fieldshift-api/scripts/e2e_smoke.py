@@ -491,10 +491,32 @@ def main() -> int:
           f"got {r.status_code}")
     if r.status_code == 201:
         report = r.json()
-        check("P3 synthetic CSV report succeeded", report.get("status") == "succeeded",
-              str(report.get("error")))
         report_id = report.get("id")
-        if report_id and report.get("status") == "succeeded":
+        report_status = report.get("status")
+        report_error = report.get("error")
+        # CI starts the actual in-process worker pool, so a sync-requested
+        # report may correctly be returned as queued before that worker runs.
+        # Poll the documented status resource instead of racing the worker.
+        if report_id and report_status in ("queued", "running"):
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                time.sleep(0.25)
+                status_response = httpx.get(
+                    f"{BASE}/reports/{report_id}/status",
+                    headers=p3_headers,
+                    timeout=30,
+                )
+                if status_response.status_code != 200:
+                    report_error = f"status endpoint returned {status_response.status_code}"
+                    break
+                status_body = status_response.json()
+                report_status = status_body.get("status")
+                report_error = status_body.get("error")
+                if report_status not in ("queued", "running"):
+                    break
+        check("P3 synthetic CSV report succeeded", report_status == "succeeded",
+              str(report_error))
+        if report_id and report_status == "succeeded":
             downloaded = httpx.get(f"{BASE}/reports/{report_id}/download", headers=p3_headers, timeout=30)
             check("P3 synthetic CSV download 200", downloaded.status_code == 200,
                   f"got {downloaded.status_code}")
