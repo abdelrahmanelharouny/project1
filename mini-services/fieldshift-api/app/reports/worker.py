@@ -2,16 +2,17 @@
 
 Reports were historically executed by the API scheduler sweep (every 15 s,
 bounded batch). That remains the default path. This module adds the SAME
-execution as a replayable background-job kind so long report renders (large
-PDF/XLSX payloads, field-intelligence reports over many observations) can be
-picked up by the standalone worker process (`python -m app.worker`) instead
-of the API — independently deployable, restart-safe, never blocking request
-handlers.
+execution as a background-job kind so long report renders (large PDF/XLSX
+payloads, field-intelligence reports over many observations) can be picked up
+by the standalone worker process (`python -m app.worker`) instead of the API.
+The shared report-service advisory fence serializes both entry points; only a
+queued report is replayed, while succeeded rows reconcile without side effects
+and an already-running row fails closed.
 
-Idempotency contract (mirrors raster_processing):
+Idempotency contract:
 - One `background_jobs` row per `report_jobs` row (`ref_kind=report`,
-  `ref_id=report_job_id`); the executor re-checks the job row status before
-  rendering, so a replayed orphan never double-renders a succeeded job.
+  `ref_id=report_job_id`); the executor checks terminal state before rendering,
+  and the report service rechecks it after acquiring a per-report advisory lock.
 - Failures surface on both rows with a storage-safe error message.
 """
 
@@ -52,13 +53,33 @@ def execute_report_background_job(background_job_id: uuid.UUID, progress: Any = 
         if report is None:
             _fail(session, bg, "report job row disappeared")
             return
-        if report.status in (
-            "succeeded",
-            "running",
-            "expired",
-        ):  # idempotency: never double-render
-            bg.status = "succeeded" if report.status == "succeeded" else "cancelled"
-            bg.progress = 100 if report.status == "succeeded" else bg.progress
+        if report.status == "succeeded":
+            # Domain success commits together with usage metering. Reconcile a
+            # crash-window background row without re-entering report service.
+            bg.status = "succeeded"
+            bg.progress = 100
+            bg.result = {
+                "report_job_id": str(report_id),
+                "report_type": report.report_type,
+                "format": report.output_format,
+            }
+            session.commit()
+            return
+        if report.status == "expired":
+            bg.status = "cancelled"
+            session.commit()
+            return
+        if report.status == "failed":
+            bg.status = "failed"
+            bg.error = report.error or "report job has failed; replay refused"
+            session.commit()
+            return
+        if report.status == "running":
+            # A legacy/inline/scheduler executor may have made progress before
+            # the crash. Never reset it to queued or risk repeating metering or
+            # report.ready emission; recovery marks this queue record failed.
+            bg.status = "failed"
+            bg.error = "report job was already running; replay refused"
             session.commit()
             return
         if callable(progress):

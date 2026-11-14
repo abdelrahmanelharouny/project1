@@ -24,7 +24,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList
 
 from app.core import config
-from app.core.errors import Conflict, Forbidden, NotFound, TooManyRequests, Unauthorized, ValidationFailed
+from app.core.errors import (
+    Conflict,
+    Forbidden,
+    NotFound,
+    PaymentRequired,
+    TooManyRequests,
+    Unauthorized,
+    ValidationFailed,
+)
 from app.db.models_p3 import ApiKey, ApiKeyUsage, PlanEntitlement
 from app.publicapi import api_keys
 
@@ -94,6 +102,7 @@ class FakeSession:
     def __init__(self):
         self.objects: list = []
         self.commits = 0
+        self.rollbacks = 0
 
     # -- writes
     def add(self, obj):
@@ -125,6 +134,9 @@ class FakeSession:
 
     def commit(self):
         self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
 
     def delete(self, obj):
         if obj in self.objects:
@@ -174,8 +186,17 @@ class FakePrincipal:
 
 @pytest.fixture(autouse=True)
 def no_subscription(monkeypatch):
-    """Default: org has no live subscription (pass-through gates, default rate)."""
+    """Default fake plan: API enabled with a positive rate for service tests."""
     monkeypatch.setattr(api_keys, "get_live_subscription", lambda session, org_id: None)
+    monkeypatch.setattr(api_keys.entitlements, "require_flag", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_keys.entitlements, "limit_for", lambda *args, **kwargs: 100)
+    monkeypatch.setattr(
+        api_keys,
+        "resolve_entitlements",
+        lambda session, org_id: {
+            api_keys.KEY_API_RATE_LIMIT_PER_MINUTE: {"value": 100, "kind": "int"}
+        },
+    )
 
 
 def make_key(session: FakeSession, *, scopes=("farms:read", "org:read"), status="active",
@@ -251,7 +272,7 @@ def test_create_api_key_stores_only_hash_and_audits(monkeypatch):
     assert stored.name == "Integration key"  # trimmed
     assert stored.scopes == ["farms:read", "org:read"]  # sorted, deduped
     assert stored.status == "active"
-    assert stored.rate_limit_per_minute == api_keys.DEFAULT_RATE_LIMIT_PER_MINUTE
+    assert stored.rate_limit_per_minute == 100
     assert stored.organization_id == ORG_A
     assert stored.created_by == USER_ID
     assert session.commits == 1
@@ -302,8 +323,11 @@ def test_resolve_org_id_requires_disambiguation_for_multi_org():
 
 
 def test_api_key_gate_bites_only_when_plan_defines_limit(monkeypatch):
-    """No subscription → pass-through; subscription without the (optional)
-    max_api_keys entitlement → pass-through; with entitlement → enforced."""
+    """The optional active-key count cap applies only when a plan defines it.
+
+    Key issuance/authentication are separately gated by api_enabled and the
+    current rate entitlement.
+    """
     session = FakeSession()
     recorded = []
 
@@ -328,10 +352,27 @@ def test_api_key_gate_bites_only_when_plan_defines_limit(monkeypatch):
     assert recorded == [(api_keys.KEY_MAX_API_KEYS, 2)]
 
 
+def test_create_api_key_denied_when_plan_disables_public_api(monkeypatch):
+    session = FakeSession()
+
+    def deny(*_args, **_kwargs):
+        raise Forbidden("API access is not included in this plan.")
+
+    monkeypatch.setattr(api_keys.entitlements, "require_flag", deny)
+    with pytest.raises(Forbidden):
+        api_keys.create_api_key(
+            session,
+            FakePrincipal(),
+            name="disabled plan key",
+            scopes=["farms:read"],
+        )
+    assert not any(isinstance(obj, ApiKey) for obj in session.objects)
+
+
 def test_resolve_rate_limit_from_plan_entitlement(monkeypatch):
     session = FakeSession()
-    # no subscription → default
-    assert api_keys._resolve_rate_limit(session, ORG_A) == api_keys.DEFAULT_RATE_LIMIT_PER_MINUTE
+    # A positive resolved Free/paid plan rate is used; no hidden fallback.
+    assert api_keys._resolve_rate_limit(session, ORG_A) == 100
 
     sub = SimpleNamespace(plan_id=uuid.uuid4())
     monkeypatch.setattr(api_keys, "get_live_subscription", lambda db, org: sub)
@@ -343,12 +384,13 @@ def test_resolve_rate_limit_from_plan_entitlement(monkeypatch):
     )
     assert api_keys._resolve_rate_limit(session, ORG_A) == 300
 
-    # plan grants 0 (no public API) → issued keys still get the sane default
+    # zero is a denial, never converted into a usable default-rate key
     monkeypatch.setattr(
         api_keys, "resolve_entitlements",
         lambda db, org: {"api_rate_limit_per_minute": {"value": 0, "kind": "int"}},
     )
-    assert api_keys._resolve_rate_limit(session, ORG_A) == api_keys.DEFAULT_RATE_LIMIT_PER_MINUTE
+    with pytest.raises(Forbidden):
+        api_keys._resolve_rate_limit(session, ORG_A)
 
 
 # ---------------------------------------------------------------------------
@@ -387,10 +429,92 @@ def test_rotate_api_key_revokes_old_and_issues_new_secret():
     assert new_plaintext != old_plaintext
     assert new.key_hash != old.key_hash
     assert new.scopes == ["farms:read"]
-    assert new.rate_limit_per_minute == 42
+    assert new.rate_limit_per_minute == 100  # re-resolved from the current plan
     assert new.organization_id == ORG_A
     with pytest.raises(Conflict):
         api_keys.rotate_api_key(session, principal, key_id=old.id)  # already revoked
+    with pytest.raises(Unauthorized):
+        api_keys.authenticate_api_key(session, old_plaintext)
+
+
+def test_rotate_api_key_rechecks_downgraded_key_count_cap(monkeypatch):
+    session = FakeSession()
+    principal = FakePrincipal(role="org_admin")
+    old, _ = make_key(session)
+    make_key(session)
+    monkeypatch.setattr(api_keys, "_active_api_key_count", lambda *_args: 2)
+    checked = []
+
+    def deny_at_downgraded_cap(_session, _org_id, replacement_count):
+        checked.append(replacement_count)
+        raise PaymentRequired("API key limit reached after plan downgrade.")
+
+    monkeypatch.setattr(api_keys, "_assert_api_keys_within_limit", deny_at_downgraded_cap)
+    with pytest.raises(PaymentRequired):
+        api_keys.rotate_api_key(session, principal, key_id=old.id)
+
+    assert checked == [1]  # the old key is excluded; the other active key remains
+    assert old.status == "active" and old.revoked_at is None
+    assert sum(isinstance(obj, ApiKey) for obj in session.objects) == 2
+    assert session.commits == 0
+    assert session.rollbacks == 1
+
+
+def test_rotate_api_key_succeeds_at_key_count_cap(monkeypatch):
+    session = FakeSession()
+    principal = FakePrincipal(role="org_admin")
+    old, _ = make_key(session, rate=42)
+    monkeypatch.setattr(api_keys, "_active_api_key_count", lambda *_args: 1)
+    checked = []
+
+    def allow_replacement(_session, _org_id, replacement_count):
+        checked.append(replacement_count)
+        assert replacement_count == 0
+
+    monkeypatch.setattr(api_keys, "_assert_api_keys_within_limit", allow_replacement)
+    new, _ = api_keys.rotate_api_key(session, principal, key_id=old.id)
+
+    assert checked == [0]
+    assert old.status == "revoked" and new.status == "active"
+    assert session.commits == 1
+
+
+def test_rotate_api_key_uses_current_plan_rate_limit(monkeypatch):
+    session = FakeSession()
+    principal = FakePrincipal(role="org_admin")
+    old, _ = make_key(session, rate=42)
+    monkeypatch.setattr(api_keys, "_active_api_key_count", lambda *_args: 1)
+    monkeypatch.setattr(api_keys, "_assert_api_keys_within_limit", lambda *_args: None)
+    monkeypatch.setattr(api_keys, "_resolve_rate_limit", lambda *_args: 17)
+
+    new, _ = api_keys.rotate_api_key(session, principal, key_id=old.id)
+
+    assert new.rate_limit_per_minute == 17
+    assert new.rate_limit_per_minute != old.rate_limit_per_minute
+
+
+def test_rotate_api_key_failed_rate_authorization_keeps_original_usable(monkeypatch):
+    session = FakeSession()
+    principal = FakePrincipal(role="org_admin")
+    old, old_plaintext = make_key(session, rate=42)
+    monkeypatch.setattr(api_keys, "_active_api_key_count", lambda *_args: 1)
+    monkeypatch.setattr(api_keys, "_assert_api_keys_within_limit", lambda *_args: None)
+
+    def deny_current_rate(*_args, **_kwargs):
+        raise Forbidden("The current plan does not enable the public API.")
+
+    monkeypatch.setattr(api_keys, "_resolve_rate_limit", deny_current_rate)
+    with pytest.raises(Forbidden):
+        api_keys.rotate_api_key(session, principal, key_id=old.id)
+
+    assert old.status == "active" and old.revoked_at is None
+    assert sum(isinstance(obj, ApiKey) for obj in session.objects) == 1
+    assert session.commits == 0
+    assert session.rollbacks == 1
+    authenticated = api_keys.authenticate_api_key(
+        session, old_plaintext, limiter=api_keys.SlidingWindowLimiter()
+    )
+    assert authenticated.key_id == old.id
 
 
 # ---------------------------------------------------------------------------

@@ -73,10 +73,9 @@ def vegetation_data_gap(db, field, ctx: RecommendationContext) -> list[Recommend
             confidence_kind="deterministic_rule",
             confidence_basis="The absence of rows is directly observable.",
             evidence_quality=quality,
-            actions=[{
-                "title": "Ingest a satellite product",
-                "detail": "Run a data job with provider_code=sentinel2 (live) or satellite_sim (fixture).",
-            }],
+            actions=[
+                "Ingest a satellite product. Run a data job with provider_code=sentinel2 (live) or satellite_sim (fixture)."
+            ],
         )
     ]
 

@@ -48,7 +48,8 @@ _ASYNC_CLIENT_LOCK = asyncio.Lock()
 
 def _headers() -> dict[str, str]:
     headers = {"accept": "application/json"}
-    token = ai_settings.llm_bridge_token
+    token_setting = ai_settings.llm_bridge_token
+    token = token_setting.get_secret_value() if hasattr(token_setting, "get_secret_value") else str(token_setting)
     if token:
         headers["X-Bridge-Token"] = token
     return headers

@@ -120,6 +120,22 @@ export interface RegisterInput {
   display_name: string
 }
 
+/** Registration is either a session (development/verified flow) or pending email verification. */
+export interface RegistrationVerificationRequired {
+  status: 'verification_required'
+  user: { email: string }
+}
+
+export type RegisterResult = AuthSession | RegistrationVerificationRequired
+
+export interface EmailVerificationRequestResult {
+  status: 'accepted' | 'queued'
+}
+
+export interface EmailVerificationConfirmResult {
+  status: 'ok'
+}
+
 // ---------------------------------------------------------------------------
 // GeoJSON geometry (only the shapes the API accepts/returns)
 // ---------------------------------------------------------------------------
@@ -3400,6 +3416,211 @@ export interface AdvisorHistoryResponse {
   messages: AdvisorHistoryMessage[]
 }
 
+// ---------------------------------------------------------------------------
+// AI Core — validated request streaming, evidence and owner-scoped history
+// ---------------------------------------------------------------------------
+
+export type AiCoreIntent =
+  | 'agricultural_knowledge'
+  | 'farm_question'
+  | 'field_question'
+  | 'field_analysis'
+  | 'satellite_interpretation'
+  | 'soil_intelligence'
+  | 'water_intelligence'
+  | 'climate_intelligence'
+  | 'vegetation_intelligence'
+  | 'stress_anomaly'
+  | 'crop_suitability'
+  | 'crop_rotation'
+  | 'agricultural_recommendation'
+  | 'agricultural_risk'
+  | 'scenario_comparison'
+  | 'predictive_analysis'
+  | 'report_generation'
+  | 'platform_operation'
+  | 'ambiguous'
+
+export type AiCoreResponseStatus =
+  | 'answered'
+  | 'partial'
+  | 'clarification_required'
+  | 'unavailable'
+  | 'failed'
+
+export type AiCoreClaimClass =
+  | 'verified_fact'
+  | 'derived_result'
+  | 'model_prediction'
+  | 'recommendation'
+  | 'general_knowledge'
+  | 'assumption'
+  | 'missing_information'
+
+export interface AiCoreSourceReference {
+  source_kind: string
+  source_id: string | null
+  provider: string | null
+  acquired_at: string | null
+}
+
+export interface AiCoreEvidenceItem {
+  evidence_id: string
+  capability: string
+  entity_scope: 'farm' | 'field'
+  entity_id: string
+  result_type: string
+  claim_class: AiCoreClaimClass
+  value: Record<string, unknown>
+  unit: string | null
+  observation_period: Record<string, string | null> | null
+  source_references: AiCoreSourceReference[]
+  spatial_resolution_m: number | null
+  processing_version: string | null
+  evidence_quality: Record<string, unknown>
+  model_confidence: number | null
+  recommendation_confidence: number | null
+  limitations: string[]
+  status: 'available' | 'partial' | 'insufficient' | 'unavailable'
+}
+
+export interface AiCoreProviderAttempt {
+  provider: string
+  model: string | null
+  status: 'succeeded' | 'failed'
+  latency_ms: number
+  error_category: string | null
+}
+
+export interface AiCoreResponse {
+  request_id: string
+  conversation_id: string | null
+  intent: AiCoreIntent
+  status: AiCoreResponseStatus
+  answer: string | null
+  verified_facts: AiCoreEvidenceItem[]
+  derived_results: AiCoreEvidenceItem[]
+  predictions: AiCoreEvidenceItem[]
+  recommendations: AiCoreEvidenceItem[]
+  general_knowledge: AiCoreEvidenceItem[]
+  assumptions: string[]
+  evidence: AiCoreEvidenceItem[]
+  limitations: string[]
+  missing_information: string[]
+  follow_up_suggestions: string[]
+  plan: {
+    intent: AiCoreIntent
+    required_entities: string[]
+    required_context: string[]
+    required_tools: string[]
+    tool_calls: Array<Record<string, unknown>>
+    missing_information: string[]
+    permission_scope: string[]
+    clarification_needed: boolean
+    availability: 'available' | 'partial' | 'planned' | 'unavailable'
+    expected_output: 'grounded_explanation' | 'clarification' | 'unavailable'
+    limitations: string[]
+  }
+  execution: {
+    trace_id: string
+    request_id: string
+    status: AiCoreResponseStatus
+    provider: string | null
+    model: string | null
+    token_usage: { input_tokens: number | null; output_tokens: number | null; total_tokens: number | null }
+    provider_attempts: AiCoreProviderAttempt[]
+    latency_ms: number
+    planned_steps: number
+    tools: Array<Record<string, unknown>>
+    degraded: boolean
+    error_category: string | null
+  }
+}
+
+export interface AiCoreRequestPayload {
+  question: string
+  field_id: string
+  conversation_id: string | null
+  locale: 'en' | 'ar'
+  context_domains: Array<'field' | 'climate' | 'water' | 'soil' | 'rotation' | 'management' | 'vegetation' | 'data_gaps'>
+}
+
+export interface AiCoreConversation {
+  conversation_id: string
+  field_id: string
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AiCoreConversationMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  trace_id?: string | null
+  evidence: AiCoreEvidenceItem[]
+  status?: AiCoreResponseStatus | null
+  limitations?: string[]
+  missing_information?: string[]
+  execution?: AiCoreResponse['execution'] | null
+  engine: {
+    mode?: string
+    provider?: string | null
+    model?: string | null
+    trace_id?: string
+    request_id?: string
+    status?: AiCoreResponseStatus
+    limitations?: string[]
+    missing_information?: string[]
+    execution?: AiCoreResponse['execution']
+    [key: string]: unknown
+  }
+  created_at: string
+}
+
+export interface AiCoreProviderStatus {
+  name: string
+  priority: number
+  model?: string | null
+  status: string
+  configured?: boolean
+  circuit?: string
+  privacy_note?: string | null
+  capabilities?: Record<string, boolean | string>
+}
+
+export interface AiCoreProvidersResponse {
+  providers: AiCoreProviderStatus[]
+  field_data_policy_enabled: boolean
+  openrouter_field_data_policy_enabled: boolean
+  live_connectivity_verified: boolean
+}
+
+export type AiCoreFeedbackRating = 'helpful' | 'needs_improvement'
+export type AiCoreFeedbackLifecycle = 'accepted' | 'rejected' | 'modified' | 'implemented' | 'outcome_reported'
+export type AiCoreFeedbackOutcome = 'not_observed' | 'no_change' | 'improved' | 'worsened'
+
+export interface AiCoreFeedbackInput {
+  trace_id: string
+  rating: AiCoreFeedbackRating
+  lifecycle_state: AiCoreFeedbackLifecycle
+  correction?: string
+  comment?: string
+  outcome?: AiCoreFeedbackOutcome
+  quality_review_consent: true
+}
+
+export interface AiCoreFeedbackResponse {
+  feedback_id: string
+  trace_id: string
+  rating: AiCoreFeedbackRating
+  outcome: AiCoreFeedbackOutcome | null
+  lifecycle_state: AiCoreFeedbackLifecycle
+  quality_review_consent: true
+  consent_version: string
+  lifecycle_updated?: boolean
+}
+
 // -------------------------------------------------------------
 // A12: recommendation feedback
 // -------------------------------------------------------------
@@ -3859,12 +4080,19 @@ export interface PortfolioRun {
 // -------------------------------------------------------------
 
 /** Server-side derivation state of an acquired scene (processing endpoint). */
-export type SatelliteProcessingState = 'unprocessed' | 'processing' | 'processed' | 'failed'
+export type SatelliteMapIndex = 'ndvi' | 'evi' | 'ndmi' | 'ndwi' | 'bsi'
+export type SatelliteProcessingState =
+  | 'unprocessed'
+  | 'processing'
+  | 'partial'
+  | 'processed'
+  | 'failed'
 
 /**
  * processing_detail is state-dependent (live-verified against the P05 API):
- *   - processing: { job_ids, indices, stage, progress }
- *   - failed:     { job_id, error }
+ *   - processing: { job_ids, indices, stage, progress, available_indices, missing_indices }
+ *   - partial:    { available_indices, missing_indices }
+ *   - failed:     { job_id, error, available_indices, missing_indices }
  *   - processed / unprocessed: null
  */
 export interface SatelliteProcessingDetail {
@@ -3874,6 +4102,8 @@ export interface SatelliteProcessingDetail {
   stage?: string
   progress?: number
   error?: string
+  available_indices?: SatelliteMapIndex[]
+  missing_indices?: SatelliteMapIndex[]
 }
 
 /** Zonal statistics block attached to a derived index raster. */
@@ -3948,7 +4178,7 @@ export interface SatelliteProcessingResponse {
 
 export interface SatelliteProcessingInput {
   scene_ids: string[]
-  /** Allowed: ndvi, evi, savi, ndmi, ndwi, bsi. */
+  /** P05 accepts ndvi, evi, savi, ndmi, ndwi, bsi; the P07 map selector omits SAVI. */
   indices: string[]
 }
 
@@ -3956,6 +4186,7 @@ export interface SatelliteProcessingJob {
   job_id: string
   background_job_id: string | null
   scene_id: string
+  indices?: string[]
   status: string
   status_url: string
   replayed?: boolean

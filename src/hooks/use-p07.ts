@@ -15,13 +15,17 @@ import {
   getFieldComparison,
   getFieldLayerCatalog,
   getFieldSpatialAnalytics,
+  getProductValueSample,
+  getProductZones,
 } from '@/lib/api-p07'
 import type {
   P07AnomalyResponse,
   P07Comparison,
   P07FarmOverview,
   P07LayerCatalog,
+  P07ProductValueSample,
   P07SpatialAnalytics,
+  P07ZonePolygons,
 } from '@/lib/types-p07'
 
 export function useLayerCatalog(fieldId: string | null | undefined) {
@@ -29,6 +33,34 @@ export function useLayerCatalog(fieldId: string | null | undefined) {
     queryKey: ['p07-layer-catalog', fieldId],
     queryFn: () => getFieldLayerCatalog(fieldId as string),
     enabled: !!fieldId,
+    staleTime: 30_000,
+  })
+}
+
+export function useProductValueSample(
+  fieldId: string | null | undefined,
+  assetId: string | null | undefined,
+  point: { lon: number; lat: number; requestId: number } | null,
+) {
+  return useQuery<P07ProductValueSample>({
+    queryKey: ['p07-product-value', fieldId, assetId, point?.lon, point?.lat, point?.requestId],
+    queryFn: () =>
+      getProductValueSample(fieldId as string, assetId as string, point!.lon, point!.lat),
+    enabled: !!fieldId && !!assetId && !!point,
+    staleTime: 0,
+    retry: false,
+  })
+}
+
+export function useProductZones(
+  fieldId: string | null | undefined,
+  assetId: string | null | undefined,
+  enabled: boolean,
+) {
+  return useQuery<P07ZonePolygons>({
+    queryKey: ['p07-product-zones', fieldId, assetId],
+    queryFn: () => getProductZones(fieldId as string, assetId as string),
+    enabled: enabled && !!fieldId && !!assetId,
     staleTime: 30_000,
   })
 }

@@ -529,13 +529,26 @@ export function useSoilMethods(): UseQueryResult<SoilMethodsResponse> {
 
 import {
   getAdvisorHistory,
+  getAiCoreConversationMessages,
+  getAiCoreProviders,
   getFieldInsights,
   getRecommendations,
+  deleteAiCoreConversation,
+  listAiCoreConversations,
   queryAdvisor,
   recordRecommendationFeedback,
   refreshRecommendations,
+  streamAiCoreRequest,
+  submitAiCoreFeedback,
 } from '@/lib/api'
 import type {
+  AiCoreConversation,
+  AiCoreConversationMessage,
+  AiCoreFeedbackInput,
+  AiCoreFeedbackResponse,
+  AiCoreProvidersResponse,
+  AiCoreRequestPayload,
+  AiCoreResponse,
   AdvisorHistoryResponse,
   FeedbackState,
   FieldInsightsResponse,
@@ -627,6 +640,93 @@ export function useRecommendationFeedback(fieldId: string | null) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recommendations', fieldId] })
     },
+  })
+}
+
+// =============================================================
+// AI Core — provider status, owner-scoped conversations, validated SSE
+// =============================================================
+
+export function useAiCoreProviders() {
+  return useQuery<AiCoreProvidersResponse>({
+    queryKey: ['ai-core-providers'],
+    queryFn: getAiCoreProviders,
+    staleTime: 30_000,
+    retry: 1,
+  })
+}
+
+export function useAiCoreConversations(fieldId: string | null) {
+  return useQuery<AiCoreConversation[]>({
+    queryKey: ['ai-core-conversations', fieldId],
+    queryFn: () => listAiCoreConversations(fieldId as string),
+    enabled: Boolean(fieldId),
+    staleTime: 15_000,
+  })
+}
+
+export function useAiCoreConversationMessages(conversationId: string | null) {
+  return useQuery<AiCoreConversationMessage[]>({
+    queryKey: ['ai-core-conversation-messages', conversationId],
+    queryFn: () => getAiCoreConversationMessages(conversationId as string),
+    enabled: Boolean(conversationId),
+    staleTime: 0,
+  })
+}
+
+export function buildAiCoreRequestPayload(
+  question: string,
+  fieldId: string,
+  conversationId: string | null,
+  locale: string,
+): AiCoreRequestPayload {
+  return {
+    question,
+    field_id: fieldId,
+    conversation_id: conversationId,
+    locale: toAiLocale(locale),
+    // An empty domain selection delegates evidence selection to the planner.
+    context_domains: [],
+  }
+}
+
+export function useAiCoreRequest(fieldId: string) {
+  const queryClient = useQueryClient()
+  const locale = useLocale()
+  return useMutation<AiCoreResponse, Error, {
+    question: string
+    conversationId: string | null
+    signal?: AbortSignal
+    onChunk?: (text: string) => void
+  }>({
+    mutationFn: ({ question, conversationId, signal, onChunk }) => {
+      const payload = buildAiCoreRequestPayload(question, fieldId, conversationId, locale)
+      return streamAiCoreRequest(payload, { signal, onChunk })
+    },
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['ai-core-conversations', fieldId] })
+      if (response.conversation_id) {
+        queryClient.invalidateQueries({ queryKey: ['ai-core-conversation-messages', response.conversation_id] })
+      }
+      queryClient.invalidateQueries({ queryKey: ['ai-core-providers'] })
+    },
+  })
+}
+
+export function useDeleteAiCoreConversation(fieldId: string) {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: deleteAiCoreConversation,
+    onSuccess: (_result, conversationId) => {
+      queryClient.removeQueries({ queryKey: ['ai-core-conversation-messages', conversationId] })
+      queryClient.invalidateQueries({ queryKey: ['ai-core-conversations', fieldId] })
+    },
+  })
+}
+
+export function useAiCoreFeedback() {
+  return useMutation<AiCoreFeedbackResponse, Error, AiCoreFeedbackInput>({
+    mutationFn: submitAiCoreFeedback,
   })
 }
 

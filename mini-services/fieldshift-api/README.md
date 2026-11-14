@@ -2,7 +2,7 @@
 
 FastAPI backend for **CropTwist**, a global agriculture decision-intelligence platform. It provides multi-tenant farm/field management with PostGIS geometry, a canonical field-data pipeline (data platform → features → knowledge), agronomic modeling (rotation, water, soil, digital twin), and a decision layer (scenarios, sensitivity, robust rotation, comparisons) — all under a versioned `/api/v1` contract.
 
-> Current status is summarized in the [repository audit](../../../docs/MASTER_REPOSITORY_AUDIT.md), [gap matrix](../../../docs/MASTER_GAP_ANALYSIS.md), and this API's [known limitations](KNOWN_LIMITATIONS.md). Historical milestone counts and claims are not current readiness evidence.
+> Current status is summarized in the [repository audit](../../docs/MASTER_REPOSITORY_AUDIT.md), [gap matrix](../../docs/MASTER_GAP_ANALYSIS.md), the [2026-11-14 remediation report](../../docs/implementation/REMEDIATION_STATUS_2026-11-14.md), and this API's [known limitations](KNOWN_LIMITATIONS.md). Historical milestone counts and claims are not current readiness evidence.
 
 ## Architecture at a glance
 
@@ -101,8 +101,8 @@ All settings come from `app/core/config.py` (pydantic-settings, prefix `CROPTWIS
 
 ## Background jobs (async ingestion)
 
-Provider ingestion uses database-backed job records and a process-local in-memory worker queue (`app/core/jobs.py`, migration `0016_background_jobs`):
-`POST /fields/{id}/data-jobs` returns `202` with the job **queued**, and clients poll `GET /jobs/{job_id}` or the unified queue views. The database rows do not provide a shared broker or atomic distributed claim; a separate worker does not receive new API submissions. Restart recovery, queue/domain failure reconciliation, and dispatch ordering have open correctness gaps described in `KNOWN_LIMITATIONS.md`. Set `CROPTWIST_JOB_WORKERS=0` to use legacy inline execution (the test suite does).
+Provider ingestion uses the `background_jobs` table as durable state and a per-process wake-up queue (`app/core/jobs.py`, migration `0016_background_jobs`):
+`POST /fields/{id}/data-jobs` returns `202` with the job **queued**, and clients poll `GET /jobs/{job_id}` or the unified queue views. Workers poll persisted queued rows, claim them with a database row lock, and register replay executors before startup recovery; this allows a standalone worker to discover API-submitted work without a new broker. The database-backed cross-process/restart behavior was not exercised here, and raster-domain/generic-job transaction ordering remains unverified. See `KNOWN_LIMITATIONS.md` for details. Set `CROPTWIST_JOB_WORKERS=0` to use legacy inline execution (the test suite does).
 
 ## Testing
 
@@ -162,6 +162,7 @@ mini-services/fieldshift-api/
 Cited from the code, kept next to it:
 
 - `KNOWN_LIMITATIONS.md` — honest gaps and non-goals
+- `docs/implementation/REMEDIATION_STATUS_2026-11-14.md` — current branch scope, verified checks, and deferred work
 - `docs/architecture/deployment.md` — sandbox / compose / production
 - `docs/architecture/knowledge-model.md` — knowledge-pack data model
 - `docs/data_platform/provider-contracts.md` — provider protocol & contracts
@@ -177,4 +178,4 @@ Run modes, sandbox layout, and the production checklist (managed PostGIS, `CROPT
 
 ## Known limitations
 
-See [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) for the maintained list. Highlights: role enforcement and commercial entitlements have gaps; job execution is process-local with restart/status issues; direct HLS acquisition needs correction; field briefs now require per-sentence pack citations and same-unit values in the cited evidence section, while recommendation narratives still lack the runtime gate; advisor Q&A numeric checks remain screening-grade; metrics are process-local; external HLS/Sentinel/SoilGrids/S3/LLM readiness is unverified; weather forecasts, climate projections, document RAG, and trained predictive ML are absent. The root Compose stack is for local/demo use, not production.
+See [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) and the [remediation report](../../docs/implementation/REMEDIATION_STATUS_2026-11-14.md) for the maintained status. Legacy membership, Free-tier, session, CSV/observation, public API-key, report-scope, and several agronomic scoring defects have code fixes and regression coverage; database-backed integration remains unverified in this sandbox. Job persistence/claims are database-backed, but worker recovery and raster dispatch ordering still need runtime verification. Direct HLS acquisition remains a separate GIS workstream. Recommendation narratives still lack the field-brief evidence gate; advisor Q&A numeric checks remain screening-grade; webhook secrets remain plaintext at rest; metrics are process-local; external provider readiness is unverified; weather forecasts, climate projections, document RAG, and trained predictive ML are absent. The root Compose stack is for local/demo use, not production.

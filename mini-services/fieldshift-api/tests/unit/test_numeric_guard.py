@@ -78,6 +78,21 @@ def test_unit_conversion_mm_cm():
     assert not report.unsupported  # 4.25 cm == 42.5 mm
 
 
+def test_equal_numeric_value_in_wrong_dimension_is_rejected():
+    report = validate_numbers(
+        "The water depth is exactly 42.5 kg/ha.", _evidence()
+    )
+    assert report.material_mismatch
+    assert any(claim.unit == "kg/ha" for claim in report.unsupported)
+
+
+def test_mass_per_area_conversion_uses_correct_factor():
+    report = validate_numbers(
+        "The N balance is -0.0425 Mg/ha.", _evidence()
+    )
+    assert not report.unsupported  # -0.0425 Mg/ha == -42.5 kg/ha
+
+
 def test_unit_conversion_temperature():
     evidence = _evidence()
     evidence["climate"]["metrics"].append(

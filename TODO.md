@@ -1,6 +1,6 @@
 # CropTwist — Outcome-Based Project TODO
 
-**Tracking baseline:** repository checkout `main`; current status is an implementation snapshot, not a production-readiness declaration. A checked box means the stated outcome has evidence in code and/or executed checks; it does not imply live external readiness.
+**Tracking baseline:** dedicated branch `remediation/legacy-hardening`, based on the current `main` checkpoint. This is an implementation snapshot, not a production-readiness declaration. A checked box means the stated outcome has evidence in code and/or executed checks; it does not imply live external readiness.
 
 ## Delivered in this working batch
 
@@ -10,6 +10,18 @@
 - [x] **Field briefs are screened before rendering.** Structured output must include visible citations resolved against the current evidence pack and pass numeric screening; one constrained retry is allowed, then model text is omitted. Sync and async paths have passing unit coverage.
 - [x] **Root Compose settings align with API configuration.** The `CROPTWIST_` prefix, non-demo default, readiness healthcheck, and safe local example are in place and statically verified; no container was started.
 - [x] **Master audit, prioritized gap matrix, AI architecture, and verification report** are written under `docs/`; older limitation records now identify their historical scope.
+
+## Remediation branch progress — 2026-11-14
+
+- [x] **Authentication hardening:** non-development registration issues no session before verification; token resolution and refresh reject unverified users; refresh rotation is serialized; logout resolves bearer/cookie transport and revokes the token family. API-level regressions were added but await a database-backed run; production email delivery remains absent.
+- [x] **Authorization and quotas:** legacy membership mutation requires the exact owner role; legacy member additions now apply the organization-seat entitlement. Missing subscriptions resolve to Free limits for the changed farm, field, report, seat, and public-API paths. Tests were updated/added; PostGIS integration was not available.
+- [x] **Billing/API/webhook guards:** zero API rate limits remain zero/denied; API-key creation/authentication check current plan enablement/rate; production startup fails closed without a real billing adapter and explicit strong secret; webhook timestamps, payment invoice amount/currency, and outbound destination resolution/redirect behavior are guarded. Signing secrets remain plaintext at rest; sandbox-only processing remains.
+- [x] **Observation integrity:** CSV header normalization, BOM handling, finite-number checks, raw-upload SHA-256, observation invariants, per-row ingestion savepoints, and quality-aware usable coverage are in place. CSV parser contracts: 17 passed, 2 DB-backed persistence cases deselected.
+- [x] **Report scope:** selected farm/field combinations are cross-checked and report field queries enforce both selectors.
+- [x] **Agronomic score correctness:** knowledge-pack version rows are not mixed; regional trait lookup matches explanation lookup; seasonal rainfall is not compared to annual reference ranges; critical calendar/climate gaps are unevaluated; incomplete weighted criteria are omitted rather than zero-filled; season-dependent rotation scores pool across seasons; soil-health composites use sourced numeric traits only.
+- [~] **Durable jobs:** persisted polling, atomic row-lock claims, startup executor registration, and bounded stale-job recovery are implemented. Multi-process/PostgreSQL recovery was not runtime-tested; raster-domain/generic-job commit ordering still needs verification, and the GIS-owned processing service was not changed.
+- [ ] **GIS workstream D:** direct HLS Fmask/CRS/windowing, raster lineage, and end-to-end provider correctness remain open for the separate GIS workstream. No GIS/raster implementation file was changed on this branch.
+- [x] **Local verification:** database-independent backend unit suite — 941 passed; CSV parser contract suite — 17 passed / 2 deselected; frontend suite — 122 passed; frontend TypeScript check — passed; modified Python modules compiled; `git diff --check` passed. Database/PostGIS integration, migrations, container startup, live providers, hosted CI, and Ruff remain unverified/unavailable.
 
 ## Product outcomes
 
@@ -97,3 +109,30 @@
 - Produce `docs/MASTER_REPOSITORY_AUDIT.md`, `docs/MASTER_GAP_ANALYSIS.md`, `docs/architecture/CROPTWIST_AI_ARCHITECTURE.md`, and dated milestone reports under `docs/implementation/`.
 - Keep implementation documentation consistent with checked-in code and clearly date historical test/live-provider evidence.
 - Commit coherent milestones with meaningful messages; do not delete branches, rewrite shared history, force-push, perform destructive database/infrastructure operations, or expose secrets.
+
+## Master integration mission — 2026-11-14
+
+- [x] **Preserved integration work and traceable GitHub delivery.** Inspect all existing 14 modified and five untracked files, verify branch/HEAD/GIS ancestry/remediation base and remote permissions, create a recoverable checkpoint, retain `feature/ai-complete-integration` as target, and push verified coherent commits only to that branch. Never merge into `main`, rewrite history, delete source branches, force-push or discard user work.
+- [x] **Completed authenticated, evidence-grounded AI lifecycle.** Keep deterministic intent planning, context-aware authorized typed tools, tenant and field/farm ownership, private conversation authorization, evidence validation, bounded execution, safe fallbacks, retention, observability, rate limiting and abuse protection. Agronomic engines calculate; evidence validates; AI explains; farmers decide. Unsupported engines are explicitly unavailable, not fabricated measurements, predictions or recommendations.
+- [x] **Verified provider adapters and bounded routing.** Configurable Gemini primary, Groq `openai/gpt-oss-120b` first fallback and exact verified OpenRouter NVIDIA Nemotron 3.5 Super VL free identifier second fallback; secure environment-only keys, timeout/retry/backoff/circuit controls, truthful health/capability/usage metadata and transient-only failover. Permission, invalid requests and agronomic errors never trigger vendor failover. Mock tests do not imply live connectivity.
+- [ ] **Rights-aware tenant-isolated knowledge and feedback.** Approved-source ingestion, metadata, bounded chunks, reviewed embedding adapter, source-attributed retrieval, version/freshness/lifecycle/access policy and deletion; no arbitrary internet ingestion or fabricated corpus. Feedback supports accepted, rejected, modified, implemented and outcome-reported states with consent, provenance and timestamps; user-reported outcomes are not scientifically verified; no automatic training. `0025_ai_feedback_knowledge` follows `0024_ai_core_orchestration` safely.
+- [x] **Connected localized Copilot.** Respect authenticated organization/farm/field context, invoke only authorized tools, show source-backed explanations, limitations, missing data, private continuity and useful loading/empty/error/retry states in the existing design. Preserve Overview, Farms & Fields, Data Hub, Crop Intelligence, Map & Satellite, Decision Center, AI Copilot, Reports & Analytics and Workspace & Settings, including English/Arabic and RTL.
+- [ ] **Job recovery cannot duplicate execution.** Safe ownership/lease/heartbeat/fencing, atomic transitions and idempotency prevent live-job requeue, concurrent owners and duplicate completed domain side effects. Cover crash, stale/live leases, concurrent and repeated recovery and completed ingestion.
+- [x] **Free-plan scenario quotas are atomic and consistent.** With and without subscription records, checks/increments cannot race or double-count, failures follow an explicit usage policy and subscription changes retain correct entitlements.
+- [x] **Every eligible crop-season is fully scored.** Preserve applicable water, climate resilience, soil, seasonal and rotation criteria when season pools differ, without arbitrary undocumented weights; keep suitability distinct from yield forecasts and optimization.
+- [x] **Usable secure signup and concurrency-safe seats.** Non-development email verification has explicit creation/delivery behavior, Free provisioning is correct, and invitation/membership operations protect member limits transactionally. Missing delivery infrastructure is reported honestly.
+- [x] **Safe API key lifecycle.** Rotation repeats issuance entitlement checks, revocation blocks reuse, rate storage is bounded with safe cleanup, concurrency is protected and secrets are not re-exposed.
+- [ ] **Invoice-bound atomic billing.** Validate exact intended invoice, amount, currency and provider transaction; reject/audit inconsistent events, make duplicates idempotent and prevent delayed/out-of-order events settling unrelated invoices. Verify overlap, delay, duplicate and mismatch cases before production-ready claims; update stale billing tests/docs.
+- [x] **Corrected remediation is reviewed and safely integrated.** Inspect original commit and complete diff, implement/regression-test corrections, inspect overlaps and migration heads, preserve AI/GIS, deliberately integrate corrected work and run focused checks immediately afterward. Keep original source branch.
+- [ ] **Cross-system verification with honest release evidence.** Preserve NASA HLS/raster/worker/NDVI/EVI/NDMI/NDWI/BSI/sampling/terciles/overlays/provenance/zonal statistics and never present fixtures as observations. Run exact focused/full independent backend, disposable PostGIS migration/integration, frontend unit/component/type/lint/build and critical browser/security checks; classify NOT RUN/BLOCKED distinctly. Record commands/counts/failures/skips, GitHub SHAs/push/cleanliness, readiness and every external requirement in the final engineering report.
+
+### Final status — 2026-11-14
+
+The checked outcomes above are supported by the local evidence in [the final integration report](docs/implementation/MASTER_INTEGRATION_FINAL_REPORT_2026-11-14.md). Four acceptance items intentionally remain open:
+
+- **Rights-aware knowledge and feedback:** ingestion/feedback interfaces exist, but no approved corpus or embedding provider is configured; semantic retrieval is not ready.
+- **Job recovery:** implementation and focused coverage exist, but the full combined PostGIS run stopped at 88% without a final summary, so the complete integration gate remains open.
+- **Invoice-bound billing:** code and unit coverage exist; the complete callback integration suite and real provider settlement were not verified in the interrupted full run.
+- **Cross-system release verification:** the full PostGIS suite is incomplete and GitHub Actions run [43552364021](https://github.com/abdelrahmanelharouny/project1/actions/runs/43552364021) failed at the remote Alembic drift check. The feature branch is pushed at `5a3116770a9ca033d09fa6cf9523957d4c0ca0a3`; `main` remains unchanged.
+
+External production gates also remain: live provider credentials/approval, SMTP, authenticated NASA acquisition, payment settlement, production storage/database, runtime coordinate-disclosure review, and shared multi-replica rate/circuit state.

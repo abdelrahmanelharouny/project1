@@ -20,7 +20,7 @@
  */
 
 import { useState } from 'react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Check, Loader2 } from 'lucide-react'
@@ -66,6 +66,7 @@ import { formatDateTime, pct } from '@/lib/format'
 import { listOrganizations, roleAtLeast } from '@/lib/api-p3-account'
 import type {
   SatelliteCatalogScene,
+  SatelliteMapIndex,
   SatelliteProcessingScene,
   SatelliteProcessingState,
 } from '@/lib/types'
@@ -74,6 +75,7 @@ type Translator = ReturnType<typeof useTranslations>
 
 /** Fixed page size; pagination walks offset in LIMIT steps. */
 const LIMIT = 100
+const MAP_SUPPORTED_INDICES: SatelliteMapIndex[] = ['ndvi', 'evi', 'ndmi', 'ndwi', 'bsi']
 
 /** First string-valued key found in the acquisition_detail blob (job_id / error / reason). */
 function detailText(detail: Record<string, unknown> | null | undefined, keys: string[]): string | null {
@@ -141,6 +143,7 @@ interface SceneActionProps {
   processingScene: SatelliteProcessingScene | null
   canOperate: boolean
   busy: boolean
+  selectedIndices: SatelliteMapIndex[]
   t: Translator
   tSat: Translator
   onAcquire: () => void
@@ -201,12 +204,32 @@ function ProcessingStateBadge({
   return <Badge variant="secondary">{label}</Badge>
 }
 
+function ProcessingProductsDetail({
+  detail,
+  tSat,
+}: {
+  detail: SatelliteProcessingScene['processing_detail']
+  tSat: Translator
+}) {
+  if (!detail?.available_indices || !detail.missing_indices) return null
+  return (
+    <p className="mt-1 text-[10px] leading-relaxed text-stone-600">
+      <span className="font-medium">{tSat('availableIndices')}:</span>{' '}
+      {detail.available_indices.map((index) => index.toUpperCase()).join(', ') || '—'}
+      <span className="mx-1.5" aria-hidden>·</span>
+      <span className="font-medium">{tSat('missingIndices')}:</span>{' '}
+      {detail.missing_indices.map((index) => index.toUpperCase()).join(', ') || '—'}
+    </p>
+  )
+}
+
 /** Row-level actions, gated on org role (desktop table + mobile card share it). */
 function SceneActionButtons({
   scene,
   processingScene,
   canOperate,
   busy,
+  selectedIndices,
   t,
   tSat,
   onAcquire,
@@ -224,17 +247,16 @@ function SceneActionButtons({
     const processable =
       scene.provider_code === 'nasa_hls' ||
       (scene.provider_code === 'fixture_demo' && scene.is_synthetic)
-    if (processState === 'unprocessed' && processable) {
+    if (['unprocessed', 'partial', 'failed'].includes(processState) && processable) {
       return (
-        <Button variant="outline" size="sm" className="h-8 px-2 text-xs" disabled={busy} onClick={onProcess}>
-          {tSat('processNdvi')}
-        </Button>
-      )
-    }
-    if (processState === 'failed') {
-      return (
-        <Button variant="outline" size="sm" className="h-8 px-2 text-xs" disabled={busy} onClick={onProcess}>
-          {tSat('retryProcessing')}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-2 text-xs"
+          disabled={busy || selectedIndices.length === 0}
+          onClick={onProcess}
+        >
+          {processState === 'failed' ? tSat('retryProcessing') : tSat('processSelected')}
         </Button>
       )
     }
@@ -293,11 +315,14 @@ function SceneRow(props: SceneActionProps) {
       </TableCell>
       <TableCell>
         {processingScene ? (
-          <ProcessingStateBadge
-            state={processingScene.processing_state}
-            detail={processingScene.processing_detail}
-            tSat={tSat}
-          />
+          <div>
+            <ProcessingStateBadge
+              state={processingScene.processing_state}
+              detail={processingScene.processing_detail}
+              tSat={tSat}
+            />
+            <ProcessingProductsDetail detail={processingScene.processing_detail} tSat={tSat} />
+          </div>
         ) : (
           <span className="text-xs text-stone-300">—</span>
         )}
@@ -337,6 +362,7 @@ function SceneCard(props: SceneActionProps) {
             detail={processingScene.processing_detail}
             tSat={tSat}
           />
+          <ProcessingProductsDetail detail={processingScene.processing_detail} tSat={tSat} />
         </div>
       )}
       {scene.is_synthetic && (
@@ -358,6 +384,7 @@ function SceneCard(props: SceneActionProps) {
 }
 
 export default function SatelliteScenesPage() {
+  const locale = useLocale()
   const t = useTranslations('scenecatalog')
   const tSat = useTranslations('satellite')
   const { selectedField, setSelectedField } = useFieldContext()
@@ -382,6 +409,7 @@ export default function SatelliteScenesPage() {
   const [endDate, setEndDate] = useState(today)
   const [maxCloud, setMaxCloud] = useState('80')
   const [warnings, setWarnings] = useState<string[]>([])
+  const [selectedProcessingIndices, setSelectedProcessingIndices] = useState<SatelliteMapIndex[]>(['ndvi'])
 
   // Pagination is keyed to the selected field: switching fields resets to page
   // 0 via derived state (no effect — the offset only applies while the same
@@ -470,8 +498,9 @@ export default function SatelliteScenesPage() {
   }
 
   const handleProcess = (scene: SatelliteCatalogScene) => {
+    if (selectedProcessingIndices.length === 0) return
     process.mutate(
-      { scene_ids: [scene.scene_id], indices: ['ndvi'] },
+      { scene_ids: [scene.scene_id], indices: selectedProcessingIndices },
       {
         onSuccess: (res) => {
           toast.success(tSat('processQueued', { count: res.queued_scenes }))
@@ -489,6 +518,7 @@ export default function SatelliteScenesPage() {
     processingScene: processingByScene.get(scene.scene_id) ?? null,
     canOperate,
     busy: acquire.isPending || cancelJob.isPending || process.isPending,
+    selectedIndices: selectedProcessingIndices,
     t,
     tSat,
     onAcquire: () => handleAcquire(scene),
@@ -497,7 +527,7 @@ export default function SatelliteScenesPage() {
   })
 
   return (
-    <div className="space-y-4" dir="ltr">
+    <div className="space-y-4" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <header>
         <h2 className="text-lg font-semibold text-stone-900">{t('title')}</h2>
         <p className="mt-0.5 text-sm text-stone-500">{t('description')}</p>
@@ -615,6 +645,36 @@ export default function SatelliteScenesPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="rounded-md border border-stone-200 bg-stone-50/70 p-3">
+            <p className="text-sm font-medium text-stone-800">{tSat('processProductsTitle')}</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-stone-600">{tSat('processProductsHint')}</p>
+            <div
+              className="mt-2 flex flex-wrap gap-x-4 gap-y-2"
+              role="group"
+              aria-label={tSat('processProductsTitle')}
+            >
+              {MAP_SUPPORTED_INDICES.map((index) => (
+                <label key={index} className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-stone-700">
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-emerald-700"
+                    checked={selectedProcessingIndices.includes(index)}
+                    onChange={() =>
+                      setSelectedProcessingIndices((current) =>
+                        current.includes(index)
+                          ? current.filter((selected) => selected !== index)
+                          : [...current, index],
+                      )
+                    }
+                  />
+                  <span className="font-semibold">{index.toUpperCase()}</span>
+                </label>
+              ))}
+            </div>
+            {selectedProcessingIndices.length === 0 && (
+              <p className="mt-2 text-xs text-amber-800">{tSat('selectAtLeastOne')}</p>
+            )}
+          </div>
           {catalog.isLoading ? (
             <SectionSkeleton lines={5} />
           ) : catalog.isError ? (

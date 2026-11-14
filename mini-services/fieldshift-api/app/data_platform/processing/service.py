@@ -39,6 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy import or_ as sa_or
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -67,6 +68,7 @@ PROVIDER_CODE = "nasa_hls"
 # pass as satellite evidence). Any other provider is refused.
 FIXTURE_PROVIDER_CODE = "fixture_demo"
 PROCESSING_VERSION = settings.raster_processing_default_version
+MAP_SUPPORTED_INDICES = ("ndvi", "evi", "ndmi", "ndwi", "bsi")
 _replay_registered = False
 
 
@@ -76,6 +78,63 @@ class ProcessingRequestError(Exception):
 
 class SceneNotProcessableError(Exception):
     """Scene cannot be processed (validation rejection)."""
+
+
+class ProcessingOwnershipLostError(RuntimeError):
+    """The raster executor no longer holds its persisted background-job fence."""
+
+
+def _assert_processing_job_owner(db: Session, rp: RasterProcessingJob) -> None:
+    """Lock and validate the live owner row before raster DB or artifact writes.
+
+    The lock serializes this transaction against lease recovery/takeover. The
+    queued/unowned branch is limited to legacy synchronous invocations (used
+    by local/dev callers); actual background workers always carry core context.
+    """
+    if rp.background_job_id is None:
+        raise ProcessingOwnershipLostError("raster job has no background ownership row")
+
+    from app.core.jobs import current_job_execution
+
+    execution = current_job_execution()
+    if execution is None:
+        # Keep explicit synchronous invocations usable only before any worker
+        # has claimed the queued row and in-process workers are disabled. A
+        # running/expired/replayed job fails closed.
+        if settings.job_workers > 0:
+            raise ProcessingOwnershipLostError("raster executor has no active worker context")
+        queued = db.scalar(
+            select(BackgroundJob.id)
+            .where(
+                BackgroundJob.id == rp.background_job_id,
+                BackgroundJob.status == "queued",
+                BackgroundJob.owner_id.is_(None),
+                BackgroundJob.lease_expires_at.is_(None),
+            )
+            .with_for_update()
+        )
+        if queued is not None:
+            return
+        raise ProcessingOwnershipLostError("raster executor has no active worker context")
+
+    job_id, owner_id, fencing_token = execution
+    if job_id != rp.background_job_id:
+        raise ProcessingOwnershipLostError("executor context belongs to a different job")
+    current = db.scalar(
+        select(BackgroundJob.id)
+        .where(
+            BackgroundJob.id == rp.background_job_id,
+            BackgroundJob.status == "running",
+            BackgroundJob.owner_id == owner_id,
+            BackgroundJob.fencing_token == fencing_token,
+            BackgroundJob.lease_expires_at > func.clock_timestamp(),
+        )
+        .with_for_update()
+    )
+    if current is None:
+        raise ProcessingOwnershipLostError(
+            "raster owner, fencing generation, or lease is no longer current"
+        )
 
 
 def indices_digest(indices: list[str]) -> str:
@@ -98,7 +157,8 @@ def create_processing_jobs(
       provider (`is_synthetic=False`), be acquisition-'ready' and carry band
       asset refs.
     - Active duplicates replay the SAME job (replay-safe double submit).
-    - Fully processed scene/version combos are skipped honestly.
+    - Each scene/version only queues requested indices not already stored or
+      covered by an active job; already-complete requests are skipped.
     """
     from app.core.config import settings as cfg
     global _replay_registered
@@ -116,7 +176,7 @@ def create_processing_jobs(
         raise ProcessingRequestError(
             f"at most {cfg.nasa_hls_max_scenes_per_job} scenes per processing batch"
         )
-    clean_indices = [i.strip().lower() for i in indices if i and i.strip()]
+    clean_indices = list(dict.fromkeys(i.strip().lower() for i in indices if i and i.strip()))
     if not clean_indices:
         raise ProcessingRequestError("indices must not be empty")
     unknown = [i for i in clean_indices if i not in pre._SUPPORTED_INDICES]
@@ -160,31 +220,20 @@ def create_processing_jobs(
             skipped.append({"scene_id": sid, "reason": "no band assets recorded"})
             continue
 
-        digest = indices_digest(clean_indices)
-        # (1) active duplicate -> replay same job
-        active = db.scalar(
-            select(RasterProcessingJob).where(
-                RasterProcessingJob.scene_id == sid,
-                RasterProcessingJob.processing_version == processing_version,
-                RasterProcessingJob.indices_digest == digest,
-                RasterProcessingJob.status.in_(("queued", "running")),
-            )
+        requested = set(clean_indices)
+        existing_indices = set(
+            db.scalars(
+                select(RasterAsset.index_code).where(
+                    RasterAsset.field_id == field.id,
+                    RasterAsset.scene_id == sid,
+                    RasterAsset.processing_version == processing_version,
+                    RasterAsset.asset_kind == "derived",
+                )
+            ).all()
         )
-        if active is not None:
-            jobs.append(_job_payload(active, replayed=True))
-            continue
-        # (2) already fully processed -> honest skip
-        existing_assets = db.scalar(
-            select(RasterAsset.id)
-            .where(
-                RasterAsset.field_id == field.id,
-                RasterAsset.scene_id == sid,
-                RasterAsset.processing_version == processing_version,
-                RasterAsset.asset_kind == "derived",
-            )
-            .limit(1)
-        )
-        if existing_assets is not None:
+        pending = requested - existing_indices
+        # (1) already-complete request -> honest idempotent skip
+        if not pending:
             skipped.append(
                 {
                     "scene_id": sid,
@@ -193,11 +242,52 @@ def create_processing_jobs(
             )
             continue
 
+        # Active work is scoped to the same field, scene and processing version.
+        active = db.scalars(
+            select(RasterProcessingJob).where(
+                RasterProcessingJob.field_id == field.id,
+                RasterProcessingJob.scene_id == sid,
+                RasterProcessingJob.processing_version == processing_version,
+                RasterProcessingJob.status.in_(("queued", "running")),
+            )
+        ).all()
+        # Replay a matching full request, or an active job that exactly covers
+        # the still-unmaterialized portion of this request.
+        exact_active = next(
+            (
+                job
+                for job in active
+                if set(job.indices or []) in (requested, pending)
+            ),
+            None,
+        )
+        if exact_active is not None:
+            jobs.append(_job_payload(exact_active, replayed=True))
+            continue
+
+        active_indices = {index for job in active for index in (job.indices or [])}
+        missing_indices = [
+            index for index in clean_indices if index in pending and index not in active_indices
+        ]
+        if not missing_indices:
+            # The pending request is covered by one or more active jobs. Return
+            # those jobs as replays instead of creating an empty/duplicate job.
+            uncovered = set(pending)
+            for job in active:
+                covered_here = uncovered.intersection(job.indices or [])
+                if covered_here:
+                    jobs.append(_job_payload(job, replayed=True))
+                    uncovered.difference_update(covered_here)
+                if not uncovered:
+                    break
+            continue
+
+        digest = indices_digest(missing_indices)
         rp = RasterProcessingJob(
             field_id=field.id,
             scene_id=sid,
             product_code=scene.product_code,
-            indices=list(clean_indices),
+            indices=list(missing_indices),
             indices_digest=digest,
             processing_version=processing_version,
             status="queued",
@@ -211,7 +301,7 @@ def create_processing_jobs(
             lambda bg_id, progress, rp_id=rp.id: execute_processing_job(rp_id, progress),
             ref_kind=PROCESSING_JOB_KIND,
             ref_id=rp.id,
-            label=f"Preprocess HLS scene {sid} ({','.join(clean_indices)})",
+            label=f"Preprocess HLS scene {sid} ({','.join(missing_indices)})",
             created_by=created_by,
         )
         rp.background_job_id = bg.id
@@ -263,11 +353,18 @@ def execute_processing_job(rp_job_id: uuid.UUID, progress: Any) -> None:
             return  # cancelled/unknown/duplicate — do not execute
         try:
             _run_processing(db, rp, progress)
+        except ProcessingOwnershipLostError:
+            db.rollback()
+            logger.info(
+                "raster executor stopped after ownership loss",
+                extra={"job_id": str(rp_job_id)},
+            )
         except Exception as exc:
             db.rollback()
             rp = db.get(RasterProcessingJob, rp_job_id)
             if rp is None:
                 return
+            _assert_processing_job_owner(db, rp)
             rp.status = "failed"
             rp.error = f"{type(exc).__name__}: {exc}"[:2000]
             rp.finished_at = datetime.now(UTC)
@@ -286,6 +383,7 @@ def execute_processing_job(rp_job_id: uuid.UUID, progress: Any) -> None:
 
 
 def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None:
+    _assert_processing_job_owner(db, rp)
     rp.status = "running"
     rp.started_at = datetime.now(UTC)
     rp.progress = 5
@@ -300,6 +398,7 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
     db.commit()
 
     def _prog(pct: int, stage: str) -> None:
+        _assert_processing_job_owner(db, rp)
         rp.progress = max(0, min(int(pct), 100))
         rp.stage = stage[:200]
         db.add(rp)
@@ -405,8 +504,8 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
                 path=cog_path,
             )
             data = Path(cog_path).read_bytes()
-            stored_obj = _put_asset(
-                storage, key, data, "image/tiff", allow_overwrite=True
+            stored_obj = _put_asset_owned(
+                db, rp, storage, key, data, "image/tiff", allow_overwrite=True
             )
             preview_name = f"{rp.scene_id}_{product.index_code}.png"
             preview_key = raster_key(
@@ -424,8 +523,8 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
                 index_code=product.index_code,
                 max_px=settings.raster_preview_max_px,
             )
-            preview_obj = _put_asset(
-                storage, preview_key, png, "image/png", allow_overwrite=True
+            preview_obj = _put_asset_owned(
+                db, rp, storage, preview_key, png, "image/png", allow_overwrite=True
             )
 
         bbox_wgs84 = _window_bounds_wgs84(reading.crs, reading.window_bounds)
@@ -489,6 +588,7 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
     )
     all_warnings.extend(warnings_obs)
 
+    _assert_processing_job_owner(db, rp)
     rp.status = "succeeded"
     rp.progress = 100
     rp.stage = "completed"
@@ -529,6 +629,27 @@ def _put_asset(storage: Any, key: str, data: bytes, content_type: str, *, allow_
         return storage.put_bytes(key, data, content_type=content_type, overwrite=True)
 
 
+def _put_asset_owned(
+    db: Session,
+    rp: RasterProcessingJob,
+    storage: Any,
+    key: str,
+    data: bytes,
+    content_type: str,
+    *,
+    allow_overwrite: bool,
+) -> Any:
+    """Check ownership immediately before an external artifact write.
+
+    The persisted-row lock is held through the put and released immediately
+    afterward; external storage itself has no transactional fencing primitive.
+    """
+    _assert_processing_job_owner(db, rp)
+    stored = _put_asset(storage, key, data, content_type, allow_overwrite=allow_overwrite)
+    db.commit()
+    return stored
+
+
 # ------------------------------------------------------------ persistence
 def _persist_products(
     db: Session,
@@ -541,6 +662,7 @@ def _persist_products(
     boundary_version: int | None,
 ) -> None:
     """Insert raster_assets rows (idempotent per natural key)."""
+    _assert_processing_job_owner(db, rp)
     for s in stored:
         key = s["key"]
         existing = db.scalar(
@@ -641,6 +763,7 @@ def _persist_observations(
       the previous value + version kept in the provenance chain.
     - Valid row from the SAME processing version -> kept (idempotent).
     """
+    _assert_processing_job_owner(db, rp)
     from app.data_platform.ingestion.service import _product_for_provider
     from app.data_platform.providers.nasa_hls.registry_info import (
         HLS_SPATIAL_RESOLUTION_M,
@@ -856,7 +979,8 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
     Status vocabulary (honest, distinguishable):
     - 'unprocessed': raw scene only
     - 'processing': an active (queued|running) raster_processing job exists
-    - 'processed': derived assets exist for the requested version
+    - 'partial': one or more, but not all, map-supported indices exist
+    - 'processed': all map-supported indices exist for the requested version
     - 'failed': latest attempt failed (error surfaced)
     """
     scenes = db.scalars(
@@ -884,9 +1008,17 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
             )
         ).all()
         derived = [a for a in assets if a.asset_kind == "derived"]
+        derived_indices = {a.index_code for a in derived}
+        available_indices = [
+            index for index in MAP_SUPPORTED_INDICES if index in derived_indices
+        ]
+        missing_indices = [
+            index for index in MAP_SUPPORTED_INDICES if index not in derived_indices
+        ]
         previews = {a.index_code: a for a in assets if a.asset_kind == "preview"}
         active = db.scalars(
             select(RasterProcessingJob).where(
+                RasterProcessingJob.field_id == field_id,
                 RasterProcessingJob.scene_id == scene.scene_id,
                 RasterProcessingJob.processing_version == version,
                 RasterProcessingJob.status.in_(("queued", "running")),
@@ -895,6 +1027,7 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
         latest_failed = db.scalar(
             select(RasterProcessingJob)
             .where(
+                RasterProcessingJob.field_id == field_id,
                 RasterProcessingJob.scene_id == scene.scene_id,
                 RasterProcessingJob.processing_version == version,
                 RasterProcessingJob.status == "failed",
@@ -909,8 +1042,10 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
                 "indices": sorted({i for j in active for i in (j.indices or [])}),
                 "stage": active[0].stage,
                 "progress": active[0].progress,
+                "available_indices": available_indices,
+                "missing_indices": missing_indices,
             }
-        elif derived:
+        elif not missing_indices:
             state = "processed"
             detail = None
         elif latest_failed is not None:
@@ -918,6 +1053,14 @@ def list_field_products(db: Session, *, field_id: uuid.UUID) -> dict[str, Any]:
             detail = {
                 "job_id": str(latest_failed.id),
                 "error": (latest_failed.error or "")[:500],
+                "available_indices": available_indices,
+                "missing_indices": missing_indices,
+            }
+        elif available_indices:
+            state = "partial"
+            detail = {
+                "available_indices": available_indices,
+                "missing_indices": missing_indices,
             }
         else:
             state = "unprocessed"

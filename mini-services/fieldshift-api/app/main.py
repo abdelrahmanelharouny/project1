@@ -1,6 +1,7 @@
 """CropTwist API application factory (FastAPI, Master §9-10)."""
 
 import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 
@@ -63,10 +64,11 @@ def create_app() -> FastAPI:
         title="CropTwist API",
         version=__version__,
         description=(
-            "CropTwist agricultural decision-support platform — first vertical slice. "
-            "Farm/field management with PostGIS geometry, canonical observation contracts, "
-            "a deterministic synthetic provider, and the Field Data Passport. "
-            "NASA connectors are intentionally NOT implemented (future adapter)."
+            "CropTwist agricultural decision-support platform with authorized farm/field data, "
+            "PostGIS, source-aware engine outputs, satellite acquisition/processing adapters, "
+            "and evidence-bound read-only AI orchestration. Provider, NASA and delivery "
+            "readiness depends on approved configuration; capability discovery states "
+            "partial, planned and unavailable features explicitly."
         ),
         lifespan=lifespan,
     )
@@ -83,7 +85,11 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
-        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        supplied_id = request.headers.get("x-request-id") or ""
+        request_id = (
+            supplied_id if re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", supplied_id)
+            else str(uuid.uuid4())
+        )
         request.state.request_id = request_id
         token = request_id_var.set(request_id)
         try:

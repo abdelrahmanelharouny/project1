@@ -94,10 +94,12 @@ def _make_scene_row(
     return row
 
 
-def _process_inline(rp_job_id):
-    from app.data_platform.processing.service import execute_processing_job
+def _process_inline(db, rp_job_id, *, simulate_process_restart=False):
+    from tests.conftest import run_raster_job_through_worker
 
-    execute_processing_job(rp_job_id, None)
+    return run_raster_job_through_worker(
+        rp_job_id, db=db, simulate_process_restart=simulate_process_restart
+    )
 
 
 def _get_rp(db, bg_job_id):
@@ -128,7 +130,7 @@ class TestProcessingEndToEnd:
         )
         assert len(result["jobs"]) == 1
         rp_id = uuid.UUID(result["jobs"][0]["job_id"])
-        _process_inline(rp_id)
+        _process_inline(db, rp_id)
 
         rp = db.get(RasterProcessingJob, rp_id)
         assert rp.status == "succeeded", rp.error
@@ -193,7 +195,7 @@ class TestProcessingEndToEnd:
         result = proc.create_processing_jobs(
             db, field=field, scene_ids=["FIX.CLOUDY"], indices=["ndvi"],
         )
-        _process_inline(uuid.UUID(result["jobs"][0]["job_id"]))
+        _process_inline(db, uuid.UUID(result["jobs"][0]["job_id"]))
         rp = db.get(RasterProcessingJob, uuid.UUID(result["jobs"][0]["job_id"]))
         assert rp.status == "succeeded"
         assert any("no valid pixels" in w for w in rp.warnings)
@@ -226,12 +228,95 @@ class TestProcessingIdempotency:
                         acquired_at=datetime(2026, 1, 13, tzinfo=UTC))
         field = db.get(Field, field_id)
         r1 = proc.create_processing_jobs(db, field=field, scene_ids=["FIX.IDEM2"], indices=["ndvi"])
-        _process_inline(uuid.UUID(r1["jobs"][0]["job_id"]))
+        _process_inline(db, uuid.UUID(r1["jobs"][0]["job_id"]))
         r2 = proc.create_processing_jobs(db, field=field, scene_ids=["FIX.IDEM2"], indices=["ndvi"])
         assert r2["jobs"] == []
         assert any("already processed" in s["reason"] for s in r2["skipped"])
         # exactly one set of asset rows — no duplicates
         assert db.query(RasterAsset).filter_by(field_id=field_id, scene_id="FIX.IDEM2", asset_kind="derived").count() == 1
+
+    def test_partial_indices_enqueue_only_missing_and_report_completion(
+        self, db, raster_storage, fixture_field, tmp_path
+    ):
+        from app.db.models import Field
+        from app.db.models_p2 import RasterAsset, RasterProcessingJob
+        from app.data_platform.processing import service as proc
+
+        field_id = uuid.UUID(fixture_field["field"]["id"])
+        assets = fx.write_fixture_scene(tmp_path, scene_id="FIX.PARTIAL")
+        _make_scene_row(
+            db,
+            field_id,
+            scene_id="FIX.PARTIAL",
+            assets=assets,
+            acquired_at=datetime(2026, 1, 13, tzinfo=UTC),
+        )
+        field = db.get(Field, field_id)
+
+        first = proc.create_processing_jobs(
+            db, field=field, scene_ids=["FIX.PARTIAL"], indices=["ndvi"]
+        )
+        _process_inline(db, uuid.UUID(first["jobs"][0]["job_id"]))
+        db.expire_all()
+
+        second = proc.create_processing_jobs(
+            db, field=field, scene_ids=["FIX.PARTIAL"], indices=["evi", "ndvi"]
+        )
+        assert len(second["jobs"]) == 1
+        evi_job_id = uuid.UUID(second["jobs"][0]["job_id"])
+        evi_job = db.get(RasterProcessingJob, evi_job_id)
+        assert evi_job.indices == ["evi"]
+
+        repeated = proc.create_processing_jobs(
+            db, field=field, scene_ids=["FIX.PARTIAL"], indices=["evi", "ndvi"]
+        )
+        assert len(repeated["jobs"]) == 1
+        assert repeated["jobs"][0]["job_id"] == str(evi_job_id)
+        assert repeated["jobs"][0]["replayed"] is True
+        assert (
+            db.query(RasterProcessingJob)
+            .filter_by(field_id=field_id, scene_id="FIX.PARTIAL")
+            .count()
+            == 2
+        )
+
+        _process_inline(db, evi_job_id)
+        db.expire_all()
+        partial = next(
+            scene
+            for scene in proc.list_field_products(db, field_id=field_id)["scenes"]
+            if scene["scene_id"] == "FIX.PARTIAL"
+        )
+        assert partial["processing_state"] == "partial"
+        assert partial["processing_detail"]["available_indices"] == ["ndvi", "evi"]
+        assert partial["processing_detail"]["missing_indices"] == ["ndmi", "ndwi", "bsi"]
+
+        completion = proc.create_processing_jobs(
+            db,
+            field=field,
+            scene_ids=["FIX.PARTIAL"],
+            indices=["ndmi", "ndwi", "bsi"],
+        )
+        assert len(completion["jobs"]) == 1
+        completion_job_id = uuid.UUID(completion["jobs"][0]["job_id"])
+        assert db.get(RasterProcessingJob, completion_job_id).indices == [
+            "ndmi",
+            "ndwi",
+            "bsi",
+        ]
+        _process_inline(db, completion_job_id)
+        db.expire_all()
+
+        complete = next(
+            scene
+            for scene in proc.list_field_products(db, field_id=field_id)["scenes"]
+            if scene["scene_id"] == "FIX.PARTIAL"
+        )
+        assert complete["processing_state"] == "processed"
+        assert complete["processing_detail"] is None
+        assert {asset.index_code for asset in db.query(RasterAsset).filter_by(
+            field_id=field_id, scene_id="FIX.PARTIAL", asset_kind="derived"
+        ).all()} == {"ndvi", "evi", "ndmi", "ndwi", "bsi"}
 
     def test_observation_upgrade_missing_then_supersede(self, db, raster_storage, fixture_field, tmp_path):
         """Missing ingestion attempts upgrade in place; valid values only
@@ -263,7 +348,7 @@ class TestProcessingIdempotency:
         db.commit()
 
         r1 = proc.create_processing_jobs(db, field=field, scene_ids=["FIX.UP1"], indices=["ndvi"])
-        _process_inline(uuid.UUID(r1["jobs"][0]["job_id"]))
+        _process_inline(db, uuid.UUID(r1["jobs"][0]["job_id"]))
         obs = db.query(Observation).filter_by(field_id=field_id, variable_code="ndvi").all()
         assert len(obs) == 1, "missing row upgraded, not duplicated"
         assert obs[0].value is not None
@@ -275,7 +360,7 @@ class TestProcessingIdempotency:
             db, field=field, scene_ids=["FIX.UP1"], indices=["ndvi"],
             processing_version="hls-derivation-9.9.9",
         )
-        _process_inline(uuid.UUID(r2["jobs"][0]["job_id"]))
+        _process_inline(db, uuid.UUID(r2["jobs"][0]["job_id"]))
         obs = db.query(Observation).filter_by(field_id=field_id, variable_code="ndvi").all()
         assert len(obs) == 1
         assert obs[0].processing_version == "hls-derivation-9.9.9"
@@ -352,7 +437,7 @@ class TestProcessingLifecycle:
             raise RuntimeError("storage unreachable")
 
         monkeypatch.setattr("app.data_platform.processing.service.get_raster_storage", boom)
-        _process_inline(rp_id)
+        _process_inline(db, rp_id)
         rp = db.get(RasterProcessingJob, rp_id)
         assert rp.status == "failed"
         assert "storage unreachable" in rp.error
@@ -377,7 +462,7 @@ class TestProcessingLifecycle:
         assert rp.status == "queued"
 
         # simulate restart recovery: replay executor from the background row
-        proc.replay_processing_job(rp.background_job_id, None)
+        _process_inline(db, rp.id, simulate_process_restart=True)
         db.expire_all()  # worker committed in its own session
         rp = db.get(RasterProcessingJob, rp.id)
         assert rp.status == "succeeded"
@@ -403,10 +488,12 @@ class TestProductsListingAndAccess:
         assert "FIX.LIST2" not in states
 
         result = proc.create_processing_jobs(db, field=field, scene_ids=["FIX.LIST1"], indices=["ndvi"])
-        _process_inline(uuid.UUID(result["jobs"][0]["job_id"]))
+        _process_inline(db, uuid.UUID(result["jobs"][0]["job_id"]))
         listing = proc.list_field_products(db, field_id=field_id)
         scene = next(s for s in listing["scenes"] if s["scene_id"] == "FIX.LIST1")
-        assert scene["processing_state"] == "processed"
+        assert scene["processing_state"] == "partial"
+        assert scene["processing_detail"]["available_indices"] == ["ndvi"]
+        assert scene["processing_detail"]["missing_indices"] == ["evi", "ndmi", "ndwi", "bsi"]
         products = scene["products"]
         assert products and products[0]["index_code"] == "ndvi"
         assert products[0]["preview_asset_id"]
@@ -430,15 +517,15 @@ class TestProductsListingAndAccess:
         rp_id = body["jobs"][0]["job_id"]
 
         # inline execute
-        from app.data_platform.processing.service import execute_processing_job
-
-        execute_processing_job(uuid.UUID(rp_id), None)
+        _process_inline(db, uuid.UUID(rp_id))
 
         # products listing
         resp = client.get(f"/api/v1/fields/{field_id}/satellite/processing", headers=headers)
         assert resp.status_code == 200
         scene = next(s for s in resp.json()["scenes"] if s["scene_id"] == "FIX.API1")
-        assert scene["processing_state"] == "processed"
+        assert scene["processing_state"] == "partial"
+        assert scene["processing_detail"]["available_indices"] == ["ndvi"]
+        assert scene["processing_detail"]["missing_indices"] == ["evi", "ndmi", "ndwi", "bsi"]
 
         # asset content requires field membership: fetch preview asset id
         asset_id = scene["products"][0]["preview_asset_id"]

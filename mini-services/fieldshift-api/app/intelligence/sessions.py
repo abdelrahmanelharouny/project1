@@ -23,7 +23,7 @@ logger = logging.getLogger("croptwist.intelligence.sessions")
 
 
 def get_or_404_for_field(
-    db: Session, session_id: Any, field_id: Any
+    db: Session, session_id: Any, field_id: Any, *, owner_user_id: Any | None = None
 ) -> models_ai.AIAdvisorSession | None:
     """Return the session when it belongs to THIS field, else None.
 
@@ -33,11 +33,23 @@ def get_or_404_for_field(
     session = db.get(models_ai.AIAdvisorSession, session_id)
     if session is None or session.field_id != field_id:
         return None
+    # A NULL owner is a legacy field-shared conversation. New owned sessions
+    # are private even among members of the same organization.
+    if owner_user_id is not None and session.owner_user_id not in (None, owner_user_id):
+        return None
     return session
 
 
-def create_session(db: Session, field_id: Any, title: str | None = None) -> models_ai.AIAdvisorSession:
-    session = models_ai.AIAdvisorSession(field_id=field_id, title=title)
+def create_session(
+    db: Session,
+    field_id: Any,
+    title: str | None = None,
+    *,
+    owner_user_id: Any | None = None,
+) -> models_ai.AIAdvisorSession:
+    session = models_ai.AIAdvisorSession(
+        field_id=field_id, title=title, owner_user_id=owner_user_id
+    )
     db.add(session)
     db.flush()
     return session
@@ -59,11 +71,20 @@ def recent_history(
     ascending order and the last complete pairs are replayed. Messages without
     the expected payload (question/answer) are skipped defensively.
     """
+    row_limit = max(0, min(int(max_turns), 50)) * 2
+    if row_limit == 0:
+        return []
     rows = db.scalars(
         select(models_ai.AIAdvisorMessage)
         .where(models_ai.AIAdvisorMessage.session_id == session_id)
-        .order_by(models_ai.AIAdvisorMessage.created_at.asc())
+        .order_by(
+            models_ai.AIAdvisorMessage.created_at.desc(),
+            # User then assistant is chronological when DB timestamps tie.
+            models_ai.AIAdvisorMessage.role.asc(),
+        )
+        .limit(row_limit)
     ).all()
+    rows.reverse()
     pairs: list[dict[str, str]] = []
     pending_question: str | None = None
     for row in rows:
@@ -75,4 +96,4 @@ def recent_history(
                 pairs.append({"role": "user", "content": pending_question})
                 pending_question = None
             pairs.append({"role": "assistant", "content": str(row.answer)})
-    return pairs[-max_turns:]
+    return pairs

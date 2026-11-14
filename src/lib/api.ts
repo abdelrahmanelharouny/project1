@@ -44,10 +44,13 @@ import type {
   HealthResponse,
   LoginInput,
   MeResponse,
+  EmailVerificationConfirmResult,
+  EmailVerificationRequestResult,
   ObservationListResponse,
   ProvidersHealthResponse,
   RecommendationsResponse,
   RegisterInput,
+  RegisterResult,
   FieldState,
   FieldStateCreateInput,
   FieldStateListResponse,
@@ -334,8 +337,18 @@ export function login(input: LoginInput): Promise<AuthSession> {
   return authRequest<AuthSession>('/login', input)
 }
 
-export function register(input: RegisterInput): Promise<AuthSession> {
-  return authRequest<AuthSession>('/register', input)
+export function register(input: RegisterInput): Promise<RegisterResult> {
+  return authRequest<RegisterResult>('/register', input)
+}
+
+/** Request or resend an email-verification challenge; response tokens are never returned. */
+export function requestEmailVerification(input: { email: string }): Promise<EmailVerificationRequestResult> {
+  return authRequest<EmailVerificationRequestResult>('/verify-email/request', input)
+}
+
+/** Confirm the emailed token. A session is created separately by login after this succeeds. */
+export function confirmEmailVerification(input: { token: string }): Promise<EmailVerificationConfirmResult> {
+  return authRequest<EmailVerificationConfirmResult>('/verify-email/confirm', input)
 }
 
 /** Seed the synthetic demo workspace and sign in as the demo user. */
@@ -1549,6 +1562,278 @@ export function getAdvisorHistory(
   return request<AdvisorHistoryResponse>(
     `/api/v1/fields/${fieldId}/advisor/history?${params.toString()}`,
   )
+}
+
+// =============================================================
+// AI Core — validated SSE, owner-scoped conversations and feedback
+// =============================================================
+
+import type {
+  AiCoreConversation,
+  AiCoreConversationMessage,
+  AiCoreFeedbackInput,
+  AiCoreFeedbackResponse,
+  AiCoreProvidersResponse,
+  AiCoreRequestPayload,
+  AiCoreResponse,
+} from './types'
+
+export interface AiCoreStreamOptions {
+  signal?: AbortSignal
+  onChunk?: (text: string) => void
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function isAiCoreEvidenceItem(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  const sourcesValid = Array.isArray(value.source_references) && value.source_references.every((source) =>
+    isRecord(source) && typeof source.source_kind === 'string' &&
+    (source.source_id === null || typeof source.source_id === 'string') &&
+    (source.provider === null || typeof source.provider === 'string') &&
+    (source.acquired_at === null || typeof source.acquired_at === 'string'),
+  )
+  return (
+    typeof value.evidence_id === 'string' &&
+    typeof value.capability === 'string' &&
+    ['farm', 'field'].includes(String(value.entity_scope)) &&
+    typeof value.entity_id === 'string' &&
+    typeof value.result_type === 'string' &&
+    ['verified_fact', 'derived_result', 'model_prediction', 'recommendation', 'general_knowledge', 'assumption', 'missing_information'].includes(String(value.claim_class)) &&
+    isRecord(value.value) &&
+    (typeof value.unit === 'string' || value.unit === null) &&
+    (isRecord(value.observation_period) || value.observation_period === null) &&
+    sourcesValid &&
+    (typeof value.spatial_resolution_m === 'number' || value.spatial_resolution_m === null) &&
+    (typeof value.processing_version === 'string' || value.processing_version === null) &&
+    isRecord(value.evidence_quality) &&
+    (typeof value.model_confidence === 'number' || value.model_confidence === null) &&
+    (typeof value.recommendation_confidence === 'number' || value.recommendation_confidence === null) &&
+    isStringArray(value.limitations) &&
+    ['available', 'partial', 'insufficient', 'unavailable'].includes(String(value.status))
+  )
+}
+
+/** Guard the terminal event shape before exposing it to the conversation UI. */
+export function isAiCoreResponse(value: unknown): value is AiCoreResponse {
+  if (!isRecord(value) || !isRecord(value.execution) || !isRecord(value.plan)) return false
+  const responseArrays = [
+    value.verified_facts,
+    value.derived_results,
+    value.predictions,
+    value.recommendations,
+    value.general_knowledge,
+    value.evidence,
+  ]
+  if (responseArrays.some((items) => !Array.isArray(items) || !items.every(isAiCoreEvidenceItem))) return false
+  if (
+    !isStringArray(value.assumptions) ||
+    !isStringArray(value.limitations) ||
+    !isStringArray(value.missing_information) ||
+    !isStringArray(value.follow_up_suggestions)
+  ) return false
+  const plan = value.plan
+  const execution = value.execution
+  return (
+    typeof value.request_id === 'string' &&
+    (typeof value.conversation_id === 'string' || value.conversation_id === null) &&
+    typeof value.intent === 'string' &&
+    ['answered', 'partial', 'clarification_required', 'unavailable', 'failed'].includes(String(value.status)) &&
+    (typeof value.answer === 'string' || value.answer === null) &&
+    typeof plan.intent === 'string' &&
+    isStringArray(plan.required_entities) &&
+    isStringArray(plan.required_context) &&
+    isStringArray(plan.required_tools) &&
+    Array.isArray(plan.tool_calls) &&
+    isStringArray(plan.missing_information) &&
+    isStringArray(plan.permission_scope) &&
+    typeof plan.clarification_needed === 'boolean' &&
+    ['available', 'partial', 'planned', 'unavailable'].includes(String(plan.availability)) &&
+    ['grounded_explanation', 'clarification', 'unavailable'].includes(String(plan.expected_output)) &&
+    isStringArray(plan.limitations) &&
+    typeof execution.trace_id === 'string' &&
+    typeof execution.request_id === 'string' &&
+    ['answered', 'partial', 'clarification_required', 'unavailable', 'failed'].includes(String(execution.status)) &&
+    (typeof execution.provider === 'string' || execution.provider === null) &&
+    (typeof execution.model === 'string' || execution.model === null) &&
+    isRecord(execution.token_usage) &&
+    Array.isArray(execution.provider_attempts) &&
+    typeof execution.latency_ms === 'number' &&
+    typeof execution.planned_steps === 'number' &&
+    Array.isArray(execution.tools) &&
+    typeof execution.degraded === 'boolean' &&
+    (typeof execution.error_category === 'string' || execution.error_category === null)
+  )
+}
+
+async function apiErrorFromResponse(response: Response): Promise<ApiError> {
+  const text = await response.text()
+  let payload: unknown = null
+  if (text) {
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      payload = null
+    }
+  }
+  const envelope = isRecord(payload) ? payload : null
+  const error = envelope && isRecord(envelope.error) ? envelope.error : null
+  const detail = envelope && isRecord(envelope.detail) ? envelope.detail : null
+  const code = typeof error?.code === 'string'
+    ? error.code
+    : typeof detail?.code === 'string'
+      ? detail.code
+      : `HTTP_${response.status}`
+  const message = typeof error?.message === 'string'
+    ? error.message
+    : typeof detail?.message === 'string'
+      ? detail.message
+      : `Request failed with status ${response.status}.`
+  return new ApiError({
+    status: response.status,
+    code,
+    message,
+    details: Array.isArray(error?.details) ? error.details as ApiErrorDetail[] : [],
+    requestId: typeof error?.request_id === 'string' ? error.request_id : undefined,
+  })
+}
+
+function parseSseFrame(frame: string): { event: string; data: unknown } | null {
+  let event = 'message'
+  const data: string[] = []
+  for (const line of frame.split(/\r?\n/)) {
+    if (!line || line.startsWith(':')) continue
+    const separator = line.indexOf(':')
+    const field = separator < 0 ? line : line.slice(0, separator)
+    const value = separator < 0 ? '' : line.slice(separator + 1).replace(/^ /, '')
+    if (field === 'event') event = value
+    if (field === 'data') data.push(value)
+  }
+  if (data.length === 0) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(data.join('\n'))
+  } catch {
+    throw new ApiError({ status: 502, code: 'AI_STREAM_INVALID_FRAME', message: 'The AI response stream contained invalid data.' })
+  }
+  return { event, data: parsed }
+}
+
+/** Consume only the server-validated AI Core stream events; done carries the full response. */
+async function readAiCoreStream(response: Response, options: AiCoreStreamOptions): Promise<AiCoreResponse> {
+  if (!response.body) {
+    throw new ApiError({ status: 502, code: 'AI_STREAM_EMPTY', message: 'The AI response stream was empty.' })
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: AiCoreResponse | null = null
+
+  const consume = (frame: string) => {
+    const parsed = parseSseFrame(frame)
+    if (!parsed) return
+    if (parsed.event === 'meta') return
+    if (parsed.event === 'chunk') {
+      if (!isRecord(parsed.data) || typeof parsed.data.text !== 'string') {
+        throw new ApiError({ status: 502, code: 'AI_STREAM_INVALID_CHUNK', message: 'The AI response stream contained an invalid chunk.' })
+      }
+      options.onChunk?.(parsed.data.text)
+      return
+    }
+    if (parsed.event === 'error') {
+      const code = isRecord(parsed.data) && typeof parsed.data.code === 'string' ? parsed.data.code : 'AI_STREAM_FAILED'
+      throw new ApiError({ status: 502, code, message: 'The AI could not complete this answer. Please try again.' })
+    }
+    if (parsed.event === 'done') {
+      if (!isAiCoreResponse(parsed.data)) {
+        throw new ApiError({ status: 502, code: 'AI_STREAM_INVALID_RESPONSE', message: 'The AI response did not match the validated response contract.' })
+      }
+      result = parsed.data
+      return
+    }
+    throw new ApiError({ status: 502, code: 'AI_STREAM_UNKNOWN_EVENT', message: 'The AI response stream contained an unknown event.' })
+  }
+
+  try {
+    while (!result) {
+      const { value, done } = await reader.read()
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true })
+      const frames = buffer.split(/\r?\n\r?\n/)
+      buffer = frames.pop() ?? ''
+      for (const frame of frames) {
+        consume(frame)
+        if (result) break
+      }
+      if (done) {
+        if (!result && buffer.trim()) consume(buffer)
+        break
+      }
+    }
+  } finally {
+    if (result) await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
+
+  if (!result) {
+    throw new ApiError({ status: 502, code: 'AI_STREAM_INCOMPLETE', message: 'The AI response stream ended before a complete answer arrived.' })
+  }
+  return result
+}
+
+/** Stream one AI Core request; org identity is intentionally derived server-side from field_id. */
+export async function streamAiCoreRequest(
+  payload: AiCoreRequestPayload,
+  options: AiCoreStreamOptions = {},
+): Promise<AiCoreResponse> {
+  const path = withPort('/api/v1/ai/requests/stream')
+  const send = async (skipAuthRetry: boolean): Promise<AiCoreResponse> => {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+      signal: options.signal,
+    })
+    if (response.status === 401 && !skipAuthRetry && await refreshSession()) {
+      return send(true)
+    }
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+      throw new ApiError({ status: 502, code: 'AI_STREAM_CONTENT_TYPE', message: 'The AI endpoint did not return an event stream.' })
+    }
+    return readAiCoreStream(response, options)
+  }
+  return send(false)
+}
+
+export function getAiCoreProviders(): Promise<AiCoreProvidersResponse> {
+  return request<AiCoreProvidersResponse>('/api/v1/ai/providers')
+}
+
+export function listAiCoreConversations(fieldId: string): Promise<AiCoreConversation[]> {
+  const params = new URLSearchParams({ field_id: fieldId })
+  return request<AiCoreConversation[]>(`/api/v1/ai/conversations?${params.toString()}`)
+}
+
+export function getAiCoreConversationMessages(conversationId: string): Promise<AiCoreConversationMessage[]> {
+  return request<AiCoreConversationMessage[]>(`/api/v1/ai/conversations/${encodeURIComponent(conversationId)}/messages`)
+}
+
+export function deleteAiCoreConversation(conversationId: string): Promise<void> {
+  return request<void>(`/api/v1/ai/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' })
+}
+
+export async function submitAiCoreFeedback(input: AiCoreFeedbackInput): Promise<AiCoreFeedbackResponse> {
+  return request<AiCoreFeedbackResponse>('/api/v1/ai/feedback', {
+    method: 'POST',
+    body: input,
+  })
 }
 
 /** A12: record one feedback transition (append-only server-side). */
