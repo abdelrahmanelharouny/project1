@@ -53,7 +53,8 @@ def _extension_owned_relations(connection):
     """
     result = connection.exec_driver_sql(
         """
-        SELECT namespace.nspname, relation.relname
+        SELECT namespace.nspname, relation.relname,
+               pg_catalog.pg_table_is_visible(relation.oid)
         FROM pg_depend AS dependency
         JOIN pg_extension AS ext
           ON dependency.refclassid = 'pg_extension'::regclass
@@ -67,14 +68,21 @@ def _extension_owned_relations(connection):
           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
         """
     )
-    return {(schema, name) for schema, name in result}
+    relations: set[tuple[str | None, str]] = set()
+    for schema, name, is_visible in result:
+        relations.add((schema, name))
+        # Alembic represents a visible relation reflected from the search path
+        # with schema=None, even if it lives outside current_schema().
+        if is_visible:
+            relations.add((None, name))
+    return relations
 
 
 def _make_include_object(connection):
     # Resolve catalog metadata only when autogenerate invokes this callback.
     # Alembic also imports env.py for normal upgrades; an eager SELECT here
     # would autobegin a transaction before Alembic starts its migration txn.
-    extension_relations: set[tuple[str, str]] | None = None
+    extension_relations: set[tuple[str | None, str]] | None = None
 
     def include_extension_aware_object(obj, name, type_, reflected, compare_to):
         nonlocal extension_relations
@@ -82,8 +90,7 @@ def _make_include_object(connection):
         if relation is not None:
             if extension_relations is None:
                 extension_relations = _extension_owned_relations(connection)
-            default_schema = connection.dialect.default_schema_name
-            schema = getattr(relation, "schema", None) or default_schema
+            schema = getattr(relation, "schema", None)
             if (schema, relation.name) in extension_relations:
                 return False
         return include_object(obj, name, type_, reflected, compare_to)
