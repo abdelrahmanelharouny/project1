@@ -217,6 +217,132 @@ class TestProcessingIdempotency:
         assert r2["jobs"][0]["job_id"] == r1["jobs"][0]["job_id"]
         assert r2["jobs"][0].get("replayed") is True
 
+    def test_same_scene_id_can_queue_independently_for_distinct_fields(
+        self, db, client, auth_headers, fixture_field, tmp_path
+    ):
+        from app.db.models import Field
+        from app.db.models_p2 import RasterProcessingJob
+        from app.data_platform.processing import service as proc
+
+        first_field_id = uuid.UUID(fixture_field["field"]["id"])
+        second_field = _make_fixture_field(client, auth_headers)
+        second_field_id = uuid.UUID(second_field["field"]["id"])
+        assert first_field_id != second_field_id
+
+        assets = fx.write_fixture_scene(tmp_path, scene_id="FIX.MULTIFIELD")
+        for field_id in (first_field_id, second_field_id):
+            _make_scene_row(
+                db,
+                field_id,
+                scene_id="FIX.MULTIFIELD",
+                assets=assets,
+                acquired_at=datetime(2026, 1, 12, tzinfo=UTC),
+            )
+
+        first_result = proc.create_processing_jobs(
+            db,
+            field=db.get(Field, first_field_id),
+            scene_ids=["FIX.MULTIFIELD"],
+            indices=["ndvi"],
+        )
+        second_result = proc.create_processing_jobs(
+            db,
+            field=db.get(Field, second_field_id),
+            scene_ids=["FIX.MULTIFIELD"],
+            indices=["ndvi"],
+        )
+
+        assert len(first_result["jobs"]) == len(second_result["jobs"]) == 1
+        first_job = db.get(RasterProcessingJob, uuid.UUID(first_result["jobs"][0]["job_id"]))
+        second_job = db.get(RasterProcessingJob, uuid.UUID(second_result["jobs"][0]["job_id"]))
+        assert first_job.id != second_job.id
+        assert first_job.indices_digest != second_job.indices_digest
+
+        replay = proc.create_processing_jobs(
+            db,
+            field=db.get(Field, first_field_id),
+            scene_ids=["FIX.MULTIFIELD"],
+            indices=["ndvi"],
+        )
+        assert replay["jobs"][0]["job_id"] == str(first_job.id)
+        assert replay["jobs"][0]["replayed"] is True
+
+    @pytest.mark.parametrize("unsupported_provider_first", [True, False])
+    def test_duplicate_scene_ids_prefer_nasa_hls_for_enqueue_and_execution(
+        self,
+        db,
+        raster_storage,
+        fixture_field,
+        tmp_path,
+        unsupported_provider_first,
+    ):
+        from app.db.models import Field
+        from app.db.models_p2 import RasterAsset, RasterProcessingJob, SatelliteScene
+        from app.data_platform.processing import service as proc
+
+        field_id = uuid.UUID(fixture_field["field"]["id"])
+        field = db.get(Field, field_id)
+        scene_id = "FIX.PROVIDER-COLLISION"
+        assets = fx.write_fixture_scene(tmp_path, scene_id=scene_id)
+
+        def add_unsupported_provider_row():
+            db.add(
+                SatelliteScene(
+                    field_id=field_id,
+                    provider_code="aaa_provider",
+                    product_code="OTHER_PRODUCT",
+                    scene_id=scene_id,
+                    acquired_at=datetime(2026, 1, 12, tzinfo=UTC),
+                    cloud_cover_pct=10.0,
+                    spatial_resolution_m=10.0,
+                    band_mapping={},
+                    asset_refs={},
+                    is_synthetic=False,
+                    processing_version="2.0",
+                    acquisition_status="ready",
+                    discovered_at=datetime.now(UTC),
+                )
+            )
+            db.commit()
+
+        if unsupported_provider_first:
+            add_unsupported_provider_row()
+            _make_scene_row(
+                db,
+                field_id,
+                scene_id=scene_id,
+                assets=assets,
+                acquired_at=datetime(2026, 1, 12, tzinfo=UTC),
+            )
+        else:
+            _make_scene_row(
+                db,
+                field_id,
+                scene_id=scene_id,
+                assets=assets,
+                acquired_at=datetime(2026, 1, 12, tzinfo=UTC),
+            )
+            add_unsupported_provider_row()
+
+        result = proc.create_processing_jobs(
+            db, field=field, scene_ids=[scene_id], indices=["ndvi"]
+        )
+        assert len(result["jobs"]) == 1, result
+        assert result["skipped"] == []
+
+        job_id = uuid.UUID(result["jobs"][0]["job_id"])
+        _process_inline(job_id)
+        db.expire_all()
+        job = db.get(RasterProcessingJob, job_id)
+        assert job.status == "succeeded", job.error
+        asset = db.query(RasterAsset).filter_by(
+            field_id=field_id,
+            scene_id=scene_id,
+            asset_kind="derived",
+            index_code="ndvi",
+        ).one()
+        assert asset.provider_code == "nasa_hls"
+
     def test_reprocessed_scene_skipped(self, db, raster_storage, fixture_field, tmp_path):
         from app.db.models import Field
         from app.db.models_p2 import RasterAsset, RasterProcessingJob

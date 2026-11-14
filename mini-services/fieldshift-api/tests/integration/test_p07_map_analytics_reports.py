@@ -85,13 +85,23 @@ def _make_scene_row(db, field_id, *, scene_id, assets, acquired_at, cloud=10.0):
     db.commit()
 
 
-def _process(db, field, scene_id, indices=("ndvi",), tmp_path=None, scene_kwargs=None):
+def _process(
+    db,
+    field,
+    scene_id,
+    indices=("ndvi",),
+    tmp_path=None,
+    scene_kwargs=None,
+    fixture_kwargs=None,
+):
     from app.db.models import Field as FieldModel
     from app.data_platform.processing.service import create_processing_jobs
     from tests.conftest import run_raster_job_through_worker
 
     assert tmp_path is not None
-    assets = fx.write_fixture_scene(tmp_path, scene_id=scene_id)
+    assets = fx.write_fixture_scene(
+        tmp_path, scene_id=scene_id, **(fixture_kwargs or {})
+    )
     _make_scene_row(
         db,
         field.id,
@@ -208,6 +218,44 @@ class TestLayerCatalog:
         infra = {l["code"]: l for l in catalog["layers"]["infrastructure"]}
         assert infra["statistical_zones"]["available"] is True
 
+    def test_latest_product_provenance_is_scoped_to_its_provider(
+        self, client, fixture_field, db, tmp_path
+    ):
+        from app.db.models import Field
+        from app.db.models_p2 import SatelliteScene
+
+        field_id = uuid_mod.UUID(fixture_field["field"]["id"])
+        field = db.get(Field, field_id)
+        scene_id = "FIX.LAYER-PROVIDER"
+        _process(db, field, scene_id, indices=("ndvi",), tmp_path=tmp_path)
+        db.add(
+            SatelliteScene(
+                field_id=field_id,
+                provider_code="zzz_other_provider",
+                product_code="OTHER_PRODUCT",
+                scene_id=scene_id,
+                acquired_at=datetime(2025, 1, 1, tzinfo=UTC),
+                cloud_cover_pct=99.0,
+                spatial_resolution_m=10.0,
+                band_mapping={},
+                asset_refs={},
+                is_synthetic=True,
+            )
+        )
+        db.commit()
+
+        resp = client.get(
+            f"/api/v1/fields/{field_id}/map/layers",
+            headers=fixture_field["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        ndvi = next(
+            layer for layer in resp.json()["layers"]["vegetation"] if layer["code"] == "ndvi"
+        )
+        assert ndvi["provider_code"] == "nasa_hls"
+        assert ndvi["latest"]["provider_code"] == "nasa_hls"
+        assert ndvi["latest"]["is_synthetic"] is False
+
     def test_layer_catalog_requires_membership(self, client, fixture_field):
         other = _register_other_user(client)
         resp = client.get(
@@ -298,7 +346,7 @@ class TestTileEndpoint:
 
 # ============================================================ value endpoint
 class TestProductValueEndpoint:
-    def _processed_asset(self, client, fixture_field, db, tmp_path):
+    def _processed_asset(self, client, fixture_field, db, tmp_path, *, with_nodata_patch=False):
         from app.db.models import Field
         from app.db.models_p2 import RasterAsset
 
@@ -309,6 +357,7 @@ class TestProductValueEndpoint:
             "FIX.VALUE1",
             indices=("ndvi",),
             tmp_path=tmp_path,
+            fixture_kwargs={"with_nodata_patch": True} if with_nodata_patch else None,
         )
         asset = db.query(RasterAsset).filter_by(
             field_id=field_id,
@@ -351,6 +400,143 @@ class TestProductValueEndpoint:
         assert "unavailable_reason" not in payload
         assert not any("storage" in key.lower() for key in payload)
         assert asset.storage_key not in resp.text
+
+    def test_scene_metadata_is_scoped_to_the_asset_provider(
+        self, client, fixture_field, db, tmp_path
+    ):
+        from pyproj import Transformer
+
+        from app.db.models_p2 import SatelliteScene
+
+        field_id, asset = self._processed_asset(client, fixture_field, db, tmp_path)
+        # The database permits scene IDs to recur across providers. Change the
+        # asset provider and add a second provider row; neither scene may now
+        # supply this asset's acquisition/cloud/synthetic provenance.
+        asset.provider_code = "asset-provider-without-scene-row"
+        db.add(
+            SatelliteScene(
+                field_id=field_id,
+                provider_code="other-provider",
+                product_code="OTHER_PRODUCT",
+                scene_id=asset.scene_id,
+                acquired_at=datetime(2025, 1, 1, tzinfo=UTC),
+                cloud_cover_pct=99.0,
+                spatial_resolution_m=10.0,
+                band_mapping={},
+                asset_refs={},
+                is_synthetic=True,
+            )
+        )
+        db.commit()
+
+        to_wgs84 = Transformer.from_crs(fx.FIXTURE_CRS, "EPSG:4326", always_xy=True)
+        lon, lat = to_wgs84.transform(
+            fx.FIXTURE_LEFT + 10.5 * fx.FIXTURE_RES,
+            fx.FIXTURE_TOP - 8.5 * fx.FIXTURE_RES,
+        )
+        resp = client.get(
+            f"/api/v1/fields/{field_id}/satellite/products/{asset.id}/value",
+            params={"lon": lon, "lat": lat},
+            headers=fixture_field["headers"],
+        )
+
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        assert payload["provider_code"] == "asset-provider-without-scene-row"
+        assert payload["cloud_cover_pct"] is None
+        assert payload["is_synthetic"] is None
+
+    def test_incomplete_derived_asset_without_index_is_not_sampleable(
+        self, client, fixture_field, db, tmp_path
+    ):
+        field_id, asset = self._processed_asset(client, fixture_field, db, tmp_path)
+        asset.index_code = None
+        db.commit()
+
+        resp = client.get(
+            f"/api/v1/fields/{field_id}/satellite/products/{asset.id}/value",
+            params={"lon": 33, "lat": 30},
+            headers=fixture_field["headers"],
+        )
+        assert resp.status_code == 404
+
+    def test_nodata_pixel_is_unavailable_through_the_api(
+        self, client, fixture_field, db, tmp_path
+    ):
+        from pyproj import Transformer
+
+        field_id, asset = self._processed_asset(
+            client, fixture_field, db, tmp_path, with_nodata_patch=True
+        )
+        to_wgs84 = Transformer.from_crs(fx.FIXTURE_CRS, "EPSG:4326", always_xy=True)
+        lon, lat = to_wgs84.transform(
+            fx.FIXTURE_LEFT + 30.5 * fx.FIXTURE_RES,
+            fx.FIXTURE_TOP - 32.5 * fx.FIXTURE_RES,
+        )
+        resp = client.get(
+            f"/api/v1/fields/{field_id}/satellite/products/{asset.id}/value",
+            params={"lon": lon, "lat": lat},
+            headers=fixture_field["headers"],
+        )
+
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        assert payload["available"] is False
+        assert payload["value"] is None
+        assert payload["unavailable_reason"] == "pixel_invalid_or_nodata_or_cloud_masked"
+
+    def test_point_inside_field_but_outside_raster_is_unavailable(
+        self, client, fixture_field, db, tmp_path
+    ):
+        from pyproj import Transformer
+
+        from app.db.models import Field
+        from app.db.models_p2 import RasterAsset
+
+        to_wgs84 = Transformer.from_crs(fx.FIXTURE_CRS, "EPSG:4326", always_xy=True)
+        min_x = fx.FIXTURE_LEFT - 300
+        max_x = fx.FIXTURE_LEFT + fx.FIXTURE_WIDTH * fx.FIXTURE_RES + 300
+        min_y = fx.FIXTURE_TOP - fx.FIXTURE_HEIGHT * fx.FIXTURE_RES - 300
+        max_y = fx.FIXTURE_TOP + 300
+        corners = [
+            to_wgs84.transform(min_x, min_y),
+            to_wgs84.transform(max_x, min_y),
+            to_wgs84.transform(max_x, max_y),
+            to_wgs84.transform(min_x, max_y),
+            to_wgs84.transform(min_x, min_y),
+        ]
+        expanded_geometry = {"type": "Polygon", "coordinates": [[list(c) for c in corners]]}
+        field_resp = client.post(
+            f"/api/v1/farms/{fixture_field['farm']['id']}/fields",
+            headers=fixture_field["headers"],
+            json={"name": "Expanded Raster Field", "geometry": expanded_geometry},
+        )
+        assert field_resp.status_code == 201, field_resp.text
+        field_id = uuid_mod.UUID(field_resp.json()["id"])
+        field = db.get(Field, field_id)
+        _process(db, field, "FIX.OUTSIDE", indices=("ndvi",), tmp_path=tmp_path)
+        asset = db.query(RasterAsset).filter_by(
+            field_id=field_id,
+            scene_id="FIX.OUTSIDE",
+            asset_kind="derived",
+            index_code="ndvi",
+        ).one()
+
+        lon, lat = to_wgs84.transform(
+            fx.FIXTURE_LEFT - 15,
+            fx.FIXTURE_TOP - 8.5 * fx.FIXTURE_RES,
+        )
+        resp = client.get(
+            f"/api/v1/fields/{field_id}/satellite/products/{asset.id}/value",
+            params={"lon": lon, "lat": lat},
+            headers=fixture_field["headers"],
+        )
+
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        assert payload["available"] is False
+        assert payload["value"] is None
+        assert payload["unavailable_reason"] == "point_outside_raster_extent"
 
     def test_rejects_coordinate_outside_field_boundary(self, client, fixture_field, db, tmp_path):
         field_id, asset = self._processed_asset(client, fixture_field, db, tmp_path)

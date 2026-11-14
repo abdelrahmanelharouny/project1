@@ -191,6 +191,18 @@ export function partitionLayerAvailability<T extends { available: boolean }>(
   return { available, unavailable }
 }
 
+/** Resolve the selected focus layer, falling back to the first available one. */
+export function resolveFocusLayer<T extends { code: string; available: boolean }>(
+  layers: readonly T[],
+  preferredCode: string,
+): T | null {
+  return (
+    layers.find((layer) => layer.code === preferredCode && layer.available) ??
+    layers.find((layer) => layer.available) ??
+    null
+  )
+}
+
 /**
  * Sort backend dates_available entries newest-first (null dates sink to the
  * end, stable). Used by the date chips and per-layer date selects.

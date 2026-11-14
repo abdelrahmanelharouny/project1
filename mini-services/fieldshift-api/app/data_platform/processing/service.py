@@ -15,8 +15,9 @@ Job model (Workstream B):
   enqueue/inspect; workers do all raster work (independently deployable via
   `python -m app.worker`).
 - Idempotency layers:
-  1. one ACTIVE job per (scene, processing_version, indices-digest) —
-     partial unique index; re-submission replays the same job;
+  1. one ACTIVE job per field, scene, processing_version, and index set —
+     the field-scoped digest fits the existing partial unique index, and
+     same-field re-submission replays the same job;
   2. natural-key uniqueness on `raster_assets` — a fully processed
      scene/version is skipped, never duplicated;
   3. observation natural key with honest upgrade semantics — a computed
@@ -137,8 +138,30 @@ def _assert_processing_job_owner(db: Session, rp: RasterProcessingJob) -> None:
         )
 
 
-def indices_digest(indices: list[str]) -> str:
-    return hashlib.sha256("|".join(sorted(set(indices))).encode("utf-8")).hexdigest()[:32]
+def indices_digest(indices: list[str], *, field_id: uuid.UUID) -> str:
+    """Digest an index set in its field scope.
+
+    The existing partial unique index does not include ``field_id``. Including
+    it in this stable digest lets distinct fields process the same external
+    scene independently without changing the schema or migration history.
+    """
+    canonical_indices = "|".join(sorted(set(indices)))
+    scoped_request = f"{field_id}\0{canonical_indices}"
+    return hashlib.sha256(scoped_request.encode("utf-8")).hexdigest()[:32]
+
+
+def _preferred_processing_scene(scenes: list[SatelliteScene]) -> SatelliteScene | None:
+    """Prefer the supported provider when external scene IDs collide.
+
+    The natural key includes provider_code, while processing requests contain
+    only scene_id. NASA HLS is the production processor; falling back to the
+    first row when it is absent preserves the existing unsupported-provider
+    and demo-fixture handling.
+    """
+    return next(
+        (scene for scene in scenes if scene.provider_code == PROVIDER_CODE),
+        scenes[0] if scenes else None,
+    )
 
 
 # ----------------------------------------------------------------- create
@@ -183,13 +206,20 @@ def create_processing_jobs(
     if unknown:
         raise ProcessingRequestError(f"unsupported index code(s): {', '.join(unknown)}")
 
-    scenes = db.scalars(
+    scene_rows = db.scalars(
         select(SatelliteScene).where(
             SatelliteScene.field_id == field.id,
             SatelliteScene.scene_id.in_(scene_ids),
         )
     ).all()
-    by_id = {s.scene_id: s for s in scenes}
+    scenes_by_id: dict[str, list[SatelliteScene]] = {}
+    for scene in scene_rows:
+        scenes_by_id.setdefault(scene.scene_id, []).append(scene)
+    by_id = {
+        scene_id: preferred
+        for scene_id, candidates in scenes_by_id.items()
+        if (preferred := _preferred_processing_scene(candidates)) is not None
+    }
     missing = [sid for sid in scene_ids if sid not in by_id]
     if missing:
         raise ProcessingRequestError(f"unknown scene(s) for this field: {', '.join(missing[:5])}")
@@ -282,7 +312,7 @@ def create_processing_jobs(
                     break
             continue
 
-        digest = indices_digest(missing_indices)
+        digest = indices_digest(missing_indices, field_id=field.id)
         rp = RasterProcessingJob(
             field_id=field.id,
             scene_id=sid,
@@ -410,11 +440,12 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
             pass
 
     field = db.get(Field, rp.field_id)
-    scene = db.scalar(
+    scene_rows = db.scalars(
         select(SatelliteScene).where(
             SatelliteScene.field_id == rp.field_id, SatelliteScene.scene_id == rp.scene_id
         )
-    )
+    ).all()
+    scene = _preferred_processing_scene(scene_rows)
     if field is None or scene is None:
         raise SceneNotProcessableError("field or scene row missing")
 

@@ -66,6 +66,7 @@ import { productTileUrlTemplate } from '@/lib/api-p07'
 import {
   dayFromIso,
   opacityFraction,
+  resolveFocusLayer,
   sortDatesDescending,
   zIndexForOrderSlot,
   type TemporalCompatibilityInput,
@@ -207,9 +208,10 @@ export function MapSatellitePane() {
   )
 
   // ------------------------------------------------------------ focus layer
-  const focusLayer = useMemo<P07VegetationLayer | null>(() => {
-    return vegetation.find((layer) => layer.code === focusIndex && layer.available) ?? null
-  }, [vegetation, focusIndex])
+  const focusLayer = useMemo(
+    () => resolveFocusLayer(vegetation, focusIndex),
+    [vegetation, focusIndex],
+  )
 
   const focusUi = focusLayer ? (layerUi[focusLayer.id] ?? DEFAULT_LAYER_UI) : DEFAULT_LAYER_UI
 
@@ -446,7 +448,7 @@ export function MapSatellitePane() {
               {t('focusIndex')}
             </label>
             <Select
-              value={focusIndex}
+              value={focusLayer?.code ?? focusIndex}
               onValueChange={(value) => setFocusIndex(value as P07IndexCode)}
             >
               <SelectTrigger
