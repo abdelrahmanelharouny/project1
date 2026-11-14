@@ -420,6 +420,7 @@ class ReportJob(Base, TimestampMixin):
         ),
         CheckConstraint("locale IN ('en','ar')", name="ck_report_locale"),
         CheckConstraint("date_to >= date_from", name="ck_report_period"),
+        Index("ix_report_jobs_field", field_id),
         Index("ix_report_jobs_org_created", organization_id, text_("created_at DESC")),
         Index("ix_report_jobs_due", "next_run_at"),
     )

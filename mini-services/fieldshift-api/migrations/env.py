@@ -16,6 +16,7 @@ from app.db.models import Base
 # mirrors the full schema.
 import app.db.models_ai  # noqa: F401  (side-effect: registers AI tables)
 import app.db.models_p2  # noqa: F401  (side-effect: registers P2 tables)
+import app.db.models_p3  # noqa: F401  (side-effect: registers P3 tables)
 
 config = context.config
 if config.config_file_name is not None:
@@ -38,10 +39,63 @@ def run_migrations_offline() -> None:
 
 
 def include_object(obj, name, type_, reflected, compare_to):
-    # PostGIS system tables must never be autodiffed into migrations.
-    if type_ == "table" and name in ("spatial_ref_sys",):
-        return False
+    # Offline migrations do not reflect extension-owned relations. Online
+    # autogenerate uses the connection-aware filter below.
     return True
+
+
+def _extension_owned_relations(connection):
+    """Return relations owned by installed PostgreSQL extensions.
+
+    PostGIS installs some support relations in the default schema. Alembic
+    should not propose dropping those extension-managed objects, but must
+    continue checking every application relation against model metadata.
+    """
+    result = connection.exec_driver_sql(
+        """
+        SELECT namespace.nspname, relation.relname,
+               pg_catalog.pg_table_is_visible(relation.oid)
+        FROM pg_depend AS dependency
+        JOIN pg_extension AS ext
+          ON dependency.refclassid = 'pg_extension'::regclass
+         AND dependency.refobjid = ext.oid
+        JOIN pg_class AS relation
+          ON dependency.classid = 'pg_class'::regclass
+         AND dependency.objid = relation.oid
+        JOIN pg_namespace AS namespace
+          ON relation.relnamespace = namespace.oid
+        WHERE dependency.deptype = 'e'
+          AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+        """
+    )
+    relations: set[tuple[str | None, str]] = set()
+    for schema, name, is_visible in result:
+        relations.add((schema, name))
+        # Alembic represents a visible relation reflected from the search path
+        # with schema=None, even if it lives outside current_schema().
+        if is_visible:
+            relations.add((None, name))
+    return relations
+
+
+def _make_include_object(connection):
+    # Resolve catalog metadata only when autogenerate invokes this callback.
+    # Alembic also imports env.py for normal upgrades; an eager SELECT here
+    # would autobegin a transaction before Alembic starts its migration txn.
+    extension_relations: set[tuple[str | None, str]] | None = None
+
+    def include_extension_aware_object(obj, name, type_, reflected, compare_to):
+        nonlocal extension_relations
+        relation = obj if type_ == "table" else getattr(obj, "table", None)
+        if relation is not None:
+            if extension_relations is None:
+                extension_relations = _extension_owned_relations(connection)
+            schema = getattr(relation, "schema", None)
+            if (schema, relation.name) in extension_relations:
+                return False
+        return include_object(obj, name, type_, reflected, compare_to)
+
+    return include_extension_aware_object
 
 
 def run_migrations_online() -> None:
@@ -54,7 +108,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            include_object=include_object,
+            include_object=_make_include_object(connection),
             compare_type=True,
         )
         with context.begin_transaction():
