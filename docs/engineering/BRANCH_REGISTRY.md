@@ -1,0 +1,27 @@
+# CropTwist Branch Registry
+
+**Snapshot:** 2026-11-14 02:42 UTC+02:00. Branch facts are divided into refs verified in this clone and refs reported by another task. A reported ref is not treated as an actual remote branch unless `git`/GitHub verifies it. The main-CI blocker is tracked in [issue #2](https://github.com/abdelrahmanelharouny/project1/issues/2).
+
+## Verified repository refs
+
+| Branch / ref | Owner or workstream | Base | Latest commit at snapshot | Integration status | Verification status | Unique work / notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `origin/main` / `main` | Canonical repository | Default branch | `998f7a5885e4ee0c9defe28671736560fb1b8762` | Current GitHub baseline; not modified by control setup | GitHub CI fails on `alembic check` model/migration drift and bridge `TS2688` missing Bun type definitions | Main has the prior audit/auth/AI/config checkpoint. |
+| `origin/feature/gis-spatial-analytics` | GIS task `HzZjK7VgBgFpeWNaDCGnWl` | `main` at `998f7a5885e4ee0c9defe28671736560fb1b8762`; verified merge-base; exactly one commit ahead | `0ed6039ce8072bc95e02ae614c2a2daba7900ef9` | PR #1 open; not merged; no review decision; merge state `UNSTABLE` | Task reports frontend/build/pure raster checks pass; PostGIS-backed tests unrun. GitHub PR CI failing; same CI causes on main. | 18 GIS/map/API/processing/UI/i18n/test paths; no migration file. Owns raster sampling, statistical zone overlay and partial index processing. |
+| `remediation/legacy-hardening` | Legacy remediation task `eQkxb4GilHlamwcAQkZCca` | `main` at `998f7a5885e4ee0c9defe28671736560fb1b8762` | `6dc6048b587c733e642dace49c54f513f2927167` | Local only; not pushed; incremental bundle verified. Not ready for integration pending independent-review issues. | 941 DB-independent unit tests, 17 CSV parser cases passed/2 DB cases deselected, 122 frontend tests, TSC and syntax checks reported. | 41 unique changed paths vs the 18 GIS paths; no file-path overlap with GIS in this clone. Task review risks include recovery/replay races, unmetered scenario quota, missing seasonal rotation scores, verification/seat concurrency, API-key/payment binding edges, and coverage gaps; pending confirmation. |
+| `integration/cropshift-control` | Project engineering supervisor | `origin/main` at `998f7a5885e4ee0c9defe28671736560fb1b8762` | Current local ref; resolve exact value with `git rev-parse integration/cropshift-control` after the docs checkpoint. | Local docs-only control branch at this snapshot; no feature source merged; remote publication pending. | Documentation/static checks only; no code integration tests run on this branch. | Adds the central status, branch, queue, quality and decision records. |
+
+## Task-reported or inaccessible refs (not found in local/remotes)
+
+| Reported branch | Workstream / source | Reported base and commit | Verified repository presence? | Status / required follow-up |
+| --- | --- | --- | --- | --- |
+| `feature/ai-core-orchestration` | AI Core task `eTdGUuSwQLbYAxVlJWxVXr` initial implementation | Task report: base `998f7a5`, implementation `46a5c9e`, report update `1b49bba` | **No**: absent from this clone and `origin` refs | Historical task-reported refs; initial report says 63 database-free AI tests passed. Full ref remains unavailable for diff review. |
+| `feature/ai-complete-integration` | Same AI task's active integration | Task report: common base `998f7a5885e4ee0c9defe28671736560fb1b8762`; HEAD / GIS merge commit `d590be057c1993fd75e796b7c8365ab07db2eb87`; GIS parent `0ed6039ce8072bc95e02ae614c2a2daba7900ef9` | **No**: task-local in another sandbox; absent from this clone and `origin` refs | Task reports 14 modified tracked, 5 untracked, 0 staged files. Its working tree includes migration `0025_ai_feedback_knowledge` after committed `0024_ai_core_orchestration`; Alembic reports one local head `0025_ai_feedback_knowledge`, no DB apply. Focused result: AI/provider 59 passed (13 warnings); GIS renderer 7 passed/13 deselected. Await a safe commit/export and full integration verification. |
+| Figma/design task's scaffold | Task `AjYPACwwJ64QKCsudAOBG8` | Separate Web scaffold `main` `0d0edff` (`Initial project scaffold`) | **No**: this is not a ref in `project1` | Task stopped; Figma is accessible but no CropTwist source was changed. Exact public `project1` URL was supplied; await read-only access check. Do not integrate its remote/scaffold. |
+
+## Cross-branch overlap and migration notes
+
+- Exact changed-path comparison for the verified GIS and remediation refs shows 18 GIS paths, 41 remediation paths, **zero path overlap**. This does not establish behavioral compatibility.
+- AI branch path overlap cannot be computed because the reported AI refs are not available locally/remotely. The active AI task reports dirty-worktree migration `0025_ai_feedback_knowledge` following `0024_ai_core_orchestration` and one local Alembic head, but the new revision is not verified as committed or applied. Inspect it and the complete graph after receiving a safe branch snapshot.
+- GIS PR #1 contains no Alembic/migration paths. The remediation branch also contains no migration files. Main's existing `alembic check` CI baseline is failing; all integration remains blocked until the full migration graph is reviewed on a disposable database and the check is made green.
+- Do not force-push, reset, delete, or overwrite any registered branch. Do not merge branches to create this registry.

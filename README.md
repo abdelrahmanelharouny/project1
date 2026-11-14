@@ -98,9 +98,10 @@ Open the app on port 3000 (or the gateway on 81). API docs: FastAPI's OpenAPI UI
 ## Testing
 
 ```bash
-cd /home/z/my-project/mini-services/fieldshift-api
+# Run from the repository root.
+cd mini-services/fieldshift-api
 .venv/bin/python -m pytest tests -q     # needs local PG + PostGIS on 5433 (db croptwist_test)
-cd /home/z/my-project && bun run lint   # frontend lint
+cd ../.. && bun run lint               # frontend lint
 bun test tests/frontend              # frontend helper/navigation regression tests
 cd mini-services/llm-bridge && ../../node_modules/.bin/tsc --noEmit
 ```
@@ -109,6 +110,7 @@ CI (`.github/workflows/ci.yml`) runs backend migration checks, pytest and API/br
 
 ## Documentation
 
+- Project-control dashboard: [`PROJECT_CONTROL.md`](PROJECT_CONTROL.md) (current status, branch registry, integration queue, quality gates and decisions)
 - Backend README: [`mini-services/fieldshift-api/README.md`](mini-services/fieldshift-api/README.md)
 - Backend docs cited from code: [`mini-services/fieldshift-api/docs/`](mini-services/fieldshift-api/docs/) and [`KNOWN_LIMITATIONS.md`](mini-services/fieldshift-api/KNOWN_LIMITATIONS.md)
 - Platform-wide docs: [`docs/`](docs/) — architecture, scientific deepening program, milestone records (`docs/m6b/`, `docs/m6c/`, `docs/m7/`), data dictionary, diagrams
