@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import tempfile
 import uuid
 from datetime import UTC, datetime
@@ -85,6 +86,23 @@ class ProcessingOwnershipLostError(RuntimeError):
     """The raster executor no longer holds its persisted background-job fence."""
 
 
+def _safe_processing_error(exc: BaseException) -> str:
+    """Keep GIS/storage failures useful without exposing paths or credentials."""
+    message = " ".join(str(exc).split())[:2000]
+    message = re.sub(r"https?://[^\s)]+", "<redacted-url>", message)
+    message = re.sub(
+        r"(?i)(password|secret|token|access[_ -]?key|authorization)\s*[:=]\s*[^\s,;]+",
+        r"\1=<redacted>",
+        message,
+    )
+    message = re.sub(
+        r"(?<![\w.])/(?:home|tmp|var|mnt|workspace|app|srv|run)/[^\s)]+",
+        "<redacted-path>",
+        message,
+    )
+    return f"{type(exc).__name__}: {message}"[:2000]
+
+
 def _assert_processing_job_owner(db: Session, rp: RasterProcessingJob) -> None:
     """Lock and validate the live owner row before raster DB or artifact writes.
 
@@ -102,7 +120,7 @@ def _assert_processing_job_owner(db: Session, rp: RasterProcessingJob) -> None:
         # Keep explicit synchronous invocations usable only before any worker
         # has claimed the queued row and in-process workers are disabled. A
         # running/expired/replayed job fails closed.
-        if settings.job_workers > 0:
+        if settings.job_workers > 0 or settings.job_queue_only:
             raise ProcessingOwnershipLostError("raster executor has no active worker context")
         queued = db.scalar(
             select(BackgroundJob.id)
@@ -329,6 +347,7 @@ def create_processing_jobs(
         bg = submit(
             PROCESSING_JOB_KIND,
             lambda bg_id, progress, rp_id=rp.id: execute_processing_job(rp_id, progress),
+            db=db,
             ref_kind=PROCESSING_JOB_KIND,
             ref_id=rp.id,
             label=f"Preprocess HLS scene {sid} ({','.join(missing_indices)})",
@@ -396,19 +415,20 @@ def execute_processing_job(rp_job_id: uuid.UUID, progress: Any) -> None:
                 return
             _assert_processing_job_owner(db, rp)
             rp.status = "failed"
-            rp.error = f"{type(exc).__name__}: {exc}"[:2000]
+            safe_error = _safe_processing_error(exc)
+            rp.error = safe_error
             rp.finished_at = datetime.now(UTC)
             db.add(rp)
             if rp.background_job_id:
                 bg = db.get(BackgroundJob, rp.background_job_id)
                 if bg is not None and bg.status == "running":
                     bg.status = "failed"
-                    bg.error = f"{type(exc).__name__}: {exc}"[:2000]
+                    bg.error = safe_error
                     db.add(bg)
             db.commit()
             logger.warning(
                 "raster processing failed",
-                extra={"job_id": str(rp_job_id), "error": str(exc)[:500]},
+                extra={"job_id": str(rp_job_id), "error": safe_error[:500]},
             )
 
 

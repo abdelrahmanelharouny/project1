@@ -371,8 +371,8 @@ def test_rotation_denied_by_current_rate_authorization_keeps_original(db):
 
 
 def test_rotation_racing_revoke_has_one_serialized_transition(db, monkeypatch):
-    monkeypatch.setattr(entitlements, "require_flag", lambda *_args, **_kwargs: None)
     org, user, _ = _new_org(db, with_owner=True)
+    _api_plan(db, org, max_api_keys=1, rate_limit=100)
     original = _new_key(db, org)
     db.commit()
     user_id, org_id, original_id = user.id, org.id, original.id

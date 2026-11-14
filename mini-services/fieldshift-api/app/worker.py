@@ -68,19 +68,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.workers is not None and args.workers != settings.job_workers:
         settings.job_workers = args.workers
 
-    # Register replayable kinds BEFORE recovery so orphans can re-execute.
-    # The 'ingestion' kind self-registers lazily on first submit; raster
-    # processing and report generation register eagerly here so recovered
-    # rows replay (P07: report generation is worker-deployable too — long
-    # PDF/XLSX renders never share the API's request budget).
-    from app.data_platform.processing.service import (
-        PROCESSING_JOB_KIND,
-        replay_processing_job,
-    )
-    from app.reports.worker import REPORT_JOB_KIND, replay_report_job
-
-    jobs.register_kind(PROCESSING_JOB_KIND, replay_processing_job)
-    jobs.register_kind(REPORT_JOB_KIND, replay_report_job)
+    # Register every built-in replay kind BEFORE recovery and before any
+    # worker thread starts.  Recovery must not depend on a prior submit in this
+    # process (or on an in-memory callback surviving a restart).
+    jobs.register_builtin_executors()
 
     started = jobs.start_workers()
     if started == 0:
@@ -89,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     logger.info("worker pool running: %d threads", started)
+    from app.core import scheduler as maintenance_scheduler
+
+    maintenance_scheduler.start_scheduler()
 
     stop = threading.Event()
 
@@ -103,20 +97,24 @@ def main(argv: list[str] | None = None) -> int:
     import time
 
     deadline = time.monotonic() + args.idle_exit_seconds if args.idle_exit_seconds else None
-    while not stop.is_set():
-        time.sleep(0.5)
-        if deadline is not None:
-            with SessionLocal() as db:
-                pending = db.scalar(
-                    select(sqlfunc.count())
-                    .select_from(BackgroundJob)
-                    .where(BackgroundJob.status == "queued")
-                )
-            if pending == 0 and time.monotonic() > deadline:
-                logger.info("idle exit reached")
-                break
-
-    jobs.shutdown_workers()
+    try:
+        while not stop.is_set():
+            time.sleep(0.5)
+            if deadline is not None:
+                with SessionLocal() as db:
+                    pending = db.scalar(
+                        select(sqlfunc.count())
+                        .select_from(BackgroundJob)
+                        .where(BackgroundJob.status == "queued")
+                    )
+                if pending == 0 and time.monotonic() > deadline:
+                    logger.info("idle exit reached")
+                    break
+    finally:
+        # Stop periodic producers before draining the one-shot queue so a
+        # worker shutdown cannot race a scheduler enqueue.
+        maintenance_scheduler.stop_scheduler()
+        jobs.shutdown_workers()
     logger.info("worker pool drained; bye")
     return 0
 

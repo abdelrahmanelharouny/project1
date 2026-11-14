@@ -55,6 +55,9 @@ _GEOTIFF_MAGIC = (b"II*\x00", b"MM\x00*")
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 _KEY_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_ORG_KEY_RE = re.compile(
+    r"^org/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/"
+)
 
 
 class StorageError(Exception):
@@ -102,6 +105,22 @@ def validate_key_component(component: str, *, label: str) -> str:
     if component in (".", ".."):
         raise StorageError(f"{label} key component is a relative path segment")
     return component
+
+
+def validate_storage_key(key: str, *, require_tenant: bool = False) -> str:
+    """Validate a relative object key before it reaches a backend."""
+    if not isinstance(key, str) or not key or len(key) > 1024:
+        raise StorageError("storage key is empty or too long")
+    if key.startswith(("/", "\\")) or "\\" in key or "?" in key or "#" in key:
+        raise StorageError("storage key must be relative and contain no URL delimiters")
+    parts = key.split("/")
+    if any(not part or part in (".", "..") for part in parts):
+        raise StorageError("storage key contains an invalid path segment")
+    for index, part in enumerate(parts):
+        validate_key_component(part, label=f"storage key segment {index}")
+    if require_tenant and not _ORG_KEY_RE.match(key):
+        raise StorageError("storage key must be tenant-scoped as org/<uuid>/...")
+    return key
 
 
 def raster_key(
@@ -211,12 +230,14 @@ class LocalStorage:
         self._root.mkdir(parents=True, exist_ok=True)
 
     def _resolve(self, key: str) -> Path:
+        validate_storage_key(key)
         candidate = (self._root / key).resolve()
         if not candidate.is_relative_to(self._root):
             raise StorageError(f"key escapes the storage root: {key!r}")
         return candidate
 
     def put_bytes(self, key: str, data: bytes, *, content_type: str, overwrite: bool = False) -> StoredObject:
+        validate_storage_key(key)
         checksum = validate_asset_payload(data=data, content_type=content_type)
         target = self._resolve(key)
         if target.exists() and not overwrite:
@@ -300,6 +321,7 @@ class S3Storage:
             raise StorageError("CROPTWIST_S3_BUCKET is required for the S3 raster backend")
 
     def put_bytes(self, key: str, data: bytes, *, content_type: str, overwrite: bool = False) -> StoredObject:
+        validate_storage_key(key)
         checksum = validate_asset_payload(data=data, content_type=content_type)
         if not overwrite and self.exists(key):
             raise KeyConflictError(f"object already exists: {key}")
@@ -398,12 +420,16 @@ _storage_singleton: RasterStorage | None = None
 
 
 def get_raster_storage() -> RasterStorage:
-    """Backend selected by CROPTWIST_RASTER_STORAGE_BACKEND (local|s3)."""
+    """Backend selected by CROPTWIST_RASTER_STORAGE_BACKEND (local|s3|postgres)."""
     global _storage_singleton  # noqa: PLW0603
     if _storage_singleton is None:
         backend = (settings.raster_storage_backend or "local").lower()
         if backend == "s3":
             _storage_singleton = S3Storage()
+        elif backend == "postgres":
+            from app.geospatial.postgres_objectstore import PostgresStorage
+
+            _storage_singleton = PostgresStorage()
         elif backend == "local":
             _storage_singleton = LocalStorage(settings.raster_storage_root)
         else:

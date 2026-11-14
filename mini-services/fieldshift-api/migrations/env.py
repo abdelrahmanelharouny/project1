@@ -6,6 +6,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
+from app.core.database import get_database_connect_args
 from app.db.models import Base
 
 # Register the AI-layer tables on Base.metadata. models_ai is deliberately
@@ -19,6 +20,7 @@ import app.db.models_p2  # noqa: F401  (side-effect: registers P2 tables)
 import app.db.models_p3  # noqa: F401  (side-effect: registers P3 commercial tables)
 import app.db.models_api_rate  # noqa: F401  (side-effect: registers shared API rate windows)
 import app.db.models_orchestration  # noqa: F401  (side-effect: registers AI Core traces)
+import app.db.models_artifacts  # noqa: F401  (side-effect: registers durable artifact bytes)
 
 config = context.config
 if config.config_file_name is not None:
@@ -105,6 +107,7 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=get_database_connect_args(),
     )
     with connectable.connect() as connection:
         context.configure(

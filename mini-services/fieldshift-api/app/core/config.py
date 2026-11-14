@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     # background tasks (provider ingestion today). 0 disables the executor
     # and keeps the legacy inline-in-request execution (used by tests).
     job_workers: int = 2
+    # Railway API processes can persist replayable work without executing it;
+    # the separate worker deployment consumes the durable queue.
+    job_queue_only: bool = False
     # A running job is recoverable only after this much inactivity; progress
     # commits refresh the durable background row's updated_at timestamp.
     job_stale_after_seconds: int = 6 * 60 * 60
@@ -218,6 +221,12 @@ class Settings(BaseSettings):
     reports_dir: str = "/home/z/my-project/mini-services/fieldshift-api/reports_storage"
     report_retention_days: int = 30
     report_max_per_month_free: int = 3
+
+    # The free public evaluation stores private artifacts in PostgreSQL;
+    # local files are temporary rendering/cache inputs, never durable output.
+    reports_storage_backend: str = "local"
+    artifact_max_object_bytes: int = 32_000_000
+    artifact_total_budget_bytes: int = 256_000_000
 
     @model_validator(mode="after")
     def _production_must_not_use_sandbox_billing(self) -> "Settings":

@@ -3,7 +3,7 @@
 from dataclasses import replace
 from datetime import date
 
-from test_rotation_core import (
+from tests.unit.test_rotation_core import (
     SUMMER,
     _crop,
     _evidence,

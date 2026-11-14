@@ -30,6 +30,9 @@ async def lifespan(app: FastAPI):
     # settings.job_workers <= 0) with crash-orphan recovery.
     from app.core import jobs as background_jobs
 
+    # Recovery may run before the first request reaches this process, so all
+    # durable kinds must be registered independently of request-time submits.
+    background_jobs.register_builtin_executors()
     started = background_jobs.start_workers()
     # Ensure the source/product registry rows exist (idempotent).
     from app.core.database import SessionLocal

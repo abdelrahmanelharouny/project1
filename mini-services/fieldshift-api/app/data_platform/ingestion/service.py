@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.errors import Conflict, NotFound
 from app.data_platform.contracts.observations import (
     AreaOfInterest,
@@ -26,6 +27,7 @@ from app.db.models import (
     DatasetProduct,
     DataSource,
     Field,
+    BackgroundJob,
     IngestionJob,
     Observation,
     ObservationQualityFlag,
@@ -185,6 +187,46 @@ def _product_for_provider(
     return source, product
 
 
+def _register_ingestion_executor() -> None:
+    global _replay_registered
+    if not _replay_registered:
+        from app.core import jobs as background_jobs
+
+        background_jobs.register_kind("ingestion", _replay_ingestion)
+        _replay_registered = True
+
+
+def _ensure_ingestion_background_job(
+    db: Session, ingestion_job_id: Any, request_id: str | None = None
+) -> Any:
+    """Create or reuse the durable companion row in the caller transaction."""
+    from app.core import jobs as background_jobs
+
+    _register_ingestion_executor()
+    existing = db.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.kind == "ingestion",
+            BackgroundJob.ref_kind == "ingestion",
+            BackgroundJob.ref_id == ingestion_job_id,
+        )
+        .order_by(BackgroundJob.created_at.desc())
+    )
+    if existing is not None:
+        return existing
+    return background_jobs.submit(
+        "ingestion",
+        lambda _background_job_id, progress: _execute_ingestion_job_by_id(
+            ingestion_job_id, progress
+        ),
+        db=db,
+        ref_kind="ingestion",
+        ref_id=ingestion_job_id,
+        label="provider observation ingestion",
+        request_id=request_id,
+    )
+
+
 def start_ingestion_job(
     db: Session,
     *,
@@ -219,6 +261,9 @@ def start_ingestion_job(
             )
         )
         if existing is not None:
+            if existing.status == "queued" and (not execute or settings.job_queue_only):
+                _ensure_ingestion_background_job(db, existing.id)
+                db.commit()
             return existing
 
     job = IngestionJob(
@@ -235,6 +280,12 @@ def start_ingestion_job(
         created_by=created_by,
     )
     db.add(job)
+    db.flush()
+    should_execute = bool(execute and not settings.job_queue_only)
+    if not should_execute:
+        # The ingestion row and its replayable queue row share one commit. The
+        # jobs after_commit hook wakes local workers only after both are visible.
+        _ensure_ingestion_background_job(db, job.id)
     try:
         db.commit()
     except IntegrityError:
@@ -249,7 +300,7 @@ def start_ingestion_job(
             raise
         return existing
 
-    if execute:
+    if should_execute:
         _execute_job(db, job, field=field, variables=variables, start=start, end=end, options=options)
     return job
 
@@ -317,17 +368,31 @@ def submit_ingestion_job(ingestion_job_id: Any, request_id: str | None = None) -
     nothing request-scoped is closed over. The 'ingestion' kind is registered
     as replayable so crash-recovered 'queued' rows execute after a restart.
     """
-    global _replay_registered
     from app.core import jobs as background_jobs
 
-    if not _replay_registered:
-        background_jobs.register_kind("ingestion", _replay_ingestion)
-        _replay_registered = True
+    _register_ingestion_executor()
+    from app.core.database import SessionLocal
+
+    callback = lambda _background_job_id, progress: _execute_ingestion_job_by_id(
+        ingestion_job_id, progress
+    )
+    with SessionLocal() as db:
+        existing = db.scalar(
+            select(BackgroundJob)
+            .where(
+                BackgroundJob.kind == "ingestion",
+                BackgroundJob.ref_kind == "ingestion",
+                BackgroundJob.ref_id == ingestion_job_id,
+            )
+            .order_by(BackgroundJob.created_at.desc())
+        )
+    if existing is not None:
+        if existing.status == "queued":
+            background_jobs.enqueue_existing(existing.id, callback)
+        return existing
     return background_jobs.submit(
         "ingestion",
-        lambda _background_job_id, progress: _execute_ingestion_job_by_id(
-            ingestion_job_id, progress
-        ),
+        callback,
         ref_kind="ingestion",
         ref_id=ingestion_job_id,
         label="provider observation ingestion",

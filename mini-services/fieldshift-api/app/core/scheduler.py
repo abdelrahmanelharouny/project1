@@ -25,12 +25,16 @@ Design rules:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
+
+from sqlalchemy import text
 
 from app.core.config import settings
 
@@ -48,6 +52,49 @@ class PeriodicTask:
     fn: Callable[[], str]
 
 
+def _task_lock_key(task_name: str) -> int:
+    """Stable signed int64 key shared by every scheduler process."""
+    digest = hashlib.blake2b(
+        task_name.encode("utf-8"), digest_size=8, person=b"sched-lock"
+    ).digest()
+    return int.from_bytes(digest, byteorder="big", signed=True)
+
+
+@contextmanager
+def _task_advisory_lock(session: Any, task_name: str):
+    """Hold one cross-process lock for the task's complete DB transaction."""
+    from app.core.database import engine
+
+    lock_connection = engine.connect()
+    try:
+        if lock_connection.dialect.name != "postgresql":
+            # Production is PostgreSQL; retaining local execution keeps unit
+            # tests and development adapters compatible without claiming exclusivity.
+            yield True
+            return
+        lock_key = _task_lock_key(task_name)
+        acquired = bool(
+            lock_connection.execute(
+                text("SELECT pg_try_advisory_lock(:lock_key)"), {"lock_key": lock_key}
+            ).scalar_one()
+        )
+        lock_connection.commit()
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                try:
+                    lock_connection.execute(
+                        text("SELECT pg_advisory_unlock(:lock_key)"),
+                        {"lock_key": lock_key},
+                    )
+                    lock_connection.commit()
+                except Exception:  # noqa: BLE001 — never return a locked connection to pool
+                    lock_connection.invalidate()
+    finally:
+        lock_connection.close()
+
+
 def _run_task(task: PeriodicTask) -> None:
     from app.core.database import SessionLocal
 
@@ -56,8 +103,12 @@ def _run_task(task: PeriodicTask) -> None:
     detail = ""
     session = SessionLocal()
     try:
-        detail = str(task.fn(session)) or "ok"
-        session.commit()
+        with _task_advisory_lock(session, task.name) as acquired:
+            if not acquired:
+                detail = "skipped: advisory lock held by another scheduler"
+            else:
+                detail = str(task.fn(session)) or "ok"
+                session.commit()
     except Exception:  # noqa: BLE001 — never kill the scheduler loop
         ok = False
         detail = "error (see log)"
@@ -81,16 +132,16 @@ def _run_task(task: PeriodicTask) -> None:
 
 # ------------------------------------------------------------- task bodies
 def _execute_queued_reports(session) -> str:  # type: ignore[no-untyped-def]
-    """Run queued report jobs (oldest first, bounded batch)."""
+    """Enqueue queued reports (oldest first, bounded batch) for workers."""
     import uuid as _uuid
 
     from sqlalchemy import select
 
+    from app.core import jobs as core_jobs
+    from app.db.models import BackgroundJob
     from app.db.models_p3 import ReportJob
-    from app.reports import service as reports
+    from app.reports.worker import replay_report_job, submit_report_job
 
-    # report.ready webhook emission happens inside execute_report_job itself,
-    # so both API-inline and scheduler-driven executions notify uniformly.
     jobs = list(
         session.scalars(
             select(ReportJob)
@@ -99,12 +150,32 @@ def _execute_queued_reports(session) -> str:  # type: ignore[no-untyped-def]
             .limit(10)
         ).all()
     )
-    done = 0
+    enqueued = 0
+    skipped = 0
     for job in jobs:
         job_id = _uuid.UUID(str(job.id))
-        _ok, _err = reports.execute_report_job(session, job_id)
-        done += 1
-    return f"executed={done}"
+        existing = session.scalar(
+            select(BackgroundJob)
+            .where(
+                BackgroundJob.kind == "report_generation",
+                BackgroundJob.ref_kind == "report",
+                BackgroundJob.ref_id == job_id,
+            )
+            .order_by(BackgroundJob.created_at.desc())
+        )
+        if existing is not None and existing.status != "queued":
+            skipped += 1
+            continue
+        if existing is None:
+            submit_report_job(
+                job_id,
+                created_by=job.requested_by,
+                db=session,
+            )
+        else:
+            core_jobs.enqueue_existing(existing.id, replay_report_job)
+        enqueued += 1
+    return f"enqueued={enqueued} skipped={skipped}"
 
 
 def _retry_webhooks(session) -> str:  # type: ignore[no-untyped-def]

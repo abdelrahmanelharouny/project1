@@ -92,3 +92,7 @@ tool-results/
 
 # Required source SQL, not a generated local artifact.
 !deployment/supabase/local-postgis.sql
+
+# Generated integration snapshots and obsolete source archives
+.initial_snapshot.json
+download/*.zip

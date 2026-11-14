@@ -7,8 +7,8 @@ in ``app/api/v1/router.py`` — this module declares the router only.
 
 Inline execution: POST /reports accepts ``sync=true`` to render immediately
 for the small formats (csv/xlsx) — pdf always enqueues (rendering cost is
-unbounded with row count). POST /reports/{id}/regenerate re-renders inline
-regardless of format (regeneration is an explicit, user-initiated action).
+unbounded with row count). Queue-only deployments persist every report in the
+durable worker queue instead of honoring inline execution.
 """
 
 import uuid
@@ -21,10 +21,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.errors import ValidationFailed
 from app.domains.identity.service import get_principal
 from app.reports import contracts, service
+from app.reports.worker import submit_report_job
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -86,7 +88,7 @@ def create_report(
 ) -> dict:
     from datetime import date as date_cls
 
-    sync = bool(payload.sync)
+    sync = bool(payload.sync) and not settings.job_queue_only
     if sync and payload.output_format not in ("csv", "xlsx"):
         raise ValidationFailed(
             "sync=true is only supported for csv and xlsx; pdf is queued.",
@@ -104,7 +106,12 @@ def create_report(
         date_to=_parse_date(payload.date_to, "date_to"),
         title=payload.title,
     )
-    if sync:
+    if settings.job_queue_only or settings.job_workers > 0:
+        submit_report_job(job.id, created_by=principal.id, db=db)
+        # The report row was committed by create_report_job; this commit makes
+        # the companion queue row visible before jobs.submit wakes a worker.
+        db.commit()
+    elif sync:
         success, _error = service.execute_report_job(db, job.id)
         if not success:
             # The job row carries the failure; surface it honestly as 201
@@ -177,19 +184,23 @@ def download_report(
     from pathlib import Path as fs_path
 
     job = service.get_report_job(db, principal, job_id)
-    path = service.read_report_file(db, principal, job_id)
+    artifact = service.read_report_file(db, principal, job_id)
     ext = job.output_format
     media = _MEDIA_TYPES.get(ext, "application/octet-stream")
     filename = f"{job.report_type}_{job.date_to.isoformat()}.{ext}"
     disposition = f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"
     return StreamingResponse(
-        _file_iterator(path),
+        _file_iterator(artifact),
         media_type=media,
         headers={"Content-Disposition": disposition},
     )
 
 
-def _file_iterator(path: Path, chunk_size: int = 64 * 1024):  # noqa: ANN202
+def _file_iterator(path: Path | bytes, chunk_size: int = 64 * 1024):  # noqa: ANN202
+    if isinstance(path, bytes):
+        for start in range(0, len(path), chunk_size):
+            yield path[start : start + chunk_size]
+        return
     with path.open("rb") as fh:
         while chunk := fh.read(chunk_size):
             yield chunk
@@ -211,9 +222,13 @@ def regenerate_report(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Re-render an existing job inline (viewer+; execution errors land on
-    the job row as status=failed + error, never raised raw)."""
+    """Re-render an existing job inline when this process is allowed to do so."""
     service.get_report_job(db, principal, job_id)  # tenant + role gate
+    if settings.job_queue_only:
+        raise ValidationFailed(
+            "Report regeneration is disabled on queue-only API processes; "
+            "submit a new report or use the worker deployment."
+        )
     success, _error = service.execute_report_job(db, job_id)
     job = service.get_report_job(db, principal, job_id)
     body = service.job_payload(job)

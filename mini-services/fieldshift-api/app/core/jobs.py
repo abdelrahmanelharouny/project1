@@ -23,7 +23,8 @@ from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from typing import Any, Iterator
 
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import event, func, or_, select, text, update
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 
@@ -47,6 +48,7 @@ _JOB_LEASE_SECONDS = 120
 _JOB_HEARTBEAT_SECONDS = 20
 _TERMINAL_DOMAIN_STATUSES = {"succeeded", "failed", "cancelled", "expired"}
 _TERMINAL_BACKGROUND_STATUSES = ("succeeded", "failed", "cancelled")
+_DEFERRED_ENQUEUES_KEY = "croptwist_deferred_background_enqueues"
 _current_execution: ContextVar[tuple[uuid.UUID, uuid.UUID, int] | None] = ContextVar(
     "current_background_job_execution", default=None
 )
@@ -79,6 +81,25 @@ def enqueue_existing(job_id: uuid.UUID, fn: JobFn | None = None) -> None:
     _queue_job_id(job_id)
 
 
+def _enqueue_after_commit(session: Session) -> None:
+    """Publish local wake-ups only after the owning DB transaction commits."""
+    pending = session.info.pop(_DEFERRED_ENQUEUES_KEY, ())
+    for job_id, fn in pending:
+        enqueue_existing(job_id, fn)
+
+
+def _discard_deferred_enqueues(session: Session) -> None:
+    """Never wake a worker for rows discarded by a transaction rollback."""
+    session.info.pop(_DEFERRED_ENQUEUES_KEY, None)
+
+
+# A caller-provided session lets a domain row and its companion queue row share
+# one transaction.  These listeners keep the existing submit() API compatible
+# while preventing a worker from seeing a queue row before the domain commit.
+event.listen(Session, "after_commit", _enqueue_after_commit)
+event.listen(Session, "after_rollback", _discard_deferred_enqueues)
+
+
 def register_kind(kind: str, fn: JobFn) -> None:
     """Register a replayable executor for a durable job kind."""
     with _registry_lock:
@@ -103,14 +124,22 @@ def submit(
     kind: str,
     fn: JobFn,
     *,
+    db: Session | None = None,
     ref_kind: str | None = None,
     ref_id: uuid.UUID | None = None,
     label: str | None = None,
     request_id: str | None = None,
     created_by: uuid.UUID | None = None,
 ) -> Any:
-    """Persist a queued BackgroundJob row first, then wake a local worker."""
-    from app.core.database import SessionLocal
+    """Persist a queued row and wake workers only after its transaction commits.
+
+    Existing callers may omit ``db``; that preserves the original self-contained
+    transaction behavior.  A caller that is creating a domain row in an open
+    transaction should pass that same session.  The companion row is flushed
+    into that transaction and its local wake-up is deferred until commit, so a
+    worker can never claim a queue row whose domain row was rolled back or is
+    not yet visible.
+    """
     from app.db.models import BackgroundJob
 
     job = BackgroundJob(
@@ -122,11 +151,22 @@ def submit(
         request_id=request_id,
         created_by=created_by,
     )
-    with SessionLocal() as db:
-        db.add(job)
-        db.commit()
-        job_id = job.id
-    enqueue_existing(job_id, fn)
+    if db is None:
+        from app.core.database import SessionLocal
+
+        with SessionLocal() as own_db:
+            own_db.add(job)
+            own_db.commit()
+            # Touch the identity while the session is still open; SessionLocal
+            # expires ORM attributes on commit and callers historically receive
+            # this detached job object from submit().
+            job_id = job.id
+        enqueue_existing(job_id, fn)
+        return job
+
+    db.add(job)
+    db.flush()
+    db.info.setdefault(_DEFERRED_ENQUEUES_KEY, []).append((job.id, fn))
     return job
 
 
@@ -747,10 +787,13 @@ def _finalize_job(
 
 def _worker_loop() -> None:
     while not _shutdown.is_set():
+        # The local queue is only a wake-up optimization.  Poll on every loop
+        # so a process can discover rows committed by another API/worker even
+        # while local wake-ups continue to arrive.
+        _poll_queued_jobs()
         try:
             job_id = _queue.get(timeout=0.5)
         except queue.Empty:
-            _poll_queued_jobs()
             continue
         if job_id is None:
             _queue.task_done()

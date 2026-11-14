@@ -1785,7 +1785,7 @@ export async function streamAiCoreRequest(
   payload: AiCoreRequestPayload,
   options: AiCoreStreamOptions = {},
 ): Promise<AiCoreResponse> {
-  const path = withPort('/api/v1/ai/requests/stream')
+  const path = '/api/v1/ai/requests/stream'
   const send = async (skipAuthRetry: boolean): Promise<AiCoreResponse> => {
     const response = await fetch(path, {
       method: 'POST',

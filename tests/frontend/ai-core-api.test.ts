@@ -103,7 +103,8 @@ describe('AI Core API contract', () => {
       context_domains: ['field'],
     }, { onChunk: (text) => chunks.push(text) })
 
-    expect(requestUrl).toBe('/api/v1/ai/requests/stream?XTransformPort=3030')
+    expect(requestUrl).toBe('/api/v1/ai/requests/stream')
+    expect(requestUrl).not.toContain('XTransformPort')
     expect(requestBodies[0]).toEqual({
       question: 'How should I assess this field?',
       field_id: 'field-1',
@@ -154,10 +155,10 @@ describe('AI Core API contract', () => {
     await deleteAiCoreConversation('conversation-1')
 
     expect(urls).toEqual([
-      '/api/v1/ai/providers?XTransformPort=3030',
-      '/api/v1/ai/conversations?field_id=field+1&XTransformPort=3030',
-      '/api/v1/ai/conversations/conversation-1/messages?XTransformPort=3030',
-      '/api/v1/ai/conversations/conversation-1?XTransformPort=3030',
+      '/api/v1/ai/providers',
+      '/api/v1/ai/conversations?field_id=field+1',
+      '/api/v1/ai/conversations/conversation-1/messages',
+      '/api/v1/ai/conversations/conversation-1',
     ])
   })
 
@@ -180,7 +181,7 @@ describe('AI Core API contract', () => {
       quality_review_consent: true,
     })
 
-    expect(requestUrls).toEqual(['/api/v1/ai/feedback?XTransformPort=3030'])
+    expect(requestUrls).toEqual(['/api/v1/ai/feedback'])
     expect(requestBodies[0]).toEqual({
       trace_id: 'trace-1',
       rating: 'needs_improvement',

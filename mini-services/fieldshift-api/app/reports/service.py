@@ -43,6 +43,9 @@ from app.domains.identity.service import (
     get_field_for_principal,
     get_farm_for_principal,
 )
+from app.geospatial.objectstore import NotFoundError as ArtifactNotFoundError
+from app.geospatial.objectstore import StorageError as ArtifactStorageError
+from app.geospatial.postgres_objectstore import PostgresStorage
 from app.reports import contracts, renderers
 
 logger = logging.getLogger("croptwist.reports")
@@ -374,7 +377,33 @@ def _safe_error(exc: Exception) -> str:
     return message[:2000]
 
 
-def _write_artifact(job: ReportJob, blob: bytes) -> Path:
+def _reports_backend() -> str:
+    """Return the configured report backend without requiring config changes."""
+    return str(getattr(settings, "reports_storage_backend", "local") or "local").lower()
+
+
+def _report_artifact_key(job: ReportJob) -> str:
+    """Stable tenant-scoped key shared by report writes, reads, and deletes."""
+    return f"org/{job.organization_id}/reports/{job.id}.{job.output_format}"
+
+
+def _report_content_type(output_format: str) -> str:
+    return {
+        "pdf": "application/pdf",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "csv": "text/csv; charset=utf-8",
+    }.get(output_format, "application/octet-stream")
+
+
+def _write_artifact(job: ReportJob, blob: bytes) -> Path | str:
+    if _reports_backend() == "postgres":
+        stored = PostgresStorage().put_bytes(
+            _report_artifact_key(job),
+            blob,
+            content_type=_report_content_type(job.output_format),
+            overwrite=True,
+        )
+        return stored.key
     base = Path(settings.reports_dir)
     base.mkdir(parents=True, exist_ok=True)
     path = base / f"{job.id}.{job.output_format}"
@@ -1039,12 +1068,11 @@ def list_report_jobs(
 
 
 # ------------------------------------------------------------------ download
-def read_report_file(session: Session, principal: Principal, job_id: uuid.UUID) -> Path:
-    """Resolve the artifact path for download — traversal-safe.
+def read_report_file(session: Session, principal: Principal, job_id: uuid.UUID) -> Path | bytes:
+    """Read a report artifact after the authenticated tenant check.
 
-    The stored path must resolve INSIDE ``settings.reports_dir`` and carry
-    the job's id as its stem; anything else is treated as not found. Expired
-    artifacts return 404 (the sweep has usually removed them already).
+    PostgreSQL mode returns durable bytes from the shared artifact table;
+    local mode retains the historical traversal-safe Path contract.
     """
     job = get_report_job(session, principal, job_id)
     if job.status != contracts.REPORT_STATUS_SUCCEEDED or not job.file_path:
@@ -1052,6 +1080,13 @@ def read_report_file(session: Session, principal: Principal, job_id: uuid.UUID) 
     now = datetime.now(UTC)
     if job.retention_until is not None and job.retention_until <= now:
         raise NotFound("Report artifact has expired and is no longer downloadable.")
+    if _reports_backend() == "postgres":
+        if job.file_path != _report_artifact_key(job):
+            raise NotFound("Report artifact is not available for this job.")
+        try:
+            return PostgresStorage().read_bytes(job.file_path)
+        except (ArtifactNotFoundError, ArtifactStorageError) as exc:
+            raise NotFound("Report artifact is not available for this job.") from exc
     base = Path(settings.reports_dir).resolve()
     candidate = Path(job.file_path)
     if not candidate.is_absolute():
@@ -1075,12 +1110,19 @@ def delete_report_job(session: Session, principal: Principal, job_id: uuid.UUID)
         raise NotFound("Report job not found.")
     principal.require_org_role(job.organization_id, "manager")
     if job.file_path:
-        try:
-            path = Path(job.file_path)
-            if path.is_file() and Path(settings.reports_dir).resolve() in path.resolve().parents:
-                path.unlink()
-        except OSError:  # pragma: no cover — storage hiccup must not block
-            logger.warning("could not delete artifact for report %s", job.id)
+        if _reports_backend() == "postgres":
+            try:
+                if job.file_path == _report_artifact_key(job):
+                    PostgresStorage().delete(job.file_path)
+            except (ArtifactNotFoundError, ArtifactStorageError):
+                logger.warning("could not delete durable artifact for report %s", job.id)
+        else:
+            try:
+                path = Path(job.file_path)
+                if path.is_file() and Path(settings.reports_dir).resolve() in path.resolve().parents:
+                    path.unlink()
+            except OSError:  # pragma: no cover — storage hiccup must not block
+                logger.warning("could not delete artifact for report %s", job.id)
     session.delete(job)
     session.commit()
 
@@ -1116,15 +1158,22 @@ def purge_expired_reports(session: Session, now: datetime | None = None) -> int:
         ).all()
     )
     purged = 0
-    base = Path(settings.reports_dir).resolve()
     for job in due + unstamped:
         if job.file_path:
-            try:
-                path = Path(job.file_path)
-                if path.is_file() and base in path.resolve().parents:
-                    path.unlink()
-            except OSError:  # pragma: no cover
-                logger.warning("retention sweep could not delete %s", job.file_path)
+            if _reports_backend() == "postgres":
+                try:
+                    if job.file_path == _report_artifact_key(job):
+                        PostgresStorage().delete(job.file_path)
+                except (ArtifactNotFoundError, ArtifactStorageError):
+                    logger.warning("retention sweep could not delete durable artifact for report %s", job.id)
+            else:
+                try:
+                    base = Path(settings.reports_dir).resolve()
+                    path = Path(job.file_path)
+                    if path.is_file() and base in path.resolve().parents:
+                        path.unlink()
+                except OSError:  # pragma: no cover
+                    logger.warning("retention sweep could not delete local report artifact")
         job.file_path = None
         job.file_size_bytes = None
         job.status = contracts.REPORT_STATUS_EXPIRED
