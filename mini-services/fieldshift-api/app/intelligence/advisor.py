@@ -122,17 +122,73 @@ def _attach_provider_metadata(
             usage[key] = value
     if usage:
         engine["token_usage"] = usage
+    attempts = detail.get("provider_attempts")
+    if isinstance(attempts, list):
+        safe_attempts = []
+        for item in attempts[:12]:
+            if not isinstance(item, dict):
+                continue
+            provider_name = item.get("provider")
+            status = item.get("status")
+            latency = item.get("latency_ms")
+            if (
+                not isinstance(provider_name, str)
+                or status not in ("succeeded", "failed")
+                or isinstance(latency, bool)
+                or not isinstance(latency, int)
+                or latency < 0
+            ):
+                continue
+            safe_attempt = {
+                "provider": provider_name[:80],
+                "status": status,
+                "latency_ms": latency,
+            }
+            model_name = item.get("model")
+            if isinstance(model_name, str):
+                safe_attempt["model"] = model_name[:160]
+            category = item.get("error_category")
+            if isinstance(category, str) and category.replace("_", "").isalnum():
+                safe_attempt["error_category"] = category[:80]
+            safe_attempts.append(safe_attempt)
+        if safe_attempts:
+            engine["provider_attempts"] = safe_attempts
+    latency = detail.get("provider_latency_ms")
+    if isinstance(latency, int) and not isinstance(latency, bool) and latency >= 0:
+        engine["provider_latency_ms"] = latency
     return result
 
 
 async def _async_provider_detail(
-    messages: list[dict[str, str]], provider: Any | None
+    messages: list[dict[str, str]], provider: Any | None, *, request_id: str | None = None
 ) -> dict[str, Any] | None:
     """Use the injected neutral adapter or preserve the legacy bridge path."""
     if provider is None:
         return await achat_detail(messages)
-    generated = await provider.generate(messages)
-    return generated.as_legacy_detail() if generated is not None else None
+    import inspect
+    from app.intelligence.config import ai_settings
+    from app.intelligence.orchestration.provider_adapters import ProviderFailure
+
+    parameters = inspect.signature(provider.generate).parameters
+    kwargs: dict[str, Any] = {
+        "temperature": ai_settings.llm_temperature,
+        "max_tokens": ai_settings.llm_max_tokens,
+    }
+    if request_id and "request_id" in parameters:
+        kwargs["request_id"] = request_id
+    try:
+        generated = await provider.generate(messages, **kwargs)
+    except ProviderFailure:
+        # Failover already recorded only bounded provider/model/status metadata.
+        # A provider outage degrades to the existing deterministic rules path.
+        return None
+    if generated is None:
+        return None
+    detail = generated.as_legacy_detail()
+    attempts = getattr(provider, "last_attempts", None)
+    if isinstance(attempts, list):
+        detail["provider_attempts"] = attempts[:12]
+    return detail
 
 
 def _top_level_labels(evidence: dict[str, Any]) -> list[str]:
@@ -387,6 +443,7 @@ async def answer_field_question_async(
     provider: Any | None = None,
     evidence_pack: dict[str, Any] | None = None,
     core_mode: bool = False,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Async multi-turn advisor (A2/A7/A8/A10) — see module docstring."""
     metrics.incr("advisor_queries_total")
@@ -411,6 +468,7 @@ async def answer_field_question_async(
         detail = await _async_provider_detail(
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
             provider,
+            request_id=request_id,
         )
         used_detail = detail
         if detail is not None:
@@ -420,7 +478,8 @@ async def answer_field_question_async(
             if result is None:
                 # ONE constrained regeneration, then deterministic fallback.
                 detail2 = await _async_provider_detail(
-                    _regeneration_messages(system_prompt, user_message), provider
+                    _regeneration_messages(system_prompt, user_message), provider,
+                    request_id=request_id,
                 )
                 if detail2 is not None:
                     used_detail = detail2
@@ -433,14 +492,19 @@ async def answer_field_question_async(
 
         from app.recommendations import service as recommendation_service
 
-        recommendations = await asyncio.to_thread(
+        recommendations = [] if core_mode else await asyncio.to_thread(
             recommendation_service.get_active_recommendations, db, field
         )
-        return {
+        fallback = {
             "answer": _rules_fallback(field, evidence, recommendations),
             "evidence_used": _evidence_used(evidence, _top_level_labels(evidence)),
             "engine": {"mode": "rules", "model": None},
         }
+        attempts = getattr(provider, "last_attempts", None)
+        return _attach_provider_metadata(
+            fallback,
+            {"provider_attempts": attempts} if isinstance(attempts, list) and attempts else None,
+        )
 
 
 def answer_field_question(

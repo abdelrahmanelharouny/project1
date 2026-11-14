@@ -52,10 +52,20 @@ def test_domain_selection_is_allowlisted_and_keeps_field_and_gap_status():
 def test_plan_is_deterministic_and_never_plans_mutating_tools():
     soil = create_plan("Explain the stored soil nutrient balance", has_field=True)
     assert soil.intent.value == "soil_intelligence"
-    assert soil.required_tools == ["answer_field_question"]
-    assert [step.name for step in soil.tool_calls] == ["answer_field_question"]
+    assert soil.required_tools == ["collect_field_evidence", "synthesize_field_answer"]
+    assert [step.name for step in soil.tool_calls] == soil.required_tools
+    assert soil.tool_calls[1].depends_on == [0]
     assert soil.permission_scope == ["field.read", "field.analysis.read"]
     assert soil.availability == "partial"
+
+    cross_domain = create_plan(
+        "Why is my field vegetation condition declining compared with soil and water?",
+        has_field=True,
+    )
+    assert {"vegetation", "soil", "water", "climate", "management", "data_gaps"}.issubset(
+        set(cross_domain.tool_calls[0].context_domains)
+    )
+    assert cross_domain.required_tools == ["collect_field_evidence", "synthesize_field_answer"]
 
     forecast = create_plan("Predict yield next year", has_field=True)
     assert forecast.intent.value == "predictive_analysis"

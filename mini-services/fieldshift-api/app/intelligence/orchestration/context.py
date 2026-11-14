@@ -31,6 +31,7 @@ class AuthorizedAIContext:
     history: list[dict[str, str]] = dataclass_field(default_factory=list)
     prior_tool_results: list[dict[str, Any]] = dataclass_field(default_factory=list)
     provider: LLMProvider | None = None
+    request_id: str | None = None
 
     @property
     def user_id(self) -> UUID:

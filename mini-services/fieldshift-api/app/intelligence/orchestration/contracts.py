@@ -176,6 +176,14 @@ class TokenUsage(StrictModel):
     total_tokens: int | None = Field(default=None, ge=0)
 
 
+class ProviderAttempt(StrictModel):
+    provider: str = Field(min_length=1, max_length=80)
+    model: str | None = Field(default=None, max_length=160)
+    status: Literal["succeeded", "failed"]
+    latency_ms: int = Field(ge=0)
+    error_category: str | None = Field(default=None, max_length=80)
+
+
 class AIExecution(StrictModel):
     trace_id: UUID
     request_id: str = Field(min_length=1, max_length=128)
@@ -183,6 +191,7 @@ class AIExecution(StrictModel):
     provider: str | None = None
     model: str | None = None
     token_usage: TokenUsage = Field(default_factory=TokenUsage)
+    provider_attempts: list[ProviderAttempt] = Field(default_factory=list, max_length=12)
     latency_ms: int = Field(ge=0)
     planned_steps: int = Field(ge=0, le=3)
     tools: list[ToolInvocation] = Field(default_factory=list, max_length=4)

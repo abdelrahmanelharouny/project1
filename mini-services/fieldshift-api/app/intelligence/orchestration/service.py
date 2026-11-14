@@ -22,14 +22,16 @@ from app.intelligence.orchestration.contracts import (
     EvidenceItem,
     IntentPlan,
     PlannedToolCall,
+    ProviderAttempt,
     TokenUsage,
     ToolInvocation,
 )
 from app.intelligence.orchestration.evidence import normalize_evidence
 from app.intelligence.orchestration.planning import create_plan
-from app.intelligence.orchestration.provider import provider_registry
+from app.intelligence.orchestration.provider_adapters import get_provider_chain
 from app.intelligence.orchestration.tools import (
     AdvisorToolOutput,
+    EvidenceCollectionOutput,
     ToolError,
     ToolWorkflowError,
     registry as tool_registry,
@@ -90,7 +92,7 @@ def _safe_limitations(plan: IntentPlan, engine: dict[str, Any]) -> list[str]:
     items = list(plan.limitations)
     items.extend(_string_list(engine.get("limitations")))
     if engine.get("mode") == "llm":
-        items.append("The configured provider does not report token usage or calibrated model confidence.")
+        items.append("Provider usage is reported only when supplied; model confidence is not calibrated.")
     return list(dict.fromkeys(items))[:30]
 
 
@@ -131,6 +133,17 @@ def _tool_failure(name: str, code: str, elapsed_ms: int) -> ToolInvocation:
 
 def _merge_step_outputs(outputs: list[Any]) -> AdvisorToolOutput:
     """Merge same-contract step outputs without inventing conflict resolution."""
+    if (
+        len(outputs) == 2
+        and isinstance(outputs[0], EvidenceCollectionOutput)
+        and isinstance(outputs[1], AdvisorToolOutput)
+    ):
+        if outputs[0].evidence_pack != outputs[1].evidence_pack:
+            raise ToolError(
+                "MULTI_STEP_EVIDENCE_CONFLICT",
+                "The synthesis step did not preserve the collected evidence package.",
+            )
+        return outputs[1]
     if not outputs or not all(isinstance(item, AdvisorToolOutput) for item in outputs):
         raise ToolError(
             "MULTI_STEP_CONTRACT_UNSUPPORTED",
@@ -242,6 +255,7 @@ def _persist_trace(
         intent=response.intent.value,
         provider=response.execution.provider,
         model=response.execution.model,
+        provider_attempts=[item.model_dump(mode="json") for item in response.execution.provider_attempts],
         prompt_version=PROMPT_VERSION,
         evidence_fingerprint=_fingerprint(evidence_pack),
         selected_context_domains=list(context.selected_domains),
@@ -373,7 +387,8 @@ async def execute_ai_request(
         context.session = session_service.create_session(
             db, context.field.id, owner_user_id=principal.id
         )
-    context.provider = provider_registry.get("legacy-llm-bridge")
+    context.provider = get_provider_chain(field_sensitive=True, prefer_streaming=True)
+    context.request_id = request_id
 
     invocations: list[ToolInvocation] = []
     engine: dict[str, Any] = {"mode": "rules", "model": None}
@@ -432,8 +447,8 @@ async def execute_ai_request(
             evidence_items = normalize_evidence(
                 evidence_pack, field_id=str(context.field.id), cited_labels=["field"]
             )
-        provider_name = engine.get("provider") or context.provider.name
-        model_name = engine.get("model")
+        provider_name = engine.get("provider") if engine.get("mode") == "llm" else None
+        model_name = engine.get("model") if engine.get("mode") == "llm" else None
         raw_usage = engine.get("token_usage") or {}
         usage = TokenUsage(
             input_tokens=raw_usage.get("input_tokens"),
@@ -472,6 +487,15 @@ async def execute_ai_request(
     pack_gaps = (evidence_pack or {}).get("data_gaps") or []
     followups = _string_list(engine.get("follow_up_suggestions"))
     conversation_id = context.session.id if context.session else None
+    provider_attempts = []
+    raw_attempts = engine.get("provider_attempts")
+    if isinstance(raw_attempts, list):
+        for item in raw_attempts[:12]:
+            if isinstance(item, dict):
+                try:
+                    provider_attempts.append(ProviderAttempt.model_validate(item))
+                except Exception:
+                    continue
     response = AIResponse(
         request_id=request_id,
         conversation_id=conversation_id,
@@ -498,6 +522,7 @@ async def execute_ai_request(
             provider=provider_name,
             model=model_name,
             token_usage=usage,
+            provider_attempts=provider_attempts,
             latency_ms=max(0, round((perf_counter() - started) * 1000)),
             planned_steps=len(plan.required_tools),
             tools=invocations,

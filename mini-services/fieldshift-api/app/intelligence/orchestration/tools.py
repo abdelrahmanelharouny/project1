@@ -70,6 +70,11 @@ class AdvisorToolOutput(ToolArguments):
     evidence_pack: dict[str, Any] = Field(default_factory=dict)
 
 
+class EvidenceCollectionOutput(ToolArguments):
+    evidence_pack: dict[str, Any]
+    selected_domains: list[str] = Field(max_length=8)
+
+
 ToolHandler = Callable[[BaseModel, AuthorizedAIContext], Awaitable[Any]]
 
 
@@ -242,6 +247,7 @@ class ToolRegistry:
                 history=context.history,
                 prior_tool_results=[result.model_dump(mode="json") for result in results],
                 provider=context.provider,
+                request_id=getattr(context, "request_id", None),
             )
             started = perf_counter()
             try:
@@ -300,6 +306,60 @@ async def _field_advisor_handler(args: BaseModel, context: AuthorizedAIContext) 
         provider=context.provider,
         evidence_pack=evidence_pack,
         core_mode=True,
+        request_id=context.request_id,
+    )
+    return {
+        "answer": result.get("answer") or "",
+        "evidence_used": result.get("evidence_used") or [],
+        "engine": result.get("engine") or {"mode": "rules", "model": None},
+        "evidence_pack": evidence_pack,
+    }
+
+
+async def _collect_field_evidence_handler(
+    args: BaseModel, context: AuthorizedAIContext
+) -> dict[str, Any]:
+    from app.intelligence.evidence import build_field_evidence
+    from app.intelligence.orchestration.evidence import select_evidence_domains
+
+    if context.field is None:
+        raise ToolError("FIELD_CONTEXT_REQUIRED", "An authorized field is required for evidence collection.")
+    try:
+        pack = await asyncio.to_thread(build_field_evidence, context.db, context.field)
+        selected = select_evidence_domains(pack, context.selected_domains)
+    except ValueError as exc:
+        raise ToolError("EVIDENCE_CONTEXT_TOO_LARGE", "Selected field evidence exceeds the context budget.") from exc
+    return {"evidence_pack": selected, "selected_domains": list(context.selected_domains)}
+
+
+async def _synthesize_field_answer_handler(
+    args: BaseModel, context: AuthorizedAIContext
+) -> dict[str, Any]:
+    from app.intelligence import advisor
+
+    if context.field is None or context.provider is None:
+        raise ToolError("FIELD_CONTEXT_REQUIRED", "An authorized field and provider policy are required.")
+    evidence_pack = next(
+        (
+            item.get("evidence_pack")
+            for item in reversed(context.prior_tool_results)
+            if isinstance(item, dict) and isinstance(item.get("evidence_pack"), dict)
+        ),
+        None,
+    )
+    if evidence_pack is None:
+        raise ToolError("WORKFLOW_PREREQUISITE_MISSING", "The evidence collection step did not return data.")
+    values = args.model_dump()
+    result = await advisor.answer_field_question_async(
+        context.db,
+        context.field,
+        values["question"],
+        history=context.history,
+        locale=values["locale"],
+        provider=context.provider,
+        evidence_pack=evidence_pack,
+        core_mode=True,
+        request_id=context.request_id,
     )
     return {
         "answer": result.get("answer") or "",
@@ -310,6 +370,32 @@ async def _field_advisor_handler(args: BaseModel, context: AuthorizedAIContext) 
 
 
 registry = ToolRegistry(max_calls=3)
+registry.register(ToolDefinition(
+    name="collect_field_evidence",
+    description="Read the authorized field profile and allowlisted stored soil, water, climate, rotation, management, HLS vegetation and spatial-screening evidence; preserves explicit data gaps.",
+    category=ToolCategory.READ_ONLY,
+    side_effect=ToolSideEffect.NONE,
+    input_schema=FieldAdvisorInput,
+    output_schema=EvidenceCollectionOutput,
+    handler=_collect_field_evidence_handler,
+    required_permissions=frozenset({"field.read", "field.analysis.read"}),
+    timeout_seconds=30.0,
+    error_codes=("FIELD_CONTEXT_REQUIRED", "EVIDENCE_CONTEXT_TOO_LARGE", "TOOL_PERMISSION_DENIED", "TOOL_TIMEOUT", "TOOL_INVALID_OUTPUT"),
+    max_output_bytes=32_000,
+))
+registry.register(ToolDefinition(
+    name="synthesize_field_answer",
+    description="Synthesize a concise field explanation from validated, server-collected evidence; the model cannot select tools, identities or resources.",
+    category=ToolCategory.ANALYTICAL,
+    side_effect=ToolSideEffect.NONE,
+    input_schema=FieldAdvisorInput,
+    output_schema=AdvisorToolOutput,
+    handler=_synthesize_field_answer_handler,
+    required_permissions=frozenset({"field.read", "field.analysis.read"}),
+    timeout_seconds=50.0,
+    error_codes=("FIELD_CONTEXT_REQUIRED", "WORKFLOW_PREREQUISITE_MISSING", "TOOL_PERMISSION_DENIED", "TOOL_TIMEOUT", "TOOL_EXECUTION_FAILED", "TOOL_INVALID_OUTPUT"),
+    max_output_bytes=64_000,
+))
 registry.register(ToolDefinition(
     name="answer_field_question",
     description="Read a single authorized field's allowlisted evidence and produce a validated explanation; never mutates farm data.",

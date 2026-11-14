@@ -6,8 +6,18 @@ from dataclasses import dataclass
 
 from app.intelligence.orchestration.contracts import AIIntent, IntentPlan, PlannedToolCall
 
-_FIELD_TOOL = "answer_field_question"
+_COLLECT_TOOL = "collect_field_evidence"
+_SYNTHESIZE_TOOL = "synthesize_field_answer"
 _ALL_FIELD_DOMAINS = ["climate", "water", "soil", "rotation", "management", "vegetation", "data_gaps"]
+
+_DOMAIN_PATTERNS: dict[str, tuple[str, ...]] = {
+    "climate": (r"\bclimate\b", r"\bweather\b", r"temperature", r"\bheat\b", r"\bfrost\b"),
+    "water": (r"\bwater\b", r"irrigat", r"rainfall", r"precipitation", r"moisture", r"\bnir\b"),
+    "soil": (r"\bsoil\b", r"\bph\b", r"nutrient", r"organic carbon", r"erosion"),
+    "rotation": (r"\brotation\b", r"rotate crops", r"next crop", r"crop sequence", r"previous crop"),
+    "management": (r"management", r"cover crop", r"bare soil", r"erosion"),
+    "vegetation": (r"\bvegetation\b", r"\bndvi\b", r"\bevi\b", r"\bndmi\b", r"\bndwi\b", r"satellite", r"canopy"),
+}
 
 
 @dataclass(frozen=True)
@@ -127,6 +137,33 @@ def _matching_intent(question: str, has_field: bool) -> AIIntent:
     return AIIntent.FIELD_QUESTION if has_field else AIIntent.AGRICULTURAL_KNOWLEDGE
 
 
+def _selected_context_domains(
+    question: str, intent: AIIntent, fallback: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Select all explicitly requested read-only evidence domains deterministically."""
+    text = question.casefold()
+    selected = set(fallback)
+    explicit = {
+        domain
+        for domain, patterns in _DOMAIN_PATTERNS.items()
+        if any(re.search(pattern, text) for pattern in patterns)
+    }
+    selected.update(explicit)
+    if intent in (AIIntent.FIELD_QUESTION, AIIntent.FIELD_ANALYSIS):
+        selected.update(explicit or _ALL_FIELD_DOMAINS)
+    # Explanatory questions need plausible context, not just the index named by
+    # the user. These are source domains already present in the field evidence
+    # pack; no new calculation or diagnosis is performed.
+    asks_why = bool(re.search(r"\bwhy\b|declin|changed|change|cause|factor", text))
+    if asks_why and "vegetation" in selected:
+        selected.update({"climate", "water", "soil", "management"})
+    if "water" in selected:
+        selected.add("climate")
+    if "rotation" in selected:
+        selected.update({"soil", "climate", "water"})
+    return tuple(domain for domain in _ALL_FIELD_DOMAINS if domain in selected)
+
+
 def create_plan(question: str, *, has_field: bool) -> IntentPlan:
     """Classify with bounded, deterministic rules and return a validated plan."""
     intent = _matching_intent(question, has_field)
@@ -152,6 +189,10 @@ def create_plan(question: str, *, has_field: bool) -> IntentPlan:
         domains = definition.domains
         limitation = definition.limitation
 
+    domains = _selected_context_domains(question, intent, tuple(domains))
+    if intent in (AIIntent.FIELD_QUESTION, AIIntent.FIELD_ANALYSIS):
+        availability = "partial"
+
     needs_field = intent not in (
         AIIntent.AGRICULTURAL_KNOWLEDGE,
         AIIntent.AGRICULTURAL_RECOMMENDATION,
@@ -159,7 +200,7 @@ def create_plan(question: str, *, has_field: bool) -> IntentPlan:
     )
     missing = ["field_id"] if needs_field and not has_field else []
     needs_clarification = bool(missing) or intent == AIIntent.AMBIGUOUS
-    tools = [_FIELD_TOOL] if supported and has_field and not needs_clarification else []
+    tools = [_COLLECT_TOOL, _SYNTHESIZE_TOOL] if supported and has_field and not needs_clarification else []
     expected = "clarification" if needs_clarification else (
         "grounded_explanation" if tools else "unavailable"
     )
@@ -168,10 +209,14 @@ def create_plan(question: str, *, has_field: bool) -> IntentPlan:
         required_entities=["field_id"] if needs_field else [],
         required_context=["field", *domains] if needs_field else [],
         required_tools=tools,
-        tool_calls=[
-            PlannedToolCall(name=name, context_domains=list(domains))
-            for name in tools
-        ],
+        tool_calls=(
+            [
+                PlannedToolCall(name=_COLLECT_TOOL, context_domains=list(domains)),
+                PlannedToolCall(name=_SYNTHESIZE_TOOL, context_domains=list(domains), depends_on=[0]),
+            ]
+            if tools
+            else []
+        ),
         missing_information=missing,
         permission_scope=(
             ["field.read", "field.analysis.read"] if tools

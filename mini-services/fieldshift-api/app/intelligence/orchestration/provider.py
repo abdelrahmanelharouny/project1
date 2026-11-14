@@ -1,12 +1,16 @@
-"""Provider-neutral LLM interfaces; the legacy bridge remains the adapter."""
+"""Provider-neutral contracts and registry for CropTwist AI.
+
+The legacy bridge remains available as an explicit compatibility adapter,
+but the configured default order is Gemini, Groq, then OpenRouter.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Protocol
 
 
 class ProviderCapabilityUnavailable(RuntimeError):
-    """Raised when an adapter does not actually implement a requested mode."""
+    """Raised when an adapter does not implement a requested mode."""
 
 
 @dataclass(frozen=True)
@@ -16,6 +20,19 @@ class ProviderCapabilities:
     tool_calling: bool = False
     streaming: bool = False
     token_usage_reporting: bool = False
+    structured_output_mode: str = "unsupported"
+    privacy_note: str | None = None
+
+
+@dataclass(frozen=True)
+class ProviderStreamEvent:
+    """A normalized event from a provider's streaming response."""
+
+    text: str = ""
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    model: str | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -25,6 +42,8 @@ class ProviderGeneration:
     model: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    attempts: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    provider_latency_ms: int | None = None
 
     @property
     def total_tokens(self) -> int | None:
@@ -41,6 +60,10 @@ class ProviderGeneration:
             result["input_tokens"] = self.input_tokens
         if self.output_tokens is not None:
             result["output_tokens"] = self.output_tokens
+        if self.attempts:
+            result["provider_attempts"] = list(self.attempts)
+        if self.provider_latency_ms is not None:
+            result["provider_latency_ms"] = self.provider_latency_ms
         return result
 
 
@@ -48,12 +71,16 @@ class LLMProvider(Protocol):
     name: str
     capabilities: ProviderCapabilities
 
+    @property
+    def configured(self) -> bool: ...
+
     async def generate(
         self,
         messages: list[dict[str, str]],
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        request_id: str | None = None,
     ) -> ProviderGeneration | None: ...
 
     async def generate_structured(
@@ -63,17 +90,25 @@ class LLMProvider(Protocol):
         schema: dict[str, Any],
         temperature: float | None = None,
         max_tokens: int | None = None,
+        request_id: str | None = None,
     ) -> ProviderGeneration | None: ...
 
     async def call_tools(
         self, messages: list[dict[str, str]], *, tools: list[dict[str, Any]]
     ) -> ProviderGeneration | None: ...
 
-    def stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str]: ...
+    def stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        request_id: str | None = None,
+    ) -> AsyncIterator[ProviderStreamEvent]: ...
 
 
 class LegacyBridgeProvider:
-    """Delegates transport/auth/timeouts/circuit breaking to the existing bridge."""
+    """Delegates transport/auth/timeouts/circuit breaking to the old bridge."""
 
     name = "legacy-llm-bridge"
     capabilities = ProviderCapabilities(
@@ -82,7 +117,17 @@ class LegacyBridgeProvider:
         tool_calling=False,
         streaming=False,
         token_usage_reporting=False,
+        structured_output_mode="unsupported",
     )
+
+    def __init__(self) -> None:
+        from app.intelligence.config import ai_settings
+
+        self._enabled = ai_settings.llm_enabled
+
+    @property
+    def configured(self) -> bool:
+        return self._enabled
 
     async def generate(
         self,
@@ -90,6 +135,7 @@ class LegacyBridgeProvider:
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        request_id: str | None = None,
     ) -> ProviderGeneration | None:
         from app.intelligence.bridge import achat_detail
 
@@ -100,15 +146,17 @@ class LegacyBridgeProvider:
         if not isinstance(content, str) or not content.strip():
             return None
         model = detail.get("model")
+        input_tokens = detail.get("input_tokens")
+        output_tokens = detail.get("output_tokens")
         return ProviderGeneration(
             content=content,
             provider=self.name,
             model=model[:100] if isinstance(model, str) and model else None,
-            input_tokens=detail.get("input_tokens")
-            if isinstance(detail.get("input_tokens"), int) and not isinstance(detail.get("input_tokens"), bool) and detail["input_tokens"] >= 0
+            input_tokens=input_tokens
+            if isinstance(input_tokens, int) and not isinstance(input_tokens, bool) and input_tokens >= 0
             else None,
-            output_tokens=detail.get("output_tokens")
-            if isinstance(detail.get("output_tokens"), int) and not isinstance(detail.get("output_tokens"), bool) and detail["output_tokens"] >= 0
+            output_tokens=output_tokens
+            if isinstance(output_tokens, int) and not isinstance(output_tokens, bool) and output_tokens >= 0
             else None,
         )
 
@@ -119,6 +167,7 @@ class LegacyBridgeProvider:
         schema: dict[str, Any],
         temperature: float | None = None,
         max_tokens: int | None = None,
+        request_id: str | None = None,
     ) -> ProviderGeneration | None:
         raise ProviderCapabilityUnavailable(
             "The current bridge has no native JSON-schema structured-output mode."
@@ -128,19 +177,26 @@ class LegacyBridgeProvider:
         self, messages: list[dict[str, str]], *, tools: list[dict[str, Any]]
     ) -> ProviderGeneration | None:
         raise ProviderCapabilityUnavailable(
-            "The current bridge does not expose model tool calling; server-side tools are selected by the deterministic planner."
+            "Model tool calling is not used; server-side tools are selected by the deterministic planner."
         )
 
-    async def _unsupported_stream(self) -> AsyncIterator[str]:
+    async def _unsupported_stream(self) -> AsyncIterator[ProviderStreamEvent]:
         raise ProviderCapabilityUnavailable("The current bridge does not support streaming.")
-        yield ""  # pragma: no cover - makes this function an async iterator
+        yield ProviderStreamEvent()  # pragma: no cover - makes this an async iterator
 
-    def stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    def stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        request_id: str | None = None,
+    ) -> AsyncIterator[ProviderStreamEvent]:
         return self._unsupported_stream()
 
 
 class ProviderRegistry:
-    """Explicit provider registry; selection policy/fallback remains future work."""
+    """Explicit adapter registry; provider selection is performed separately."""
 
     def __init__(self) -> None:
         self._providers: dict[str, LLMProvider] = {}
@@ -162,3 +218,11 @@ class ProviderRegistry:
 
 provider_registry = ProviderRegistry()
 provider_registry.register(LegacyBridgeProvider())
+
+# Registration is local and performs no network I/O. Import at the end to avoid
+# a module cycle while adapters share the contracts above.
+from app.intelligence.orchestration.provider_adapters import (  # noqa: E402
+    register_default_providers,
+)
+
+register_default_providers(provider_registry)
