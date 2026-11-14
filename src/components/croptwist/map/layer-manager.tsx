@@ -454,22 +454,23 @@ function StatisticalZonesControls({
       {visible && !disabled && (
         <div className="mt-2 space-y-2 border-t border-emerald-100 pt-2">
           <div className="flex min-w-0 flex-col gap-1">
-            <label
+            <div
               className="flex items-center justify-between gap-2 text-xs font-medium text-stone-600"
-              htmlFor="p07-statistical-zones-opacity"
             >
-              <span>{t('opacity')}</span>
+              <span id="p07-statistical-zones-opacity-label">{t('opacity')}</span>
               <span className="tabular-nums text-stone-500">{opacityPct}%</span>
-            </label>
+            </div>
             <Slider
-              id="p07-statistical-zones-opacity"
               min={0}
               max={100}
               step={5}
               value={[opacityPct]}
               onValueChange={(values) => onOpacityChange(values[0] ?? 60)}
               className="touch-none py-3"
-              aria-valuetext={`${opacityPct}%`}
+              thumbProps={{
+                'aria-labelledby': 'p07-statistical-zones-opacity-label',
+                'aria-valuetext': `${opacityPct}%`,
+              }}
             />
           </div>
 

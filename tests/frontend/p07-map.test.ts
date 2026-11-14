@@ -25,6 +25,7 @@ import {
   moveLayerOrder,
   opacityFraction,
   partitionLayerAvailability,
+  resolveFocusLayer,
   sortDatesDescending,
   unavailableLayers,
   zIndexForOrderSlot,
@@ -256,6 +257,27 @@ describe('partitionLayerAvailability', () => {
     const { unavailable } = partitionLayerAvailability(layers)
     expect(unavailable).toHaveLength(1)
     expect(unavailable[0]?.available).toBe(false)
+  })
+})
+
+describe('resolveFocusLayer', () => {
+  const layers = [
+    { code: 'ndvi', available: false },
+    { code: 'evi', available: true },
+    { code: 'ndmi', available: true },
+  ]
+
+  test('preserves an explicitly selected available index', () => {
+    expect(resolveFocusLayer(layers, 'ndmi')?.code).toBe('ndmi')
+  })
+
+  test('falls back to the first available index when the preferred one is missing', () => {
+    expect(resolveFocusLayer(layers, 'ndvi')?.code).toBe('evi')
+  })
+
+  test('returns null when no vegetation product is available', () => {
+    expect(resolveFocusLayer(layers.map((layer) => ({ ...layer, available: false })), 'ndvi'))
+      .toBeNull()
   })
 })
 
