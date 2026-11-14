@@ -16,7 +16,8 @@ import { FarmsFields } from '@/components/croptwist/farms-fields'
 import { Observations } from '@/components/croptwist/observations'
 import { Features } from '@/components/croptwist/features'
 import { DataPassport } from '@/components/croptwist/data-passport'
-import { Rotation } from '@/components/croptwist/rotation'
+import { Rotation, RotationPlanner } from '@/components/croptwist/rotation'
+import { RotationOverview } from '@/components/croptwist/rotation-overview'
 import { Water } from '@/components/croptwist/water'
 import { FieldStateView } from '@/components/croptwist/field-state'
 import Scenarios from '@/components/croptwist/scenarios'
@@ -364,6 +365,8 @@ const SUB_PAGE_CONTENT: Record<string, React.ReactNode> = {
   // promoted to URL-keyed sub-pages (blueprint §C2); `?sub=management`
   // resolves to `plan` forever via the SUB_ALIASES map.
   'cropintel:rotation': <Rotation />,
+  'cropintel:rotation-overview': <RotationOverview />,
+  'cropintel:rotation-planner': <RotationPlanner />,
   'cropintel:irrigation': <Water />,
   'cropintel:soil': <Soil />,
   'cropintel:plan': <PlanPage />,
