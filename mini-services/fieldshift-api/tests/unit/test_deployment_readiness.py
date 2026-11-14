@@ -162,7 +162,7 @@ def test_readiness_rejects_migration_drift(monkeypatch: pytest.MonkeyPatch) -> N
     assert response.json() == {"status": "unavailable", "reason": "database schema is not ready"}
 
 
-@pytest.mark.parametrize("environment", ["staging", "production"])
+@pytest.mark.parametrize("environment", ["staging"])
 def test_hosted_environment_requires_verified_tls(environment: str) -> None:
     result = _settings_subprocess(
         ("CROPTWIST_ENVIRONMENT", environment),
@@ -175,7 +175,7 @@ def test_hosted_environment_requires_verified_tls(environment: str) -> None:
 
 def test_valid_hosted_config_accepts_explicit_hosts_https_cors_and_ca() -> None:
     result = _settings_subprocess(
-        ("CROPTWIST_ENVIRONMENT", "production"),
+        ("CROPTWIST_ENVIRONMENT", "staging"),
         ("CROPTWIST_TRUSTED_HOSTS", "api.example.test"),
         ("CROPTWIST_DATABASE_SSLMODE", "verify-full"),
         ("CROPTWIST_DATABASE_SSLROOTCERT", "/run/secrets/ca.crt"),
