@@ -297,3 +297,32 @@ class TestSatelliteSimProvider:
         assert first.metadata["spatial_resolution_m"] == 10.0
         assert first.metadata.get("scene_id")
         assert result.coverage["revisit_days"] == 5
+
+
+
+def test_satellite_data_gap_recommendation_actions_match_public_contract():
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.recommendations.generators.vegetation import vegetation_data_gap
+    from app.recommendations.registry import RecommendationContext
+
+    class NoSatelliteScenes:
+        def scalar(self, statement):
+            return 0
+
+    field = SimpleNamespace(id=uuid4(), name="Synthetic field", area_ha=2.0)
+    context = RecommendationContext(
+        field=field,
+        evidence={"data_gaps": ["vegetation"]},
+        anomalies=[],
+    )
+
+    recommendations = vegetation_data_gap(NoSatelliteScenes(), field, context)
+
+    assert len(recommendations) == 1
+    actions = recommendations[0].actions
+    assert actions and all(isinstance(action, str) for action in actions)
+    assert "Ingest a satellite product" in actions[0]
+    assert "provider_code=sentinel2" in actions[0]
+    assert "satellite_sim" in actions[0]

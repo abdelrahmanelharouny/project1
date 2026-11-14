@@ -1,15 +1,14 @@
 {
-  "version": 1,
   "routes": [
-    {"path": "/", "title": "CropTwist workspace", "authRequired": true},
-    {"path": "/?tab=overview", "title": "Overview", "authRequired": true},
-    {"path": "/?tab=farms", "title": "Farms & fields", "authRequired": true},
-    {"path": "/?tab=datahub", "title": "Data Hub", "authRequired": true},
-    {"path": "/?tab=cropintel", "title": "Crop Intelligence", "authRequired": true},
-    {"path": "/?tab=geo", "title": "GIS & Maps", "authRequired": true},
-    {"path": "/?tab=decisions", "title": "Decision Center", "authRequired": true},
-    {"path": "/?tab=copilot", "title": "Agricultural Copilot", "authRequired": true},
-    {"path": "/?tab=reports", "title": "Reports & Analytics", "authRequired": true},
-    {"path": "/?tab=settings", "title": "Settings", "authRequired": true}
+    {"path": "/", "title": "CropTwist workspace"},
+    {"path": "/?tab=overview", "title": "Overview"},
+    {"path": "/?tab=farms", "title": "Farms & Fields"},
+    {"path": "/?tab=datahub", "title": "Data Hub"},
+    {"path": "/?tab=cropintel", "title": "Crop Intelligence"},
+    {"path": "/?tab=geo", "title": "Map & Satellite"},
+    {"path": "/?tab=decisions", "title": "Decision Center"},
+    {"path": "/?tab=copilot", "title": "AI Copilot"},
+    {"path": "/?tab=reports", "title": "Reports & Analytics"},
+    {"path": "/?tab=settings", "title": "Workspace & Settings"}
   ]
 }

@@ -162,6 +162,31 @@ class TestVegetationRecommendations:
         second_ids = {r["id"] for r in second["recommendations"] if r["domain"] == "vegetation"}
         assert first_ids == second_ids
 
+    def test_no_satellite_gap_actions_use_public_string_contract(self, client, field_ctx):
+        response = client.post(
+            f"/api/v1/fields/{field_ctx['field']['id']}/recommendations/refresh",
+            headers=field_ctx["headers"],
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        gaps = [
+            recommendation
+            for recommendation in body["recommendations"]
+            if recommendation["domain"] == "vegetation"
+            and "satellite" in recommendation["title"].lower()
+        ]
+        assert gaps
+        assert all(
+            isinstance(action, str)
+            for recommendation in gaps
+            for action in recommendation["actions"]
+        )
+        assert any(
+            "provider_code=sentinel2" in action
+            for recommendation in gaps
+            for action in recommendation["actions"]
+        )
+
 
 class TestEvidenceGapsAndApply:
     def test_gaps_detected_with_voi_and_plans(self, client, field_ctx):

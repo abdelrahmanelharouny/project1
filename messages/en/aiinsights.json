@@ -1,7 +1,7 @@
 {
-  "title": "AI Insights",
-  "subtitle": "Recommendations, anomaly signals and an AI agronomist you can ask — every answer shows the evidence it is based on.",
-  "pickFieldDesc": "Select a field to generate recommendations, read the field brief and ask the AI agronomist.",
+  "title": "AI Copilot",
+  "subtitle": "Evidence-backed field answers, with data gaps and recommendations clearly distinguished.",
+  "pickFieldDesc": "Select a field to review its evidence and ask a question in Copilot.",
   "overviewTitle": "Recommendation engine",
   "overviewDesc": "Recommendations are generated from this field's plans, features and observations. Regenerate them after your data changes.",
   "generate": "Generate recommendations",

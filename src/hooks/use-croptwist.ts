@@ -674,6 +674,22 @@ export function useAiCoreConversationMessages(conversationId: string | null) {
   })
 }
 
+export function buildAiCoreRequestPayload(
+  question: string,
+  fieldId: string,
+  conversationId: string | null,
+  locale: string,
+): AiCoreRequestPayload {
+  return {
+    question,
+    field_id: fieldId,
+    conversation_id: conversationId,
+    locale: toAiLocale(locale),
+    // An empty domain selection delegates evidence selection to the planner.
+    context_domains: [],
+  }
+}
+
 export function useAiCoreRequest(fieldId: string) {
   const queryClient = useQueryClient()
   const locale = useLocale()
@@ -684,13 +700,7 @@ export function useAiCoreRequest(fieldId: string) {
     onChunk?: (text: string) => void
   }>({
     mutationFn: ({ question, conversationId, signal, onChunk }) => {
-      const payload: AiCoreRequestPayload = {
-        question,
-        field_id: fieldId,
-        conversation_id: conversationId,
-        locale: toAiLocale(locale),
-        context_domains: ['field'],
-      }
+      const payload = buildAiCoreRequestPayload(question, fieldId, conversationId, locale)
       return streamAiCoreRequest(payload, { signal, onChunk })
     },
     onSuccess: (response) => {

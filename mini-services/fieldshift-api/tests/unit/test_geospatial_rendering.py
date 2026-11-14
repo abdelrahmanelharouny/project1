@@ -146,11 +146,9 @@ class TestTransparentAndColormap:
 def processed_product(db, raster_storage, fixture_field, tmp_path):
     """Process one fixture scene end-to-end and return (field_id, asset row)."""
     from app.db.models import Field
-    from app.db.models_p2 import RasterAsset, RasterProcessingJob
-    from app.data_platform.processing.service import (
-        create_processing_jobs,
-        execute_processing_job,
-    )
+    from app.db.models_p2 import RasterAsset
+    from app.data_platform.processing.service import create_processing_jobs
+    from tests.conftest import run_raster_job_through_worker
 
     field_id = uuid.UUID(fixture_field["field"]["id"])
     assets = fx.write_fixture_scene(
@@ -161,8 +159,7 @@ def processed_product(db, raster_storage, fixture_field, tmp_path):
     field = db.get(Field, field_id)
     result = create_processing_jobs(db, field=field, scene_ids=["FIX.REND1"], indices=["ndvi"])
     rp_id = uuid.UUID(result["jobs"][0]["job_id"])
-    execute_processing_job(rp_id, None)
-    rp = db.get(RasterProcessingJob, rp_id)
+    rp = run_raster_job_through_worker(rp_id, db=db)
     assert rp.status == "succeeded", rp.error
     asset = db.query(RasterAsset).filter_by(
         field_id=field_id, scene_id="FIX.REND1", asset_kind="derived", index_code="ndvi"
@@ -408,11 +405,9 @@ class TestZonePolygons:
 
     def test_uniform_raster_refuses_zones(self, processed_product, tmp_path, db, raster_storage):
         from app.db.models import Field
-        from app.db.models_p2 import RasterAsset, RasterProcessingJob
-        from app.data_platform.processing.service import (
-            create_processing_jobs,
-            execute_processing_job,
-        )
+        from app.db.models_p2 import RasterAsset
+        from app.data_platform.processing.service import create_processing_jobs
+        from tests.conftest import run_raster_job_through_worker
         from app.geospatial.objectstore import get_raster_storage
         from app.geospatial.rendering import zone_polygons_fc
 
@@ -424,7 +419,7 @@ class TestZonePolygons:
         field = db.get(Field, field_id)
         result = create_processing_jobs(db, field=field, scene_ids=["FIX.UNIFORM"], indices=["ndvi"])
         rp_id = uuid.UUID(result["jobs"][0]["job_id"])
-        execute_processing_job(rp_id, None)
+        run_raster_job_through_worker(rp_id, db=db)
         asset = db.query(RasterAsset).filter_by(
             field_id=field_id, scene_id="FIX.UNIFORM", asset_kind="derived", index_code="ndvi"
         ).first()

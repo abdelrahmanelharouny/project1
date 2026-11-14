@@ -19,7 +19,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.activity import service as activity
@@ -203,6 +203,8 @@ def start_subscription(
     principal.require_org_role(organization_id, "org_admin")
     if billing_period not in ("monthly", "yearly"):
         raise ValidationFailed("billing_period must be 'monthly' or 'yearly'.")
+    # Match scenario reservation's lock order before inspecting live subscription state.
+    entitlements.lock_organization(db, organization_id)
     existing = entitlements.get_live_subscription(db, organization_id)
     if existing is not None:
         raise Conflict("This organization already has a live subscription.")
@@ -303,6 +305,7 @@ def change_plan(
     """Upgrade/downgrade effective immediately (sandbox semantics: proration
     is NOT simulated; the next invoice reflects the new plan price)."""
     principal.require_org_role(organization_id, "org_admin")
+    entitlements.lock_organization(db, organization_id)
     subscription = entitlements.get_live_subscription(db, organization_id)
     if subscription is None:
         raise Conflict("No live subscription to change.")
@@ -354,6 +357,7 @@ def cancel_subscription(
     at_period_end: bool = True,
 ) -> Subscription:
     principal.require_org_role(organization_id, "org_admin")
+    entitlements.lock_organization(db, organization_id)
     subscription = entitlements.get_live_subscription(db, organization_id)
     if subscription is None:
         raise Conflict("No live subscription to cancel.")
@@ -398,6 +402,7 @@ def resume_subscription(
 ) -> Subscription:
     """Undo a scheduled period-end cancellation."""
     principal.require_org_role(organization_id, "org_admin")
+    entitlements.lock_organization(db, organization_id)
     subscription = entitlements.get_live_subscription(db, organization_id)
     if subscription is None:
         raise Conflict("No live subscription.")
@@ -619,6 +624,8 @@ def process_billing_webhook(
         identity = _parse_callback_identity(event_type, payload)
         audit_subscription_ref = identity["provider_subscription_ref"]
         audit_invoice_id = identity.get("invoice_id")
+        # Always lock organization before locking a subscription or invoice row.
+        entitlements.lock_organization(db, identity["organization_id"])
         subscription = _resolve_callback_subscription(
             db,
             provider=provider,
@@ -915,31 +922,67 @@ def expire_stale_subscriptions(db: Session) -> int:
     and grace windows that lapsed → 'expired'/'canceled'."""
     now = datetime.now(UTC)
     changed = 0
-    rows = list(
-        db.scalars(select(Subscription).where(Subscription.status.in_(LIVE_STATUSES))).all()
+    stale_condition = or_(
+        and_(
+            Subscription.cancel_at_period_end.is_(True),
+            Subscription.current_period_end < now,
+        ),
+        and_(
+            Subscription.status == "past_due",
+            Subscription.grace_ends_at.is_not(None),
+            Subscription.grace_ends_at < now,
+        ),
     )
-    for sub in rows:
-        if sub.cancel_at_period_end and sub.current_period_end < now:
-            sub.canceled_at = now
-            _record_transition(
-                db,
-                subscription=sub,
-                event_type="subscription.canceled",
-                to_status="canceled",
-                actor_user_id=None,
-                details={"reason": "period_ended_after_cancel_request"},
-            )
-            changed += 1
-        elif sub.status == "past_due" and sub.grace_ends_at is not None and sub.grace_ends_at < now:
-            _record_transition(
-                db,
-                subscription=sub,
-                event_type="subscription.grace_ended",
-                to_status="grace",
-                actor_user_id=None,
-                details={"note": "grace window lapsed — paid capabilities locked"},
-            )
-            changed += 1
+    # Discover candidates by organization id, then acquire organization locks
+    # in a stable order and re-read subscription state under those locks.
+    candidate_organization_ids = list(
+        db.scalars(
+            select(Subscription.organization_id)
+            .where(Subscription.status.in_(LIVE_STATUSES), stale_condition)
+            .distinct()
+            .order_by(Subscription.organization_id)
+        ).all()
+    )
+    for organization_id in candidate_organization_ids:
+        if not entitlements.lock_organization(db, organization_id):
+            continue
+        rows = list(
+            db.scalars(
+                select(Subscription)
+                .where(
+                    Subscription.organization_id == organization_id,
+                    Subscription.status.in_(LIVE_STATUSES),
+                )
+                .order_by(Subscription.created_at, Subscription.id)
+                .with_for_update()
+            ).all()
+        )
+        for sub in rows:
+            if sub.cancel_at_period_end and sub.current_period_end < now:
+                sub.canceled_at = now
+                _record_transition(
+                    db,
+                    subscription=sub,
+                    event_type="subscription.canceled",
+                    to_status="canceled",
+                    actor_user_id=None,
+                    details={"reason": "period_ended_after_cancel_request"},
+                )
+                changed += 1
+            elif (
+                sub.status == "past_due"
+                and sub.grace_ends_at is not None
+                and sub.grace_ends_at < now
+            ):
+                _record_transition(
+                    db,
+                    subscription=sub,
+                    event_type="subscription.grace_ended",
+                    to_status="grace",
+                    actor_user_id=None,
+                    details={"note": "grace window lapsed — paid capabilities locked"},
+                )
+                changed += 1
     if changed:
         db.commit()
     return changed
@@ -958,6 +1001,9 @@ def simulate_sandbox_payment(
     sandbox provider; the generated webhook is processed through the same
     idempotent pipeline as a real callback."""
     principal.require_org_role(organization_id, "org_admin")
+    # Lock before querying subscription/invoice rows; the webhook path later
+    # reacquires this transaction-held lock before its subscription row lock.
+    entitlements.lock_organization(db, organization_id)
     subscription = entitlements.get_live_subscription(db, organization_id)
     if subscription is None:
         raise Conflict("No live subscription.")

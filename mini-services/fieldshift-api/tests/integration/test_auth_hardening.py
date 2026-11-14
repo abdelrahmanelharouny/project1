@@ -195,6 +195,17 @@ class TestPasswordReset:
 class TestEmailVerification:
     def test_unverified_login_gated_until_verified(self, client, db, monkeypatch):
         monkeypatch.setattr(settings, "dev_mode", False)
+        from app.domains.identity import delivery
+
+        class RecordingEmailAdapter:
+            def __init__(self):
+                self.sent = []
+
+            def send_email(self, recipient, subject, text_body):
+                self.sent.append((recipient, subject))
+
+        adapter = RecordingEmailAdapter()
+        monkeypatch.setattr(delivery, "get_email_delivery_adapter", lambda: adapter)
         email = f"unverified-{uuid.uuid4().hex[:8]}@test.local"
         registered = client.post(
             "/api/v1/auth/register",
@@ -223,7 +234,7 @@ class TestEmailVerification:
         # API request keeps the generic shape (no token leaked outside dev_mode).
         resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
         assert resp.status_code == 202
-        assert resp.json()["status"] == "queued"
+        assert resp.json()["status"] == "accepted"
         assert "verification_token" not in resp.json()
 
         # The plaintext challenge is internal — fetch it from the service.
@@ -234,6 +245,25 @@ class TestEmailVerification:
 
         ok = _login(client, email)
         assert ok.status_code == 200
+        assert len(adapter.sent) == 3
+
+    def test_missing_delivery_fails_closed_without_account_creation(
+        self, client, db, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "dev_mode", False)
+        from app.domains.identity import delivery
+
+        monkeypatch.setattr(delivery, "get_email_delivery_adapter", lambda: None)
+        email = f"no-mail-{uuid.uuid4().hex[:8]}@test.local"
+        response = client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": PASSWORD, "display_name": "Farmer"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "EMAIL_DELIVERY_UNAVAILABLE"
+        assert db.scalar(select(User).where(User.email == email)) is None
+        assert db.scalars(select(AuthToken).where(AuthToken.user_id.is_(None))).all() == []
 
 
 class TestRbacMatrix:

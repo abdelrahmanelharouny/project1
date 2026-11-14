@@ -31,11 +31,15 @@ from app.intelligence.orchestration.contracts import AIRequest, AIResponse, Capa
 from app.intelligence.orchestration.knowledge import (
     EmbeddingProviderFailure,
     KnowledgeError,
+    MAX_EMBEDDING_AGE,
+    MAX_EMBEDDING_DIMENSIONS,
+    MAX_SEARCH_CANDIDATES,
     create_knowledge_document,
     embed_query,
     embed_pending_document,
     embedding_provider_registry,
     search_knowledge,
+    validate_embedding,
 )
 from app.intelligence.orchestration.provider_adapters import get_provider_statuses
 from app.intelligence.orchestration.service import execute_ai_request, safe_request_id
@@ -149,6 +153,88 @@ def _knowledge_provider(name: str | None) -> Any | None:
     if selected is None:
         return None
     return embedding_provider_registry.get(selected)
+
+
+def _semantic_retrieval_readiness(
+    *,
+    compatible_adapter_registered: bool,
+    compatible_ready_vector_available: bool,
+    documents_to_provider_allowed: bool,
+    queries_to_provider_allowed: bool,
+) -> tuple[bool, list[str]]:
+    """Return a stable, safe explanation of semantic retrieval readiness."""
+    blockers: list[str] = []
+    if not compatible_adapter_registered:
+        blockers.append("embedding_provider_unavailable")
+    if not compatible_ready_vector_available:
+        blockers.append("no_compatible_ready_vector")
+    if not documents_to_provider_allowed:
+        blockers.append("document_embedding_sharing_disabled")
+    if not queries_to_provider_allowed:
+        blockers.append("query_embedding_sharing_disabled")
+    return not blockers, blockers
+
+
+def _has_compatible_ready_vector(
+    db: Session,
+    organization_id: UUID,
+    providers: list[Any],
+) -> bool:
+    """Check only organization-owned, fresh searchable vectors for registered models."""
+    if not providers:
+        return False
+    now = datetime.now(UTC)
+    cutoff = now - MAX_EMBEDDING_AGE
+    future_limit = now + timedelta(minutes=5)
+    for provider in providers:
+        provider_name = getattr(provider, "name", None)
+        model_name = getattr(provider, "model", None)
+        if not isinstance(provider_name, str) or not provider_name.strip():
+            continue
+        if not isinstance(model_name, str) or not model_name.strip():
+            continue
+        rows = db.execute(
+            select(
+                AIKnowledgeChunk.embedding,
+                AIKnowledgeChunk.embedding_dimension,
+                AIKnowledgeChunk.embedding_updated_at,
+                AIKnowledgeDocument.source_updated_at,
+            )
+            .join(AIKnowledgeDocument, AIKnowledgeDocument.id == AIKnowledgeChunk.document_id)
+            .where(
+                AIKnowledgeChunk.organization_id == organization_id,
+                AIKnowledgeDocument.organization_id == organization_id,
+                AIKnowledgeDocument.processing_status == "ready",
+                AIKnowledgeDocument.embedding_provider == provider_name,
+                AIKnowledgeDocument.embedding_model == model_name,
+                AIKnowledgeChunk.embedding.is_not(None),
+                AIKnowledgeChunk.embedding_dimension >= 1,
+                AIKnowledgeChunk.embedding_dimension <= MAX_EMBEDDING_DIMENSIONS,
+                AIKnowledgeChunk.embedding_updated_at >= cutoff,
+                AIKnowledgeChunk.embedding_updated_at <= future_limit,
+            )
+            .order_by(AIKnowledgeChunk.embedding_updated_at.desc(), AIKnowledgeChunk.id)
+            .limit(MAX_SEARCH_CANDIDATES)
+        ).all()
+        for vector, dimension, embedded_at, source_updated_at in rows:
+            if not isinstance(dimension, int) or isinstance(dimension, bool):
+                continue
+            if not isinstance(embedded_at, datetime):
+                continue
+            if embedded_at.tzinfo is None:
+                embedded_at = embedded_at.replace(tzinfo=UTC)
+            else:
+                embedded_at = embedded_at.astimezone(UTC)
+            if embedded_at < cutoff or embedded_at > future_limit:
+                continue
+            if source_updated_at and embedded_at.date() < source_updated_at:
+                continue
+            try:
+                validate_embedding(vector, expected_dimension=dimension)
+            except KnowledgeError:
+                continue
+            return True
+    return False
 
 
 @router.get("/capabilities", response_model=list[CapabilityDescriptor])
@@ -556,18 +642,32 @@ def get_ai_knowledge_status(
     chunks = int(db.scalar(select(func.count()).select_from(AIKnowledgeChunk).where(
         AIKnowledgeChunk.organization_id == organization_id
     )) or 0)
+    provider_names = list(embedding_provider_registry.names())
+    providers = [
+        provider
+        for name in provider_names
+        if (provider := embedding_provider_registry.get(name)) is not None
+    ]
+    compatible_ready_vector = _has_compatible_ready_vector(db, organization_id, providers)
+    retrieval_available, retrieval_blockers = _semantic_retrieval_readiness(
+        compatible_adapter_registered=bool(providers),
+        compatible_ready_vector_available=compatible_ready_vector,
+        documents_to_provider_allowed=ai_settings.ai_knowledge_allow_documents_to_embedding_provider,
+        queries_to_provider_allowed=ai_settings.ai_knowledge_allow_queries_to_embedding_provider,
+    )
     return {
         "organization_id": organization_id,
         "documents": documents,
         "ready_documents": ready,
         "chunks": chunks,
         "ingestion_formats": ["text/plain", "text/markdown"],
-        "semantic_retrieval_available": bool(embedding_provider_registry.names()),
-        "embedding_providers_registered": list(embedding_provider_registry.names()),
+        "semantic_retrieval_available": retrieval_available,
+        "semantic_retrieval_blockers": retrieval_blockers,
+        "embedding_providers_registered": provider_names,
         "documents_to_provider_allowed": ai_settings.ai_knowledge_allow_documents_to_embedding_provider,
         "queries_to_provider_allowed": ai_settings.ai_knowledge_allow_queries_to_embedding_provider,
         "max_candidate_scan": 500,
-        "note": "Documents remain pending until a reviewed embedding provider and explicit sharing policy are configured.",
+        "note": "Semantic retrieval readiness requires a registered compatible provider, a fresh ready vector, and both explicit embedding-sharing gates.",
     }
 
 

@@ -58,6 +58,16 @@ def test_ai_conversation_is_private_between_members_of_the_same_organization(
     owner_headers = farm_with_field["headers"]
     field_id = farm_with_field["field"]["id"]
     farm_id = farm_with_field["farm"]["id"]
+    subscription = client.post(
+        "/api/v1/billing/subscription",
+        headers=owner_headers,
+        json={
+            "organization_id": farm_with_field["user"]["organization"]["id"],
+            "plan_code": "starter",
+            "billing_period": "monthly",
+        },
+    )
+    assert subscription.status_code == 200, subscription.text
 
     first = client.post(
         "/api/v1/ai/requests",

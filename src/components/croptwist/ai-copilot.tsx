@@ -48,6 +48,19 @@ interface CopilotProps {
   fieldName: string
 }
 
+export function resolveAiCopilotConversationIds(
+  conversationId: string | null,
+  isNewConversation: boolean,
+  conversations: Array<{ conversation_id: string }>,
+): { effectiveConversationId: string | null; submissionConversationId: string | null } {
+  const effectiveConversationId =
+    conversationId ?? (!isNewConversation ? conversations[0]?.conversation_id ?? null : null)
+  return {
+    effectiveConversationId,
+    submissionConversationId: isNewConversation ? null : effectiveConversationId,
+  }
+}
+
 interface LocalMessage {
   id: string
   role: 'user' | 'assistant'
@@ -115,7 +128,11 @@ export default function AiCopilot({ fieldId, fieldName }: CopilotProps) {
   const controllerRef = useRef<AbortController | null>(null)
   const activeRef = useRef(true)
   const ask = useAiCoreRequest(fieldId)
-  const effectiveConversationId = conversationId ?? (!isNewConversation ? conversations.data?.[0]?.conversation_id ?? null : null)
+  const { effectiveConversationId, submissionConversationId } = resolveAiCopilotConversationIds(
+    conversationId,
+    isNewConversation,
+    conversations.data ?? [],
+  )
   const history = useAiCoreConversationMessages(effectiveConversationId)
 
   useEffect(() => {
@@ -188,7 +205,7 @@ export default function AiCopilot({ fieldId, fieldName }: CopilotProps) {
     try {
       const response = await ask.mutateAsync({
         question,
-        conversationId,
+        conversationId: submissionConversationId,
         signal: controllerRef.current.signal,
         onChunk: (chunk) => {
           if (activeRef.current) setStreamingText((current) => current + chunk)

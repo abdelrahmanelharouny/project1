@@ -275,6 +275,18 @@ def _resolve_rate_limit(session: Session, organization_id: uuid.UUID) -> int:
     return value
 
 
+def _active_api_key_count(session: Session, organization_id: uuid.UUID) -> int:
+    """Count currently active keys while the caller holds the org lock."""
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(ApiKey)
+            .where(ApiKey.organization_id == organization_id, ApiKey.status == "active")
+        )
+        or 0
+    )
+
+
 def _require_postgresql_session(session: Session) -> None:
     """Prevent production paths from silently falling back to local state."""
     if not hasattr(session, "get_bind"):
@@ -364,27 +376,48 @@ def prune_api_key_state(
     moment = now or datetime.now(UTC)
     usage_cutoff = before or moment.date() - timedelta(days=usage_retention_days)
     rate_cutoff = moment - timedelta(seconds=rate_idle_seconds)
-    old_usage_ids = (
-        select(ApiKeyUsage.id)
-        .where(ApiKeyUsage.day < usage_cutoff)
-        .order_by(ApiKeyUsage.day.asc(), ApiKeyUsage.id.asc())
-        .limit(batch_size)
-        .with_for_update(skip_locked=True)
+    # Materialize the locked, bounded identifiers before DELETE. This makes
+    # the per-table ceiling explicit even on dialects that rewrite a limited
+    # SELECT nested inside DELETE differently.
+    old_usage_ids = list(
+        session.scalars(
+            select(ApiKeyUsage.id)
+            .where(ApiKeyUsage.day < usage_cutoff)
+            .order_by(ApiKeyUsage.day.asc(), ApiKeyUsage.id.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        ).all()
     )
-    stale_rate_ids = (
-        select(ApiKeyRateWindow.api_key_id)
-        .where(ApiKeyRateWindow.updated_at < rate_cutoff)
-        .order_by(ApiKeyRateWindow.updated_at.asc(), ApiKeyRateWindow.api_key_id.asc())
-        .limit(batch_size)
-        .with_for_update(skip_locked=True)
+    stale_rate_ids = list(
+        session.scalars(
+            select(ApiKeyRateWindow.api_key_id)
+            .where(ApiKeyRateWindow.updated_at < rate_cutoff)
+            .order_by(ApiKeyRateWindow.updated_at.asc(), ApiKeyRateWindow.api_key_id.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        ).all()
     )
-    usage_result = session.execute(delete(ApiKeyUsage).where(ApiKeyUsage.id.in_(old_usage_ids)))
-    rate_result = session.execute(
-        delete(ApiKeyRateWindow).where(ApiKeyRateWindow.api_key_id.in_(stale_rate_ids))
+    usage_rows = 0
+    if old_usage_ids:
+        usage_rows = int(
+            session.execute(
+                delete(ApiKeyUsage).where(ApiKeyUsage.id.in_(old_usage_ids))
+            ).rowcount
+            or 0
+        )
+    rate_rows = (
+        int(
+            session.execute(
+                delete(ApiKeyRateWindow).where(ApiKeyRateWindow.api_key_id.in_(stale_rate_ids))
+            ).rowcount
+            or 0
+        )
+        if stale_rate_ids
+        else 0
     )
     result = {
-        "usage_rows": int(usage_result.rowcount or 0),
-        "rate_rows": int(rate_result.rowcount or 0),
+        "usage_rows": usage_rows,
+        "rate_rows": rate_rows,
     }
     if commit:
         session.commit()
@@ -437,14 +470,7 @@ def create_api_key(
         )
     clean_scopes = validate_scopes(scopes)
 
-    active_count = int(
-        session.scalar(
-            select(func.count())
-            .select_from(ApiKey)
-            .where(ApiKey.organization_id == organization_id, ApiKey.status == "active")
-        )
-        or 0
-    )
+    active_count = _active_api_key_count(session, organization_id)
     _assert_api_keys_within_limit(session, organization_id, active_count)
     rate_limit = _resolve_rate_limit(session, organization_id)
 
@@ -567,25 +593,32 @@ def rotate_api_key(
     organization_id: uuid.UUID | None = None,
 ) -> tuple[ApiKey, str]:
     """Rotate: old key is revoked immediately (NO grace window) and a fresh
-    secret is issued with the same name/scopes/rate limit. Returns the new
-    plaintext ONCE."""
+    secret is issued with the same name/scopes and the current plan rate
+    limit. Returns the new plaintext ONCE."""
     organization_id = resolve_org_id(principal, organization_id)
     principal.require_org_role(organization_id, "org_admin")
     _require_postgresql_session(session)
     _lock_organization(session, organization_id)
-    entitlements.require_flag(session, organization_id, KEY_API_ENABLED)
-    old_key = _locked_api_key(session, organization_id, key_id)
-    if old_key.status != "active" or old_key.revoked_at is not None:
-        raise Conflict("Cannot rotate a revoked API key — create a new one instead.")
+    try:
+        entitlements.require_flag(session, organization_id, KEY_API_ENABLED)
+        old_key = _locked_api_key(session, organization_id, key_id)
+        if old_key.status != "active" or old_key.revoked_at is not None:
+            raise Conflict("Cannot rotate a revoked API key — create a new one instead.")
 
-    now = datetime.now(UTC)
-    old_key.status = "revoked"
-    old_key.revoked_at = now
-    if hasattr(session, "get_bind"):
-        session.execute(
-            delete(ApiKeyRateWindow).where(ApiKeyRateWindow.api_key_id == old_key.id)
-        )
-    key_rate_limiter.forget(str(old_key.id))
+        # Rotation is a replacement, not an additional key: check the same
+        # live issuance cap while excluding the active key this transaction
+        # replaces. All checks precede mutation so a downgraded plan cannot
+        # strand an otherwise valid credential.
+        active_count = _active_api_key_count(session, organization_id)
+        replacement_count = max(0, active_count - 1)
+        _assert_api_keys_within_limit(session, organization_id, replacement_count)
+        rate_limit = _resolve_rate_limit(session, organization_id)
+    except Exception:
+        # Release the organization/key locks and leave the caller with no
+        # partially authorized transaction to accidentally commit.
+        if hasattr(session, "rollback"):
+            session.rollback()
+        raise
 
     plaintext, prefix, key_hash = generate_api_key()
     new_key = ApiKey(
@@ -595,31 +628,46 @@ def rotate_api_key(
         key_hash=key_hash,
         scopes=list(old_key.scopes or []),
         status="active",
-        rate_limit_per_minute=old_key.rate_limit_per_minute,
+        rate_limit_per_minute=rate_limit,
         created_by=principal.id,
     )
-    session.add(new_key)
-    session.flush()
-    record_auth_audit(
-        session,
-        actor_id=principal.id,
-        organization_id=organization_id,
-        action="api_key.rotate",
-        entity_type="api_key",
-        entity_id=str(new_key.id),
-        meta={"rotated_from": str(old_key.id), "prefix": prefix},
-    )
-    activity.record_event(
-        session,
-        organization_id=organization_id,
-        event_type=activity.EVENT_API_KEY_CREATED,
-        summary=f"API key '{old_key.name}' rotated",
-        actor_user_id=principal.id,
-        entity_kind="api_key",
-        entity_id=str(new_key.id),
-        details={"rotated_from": str(old_key.id), "prefix": prefix},
-    )
-    session.commit()
+    try:
+        now = datetime.now(UTC)
+        old_key.status = "revoked"
+        old_key.revoked_at = now
+        if hasattr(session, "get_bind"):
+            session.execute(
+                delete(ApiKeyRateWindow).where(ApiKeyRateWindow.api_key_id == old_key.id)
+            )
+        session.add(new_key)
+        session.flush()
+        record_auth_audit(
+            session,
+            actor_id=principal.id,
+            organization_id=organization_id,
+            action="api_key.rotate",
+            entity_type="api_key",
+            entity_id=str(new_key.id),
+            meta={"rotated_from": str(old_key.id), "prefix": prefix},
+        )
+        activity.record_event(
+            session,
+            organization_id=organization_id,
+            event_type=activity.EVENT_API_KEY_CREATED,
+            summary=f"API key '{old_key.name}' rotated",
+            actor_user_id=principal.id,
+            entity_kind="api_key",
+            entity_id=str(new_key.id),
+            details={"rotated_from": str(old_key.id), "prefix": prefix},
+        )
+        session.commit()
+    except Exception:
+        # Keep the old credential and replacement in one all-or-nothing
+        # transaction even if persistence/audit work fails mid-rotation.
+        if hasattr(session, "rollback"):
+            session.rollback()
+        raise
+    key_rate_limiter.forget(str(old_key.id))
     return new_key, plaintext
 
 

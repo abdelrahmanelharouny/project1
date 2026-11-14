@@ -14,9 +14,8 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy import delete, func, select
 
-from app.billing import entitlements
 from app.core.database import SessionLocal
-from app.core.errors import Conflict, PaymentRequired, TooManyRequests
+from app.core.errors import Conflict, Forbidden, PaymentRequired, TooManyRequests
 from app.db.models import AuditEvent, Membership, Organization, User
 from app.db.models_p3 import (
     ApiKey,
@@ -81,6 +80,40 @@ def _principal(db, user_id, org_id):
     )
     assert user is not None and membership is not None
     return Principal(user, [membership])
+
+
+def _api_plan(db, org, *, max_api_keys: int, rate_limit: int):
+    """Attach a minimal live API-enabled plan and return mutable entitlements."""
+    suffix = uuid.uuid4().hex[:10]
+    plan = Plan(code=f"api-rotation-{suffix}", name="Synthetic API rotation plan")
+    db.add(plan)
+    db.flush()
+    api_enabled = PlanEntitlement(
+        plan_id=plan.id, key=api_keys.KEY_API_ENABLED, value_bool=True
+    )
+    rate = PlanEntitlement(
+        plan_id=plan.id,
+        key=api_keys.KEY_API_RATE_LIMIT_PER_MINUTE,
+        value_int=rate_limit,
+    )
+    key_cap = PlanEntitlement(
+        plan_id=plan.id, key=api_keys.KEY_MAX_API_KEYS, value_int=max_api_keys
+    )
+    db.add_all([api_enabled, rate, key_cap])
+    now = datetime.now(UTC)
+    db.add(
+        Subscription(
+            organization_id=org.id,
+            plan_id=plan.id,
+            status="active",
+            billing_period="monthly",
+            provider="sandbox",
+            current_period_start=now - timedelta(days=1),
+            current_period_end=now + timedelta(days=30),
+        )
+    )
+    db.flush()
+    return rate, key_cap
 
 
 def test_parallel_usage_upserts_do_not_lose_existing_row_increments(db):
@@ -193,9 +226,9 @@ def test_two_create_calls_at_one_key_cap_serialize_on_organization(db):
         check.close()
 
 
-def test_parallel_rotations_issue_only_one_replacement(db, monkeypatch):
-    monkeypatch.setattr(entitlements, "require_flag", lambda *_args, **_kwargs: None)
+def test_parallel_rotations_issue_only_one_replacement(db):
     org, user, _ = _new_org(db, with_owner=True)
+    _api_plan(db, org, max_api_keys=1, rate_limit=100)
     original = _new_key(db, org)
     db.commit()
     user_id, org_id, original_id = user.id, org.id, original.id
@@ -241,6 +274,98 @@ def test_parallel_rotations_issue_only_one_replacement(db, monkeypatch):
             )
         )
         assert rotate_audits == 1
+    finally:
+        check.close()
+
+
+def test_rotation_rechecks_downgraded_key_cap_without_revoking_original(db):
+    org, user, _ = _new_org(db, with_owner=True)
+    _, key_cap = _api_plan(db, org, max_api_keys=2, rate_limit=100)
+    original = _new_key(db, org)
+    _new_key(db, org)
+    db.commit()
+    user_id, org_id, original_id = user.id, org.id, original.id
+
+    # Plan downgrade leaves more active keys than the replacement-adjusted cap.
+    key_cap.value_int = 1
+    db.commit()
+    principal = _principal(db, user_id, org_id)
+    with pytest.raises(PaymentRequired):
+        api_keys.rotate_api_key(db, principal, key_id=original_id, organization_id=org_id)
+    db.rollback()
+
+    check = SessionLocal()
+    try:
+        active = list(
+            check.scalars(
+                select(ApiKey).where(
+                    ApiKey.organization_id == org_id,
+                    ApiKey.status == "active",
+                )
+            ).all()
+        )
+        assert len(active) == 2
+        assert any(key.id == original_id for key in active)
+        assert check.scalar(
+            select(func.count()).select_from(ApiKey).where(
+                ApiKey.organization_id == org_id,
+                ApiKey.status == "revoked",
+            )
+        ) == 0
+    finally:
+        check.close()
+
+
+def test_rotation_uses_fresh_rate_and_succeeds_at_key_cap(db):
+    org, user, _ = _new_org(db, with_owner=True)
+    rate, _ = _api_plan(db, org, max_api_keys=1, rate_limit=100)
+    original = _new_key(db, org, rate=100)
+    db.commit()
+    user_id, org_id, original_id = user.id, org.id, original.id
+
+    rate.value_int = 23
+    db.commit()
+    principal = _principal(db, user_id, org_id)
+    replacement, _ = api_keys.rotate_api_key(
+        db, principal, key_id=original_id, organization_id=org_id
+    )
+
+    assert original.status == "revoked"
+    assert replacement.status == "active"
+    assert replacement.rate_limit_per_minute == 23
+    assert db.scalar(
+        select(func.count()).select_from(ApiKey).where(
+            ApiKey.organization_id == org_id,
+            ApiKey.status == "active",
+        )
+    ) == 1
+
+
+def test_rotation_denied_by_current_rate_authorization_keeps_original(db):
+    org, user, _ = _new_org(db, with_owner=True)
+    rate, _ = _api_plan(db, org, max_api_keys=1, rate_limit=100)
+    original = _new_key(db, org)
+    db.commit()
+    user_id, org_id, original_id = user.id, org.id, original.id
+
+    rate.value_int = 0
+    db.commit()
+    principal = _principal(db, user_id, org_id)
+    with pytest.raises(Forbidden):
+        api_keys.rotate_api_key(db, principal, key_id=original_id, organization_id=org_id)
+    db.rollback()
+
+    check = SessionLocal()
+    try:
+        persisted = check.get(ApiKey, original_id)
+        assert persisted is not None
+        assert persisted.status == "active" and persisted.revoked_at is None
+        assert check.scalar(
+            select(func.count()).select_from(ApiKey).where(
+                ApiKey.organization_id == org_id,
+                ApiKey.status == "active",
+            )
+        ) == 1
     finally:
         check.close()
 

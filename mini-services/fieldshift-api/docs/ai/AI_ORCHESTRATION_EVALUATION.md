@@ -1,6 +1,6 @@
 # AI Orchestration Evaluation and Verification Ledger
 
-**Purpose:** Define what the checked-in offline evaluation can measure and keep implementation, test verification, live-provider verification, and production readiness separate. This document does not claim that current provider reliability tests or the final suite have passed. The provider workstream is updating reliability tests; authoritative final counts and pass/fail records belong in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md), not in a stale historical count here.
+**Purpose:** Define what the checked-in offline evaluation can measure and keep implementation, test verification, live-provider verification, and production readiness separate. The mocked provider-adapter suite passed 73 tests; authoritative full counts and pass/fail records belong in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md), not in a stale historical count here.
 
 ## Evaluation scope
 
@@ -27,7 +27,7 @@ Run only the intended unit/offline slice after consulting the current integratio
 | Field requirement and request strictness | Missing field clarification, blank/oversized question rejection, duplicate/unknown context-domain rejection, and rejection of extra actor/tenant/provider/tool inputs. |
 | Context and evidence bounds | Allowlist behavior; field profile/data-gap retention; seven selected domains; 16 KB evidence ceiling; explicit absent data rather than zero. |
 | Tool security and limits | Unplanned tool denial, permission checks, no side effects, dependency ordering, validated prior-result handling, workflow/tool deadlines and output byte limits. |
-| Provider behavior | Configured default priority and exact model IDs; environment-only credentials; global and OpenRouter-specific privacy gates; only retryable failure advances; no fallback after partial stream output; status endpoint remains non-live. Provider reliability tests are in progress. |
+| Provider behavior | Configured default priority and exact model IDs; environment-only credentials; global and OpenRouter-specific privacy gates; only retryable failure advances; no fallback after partial stream output; status endpoint remains non-live. The 73-test adapter suite is mocked and does not verify live connectivity or model quality. |
 | Provider schema claims | Adapter contracts and capability declarations should be tested against request/response fixtures. Do not claim every provider/path uses native structured output merely because an adapter exposes it; Core factual narrative validation remains local. |
 | Response grounding | Allowed citation labels, per-factual-sentence citation requirement, deterministic safe fallback after invalid prose, explicit unsupported result arrays. |
 | Numeric consistency | Supported conversions in the general guard, incompatible dimensions rejected, and the final citation-specific comparison restricted to the same cited section and unit. |
@@ -47,9 +47,9 @@ Use separate outcome counts for `answered`, `partial`, `clarification_required`,
 
 ## Current verification boundary
 
-This documentation update did not run tests, touch database state, call any provider, or modify test/source code. Provider reliability tests are being actively updated by their owner; interim test records are not final. Do not infer a current pass from source presence, a stale log, a mock-only test, or `/providers` status. The provider-status endpoint explicitly reports `live_connectivity_verified: false` until a separate authorized smoke test is performed.
+The documented adapter test suite covers mocked provider contracts; it does not call a provider or verify connectivity. Do not infer live readiness from source presence, a mock-only test, or `/providers` status. The provider-status endpoint explicitly reports `live_connectivity_verified: false` until a separate authorized smoke test is performed. Consult the integration engineering report for current full-suite and migration results.
 
-The checkout contains migration revision files through 0025: 0024 adds session ownership and traces; 0025 adds provider-attempt metadata, feedback and knowledge document/chunk tables. Repository revision presence is distinct from a target database's applied revision. Do not report later integration migrations as applied until the integration owner verifies them after merge/deployment.
+The checkout contains one linear migration chain through 0028: 0024 adds session ownership/traces; 0025 adds provider-attempt metadata, feedback, and knowledge tables; 0026 adds job ownership; 0027 adds invoice/payment identity; and 0028 adds API-key rate windows. The chain was round-trip tested on a local disposable PostGIS database; repository and local test state are distinct from a target deployment's applied revision.
 
 ## Final reporting and promotion gates
 

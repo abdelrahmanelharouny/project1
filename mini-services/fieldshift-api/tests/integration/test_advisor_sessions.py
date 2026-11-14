@@ -125,19 +125,18 @@ def test_session_access_control_across_fields(client, farm_with_field):
     )
     assert resp.status_code == 201, resp.text
     other_headers = {"Authorization": f"Bearer {resp.json()['token']}"}
-    # Create a second farm+field for the same user.
+    # Create another field for the same user. The Free plan allows multiple
+    # fields but only one farm, so reuse the existing farm for this field test.
     headers_a = farm_with_field["headers"]
     field_a = farm_with_field["field"]["id"]
-    farm_b = client.post(
-        "/api/v1/farms", headers=headers_a,
-        json={"name": "Farm B", "country_code": "EG", "timezone": "Africa/Cairo",
-              "currency_code": "EGP"},
-    ).json()
-    field_b = client.post(
-        f"/api/v1/farms/{farm_b['id']}/fields", headers=headers_a,
+    farm_id = farm_with_field["farm"]["id"]
+    field_response = client.post(
+        f"/api/v1/farms/{farm_id}/fields", headers=headers_a,
         json={"name": "South Field", "geometry": {"type": "Polygon", "coordinates": [
             [[31.5, 31.2], [31.52, 31.2], [31.52, 31.22], [31.5, 31.22], [31.5, 31.2]]]}},
-    ).json()["id"]
+    )
+    assert field_response.status_code == 201, field_response.text
+    field_b = field_response.json()["id"]
 
     session = client.post(
         f"/api/v1/fields/{field_a}/advisor/query", headers=headers_a,

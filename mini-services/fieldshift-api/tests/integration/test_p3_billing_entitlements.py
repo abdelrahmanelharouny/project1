@@ -596,9 +596,12 @@ class TestBillingWebhookReceiver:
 
 
 class TestReportsQuotaAccounting:
-    def test_quota_enforced_after_increment_usage(self, client, auth_headers, db):
+    def test_quota_enforced_after_increment_usage(
+        self, client, auth_headers, db, tmp_path, monkeypatch
+    ):
         from app.billing import entitlements
 
+        monkeypatch.setattr(settings, "reports_dir", str(tmp_path / "reports_storage"))
         headers, user = auth_headers
         org = _org_id(user)
         _start_subscription(client, headers, org, "starter")  # reports_per_month = 15
@@ -610,7 +613,7 @@ class TestReportsQuotaAccounting:
             json={"report_type": "org_executive", "format": "csv", "sync": True},
         )
         assert created.status_code == 201, created.text
-        assert created.json()["status"] == "succeeded"
+        assert created.json()["status"] == "succeeded", created.text
 
         usage = client.get(
             "/api/v1/billing/usage", headers=headers, params={"organization_id": org}

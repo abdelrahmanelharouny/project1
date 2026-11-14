@@ -137,6 +137,10 @@ jobs:
 
       # The LLM bridge is an independent bun package with its own tsconfig
       # and @types/bun — typecheck it in isolation.
+      - name: Install bridge type dependencies
+        working-directory: mini-services/llm-bridge
+        run: bun install --frozen-lockfile
+
       - name: Bridge type check
         working-directory: mini-services/llm-bridge
         run: ../../node_modules/.bin/tsc --noEmit

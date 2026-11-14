@@ -40,16 +40,25 @@ Two jobs on every push/PR:
 4. `bun run build` — production build with
    `typescript.ignoreBuildErrors: false` (flipped in P0 after verifying
    the build passes clean; do not re-enable).
-5. Bridge typecheck: `tsc --noEmit` inside `mini-services/llm-bridge`
-   (its own strict tsconfig + `@types/bun`).
+5. Install the bridge's independent lockfile in `mini-services/llm-bridge`
+   using `bun install --frozen-lockfile`, then run
+   `../../node_modules/.bin/tsc --noEmit` there (its strict tsconfig resolves
+   `@types/bun` from the bridge-local `node_modules`).
 
 ### CI status honesty note
 
-The workflow is fully defined and every command in it was executed
-successfully **locally** in this sandbox (identical commands; see
-IMPLEMENTATION_STATUS.md for the evidence matrix). GitHub-hosted runs
-could not be observed from the sandbox (no remote/runner access), so CI
-greenness on github.com remains to be confirmed on first push.
+The final full PostGIS integration run on the combined tree was stopped at
+88% after the user requested a quicker handoff. Pytest produced no final
+summary; this is **not a pass**. The final database-independent backend slice
+passed **1,198 tests** with **15 database-backed cases explicitly deselected**.
+Focused PostGIS regressions passed after correcting two API-key test defects;
+the initial four-module run had 20 passes and two failures, then the two
+affected tests passed on rerun. Frontend tests passed **138/138**; TypeScript,
+ESLint and the production build passed. The bridge typecheck (after its own
+frozen install) and disposable migration round-trip also passed locally.
+Per-command evidence and limitations are in the master integration report.
+GitHub-hosted runs have not yet been observed; remote CI remains unverified
+until the authorized feature-branch push and Actions completion.
 
 ## Test layers
 
@@ -74,6 +83,11 @@ greenness on github.com remains to be confirmed on first push.
   `httpx.Client().post`, which is not patched).
 - any OTHER external host → loud `RuntimeError` so a new live dependency
   cannot silently make tests nondeterministic again.
+
+This pytest guard is not an application runtime egress gate. The local
+synthetic-data browser smoke observed read-only GETs to NASA CMR STAC,
+Open-Meteo archive/forecast, Copernicus STAC, and ISRIC WCS metadata; see the
+dated browser-smoke report for the exact synthetic coordinate and limits.
 
 Triggering incident (2026-11-10): the shared sandbox IP received
 `HTTP 429 Too Many Requests` from Open-Meteo; ingestion jobs failed with
@@ -131,10 +145,13 @@ cd mini-services/llm-bridge && ../../node_modules/.bin/tsc --noEmit
 - GitHub-hosted workflow status is unknown until the integration branch is
   pushed and Actions completes. Local command success is not remote CI
   success.
-- Live LLM inference, NASA/Earthdata acquisition, SMTP delivery, payment
-  settlement, and production object storage are deliberately excluded from
-  ordinary CI. Readiness requirements and current credential gates are listed
-  in `docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md`.
+- Live LLM inference, Earthdata-authenticated HLS asset acquisition, SMTP
+  delivery, payment settlement, and production object storage are deliberately
+  excluded from ordinary CI. Public environmental/catalog GETs can still be
+  triggered by application paths outside pytest and may transmit farm
+  coordinates; operator-facing disclosure/consent remains a release review
+  item. Readiness requirements and credential gates are listed in the master
+  integration report.
 - `pytest -q` wall time ≈ 25–30 min; CI caches pip wheels but the suite
   itself dominates runtime.
 - Provider **contract** suites (tests/contract/) still mock at the

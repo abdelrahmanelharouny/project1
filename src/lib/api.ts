@@ -44,10 +44,13 @@ import type {
   HealthResponse,
   LoginInput,
   MeResponse,
+  EmailVerificationConfirmResult,
+  EmailVerificationRequestResult,
   ObservationListResponse,
   ProvidersHealthResponse,
   RecommendationsResponse,
   RegisterInput,
+  RegisterResult,
   FieldState,
   FieldStateCreateInput,
   FieldStateListResponse,
@@ -334,8 +337,18 @@ export function login(input: LoginInput): Promise<AuthSession> {
   return authRequest<AuthSession>('/login', input)
 }
 
-export function register(input: RegisterInput): Promise<AuthSession> {
-  return authRequest<AuthSession>('/register', input)
+export function register(input: RegisterInput): Promise<RegisterResult> {
+  return authRequest<RegisterResult>('/register', input)
+}
+
+/** Request or resend an email-verification challenge; response tokens are never returned. */
+export function requestEmailVerification(input: { email: string }): Promise<EmailVerificationRequestResult> {
+  return authRequest<EmailVerificationRequestResult>('/verify-email/request', input)
+}
+
+/** Confirm the emailed token. A session is created separately by login after this succeeds. */
+export function confirmEmailVerification(input: { token: string }): Promise<EmailVerificationConfirmResult> {
+  return authRequest<EmailVerificationConfirmResult>('/verify-email/confirm', input)
 }
 
 /** Seed the synthetic demo workspace and sign in as the demo user. */

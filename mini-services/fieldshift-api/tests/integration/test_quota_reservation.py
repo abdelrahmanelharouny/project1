@@ -6,7 +6,7 @@ mail, or payment services are contacted. Run only with an isolated test DSN.
 """
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier, local
+from threading import Barrier, Event, local
 from types import SimpleNamespace
 import uuid
 
@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import select
 
 from app.billing import entitlements
+from app.billing import service as billing_service
 from app.core.database import SessionLocal
 from app.core.errors import PaymentRequired
 from app.db import models as dbm
@@ -363,3 +364,87 @@ def test_yearly_subscription_plan_changes_keep_monthly_scenario_bucket(
     db.commit()
     assert entitlements.current_usage(db, uuid.UUID(organization_id), entitlements.KEY_SCENARIO_RUNS_PER_MONTH) == 1
     assert _usage_row(db, organization_id).period_start == entitlements.scenario_quota_period_start()
+
+
+def test_downgrade_serializes_with_scenario_admission_using_committed_plan(
+    farm_with_field, db, monkeypatch
+):
+    organization_id = farm_with_field["user"]["organization"]["id"]
+    starter_plan_id = _set_plan_quota(db, "starter", 1)
+    free_plan_id = _set_plan_quota(db, "free", 0)
+    _attach_synthetic_subscription(db, organization_id, starter_plan_id, "monthly")
+
+    transition_staged = Event()
+    allow_transition_commit = Event()
+    quota_lock_attempted = Event()
+    quota_snapshot_started = Event()
+    original_transition = billing_service._record_transition
+    original_quota_lock = entitlements.lock_organization_for_quota
+    original_limit_for = entitlements.limit_for
+
+    def pause_after_plan_update(session, **kwargs):
+        original_transition(session, **kwargs)
+        session.flush()
+        transition_staged.set()
+        if not allow_transition_commit.wait(timeout=20):
+            raise TimeoutError("test did not release the staged plan transition")
+
+    def observe_quota_lock(session, locked_organization_id):
+        quota_lock_attempted.set()
+        return original_quota_lock(session, locked_organization_id)
+
+    def observe_quota_snapshot(session, snapshot_organization_id, key):
+        if key == entitlements.KEY_SCENARIO_RUNS_PER_MONTH:
+            quota_snapshot_started.set()
+        return original_limit_for(session, snapshot_organization_id, key)
+
+    monkeypatch.setattr(billing_service, "_record_transition", pause_after_plan_update)
+    monkeypatch.setattr(entitlements, "lock_organization_for_quota", observe_quota_lock)
+    monkeypatch.setattr(entitlements, "limit_for", observe_quota_snapshot)
+    principal = SimpleNamespace(id=uuid.uuid4(), require_org_role=lambda *_args: None)
+    org_uuid = uuid.UUID(organization_id)
+
+    def downgrade():
+        with SessionLocal() as session:
+            subscription = billing_service.change_plan(
+                session,
+                principal,
+                organization_id=org_uuid,
+                new_plan_id=free_plan_id,
+            )
+            return subscription.plan_id
+
+    def admit_scenario():
+        with SessionLocal() as session:
+            try:
+                entitlements.reserve_scenario_run(session, org_uuid)
+            except PaymentRequired:
+                return "denied"
+            session.commit()
+            return "admitted"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        downgrade_future = pool.submit(downgrade)
+        assert transition_staged.wait(timeout=10), "downgrade did not reach its staged update"
+        admission_future = pool.submit(admit_scenario)
+        try:
+            assert quota_lock_attempted.wait(timeout=10), "scenario admission did not attempt its lock"
+            assert not quota_snapshot_started.wait(timeout=0.5), (
+                "scenario admission read the old plan before the downgrade committed"
+            )
+        finally:
+            allow_transition_commit.set()
+
+        assert downgrade_future.result(timeout=20) == free_plan_id
+        assert admission_future.result(timeout=20) == "denied"
+
+    db.expire_all()
+    subscription = db.scalar(
+        select(Subscription).where(Subscription.organization_id == org_uuid)
+    )
+    assert subscription is not None and subscription.plan_id == free_plan_id
+    assert entitlements.limit_for(
+        db, org_uuid, entitlements.KEY_SCENARIO_RUNS_PER_MONTH
+    ) == 0
+    usage = _usage_row(db, organization_id)
+    assert usage is None or usage.used_value == 0

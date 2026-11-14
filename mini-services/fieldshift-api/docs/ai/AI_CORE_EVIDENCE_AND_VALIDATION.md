@@ -1,6 +1,6 @@
 # AI Core Evidence and Response Validation
 
-**Status:** Describes current source-level behavior. It is not a claim of agronomic accuracy, test completion, live-provider operation, or production approval. Final verification counts belong in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md).
+**Status:** Describes current source-level behavior. It is not a claim of agronomic accuracy, live-provider operation, or production approval. The mocked provider-adapter suite passed 73 tests; the complete local verification ledger belongs in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md).
 
 ## Evidence source and selected context
 
@@ -53,4 +53,4 @@ Core history is owner- and field-bounded; model context defaults to six turns an
 
 Unit/contract tests should cover allowed evidence labels, missing-data semantics, citation omission, numeric/unit mismatch, cross-section numeric rejection, provider failure and fallback, prompt delimiter attacks, selected-domain filtering, output bounds, and Arabic planning/notice paths. Integration tests should cover field authorization, conversation owner/field isolation, trace metadata, privacy gates, feedback consent, tenant-scoped knowledge, and retention deletion against an isolated disposable database.
 
-Provider reliability tests are being updated by the provider workstream. No tests were executed for this documentation task, and no final suite count or live connectivity is claimed. See the linked integration engineering report for the authoritative completion ledger. Before any domain is marked operational beyond current stored-evidence explanation, its owner must supply source-backed evaluation, documented freshness/quality semantics, agronomist review where relevant, and release approval.
+The mocked provider-adapter suite passed 73 tests; this establishes tested request/response and failure contracts only, not provider reachability or model quality. Consult the linked integration engineering report for the complete verification ledger. Before any domain is marked operational beyond current stored-evidence explanation, its owner must supply source-backed evaluation, documented freshness/quality semantics, agronomist review where relevant, and release approval.

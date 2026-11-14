@@ -87,11 +87,8 @@ def _make_scene_row(db, field_id, *, scene_id, assets, acquired_at, cloud=10.0):
 
 def _process(db, field, scene_id, indices=("ndvi",), tmp_path=None, scene_kwargs=None):
     from app.db.models import Field as FieldModel
-    from app.db.models_p2 import RasterProcessingJob
-    from app.data_platform.processing.service import (
-        create_processing_jobs,
-        execute_processing_job,
-    )
+    from app.data_platform.processing.service import create_processing_jobs
+    from tests.conftest import run_raster_job_through_worker
 
     assert tmp_path is not None
     assets = fx.write_fixture_scene(tmp_path, scene_id=scene_id)
@@ -106,8 +103,7 @@ def _process(db, field, scene_id, indices=("ndvi",), tmp_path=None, scene_kwargs
     result = create_processing_jobs(db, field=field, scene_ids=[scene_id], indices=list(indices))
     assert result["jobs"], result
     rp_id = uuid_mod.UUID(result["jobs"][0]["job_id"])
-    execute_processing_job(rp_id, None)
-    rp = db.get(RasterProcessingJob, rp_id)
+    rp = run_raster_job_through_worker(rp_id, db=db)
     assert rp.status == "succeeded", rp.error
     return rp
 
@@ -447,11 +443,8 @@ class TestAnomalyDetection:
     def _four_scene_field(self, client, fixture_field, db, tmp_path):
         """A/B/C mixed-mean baseline + uniform stressed D -> decline signal."""
         from app.db.models import Field
-        from app.db.models_p2 import RasterAsset, RasterProcessingJob
-        from app.data_platform.processing.service import (
-            create_processing_jobs,
-            execute_processing_job,
-        )
+        from app.data_platform.processing.service import create_processing_jobs
+        from tests.conftest import run_raster_job_through_worker
 
         field = db.get(Field, uuid_mod.UUID(fixture_field["field"]["id"]))
         base = datetime.now(UTC) - timedelta(days=30)
@@ -464,8 +457,7 @@ class TestAnomalyDetection:
                         acquired_at=base + timedelta(days=12))
         result = create_processing_jobs(db, field=field, scene_ids=["FIX.AN4"], indices=["ndvi"])
         rp_id = uuid_mod.UUID(result["jobs"][0]["job_id"])
-        execute_processing_job(rp_id, None)
-        rp = db.get(RasterProcessingJob, rp_id)
+        rp = run_raster_job_through_worker(rp_id, db=db)
         assert rp.status == "succeeded", rp.error
         return field
 
@@ -488,11 +480,8 @@ class TestAnomalyDetection:
     def test_decline_signal_z_score_path(self, client, fixture_field, db, tmp_path):
         """Varied baseline (mixed + vegetated) then stressed -> z <= -1.5."""
         from app.db.models import Field
-        from app.db.models_p2 import RasterProcessingJob
-        from app.data_platform.processing.service import (
-            create_processing_jobs,
-            execute_processing_job,
-        )
+        from app.data_platform.processing.service import create_processing_jobs
+        from tests.conftest import run_raster_job_through_worker
 
         field = db.get(Field, uuid_mod.UUID(fixture_field["field"]["id"]))
         base = datetime.now(UTC) - timedelta(days=30)
@@ -505,15 +494,15 @@ class TestAnomalyDetection:
         _make_scene_row(db, field.id, scene_id="FIX.Z3", assets=veg_assets,
                         acquired_at=base + timedelta(days=6))
         result = create_processing_jobs(db, field=field, scene_ids=["FIX.Z3"], indices=["ndvi"])
-        execute_processing_job(uuid_mod.UUID(result["jobs"][0]["job_id"]), None)
+        run_raster_job_through_worker(uuid_mod.UUID(result["jobs"][0]["job_id"]), db=db)
         # latest: uniform STRESSED scene (mean -0.0909)
         stressed_assets = _uniform_scene(tmp_path, scene_id="FIX.Z4", stressed=True)
         _make_scene_row(db, field.id, scene_id="FIX.Z4", assets=stressed_assets,
                         acquired_at=base + timedelta(days=9))
         result = create_processing_jobs(db, field=field, scene_ids=["FIX.Z4"], indices=["ndvi"])
         rp_id = uuid_mod.UUID(result["jobs"][0]["job_id"])
-        execute_processing_job(rp_id, None)
-        assert db.get(RasterProcessingJob, rp_id).status == "succeeded"
+        rp = run_raster_job_through_worker(rp_id, db=db)
+        assert rp.status == "succeeded"
 
         resp = client.get(
             f"/api/v1/fields/{field.id}/satellite/anomalies?index=ndvi",
@@ -593,14 +582,15 @@ class TestSpatialComparison:
         assert body["mean_delta"] == pytest.approx(0.0, abs=1e-6)
         assert body["compatibility"]["temporal_distance_days"] == 8
 
-    def test_missing_side_reports_unavailable(self, client, auth_headers, fixture_field, db):
-        headers, _user = auth_headers
-        farm = client.post("/api/v1/farms", headers=headers,
-                           json={"name": "C Farm", "country_code": "EG", "timezone": "Africa/Cairo"}).json()
-        field = client.post(
-            f"/api/v1/farms/{farm['id']}/fields", headers=headers,
+    def test_missing_side_reports_unavailable(self, client, fixture_field, db):
+        headers = fixture_field["headers"]
+        farm_id = fixture_field["farm"]["id"]
+        field_response = client.post(
+            f"/api/v1/farms/{farm_id}/fields", headers=headers,
             json={"name": "C Field", "geometry": fx.fixture_field_geojson()},
-        ).json()
+        )
+        assert field_response.status_code == 201, field_response.text
+        field = field_response.json()
         resp = client.get(
             f"/api/v1/fields/{field['id']}/satellite/comparison?index=ndvi", headers=headers
         )
@@ -688,6 +678,20 @@ class TestExports:
 
 
 class TestP07Reports:
+    @pytest.fixture(autouse=True)
+    def _starter_report_entitlement(self, client, auth_headers):
+        headers, user = auth_headers
+        response = client.post(
+            "/api/v1/billing/subscription",
+            headers=headers,
+            json={
+                "organization_id": user["organization"]["id"],
+                "plan_code": "starter",
+                "billing_period": "monthly",
+            },
+        )
+        assert response.status_code == 200, response.text
+
     def _queue_and_run(self, client, headers, *, report_type, output_format, field_id=None,
                        farm_id=None):
         payload: dict = {"report_type": report_type, "output_format": output_format, "locale": "en"}

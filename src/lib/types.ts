@@ -120,6 +120,22 @@ export interface RegisterInput {
   display_name: string
 }
 
+/** Registration is either a session (development/verified flow) or pending email verification. */
+export interface RegistrationVerificationRequired {
+  status: 'verification_required'
+  user: { email: string }
+}
+
+export type RegisterResult = AuthSession | RegistrationVerificationRequired
+
+export interface EmailVerificationRequestResult {
+  status: 'accepted' | 'queued'
+}
+
+export interface EmailVerificationConfirmResult {
+  status: 'ok'
+}
+
 // ---------------------------------------------------------------------------
 // GeoJSON geometry (only the shapes the API accepts/returns)
 // ---------------------------------------------------------------------------

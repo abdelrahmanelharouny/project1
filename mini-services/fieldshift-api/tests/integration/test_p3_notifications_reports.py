@@ -46,6 +46,23 @@ def _reports_dir_tmp(monkeypatch, tmp_path):
     return tmp_path / "reports_storage"
 
 
+@pytest.fixture()
+def report_access(client, auth_headers):
+    """Start the local sandbox trial for positive report-capability tests."""
+    headers, user = auth_headers
+    response = client.post(
+        "/api/v1/billing/subscription",
+        headers=headers,
+        json={
+            "organization_id": user["organization"]["id"],
+            "plan_code": "starter",
+            "billing_period": "monthly",
+        },
+    )
+    assert response.status_code == 200, response.text
+    return headers, user
+
+
 # ---------------------------------------------------------------------------
 # notifications
 # ---------------------------------------------------------------------------
@@ -262,8 +279,18 @@ class TestUserPreferences:
 # reports
 # ---------------------------------------------------------------------------
 class TestReportJobs:
-    def test_create_job_starts_queued(self, client, auth_headers):
-        headers, user = auth_headers
+    def test_free_plan_cannot_create_report(self, client, auth_headers):
+        headers, _user = auth_headers
+        response = client.post(
+            "/api/v1/reports",
+            headers=headers,
+            json={"report_type": "org_executive", "format": "pdf"},
+        )
+        assert response.status_code == 403, response.text
+        assert response.json()["error"]["code"] == "FORBIDDEN"
+
+    def test_create_job_starts_queued(self, client, report_access):
+        headers, user = report_access
         created = client.post(
             "/api/v1/reports",
             headers=headers,
@@ -281,8 +308,8 @@ class TestReportJobs:
         assert fetched.status_code == 200
         assert fetched.json()["status"] == "queued"
 
-    def test_sync_csv_renders_with_bom_magic_bytes(self, client, auth_headers):
-        headers, user = auth_headers
+    def test_sync_csv_renders_with_bom_magic_bytes(self, client, report_access):
+        headers, user = report_access
         created = client.post(
             "/api/v1/reports",
             headers=headers,
@@ -309,9 +336,9 @@ class TestReportJobs:
         assert resp.status_code == 422
 
     def test_pdf_job_executes_via_service_and_writes_artifact(
-        self, client, auth_headers, db
+        self, client, report_access, db
     ):
-        headers, user = auth_headers
+        headers, user = report_access
         created = client.post(
             "/api/v1/reports",
             headers=headers,
@@ -365,8 +392,8 @@ class TestReportJobs:
         )
         assert resp.status_code == 422
 
-    def test_reports_list_scoped_to_own_org(self, client, auth_headers):
-        headers, _user = auth_headers
+    def test_reports_list_scoped_to_own_org(self, client, report_access):
+        headers, _user = report_access
         created = client.post(
             "/api/v1/reports",
             headers=headers,
@@ -391,8 +418,8 @@ class TestReportJobs:
         # owner still sees it
         assert client.get(f"/api/v1/reports/{job_id}", headers=headers).status_code == 200
 
-    def test_regenerate_rerenders_job(self, client, auth_headers):
-        headers, _user = auth_headers
+    def test_regenerate_rerenders_job(self, client, report_access):
+        headers, _user = report_access
         created = client.post(
             "/api/v1/reports",
             headers=headers,
@@ -405,8 +432,8 @@ class TestReportJobs:
         assert body["rendered"] is True
         assert body["status"] == "succeeded"
 
-    def test_delete_removes_row_and_artifact(self, client, auth_headers, db):
-        headers, _user = auth_headers
+    def test_delete_removes_row_and_artifact(self, client, report_access, db):
+        headers, _user = report_access
         created = client.post(
             "/api/v1/reports",
             headers=headers,

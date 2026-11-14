@@ -6,6 +6,7 @@ overrides happen BEFORE any app import so cached settings pick them up.
 
 import os
 import sys
+import tempfile
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,9 +39,68 @@ os.environ.setdefault("CROPTWIST_AUTH_RATE_LIMIT_PER_MINUTE", "0")
 # assert synchronous completion). Dedicated background-job tests start the
 # executor explicitly via start_workers() + wait_for_job().
 os.environ.setdefault("CROPTWIST_JOB_WORKERS", "0")
+# Filesystem-backed raster/report integration tests must never depend on a
+# developer-specific /home/z path or write outside a disposable temp root.
+_TEST_ARTIFACTS_TMP = tempfile.TemporaryDirectory(prefix="croptwist-test-artifacts-")
+_TEST_ARTIFACT_ROOT = _TEST_ARTIFACTS_TMP.name
+os.environ["CROPTWIST_RASTER_STORAGE_ROOT"] = os.path.join(_TEST_ARTIFACT_ROOT, "rasters")
+os.environ["CROPTWIST_REPORTS_DIR"] = os.path.join(_TEST_ARTIFACT_ROOT, "reports")
 
 import psycopg2  # noqa: E402
 import pytest  # noqa: E402
+
+
+def run_raster_job_through_worker(
+    raster_job_id, db=None, *, simulate_process_restart: bool = False
+):
+    """Execute a queued raster job through the real owned worker claim path.
+
+    Tests keep the suite-wide worker count at zero for determinism, but raster
+    jobs still require the same claim, execution context, lease and finalizer
+    used by production workers. This helper calls the core worker entrypoint
+    synchronously instead of bypassing its fencing contract.
+    """
+    import uuid
+
+    from app.core import jobs
+    from app.db.models_p2 import RasterProcessingJob
+
+    raster_job_id = uuid.UUID(str(raster_job_id))
+    if db is None:
+        from app.core.database import SessionLocal
+
+        with SessionLocal() as lookup:
+            raster_job = lookup.get(RasterProcessingJob, raster_job_id)
+            if raster_job is None or raster_job.background_job_id is None:
+                raise AssertionError("Raster job must have a persisted background job.")
+            background_job_id = raster_job.background_job_id
+    else:
+        db.expire_all()
+        raster_job = db.get(RasterProcessingJob, raster_job_id)
+        if raster_job is None or raster_job.background_job_id is None:
+            raise AssertionError("Raster job must have a persisted background job.")
+        background_job_id = raster_job.background_job_id
+
+    if simulate_process_restart:
+        # A restarted process has no in-memory submitted callback; dispatch
+        # through the registered durable-kind executor instead.
+        with jobs._registry_lock:
+            jobs._pending_fns.pop(background_job_id, None)
+
+    jobs._run_job(background_job_id)
+    background_job = jobs.wait_for_job(background_job_id, timeout=120.0)
+    if background_job.status not in jobs._TERMINAL_BACKGROUND_STATUSES:
+        raise AssertionError("Raster background job did not reach a terminal state.")
+
+    if db is not None:
+        db.expire_all()
+        return db.get(RasterProcessingJob, raster_job_id)
+
+    with SessionLocal() as lookup:
+        raster_job = lookup.get(RasterProcessingJob, raster_job_id)
+        if raster_job is not None:
+            lookup.expunge(raster_job)
+        return raster_job
 
 
 def _ensure_test_database() -> None:

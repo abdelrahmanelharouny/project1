@@ -247,14 +247,25 @@ def increment_usage(db: Session, organization_id: uuid.UUID, key: str, *, amount
     )
 
 
-def lock_organization_for_quota(db: Session, organization_id: uuid.UUID) -> None:
-    """Serialize quota reservations for an organization until its transaction ends."""
+def lock_organization(db: Session, organization_id: uuid.UUID) -> bool:
+    """Lock the organization row as the first lock for billing/quota state.
+
+    Subscription mutations and scenario reservations share this lock so an
+    entitlement snapshot cannot race a plan or status transition. Callers that
+    need to preserve a domain-specific missing-organization error can inspect
+    the boolean result.
+    """
     locked_id = db.scalar(
         select(Organization.id)
         .where(Organization.id == organization_id)
         .with_for_update()
     )
-    if locked_id is None:
+    return locked_id is not None
+
+
+def lock_organization_for_quota(db: Session, organization_id: uuid.UUID) -> None:
+    """Lock the organization row before reading or reserving quota state."""
+    if not lock_organization(db, organization_id):
         raise Forbidden("Unknown organization.")
 
 
