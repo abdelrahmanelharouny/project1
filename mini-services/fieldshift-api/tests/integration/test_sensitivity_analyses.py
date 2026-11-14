@@ -500,10 +500,11 @@ class TestNegativeGates:
         run = both_param_run["run"]
         state_id = both_param_run["state"]["id"]
         original = both_param_run["state"]["checksum_sha256"]
+        tampered = ("0" if original[0] != "0" else "1") + original[1:]
         with db.begin():
             db.execute(
-                text("UPDATE field_states SET checksum_sha256 = 'f' || substr(checksum_sha256, 2) WHERE id = :id"),
-                {"id": state_id},
+                text("UPDATE field_states SET checksum_sha256 = :checksum WHERE id = :id"),
+                {"id": state_id, "checksum": tampered},
             )
         try:
             resp = client.post(
