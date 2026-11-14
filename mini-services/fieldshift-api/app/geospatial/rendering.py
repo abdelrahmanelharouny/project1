@@ -153,9 +153,10 @@ def _asset_key(asset: Any) -> str:
 
 
 def read_asset_raster(asset: Any, storage: Any) -> dict[str, Any]:
-    """Read a derived COG through the storage abstraction into memory.
+    """Read a complete stored derived raster into a server-side cache.
 
     Returns {"array" (float64 np 2D, nan nodata), "transform", "crs"}.
+    The browser receives only rendered tiles or point samples, not this array.
     Cached per (asset id, checksum, size) — reprocessing produces a new
     checksum and therefore a fresh cache entry, never stale pixels.
     """
@@ -339,6 +340,46 @@ def _mercator_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float
     maxx = minx + px * TILE_SIZE
     miny = maxy - px * TILE_SIZE
     return (minx, miny, maxx, maxy)
+
+
+# --------------------------------------------------------- field analytics
+def sample_product_value(
+    *, asset: Any, storage: Any, lon: float, lat: float
+) -> dict[str, Any]:
+    """Sample the actual stored derived raster at one WGS84 coordinate.
+
+    The point is transformed into the raster CRS and mapped to its containing
+    pixel (no interpolation). Dataset masks, nodata, and non-finite values are
+    invalid; no replacement value is ever synthesized.
+    """
+    import numpy as np
+    from rasterio.warp import transform as transform_coords
+    from rasterio.transform import rowcol
+
+    src = read_asset_raster(asset, storage)
+    crs = src["crs"]
+    if not crs:
+        raise ValueError("stored raster has no CRS")
+    xs, ys = transform_coords("EPSG:4326", crs, [lon], [lat])
+    row, col = rowcol(src["transform"], xs[0], ys[0])
+    height, width = src["array"].shape
+    if row < 0 or col < 0 or row >= height or col >= width:
+        return {
+            "available": False,
+            "value": None,
+            "crs": crs,
+            "unavailable_reason": "point_outside_raster_extent",
+        }
+
+    value = src["array"][row, col]
+    if src["nodata_mask"][row, col] or not np.isfinite(value):
+        return {
+            "available": False,
+            "value": None,
+            "crs": crs,
+            "unavailable_reason": "pixel_invalid_or_nodata_or_cloud_masked",
+        }
+    return {"available": True, "value": float(value), "crs": crs}
 
 
 # --------------------------------------------------------- field analytics

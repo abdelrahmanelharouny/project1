@@ -92,6 +92,9 @@ const BOUNDARY_OUTLINE_LAYER = 'farm-field-outline'
 const SELECTED_SOURCE = 'selected-field'
 const SELECTED_OUTLINE_LAYER = 'selected-field-outline'
 const OVERLAY_LAYER_PREFIX = 'croptwist-overlay-'
+const STATISTICAL_ZONES_SOURCE = 'p07-statistical-terciles'
+const STATISTICAL_ZONES_FILL_LAYER = 'p07-statistical-terciles-fill'
+const STATISTICAL_ZONES_LINE_LAYER = 'p07-statistical-terciles-line'
 
 function overlayLayerId(overlayId: string): string {
   return `${OVERLAY_LAYER_PREFIX}${overlayId}`
@@ -124,6 +127,15 @@ export interface FarmMapFitRequest {
   fieldId: string | null
   /** Monotonic counter — bump to request a fit even for the same field. */
   seq: number
+}
+
+export interface FarmMapStatisticalZone {
+  zone: string
+  mean: number | null
+  pixel_share: number
+  value_range: [number, number] | null
+  pixel_count: number
+  index: string
 }
 
 /** Light graticule so the offline base reads as a map, not a void. */
@@ -169,6 +181,10 @@ export function FarmMap({
   onFieldClick,
   onMapClick,
   overlays = [],
+  statisticalZones = null,
+  statisticalZonesVisible = false,
+  statisticalZonesOpacity = 0.6,
+  onStatisticalZoneClick,
   onOverlayError,
   fitRequest = null,
   className,
@@ -176,12 +192,17 @@ export function FarmMap({
   fields: Field[]
   selectedFieldId?: string | null
   onFieldSelect?: (field: Field) => void
-  /** Fires together with onFieldSelect on a boundary click (opens inspector). */
-  onFieldClick?: (field: Field) => void
+  /** Fires together with onFieldSelect and includes the exact WGS84 click. */
+  onFieldClick?: (field: Field, lngLat: { lng: number; lat: number }) => void
   /** Unfiltered map click (even outside boundaries). */
   onMapClick?: (lngLat: { lng: number; lat: number }) => void
   /** P07 multi-layer satellite raster overlays (applied incrementally). */
   overlays?: FarmMapOverlay[]
+  /** Real GeoJSON tercile features returned for the selected derived product. */
+  statisticalZones?: GeoJSON.FeatureCollection | null
+  statisticalZonesVisible?: boolean
+  statisticalZonesOpacity?: number
+  onStatisticalZoneClick?: (zone: FarmMapStatisticalZone) => void
   /** Per-layer raster/tile errors, deduped; rendered honestly upstream. */
   onOverlayError?: (overlayId: string) => void
   /** Bump `seq` to fit the given field (or the whole farm when null). */
@@ -198,9 +219,21 @@ export function FarmMap({
   const [mapEpoch, setMapEpoch] = useState(0)
 
   // Handlers live in a ref so identity changes never recreate the map.
-  const handlersRef = useRef({ onFieldSelect, onFieldClick, onMapClick, onOverlayError })
+  const handlersRef = useRef({
+    onFieldSelect,
+    onFieldClick,
+    onMapClick,
+    onStatisticalZoneClick,
+    onOverlayError,
+  })
   useEffect(() => {
-    handlersRef.current = { onFieldSelect, onFieldClick, onMapClick, onOverlayError }
+    handlersRef.current = {
+      onFieldSelect,
+      onFieldClick,
+      onMapClick,
+      onStatisticalZoneClick,
+      onOverlayError,
+    }
   })
 
   const drawable = useMemo(
@@ -355,16 +388,35 @@ export function FarmMap({
       }
       hoveredId = null
     }
-    const onBoundaryClick = (event: { features?: MapGeoJSONFeature[] }) => {
+    const onBoundaryClick = (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
       const fieldId = event.features?.[0]?.properties?.fieldId
       if (!fieldId) return
       const field = drawable.find((entry) => entry.id === fieldId)
       if (!field) return
       handlersRef.current.onFieldSelect?.(field)
-      handlersRef.current.onFieldClick?.(field)
+      handlersRef.current.onFieldClick?.(field, { lng: event.lngLat.lng, lat: event.lngLat.lat })
     }
     const onPlainClick = (event: MapMouseEvent) => {
       handlersRef.current.onMapClick?.({ lng: event.lngLat.lng, lat: event.lngLat.lat })
+    }
+    const onStatisticalZoneMapClick = (event: MapMouseEvent) => {
+      if (!map.getLayer(STATISTICAL_ZONES_FILL_LAYER)) return
+      const properties = map.queryRenderedFeatures(event.point, {
+        layers: [STATISTICAL_ZONES_FILL_LAYER],
+      })[0]?.properties
+      if (!properties) return
+      const rawRange = properties.value_range
+      const valueRange = Array.isArray(rawRange)
+        ? [Number(rawRange[0]), Number(rawRange[1])] as [number, number]
+        : null
+      handlersRef.current.onStatisticalZoneClick?.({
+        zone: String(properties.zone ?? ''),
+        mean: typeof properties.mean === 'number' ? properties.mean : null,
+        pixel_share: typeof properties.pixel_share === 'number' ? properties.pixel_share : 0,
+        value_range: valueRange,
+        pixel_count: typeof properties.pixel_count === 'number' ? properties.pixel_count : 0,
+        index: String(properties.index ?? ''),
+      })
     }
     const onMapError = (
       event: MapLibreErrorEvent | { sourceId?: string; layerId?: string },
@@ -381,6 +433,7 @@ export function FarmMap({
     map.on('mouseleave', BOUNDARY_FILL_LAYER, onLeave)
     map.on('click', BOUNDARY_FILL_LAYER, onBoundaryClick)
     map.on('click', onPlainClick)
+    map.on('click', onStatisticalZoneMapClick)
     map.on('error', onMapError as never)
 
     return () => {
@@ -495,7 +548,9 @@ export function FarmMap({
                   paint: { 'raster-opacity': overlay.opacity, 'raster-fade-duration': 0 },
                   layout: { visibility: overlay.visible ? 'visible' : 'none' },
                 },
-                BOUNDARY_OUTLINE_LAYER,
+                map.getLayer(STATISTICAL_ZONES_FILL_LAYER)
+                  ? STATISTICAL_ZONES_FILL_LAYER
+                  : BOUNDARY_OUTLINE_LAYER,
               )
               managedOverlaysRef.current.set(layerId, {
                 sourceId,
@@ -523,7 +578,9 @@ export function FarmMap({
                   paint: { 'raster-opacity': overlay.opacity, 'raster-fade-duration': 0 },
                   layout: { visibility: overlay.visible ? 'visible' : 'none' },
                 },
-                BOUNDARY_OUTLINE_LAYER,
+                map.getLayer(STATISTICAL_ZONES_FILL_LAYER)
+                  ? STATISTICAL_ZONES_FILL_LAYER
+                  : BOUNDARY_OUTLINE_LAYER,
               )
               managedOverlaysRef.current.set(layerId, {
                 sourceId,
@@ -553,7 +610,10 @@ export function FarmMap({
         if (map.getLayer(BOUNDARY_OUTLINE_LAYER)) {
           for (const overlay of stackable) {
             const layerId = overlayLayerId(overlay.id)
-            if (map.getLayer(layerId)) map.moveLayer(layerId, BOUNDARY_OUTLINE_LAYER)
+            const anchorLayer = map.getLayer(STATISTICAL_ZONES_FILL_LAYER)
+              ? STATISTICAL_ZONES_FILL_LAYER
+              : BOUNDARY_OUTLINE_LAYER
+            if (map.getLayer(layerId)) map.moveLayer(layerId, anchorLayer)
           }
         }
       } catch (err) {
@@ -569,6 +629,83 @@ export function FarmMap({
       map.once('load', sync)
     }
   }, [overlays, mapEpoch])
+
+  // --------------------------------------------- statistical tercile vectors
+  // A dedicated infrastructure source/layer; it is never synthesized from
+  // raster values. Empty responses remain empty and opacity/visibility update
+  // without rebuilding the map or disturbing field/raster layers.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || mapEpoch === 0) return
+    const sync = () => {
+      if (!baseAppliedRef.current) return
+      try {
+        const source = map.getSource(STATISTICAL_ZONES_SOURCE) as GeoJSONSource | undefined
+        if (source) {
+          source.setData(statisticalZones ?? EMPTY_FEATURE_COLLECTION)
+        } else {
+          map.addSource(STATISTICAL_ZONES_SOURCE, {
+            type: 'geojson',
+            data: statisticalZones ?? EMPTY_FEATURE_COLLECTION,
+          })
+        }
+        if (!map.getLayer(STATISTICAL_ZONES_FILL_LAYER)) {
+          map.addLayer(
+            {
+              id: STATISTICAL_ZONES_FILL_LAYER,
+              type: 'fill',
+              source: STATISTICAL_ZONES_SOURCE,
+              paint: {
+                'fill-color': [
+                  'match',
+                  ['get', 'zone'],
+                  'lowest_tercile', '#d97706',
+                  'middle_tercile', '#65a30d',
+                  'highest_tercile', '#059669',
+                  '#64748b',
+                ],
+                'fill-opacity': statisticalZonesOpacity,
+              },
+              layout: { visibility: statisticalZonesVisible ? 'visible' : 'none' },
+            },
+            BOUNDARY_OUTLINE_LAYER,
+          )
+        } else {
+          map.setPaintProperty(STATISTICAL_ZONES_FILL_LAYER, 'fill-opacity', statisticalZonesOpacity)
+          map.setLayoutProperty(
+            STATISTICAL_ZONES_FILL_LAYER,
+            'visibility',
+            statisticalZonesVisible ? 'visible' : 'none',
+          )
+        }
+        if (!map.getLayer(STATISTICAL_ZONES_LINE_LAYER)) {
+          map.addLayer(
+            {
+              id: STATISTICAL_ZONES_LINE_LAYER,
+              type: 'line',
+              source: STATISTICAL_ZONES_SOURCE,
+              paint: { 'line-color': '#44403c', 'line-width': 1, 'line-opacity': 0.7 },
+              layout: { visibility: statisticalZonesVisible ? 'visible' : 'none' },
+            },
+            BOUNDARY_OUTLINE_LAYER,
+          )
+        } else {
+          map.setLayoutProperty(
+            STATISTICAL_ZONES_LINE_LAYER,
+            'visibility',
+            statisticalZonesVisible ? 'visible' : 'none',
+          )
+        }
+      } catch (err) {
+        console.warn('statistical tercile overlay sync skipped', err)
+      }
+    }
+    if (baseAppliedRef.current) {
+      sync()
+    } else {
+      map.once('load', sync)
+    }
+  }, [statisticalZones, statisticalZonesVisible, statisticalZonesOpacity, mapEpoch])
 
   // -------------------------------------------------------------- fit
   useEffect(() => {

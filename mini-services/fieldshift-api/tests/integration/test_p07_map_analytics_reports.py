@@ -300,6 +300,99 @@ class TestTileEndpoint:
         assert resp.status_code == 404
 
 
+# ============================================================ value endpoint
+class TestProductValueEndpoint:
+    def _processed_asset(self, client, fixture_field, db, tmp_path):
+        from app.db.models import Field
+        from app.db.models_p2 import RasterAsset
+
+        field_id = uuid_mod.UUID(fixture_field["field"]["id"])
+        _process(
+            db,
+            db.get(Field, field_id),
+            "FIX.VALUE1",
+            indices=("ndvi",),
+            tmp_path=tmp_path,
+        )
+        asset = db.query(RasterAsset).filter_by(
+            field_id=field_id,
+            scene_id="FIX.VALUE1",
+            asset_kind="derived",
+            index_code="ndvi",
+        ).first()
+        return field_id, asset
+
+    def test_returns_stored_pixel_and_asset_scene_metadata(
+        self, client, fixture_field, db, tmp_path
+    ):
+        from pyproj import Transformer
+
+        field_id, asset = self._processed_asset(client, fixture_field, db, tmp_path)
+        to_wgs84 = Transformer.from_crs(fx.FIXTURE_CRS, "EPSG:4326", always_xy=True)
+        lon, lat = to_wgs84.transform(
+            fx.FIXTURE_LEFT + 10.5 * fx.FIXTURE_RES,
+            fx.FIXTURE_TOP - 8.5 * fx.FIXTURE_RES,
+        )
+        resp = client.get(
+            f"/api/v1/fields/{field_id}/satellite/products/{asset.id}/value",
+            params={"lon": lon, "lat": lat},
+            headers=fixture_field["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        assert payload["available"] is True
+        assert payload["asset_id"] == str(asset.id)
+        assert payload["index"] == "ndvi"
+        assert payload["value"] == pytest.approx(fx.EXPECTED_VEGETATED["ndvi"], abs=1e-6)
+        assert payload["scene_id"] == "FIX.VALUE1"
+        assert payload["acquired_at"].startswith("2026-02-01T00:00:00")
+        assert payload["processing_version"] == asset.processing_version
+        assert payload["spatial_resolution_m"] == 30.0
+        assert payload["crs"] == fx.FIXTURE_CRS
+        assert payload["provider_code"] == "nasa_hls"
+        assert payload["cloud_cover_pct"] == 10.0
+        assert payload["is_synthetic"] is False
+        assert "unavailable_reason" not in payload
+        assert not any("storage" in key.lower() for key in payload)
+        assert asset.storage_key not in resp.text
+
+    def test_rejects_coordinate_outside_field_boundary(self, client, fixture_field, db, tmp_path):
+        field_id, asset = self._processed_asset(client, fixture_field, db, tmp_path)
+        resp = client.get(
+            f"/api/v1/fields/{field_id}/satellite/products/{asset.id}/value",
+            params={"lon": 0, "lat": 0},
+            headers=fixture_field["headers"],
+        )
+        assert resp.status_code == 422
+
+    def test_coordinate_range_and_access_are_enforced(
+        self, client, fixture_field, db, tmp_path
+    ):
+        field_id, asset = self._processed_asset(client, fixture_field, db, tmp_path)
+        path = f"/api/v1/fields/{field_id}/satellite/products/{asset.id}/value"
+        out_of_range = client.get(
+            path,
+            params={"lon": 181, "lat": 30},
+            headers=fixture_field["headers"],
+        )
+        assert out_of_range.status_code == 422
+
+        other = _register_other_user(client)
+        unauthorized = client.get(
+            path,
+            params={"lon": 33, "lat": 30},
+            headers=other,
+        )
+        assert unauthorized.status_code == 403
+
+        unknown_asset = client.get(
+            f"/api/v1/fields/{field_id}/satellite/products/{uuid_mod.uuid4()}/value",
+            params={"lon": 33, "lat": 30},
+            headers=fixture_field["headers"],
+        )
+        assert unknown_asset.status_code == 404
+
+
 # ========================================================= spatial analytics
 
 
