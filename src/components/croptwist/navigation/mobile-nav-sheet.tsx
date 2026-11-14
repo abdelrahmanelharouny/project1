@@ -16,7 +16,7 @@
 
 import { useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { ChevronRight, Menu, Search, Sprout } from 'lucide-react'
+import { ChevronRight, Link2, Menu, Search, Sprout } from 'lucide-react'
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -29,15 +29,18 @@ export function MobileNavSheet({
   activeSub,
   onNavigate,
   onOpenOnboarding,
+  onShare,
 }: {
   activeTab: DestinationId
   activeSub: string | null
   onNavigate: (tab: DestinationId, sub: string | null) => void
   onOpenOnboarding: () => void
+  onShare: () => void
 }) {
   const locale = useLocale()
   const t = useTranslations('destinations')
   const tNav = useTranslations('nav')
+  const tCommon = useTranslations('common')
   const [open, setOpen] = useState(false)
   const activeRef = useRef<HTMLButtonElement | null>(null)
   const openPalette = useCropTwistUi((s) => s.setCommandPaletteOpen)
@@ -57,6 +60,11 @@ export function MobileNavSheet({
   const handleOpenOnboarding = () => {
     setOpen(false)
     onOpenOnboarding()
+  }
+
+  const handleShare = () => {
+    setOpen(false)
+    onShare()
   }
 
   return (
@@ -144,6 +152,15 @@ export function MobileNavSheet({
           </ul>
         </nav>
         <div className="border-t border-stone-200 px-3 py-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleShare}
+            className="mb-2 min-h-11 w-full justify-start gap-2 text-sm"
+          >
+            <Link2 className="h-4 w-4 text-emerald-700" aria-hidden />
+            {tCommon('shareView')}
+          </Button>
           <Button
             type="button"
             variant="outline"

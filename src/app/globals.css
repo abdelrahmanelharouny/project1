@@ -514,3 +514,65 @@
     transition: none;
   }
 }
+
+
+/* Mobile ergonomics: controls and navigation remain comfortably tappable. */
+@media (max-width: 639px) {
+  .ct-theme button:not([data-slot="checkbox"]),
+  .ct-theme [role="combobox"],
+  .ct-theme [data-slot="select-trigger"],
+  .ct-theme input:not([type="hidden"]),
+  .ct-theme select,
+  .ct-theme textarea {
+    height: auto;
+    min-height: 44px;
+  }
+
+  .ct-theme button:not([data-slot="checkbox"]) {
+    min-width: 44px;
+  }
+
+  .ct-theme [data-slot="tabs-list"] {
+    height: auto;
+    min-height: 44px;
+  }
+
+  .ct-theme label:has([data-slot="checkbox"]) {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .ct-theme [role="option"],
+  .ct-theme [role="menuitem"],
+  .ct-theme [data-slot="select-item"],
+  .ct-theme [data-slot="dropdown-menu-item"],
+  .ct-theme .ct-subnav-item {
+    min-height: 44px;
+  }
+
+  .ct-theme main a[href] {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+    vertical-align: middle;
+  }
+
+  /* Preserve the small Figma-style knob while expanding its usable touch area. */
+  .ct-theme [role="slider"] {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .ct-theme [role="slider"]::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    border-radius: 9999px;
+    background: transparent;
+  }
+}

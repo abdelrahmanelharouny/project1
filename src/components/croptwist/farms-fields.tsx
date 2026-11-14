@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ErrorState } from '@/components/croptwist/state-views'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslations } from 'next-intl'
@@ -754,7 +755,9 @@ function FieldDetail({ field }: { field: Field }) {
           <div className="space-y-2 lg:col-span-3">
             {mapQuery.isLoading ? (
               <Skeleton className="h-[300px] w-full rounded-lg md:h-[360px]" aria-label={t('loadingMapAria')} />
-            ) : mapQuery.isError || !mapQuery.data ? (
+            ) : mapQuery.isError ? (
+              <ErrorState message={t('mapUnavailable')} onRetry={() => void mapQuery.refetch()} />
+            ) : !mapQuery.data ? (
               <div className="flex h-[300px] items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-50 text-sm text-stone-500 md:h-[360px]">
                 {t('mapUnavailable')}
               </div>
@@ -1018,7 +1021,7 @@ export function FarmsFields() {
                       <Skeleton className="h-10 w-full" />
                     </div>
                   ) : fieldsQuery.isError ? (
-                    <p className="text-sm text-red-700">{t('loadFieldsError')}</p>
+                    <ErrorState message={t('loadFieldsError')} onRetry={() => void fieldsQuery.refetch()} />
                   ) : fields.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center">
                       <p className="font-medium text-stone-800">{t('noFieldsYetTitle')}</p>

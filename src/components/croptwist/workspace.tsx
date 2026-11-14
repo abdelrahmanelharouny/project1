@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Link2, LogOut, Sprout } from 'lucide-react'
+import { FlaskConical, Link2, LogOut, Sprout } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -54,6 +54,7 @@ import { MapSatellitePane } from '@/components/croptwist/navigation/map-satellit
 import { useHealth } from '@/hooks/use-croptwist'
 import { getMe, logout } from '@/lib/api'
 import { mountEntitlementGuard } from '@/lib/entitlement-guard'
+import { isSyntheticDemoAccount } from '@/lib/demo-fixtures'
 import {
   DESTINATIONS,
   defaultSubFor,
@@ -254,6 +255,7 @@ function SessionHeader({
             activeSub={activeSub}
             onNavigate={(tab, sub) => onNavigate(tab, sub)}
             onOpenOnboarding={onOpenOnboarding}
+            onShare={handleShare}
           />
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-700 text-emerald-50">
             <Sprout className="h-4.5 w-4.5" aria-hidden />
@@ -453,6 +455,7 @@ export function Workspace() {
   const navigateTo = useCropTwistUi((s) => s.navigateTo)
   const setActiveSub = useCropTwistUi((s) => s.setActiveSub)
   const resetSelections = useCropTwistUi((s) => s.setSelectedField)
+  const tNav = useTranslations('nav')
   const tP3b = useTranslations('p3b')
 
   useWorkspaceUrlSync()
@@ -531,6 +534,15 @@ export function Workspace() {
           onSignOut={handleSignOut}
           onOpenOnboarding={() => setOnboardingOpen(true)}
         />
+        {isSyntheticDemoAccount(session.user.email) ? (
+          <aside
+            className="mx-3 mt-3 flex items-start gap-2 rounded-lg border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-100 sm:mx-5 sm:text-sm xl:mx-7"
+            role="note"
+          >
+            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <span>{tNav('demoFixtureBanner')}</span>
+          </aside>
+        ) : null}
         <OnboardingWizard open={onboardingOpen} onOpenChange={setOnboardingOpen} />
 
         <main className="w-full flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-7">

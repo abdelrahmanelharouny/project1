@@ -133,6 +133,9 @@ export function useFarmsWithFields(enabled = true): {
   allFields: Field[]
   isLoading: boolean
   hasError: boolean
+  hasFarmsError: boolean
+  hasFieldsError: boolean
+  retryFailedQueries: () => void
 } {
   const farmsQuery = useFarms(enabled)
   const farms = useMemo(() => farmsQuery.data?.items ?? [], [farmsQuery.data])
@@ -156,9 +159,24 @@ export function useFarmsWithFields(enabled = true): {
 
   const allFields = useMemo(() => farmsWithFields.flatMap((entry) => entry.fields), [farmsWithFields])
   const isLoading = farmsQuery.isLoading || fieldQueries.some((q) => q.isLoading)
-  const hasError = farmsQuery.isError || fieldQueries.some((q) => q.isError)
+  const hasFieldsError = fieldQueries.some((query) => query.isError)
+  const hasError = farmsQuery.isError || hasFieldsError
+  const retryFailedQueries = () => {
+    if (farmsQuery.isError) void farmsQuery.refetch()
+    for (const query of fieldQueries) {
+      if (query.isError) void query.refetch()
+    }
+  }
 
-  return { farms: farmsWithFields, allFields, isLoading, hasError }
+  return {
+    farms: farmsWithFields,
+    allFields,
+    isLoading,
+    hasError,
+    hasFarmsError: farmsQuery.isError,
+    hasFieldsError,
+    retryFailedQueries,
+  }
 }
 
 export function useFieldMap(fieldId: string | null): UseQueryResult<FieldMapResponse> {

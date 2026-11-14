@@ -546,7 +546,7 @@ export function Observations() {
 
       {catalog.isLoading ? <Skeleton className="h-4 w-64" /> : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ---------------- ingestion form ---------------- */}
         <Card className="border-stone-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
@@ -878,7 +878,7 @@ export function Observations() {
       </div>
 
       {/* ---------------- file imports + coverage ---------------- */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="border-stone-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -1055,7 +1055,7 @@ export function Observations() {
                 <p className="mt-2 text-sm text-stone-600">{t('noObservationsYet')}</p>
               </div>
             ) : (
-              <div className="max-h-80 overflow-y-auto rounded-md border scrollbar-thin">
+              <div className="min-w-0 max-w-full max-h-80 overflow-x-auto overflow-y-auto rounded-md border scrollbar-thin">
                 <Table>
                   <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
                     <TableRow className="hover:bg-transparent">
@@ -1182,7 +1182,7 @@ export function Observations() {
               </div>
             </div>
           ) : (
-            <div className="max-h-96 overflow-y-auto rounded-md border scrollbar-thin">
+            <div className="min-w-0 max-w-full max-h-96 overflow-x-auto overflow-y-auto rounded-md border scrollbar-thin">
               <Table>
                 <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-stone-200)]">
                   <TableRow className="hover:bg-transparent">

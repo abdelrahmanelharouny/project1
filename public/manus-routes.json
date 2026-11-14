@@ -1,16 +1,276 @@
 {
   "routes": [
-    {"path": "/", "title": "CropTwist workspace"},
-    {"path": "/?tab=overview", "title": "Overview"},
-    {"path": "/?tab=farms", "title": "Farms & Fields"},
-    {"path": "/?tab=datahub", "title": "Data Hub"},
-    {"path": "/?tab=cropintel", "title": "Crop Intelligence"},
-    {"path": "/?tab=cropintel&sub=rotation-overview", "title": "Crop Rotation Overview"},
-    {"path": "/?tab=cropintel&sub=rotation-planner", "title": "Rotation Planner"},
-    {"path": "/?tab=geo", "title": "Map & Satellite"},
-    {"path": "/?tab=decisions", "title": "Decision Center"},
-    {"path": "/?tab=copilot", "title": "AI Copilot"},
-    {"path": "/?tab=reports", "title": "Reports & Analytics"},
-    {"path": "/?tab=settings", "title": "Workspace & Settings"}
+    {
+      "path": "/",
+      "title": "CropTwist workspace"
+    },
+    {
+      "path": "/?tab=overview",
+      "title": "Overview"
+    },
+    {
+      "path": "/?tab=farms",
+      "title": "Farms & Fields"
+    },
+    {
+      "path": "/?tab=datahub",
+      "title": "Data Hub"
+    },
+    {
+      "path": "/?tab=datahub&sub=observations",
+      "title": "Data Hub — Observations & ingestion"
+    },
+    {
+      "path": "/?tab=datahub&sub=features",
+      "title": "Data Hub — Feature runs"
+    },
+    {
+      "path": "/?tab=datahub&sub=passport",
+      "title": "Data Hub — Data passport"
+    },
+    {
+      "path": "/?tab=datahub&sub=scenes",
+      "title": "Data Hub — Scene catalog"
+    },
+    {
+      "path": "/?tab=datahub&sub=evidence",
+      "title": "Data Hub — Evidence gaps & actions"
+    },
+    {
+      "path": "/?tab=cropintel",
+      "title": "Crop Intelligence"
+    },
+    {
+      "path": "/?tab=cropintel&sub=rotation",
+      "title": "Crop Intelligence — Rotation optimizer"
+    },
+    {
+      "path": "/?tab=cropintel&sub=rotation-overview",
+      "title": "Crop Intelligence — Crop Rotation Overview"
+    },
+    {
+      "path": "/?tab=cropintel&sub=rotation-planner",
+      "title": "Crop Intelligence — Rotation Planner"
+    },
+    {
+      "path": "/?tab=cropintel&sub=irrigation",
+      "title": "Crop Intelligence — Irrigation planning"
+    },
+    {
+      "path": "/?tab=cropintel&sub=soil",
+      "title": "Crop Intelligence — Soil intelligence"
+    },
+    {
+      "path": "/?tab=cropintel&sub=plan",
+      "title": "Crop Intelligence — Management plan"
+    },
+    {
+      "path": "/?tab=cropintel&sub=covers",
+      "title": "Crop Intelligence — Cover crops"
+    },
+    {
+      "path": "/?tab=cropintel&sub=timeline",
+      "title": "Crop Intelligence — Soil cover"
+    },
+    {
+      "path": "/?tab=cropintel&sub=residue",
+      "title": "Crop Intelligence — Residue"
+    },
+    {
+      "path": "/?tab=cropintel&sub=erosion",
+      "title": "Crop Intelligence — Erosion"
+    },
+    {
+      "path": "/?tab=cropintel&sub=operations",
+      "title": "Crop Intelligence — Operations"
+    },
+    {
+      "path": "/?tab=cropintel&sub=soilmemory",
+      "title": "Crop Intelligence — Soil memory"
+    },
+    {
+      "path": "/?tab=cropintel&sub=forecast",
+      "title": "Crop Intelligence — Climate forecast"
+    },
+    {
+      "path": "/?tab=geo",
+      "title": "Map & Satellite"
+    },
+    {
+      "path": "/?tab=geo&sub=map",
+      "title": "Map & Satellite — Map & vegetation"
+    },
+    {
+      "path": "/?tab=decisions",
+      "title": "Decision Center"
+    },
+    {
+      "path": "/?tab=decisions&sub=state",
+      "title": "Decision Center — Field state"
+    },
+    {
+      "path": "/?tab=decisions&sub=scenarios",
+      "title": "Decision Center — Scenarios"
+    },
+    {
+      "path": "/?tab=decisions&sub=sensitivity",
+      "title": "Decision Center — Sensitivity"
+    },
+    {
+      "path": "/?tab=decisions&sub=robust",
+      "title": "Decision Center — Robust plan"
+    },
+    {
+      "path": "/?tab=decisions&sub=documents",
+      "title": "Decision Center — Decision documents"
+    },
+    {
+      "path": "/?tab=decisions&sub=failurelab",
+      "title": "Decision Center — Failure lab"
+    },
+    {
+      "path": "/?tab=decisions&sub=portfolio",
+      "title": "Decision Center — Portfolio (farm-wide)"
+    },
+    {
+      "path": "/?tab=decisions&sub=twin",
+      "title": "Decision Center — Digital twin (audit trail)"
+    },
+    {
+      "path": "/?tab=copilot",
+      "title": "AI Copilot"
+    },
+    {
+      "path": "/?tab=reports",
+      "title": "Reports & Analytics"
+    },
+    {
+      "path": "/?tab=reports&sub=reports",
+      "title": "Reports & Analytics — Report library"
+    },
+    {
+      "path": "/?tab=reports&sub=analytics",
+      "title": "Reports & Analytics — Analytics"
+    },
+    {
+      "path": "/?tab=settings",
+      "title": "Workspace & Settings"
+    },
+    {
+      "path": "/?tab=settings&sub=organization",
+      "title": "Workspace & Settings — Organization & members"
+    },
+    {
+      "path": "/?tab=settings&sub=billing",
+      "title": "Workspace & Settings — Billing"
+    },
+    {
+      "path": "/?tab=settings&sub=developer",
+      "title": "Workspace & Settings — Developer"
+    },
+    {
+      "path": "/?tab=settings&sub=preferences",
+      "title": "Workspace & Settings — Preferences"
+    },
+    {
+      "path": "/?tab=observations",
+      "title": "Data Hub — Observations & ingestion"
+    },
+    {
+      "path": "/?tab=features",
+      "title": "Data Hub — Feature runs"
+    },
+    {
+      "path": "/?tab=rotation",
+      "title": "Crop Intelligence — Rotation optimizer"
+    },
+    {
+      "path": "/?tab=water",
+      "title": "Crop Intelligence — Irrigation planning"
+    },
+    {
+      "path": "/?tab=fieldstate",
+      "title": "Decision Center — Field state"
+    },
+    {
+      "path": "/?tab=scenarios",
+      "title": "Decision Center — Scenarios"
+    },
+    {
+      "path": "/?tab=soil",
+      "title": "Crop Intelligence — Soil intelligence"
+    },
+    {
+      "path": "/?tab=management",
+      "title": "Crop Intelligence — Management plan"
+    },
+    {
+      "path": "/?tab=sensitivity",
+      "title": "Decision Center — Sensitivity"
+    },
+    {
+      "path": "/?tab=aiinsights",
+      "title": "AI Copilot"
+    },
+    {
+      "path": "/?tab=digitaltwin",
+      "title": "Decision Center — Digital twin (audit trail)"
+    },
+    {
+      "path": "/?tab=robustplan",
+      "title": "Decision Center — Robust plan"
+    },
+    {
+      "path": "/?tab=passport",
+      "title": "Data Hub — Data passport"
+    },
+    {
+      "path": "/?tab=satellite",
+      "title": "Map & Satellite — Map & vegetation"
+    },
+    {
+      "path": "/?tab=forecast",
+      "title": "Crop Intelligence — Climate forecast"
+    },
+    {
+      "path": "/?tab=soilmemory",
+      "title": "Crop Intelligence — Soil memory"
+    },
+    {
+      "path": "/?tab=failurelab",
+      "title": "Decision Center — Failure lab"
+    },
+    {
+      "path": "/?tab=adaptiveevidence",
+      "title": "Data Hub — Evidence gaps & actions"
+    },
+    {
+      "path": "/?tab=portfolio",
+      "title": "Decision Center — Portfolio (farm-wide)"
+    },
+    {
+      "path": "/?tab=team",
+      "title": "Workspace & Settings — Organization & members"
+    },
+    {
+      "path": "/?tab=billing",
+      "title": "Workspace & Settings — Billing"
+    },
+    {
+      "path": "/?tab=insights",
+      "title": "Reports & Analytics — Analytics"
+    },
+    {
+      "path": "/?tab=developer",
+      "title": "Workspace & Settings — Developer"
+    },
+    {
+      "path": "/?tab=preferences",
+      "title": "Workspace & Settings — Preferences"
+    },
+    {
+      "path": "/?tab=cropintel&sub=management",
+      "title": "Crop Intelligence — Management plan"
+    }
   ]
 }

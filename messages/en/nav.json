@@ -39,5 +39,6 @@
   "groupDecisionIntelligence": "Decision Intelligence",
   "groupInsights": "Insights & administration",
   "workspaceCaption": "Agricultural operations",
-  "primaryNavigation": "Primary navigation"
+  "primaryNavigation": "Primary navigation",
+  "demoFixtureBanner": "Illustrative demo only — seeded farm, field, and observation records are SYNTHETIC software fixtures, not real measurements or agronomic advice. Any records you add are separate."
 }

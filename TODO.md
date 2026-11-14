@@ -238,3 +238,43 @@ External production gates also remain: live provider credentials/approval, SMTP,
 - English/Arabic destination labels match at **33** keys and rotation copy at **119** keys; the public route manifest contains **12 unique states**. Local HTTP checks returned 200 for `/`, both new rotation query routes, `/manus-routes.json`, and `/logo.svg`.
 - Code commit `482f266f86d42cc391cf2263ff303a4c810cf8e0` is pushed to `origin/feature/croptwist-ui-ux-redesign`; the remote branch matched and `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`. No PR or merge was made.
 - Authenticated per-destination screenshots and API workflow checks remain open because `127.0.0.1:3030` has no listener (`ECONNREFUSED`) and no test account was available. The demo seed was not invoked to avoid unverified database writes; the redesign is still partial and not release-ready.
+
+
+## Authenticated QA and completion brief — 2026-11-14
+
+**Repository:** `abdelrahmanelharouny/project1`
+**Branch:** `feature/croptwist-ui-ux-redesign`
+**Base:** `feature/ai-complete-integration` at `38f8891696f6c27e79e25ddf65b33549f4a51397`
+**Current prior code checkpoint:** `482f266f86d42cc391cf2263ff303a4c810cf8e0` (current branch also has later report-only commit `edd906978adf78693f623ee9ef8fd625b0ffad77`).
+
+### 1. Safe authenticated test environment — Open
+
+- Inspect the existing local backend/database setup. Establish an isolated test environment using disposable data only. Verify migrations and readiness before using the database. Provide a safe authenticated test account if the existing setup supports it. Never run demo seeding against an unverified or production database. If authentication cannot be established safely, document the exact blocker and continue with all independent QA.
+- Any demo fixtures must be explicitly labeled as illustrative. Never use unverified production data or seed an unknown database.
+
+### 2. Authenticated QA for all nine destinations — Open
+
+Verify the following destinations: **Overview; Farms & Fields; Data Hub; Crop Intelligence; Map & Satellite; Decision Center; AI Copilot; Reports & Analytics; Workspace & Settings.** For each destination, verify initial loading; successful data state where a valid fixture or endpoint exists; empty state; error and retry state; navigation and deep links; existing interactions and actions; no fake or misleading data; and no console errors or broken assets. Capture actual browser screenshots at desktop and mobile widths.
+
+### 3. Authenticated English/Arabic, responsive, and accessible experience — Open
+
+Verify authenticated screens in both English and Arabic. Check RTL direction and layout; sidebar and mobile navigation; forms, tables, dialogs, maps, charts, and dropdowns; text wrapping and overflow; keyboard navigation and focus visibility; minimum 44px touch targets; and no horizontal overflow at 360px and 390px. Fix discovered issues rather than only documenting them.
+
+### 4. Observable Figma fidelity — Open
+
+Use only observable Figma evidence. Improve the shared shell, spacing, typography, color hierarchy, cards, tables, and panels where justified. Do not invent missing Figma screens or claim pixel-perfect fidelity. Keep CropTwist branding; do not rename the product to FieldShift.
+
+### 5. Final regression and branch delivery — Open
+
+Run frontend tests; TypeScript; lint; production build; localization parity checks; navigation/deep-link tests; browser checks; and relevant backend integration checks if a safe test environment is available. Commit and push all verified changes to the same redesign branch. Do not modify `main`, merge GIS, AI, or deployment branches, or overwrite/reset existing work. Preserve all API contracts, authentication, tenant authorization, URL navigation, and agronomic behavior. Report the exact branch and base, final commit SHA, changed files/destinations, desktop/mobile screenshot paths, authenticated QA coverage, English/Arabic/RTL results, exact test commands and counts, blockers, and confirmation that `main` and other workstreams remain untouched. Do not claim completion if authenticated visual QA remains blocked; continue all safe implementation work first.
+
+
+### Progress evidence — expedited authenticated QA (2026-11-14; supersedes earlier pre-auth blocker note)
+
+- A disposable local PostgreSQL/PostGIS database `croptwist_ui_qa_test` was initialized under `/tmp`; Alembic migrations were applied and API readiness was verified before using its synthetic `demo@croptwist.local` account. The workspace’s persistent banner identifies all seeded records as illustrative synthetic fixtures. Browser external traffic was blocked and provider endpoints were loopback-only; no external providers or production/shared databases were used.
+- Captured 50 actual authenticated screenshots for 12 representative screens in English and Arabic at desktop 1440px and mobile 390px; the same 12 screens were measured at 360px. Across 72 locale/viewport checks: **0 horizontal overflow**, **0 clipped sub-page labels**, **0 unnamed visible buttons**, **0 mobile actionable controls under 44px**, **0 missing synthetic-data banners**, **0 authenticated page/console errors**, **0 authenticated API failures**, and **0 failed assets**. The 360px checks were measured but not screenshot-captured.
+- Navigation evidence: 68 unique route-manifest states; tests cover canonical destinations, all sub-pages, legacy links, and aliases. Browser checks recorded 4 direct routes, 2 mobile navigation flows, 1 history/query-preservation check, and 2 keyboard checks. No farm/field/report/settings form was submitted.
+- An initial 24-case 503/error harness is marked **inconclusive**: only 3 requests were intercepted and the 650ms sample preceded React Query retry/backoff settlement. Afterward, accessible localized retry states were added to the shared FieldPicker, Farms & Fields map/field reads, Decision Center list/detail, and Reports/Billing/Developer organization/report reads. These code fixes are not yet verified by a fresh injected-503 browser run; do not mark error/retry coverage complete.
+- `npx --yes --package bun@1.4.4 bun test tests/frontend` — **154 passed, 0 failed, 1202 assertions across 11 files**; `bun run lint`, `bun x tsc --noEmit`, and `bun run build` passed. All locale JSON parses and en/ar keys match for nav (42), destinations (31), rotation (119), and features (79).
+- Targeted disposable-backend migration integration tests — **7 passed**. The full backend suite did not complete: default pytest collection reported four duplicate-basename import mismatches between integration/unit files; an importlib-mode attempt still errored collecting `tests/unit/test_rotation_season_scores.py`. No backend application source changed.
+- This expedited pass remains **partial and not deployment-ready** until terminal error/retry checks and remaining per-subpage/action verification are completed. Remote `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`; the final verification changes are still to be checkpointed on this same feature branch.

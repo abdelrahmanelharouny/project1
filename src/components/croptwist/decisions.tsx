@@ -22,6 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ErrorState } from '@/components/croptwist/state-views'
 import {
   Table,
   TableBody,
@@ -122,7 +123,10 @@ export default function Decisions() {
         </CardHeader>
         <CardContent>
           {comparisons.isLoading && <Skeleton className="h-16 w-full" />}
-          {comparisons.data && comparisons.data.items.length === 0 && (
+          {comparisons.isError && (
+            <ErrorState message={t('requestFailed')} onRetry={() => void comparisons.refetch()} />
+          )}
+          {!comparisons.isError && comparisons.data && comparisons.data.items.length === 0 && (
             <p className="text-xs text-stone-500">{t('noDocsYet')}</p>
           )}
           <div className="grid gap-2">
@@ -182,12 +186,7 @@ function DocumentDetail({ id }: { id: string }) {
 
   if (doc.isLoading) return <Skeleton className="h-40 w-full" />
   if (doc.isError || !doc.data) {
-    return (
-      <Alert variant="destructive">
-        <AlertTriangle className="h-4 w-4" aria-hidden />
-        <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
-      </Alert>
-    )
+    return <ErrorState message={t('loadErrorTitle')} onRetry={() => void doc.refetch()} />
   }
   const d = doc.data.document as DecisionDocument | undefined
   if (!d) return null

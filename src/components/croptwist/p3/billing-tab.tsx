@@ -38,6 +38,7 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ErrorState } from '@/components/croptwist/state-views'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -321,6 +322,9 @@ export default function BillingTab() {
         <Skeleton className="h-64 w-full" />
       </div>
     )
+  }
+  if (orgsQuery.isError) {
+    return <ErrorState message={t('common.loadError')} onRetry={() => void orgsQuery.refetch()} />
   }
   if (!org) return <NoOrgEmptyState t={t} />
 

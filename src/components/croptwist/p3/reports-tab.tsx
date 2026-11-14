@@ -47,6 +47,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ErrorState } from '@/components/croptwist/state-views'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ApiError, describeError } from '@/lib/api'
@@ -54,7 +55,7 @@ import { formatDateTime, formatDay } from '@/lib/format'
 import { p07ReportTypes, type ReportTypeOption } from '@/lib/analytics/p07-utils'
 import { useCropTwistUi } from '@/lib/store'
 import { useFarms } from '@/hooks/use-croptwist'
-import { InlineError, NoOrgEmptyState } from './settings-shared'
+import { NoOrgEmptyState } from './settings-shared'
 import {
   createReport,
   deleteReport,
@@ -319,6 +320,9 @@ export default function ReportsTab() {
       </div>
     )
   }
+  if (orgsQuery.isError) {
+    return <ErrorState message={t('common.loadError')} onRetry={() => void orgsQuery.refetch()} />
+  }
   if (!org) return <NoOrgEmptyState />
 
   const rows = listQuery.data?.items ?? []
@@ -479,7 +483,7 @@ export default function ReportsTab() {
           {listQuery.isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : listQuery.isError ? (
-            <InlineError error={listQuery.error} />
+            <ErrorState message={t('common.loadError')} onRetry={() => void listQuery.refetch()} />
           ) : rows.length === 0 ? (
             <p className="py-6 text-center text-sm text-stone-500">{t('reports.empty')}</p>
           ) : (

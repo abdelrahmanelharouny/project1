@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { ErrorState } from '@/components/croptwist/state-views'
 import { useFarmsWithFields } from '@/hooks/use-croptwist'
 import { useCropTwistUi, type SelectedField } from '@/lib/store'
 
@@ -27,10 +28,16 @@ interface FieldPickerProps {
 /** Shared "pick a field across all farms" dropdown for Observations / Data Passport. */
 export function FieldPicker({ value, onValueChange, id, emptyHint }: FieldPickerProps) {
   const t = useTranslations('common')
-  const { farms, allFields, isLoading } = useFarmsWithFields()
+  const tFarms = useTranslations('farms')
+  const { farms, allFields, isLoading, hasError, hasFarmsError, retryFailedQueries } = useFarmsWithFields()
+  const errorMessage = hasFarmsError ? tFarms('loadFarmsError') : tFarms('loadFieldsError')
 
   if (isLoading) {
     return <Skeleton className="h-9 w-full sm:w-[280px]" aria-label={t('loadingFields')} />
+  }
+
+  if (hasError && allFields.length === 0) {
+    return <ErrorState message={errorMessage} onRetry={retryFailedQueries} />
   }
 
   if (allFields.length === 0) {
@@ -45,34 +52,37 @@ export function FieldPicker({ value, onValueChange, id, emptyHint }: FieldPicker
   }
 
   return (
-    <Select
-      value={value ?? undefined}
-      onValueChange={(fieldId) => {
-        const field = allFields.find((entry) => entry.id === fieldId)
-        if (field) onValueChange({ id: field.id, name: field.name, farmId: field.farm_id })
-      }}
-    >
-      <SelectTrigger id={id} className="w-full sm:w-[280px] bg-white" aria-label={t('selectField')}>
-        <SelectValue placeholder={t('selectField')} />
-      </SelectTrigger>
-      <SelectContent>
-        {farms.map(({ farm, fields }) =>
-          fields.length > 0 ? (
-            <SelectGroup key={farm.id}>
-              <SelectLabel>{farm.name}</SelectLabel>
-              {fields.map((field) => (
-                <SelectItem key={field.id} value={field.id}>
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
-                    {field.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          ) : null,
-        )}
-      </SelectContent>
-    </Select>
+    <div className="space-y-2">
+      {hasError ? <ErrorState message={errorMessage} onRetry={retryFailedQueries} /> : null}
+      <Select
+        value={value ?? ''}
+        onValueChange={(fieldId) => {
+          const field = allFields.find((entry) => entry.id === fieldId)
+          if (field) onValueChange({ id: field.id, name: field.name, farmId: field.farm_id })
+        }}
+      >
+        <SelectTrigger id={id} className="w-full sm:w-[280px] bg-white" aria-label={t('selectField')}>
+          <SelectValue placeholder={t('selectField')} />
+        </SelectTrigger>
+        <SelectContent>
+          {farms.map(({ farm, fields }) =>
+            fields.length > 0 ? (
+              <SelectGroup key={farm.id}>
+                <SelectLabel>{farm.name}</SelectLabel>
+                {fields.map((field) => (
+                  <SelectItem key={field.id} value={field.id}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+                      {field.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ) : null,
+          )}
+        </SelectContent>
+      </Select>
+    </div>
   )
 }
 

@@ -1,0 +1,5209 @@
+{
+  "target": "loopback Next.js app and disposable croptwist_ui_qa_test database only",
+  "externalProviderTraffic": "blocked by browser route; backend provider bases point only to loopback port 9; model credentials unset",
+  "demoLoginHttp": 200,
+  "screenshotPaths": [
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-overview-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-overview-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-farms-fields-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-farms-fields-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-data-hub-observations-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-data-hub-observations-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-data-hub-features-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-data-hub-features-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-crop-rotation-overview-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-crop-rotation-overview-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-rotation-planner-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-rotation-planner-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-map-satellite-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-map-satellite-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-decision-center-state-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-decision-center-state-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-ai-copilot-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-ai-copilot-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-reports-analytics-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-reports-analytics-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-workspace-organization-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-workspace-organization-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-workspace-preferences-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-workspace-preferences-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/en-mobile-navigation-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-overview-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-overview-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-farms-fields-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-farms-fields-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-data-hub-observations-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-data-hub-observations-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-data-hub-features-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-data-hub-features-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-crop-rotation-overview-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-crop-rotation-overview-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-rotation-planner-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-rotation-planner-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-map-satellite-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-map-satellite-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-decision-center-state-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-decision-center-state-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-ai-copilot-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-ai-copilot-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-reports-analytics-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-reports-analytics-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-workspace-organization-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-workspace-organization-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-workspace-preferences-1440.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-workspace-preferences-390.jpg",
+    "/home/ubuntu/project1-ui-ux/docs/audits/visual/authenticated/final/ar-mobile-navigation-390.jpg"
+  ],
+  "visualChecks": [
+    {
+      "locale": "en",
+      "screen": "overview",
+      "destination": "Overview",
+      "viewport": "desktop-1440",
+      "requestedTab": "overview",
+      "requestedSub": null,
+      "resolvedTab": "overview",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Create a farm",
+          "width": 142,
+          "height": 36,
+          "touchWidth": 142,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Data Passport of “North Field (synthetic)”",
+          "width": 324,
+          "height": 36,
+          "touchWidth": 324,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Ingest observations",
+          "width": 167,
+          "height": 36,
+          "touchWidth": 167,
+          "touchHeight": 36,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 12
+    },
+    {
+      "locale": "en",
+      "screen": "overview",
+      "destination": "Overview",
+      "viewport": "mobile-390",
+      "requestedTab": "overview",
+      "requestedSub": null,
+      "resolvedTab": "overview",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 10
+    },
+    {
+      "locale": "en",
+      "screen": "overview",
+      "destination": "Overview",
+      "viewport": "mobile-360",
+      "requestedTab": "overview",
+      "requestedSub": null,
+      "resolvedTab": "overview",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 10
+    },
+    {
+      "locale": "en",
+      "screen": "farms-fields",
+      "destination": "Farms & Fields",
+      "viewport": "desktop-1440",
+      "requestedTab": "farms",
+      "requestedSub": null,
+      "resolvedTab": "farms",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "New farm",
+          "width": 114,
+          "height": 36,
+          "touchWidth": 114,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Zoom in",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        },
+        {
+          "label": "Zoom out",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        },
+        {
+          "label": "Add field",
+          "width": 103,
+          "height": 32,
+          "touchWidth": 103,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Export Export",
+          "width": 88,
+          "height": 32,
+          "touchWidth": 88,
+          "touchHeight": 32,
+          "selector": "dropdown-menu-trigger"
+        },
+        {
+          "label": "Open",
+          "width": 55,
+          "height": 32,
+          "touchWidth": 55,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Open",
+          "width": 55,
+          "height": 32,
+          "touchWidth": 55,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Rename",
+          "width": 99,
+          "height": 32,
+          "touchWidth": 99,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Update boundary",
+          "width": 160,
+          "height": 32,
+          "touchWidth": 160,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Zoom in",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        },
+        {
+          "label": "Zoom out",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 19
+    },
+    {
+      "locale": "en",
+      "screen": "farms-fields",
+      "destination": "Farms & Fields",
+      "viewport": "mobile-390",
+      "requestedTab": "farms",
+      "requestedSub": null,
+      "resolvedTab": "farms",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 17
+    },
+    {
+      "locale": "en",
+      "screen": "farms-fields",
+      "destination": "Farms & Fields",
+      "viewport": "mobile-360",
+      "requestedTab": "farms",
+      "requestedSub": null,
+      "resolvedTab": "farms",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 17
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-observations",
+      "destination": "Data Hub",
+      "viewport": "desktop-1440",
+      "requestedTab": "datahub",
+      "requestedSub": "observations",
+      "resolvedTab": "datahub",
+      "resolvedSub": "observations",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        },
+        {
+          "clientWidth": 378,
+          "scrollWidth": 378,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Synthetic fixtures synthetic · active",
+          "width": 378,
+          "height": 36,
+          "touchWidth": 378,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Mediterranean — dry summer",
+          "width": 181,
+          "height": 36,
+          "touchWidth": 181,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "input",
+          "width": 181,
+          "height": 36,
+          "touchWidth": 181,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 181,
+          "height": 36,
+          "touchWidth": 181,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 181,
+          "height": 36,
+          "touchWidth": 181,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Run ingestion job",
+          "width": 165,
+          "height": 36,
+          "touchWidth": 165,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "input",
+          "width": 152,
+          "height": 36,
+          "touchWidth": 152,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 152,
+          "height": 36,
+          "touchWidth": 152,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Load",
+          "width": 83,
+          "height": 36,
+          "touchWidth": 83,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "CSV observations",
+          "width": 186,
+          "height": 29,
+          "touchWidth": 186,
+          "touchHeight": 29,
+          "selector": "tabs-trigger"
+        },
+        {
+          "label": "CHIRPS raster",
+          "width": 186,
+          "height": 29,
+          "touchWidth": 186,
+          "touchHeight": 29,
+          "selector": "tabs-trigger"
+        },
+        {
+          "label": "CSV file to import",
+          "width": 320,
+          "height": 36,
+          "touchWidth": 320,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Download template",
+          "width": 113,
+          "height": 16,
+          "touchWidth": 113,
+          "touchHeight": 16,
+          "selector": "a"
+        },
+        {
+          "label": "Filter by variable",
+          "width": 224,
+          "height": 36,
+          "touchWidth": 224,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 27
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-observations",
+      "destination": "Data Hub",
+      "viewport": "mobile-390",
+      "requestedTab": "datahub",
+      "requestedSub": "observations",
+      "resolvedTab": "datahub",
+      "resolvedSub": "observations",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 776,
+          "horizontallyScrollable": true
+        },
+        {
+          "clientWidth": 316,
+          "scrollWidth": 316,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 25
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-observations",
+      "destination": "Data Hub",
+      "viewport": "mobile-360",
+      "requestedTab": "datahub",
+      "requestedSub": "observations",
+      "resolvedTab": "datahub",
+      "resolvedSub": "observations",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 776,
+          "horizontallyScrollable": true
+        },
+        {
+          "clientWidth": 286,
+          "scrollWidth": 286,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 25
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-features",
+      "destination": "Data Hub",
+      "viewport": "desktop-1440",
+      "requestedTab": "datahub",
+      "requestedSub": "features",
+      "resolvedTab": "datahub",
+      "resolvedSub": "features",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "input",
+          "width": 196,
+          "height": 36,
+          "touchWidth": 196,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 196,
+          "height": 36,
+          "touchWidth": 196,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Season hemisphere",
+          "width": 235,
+          "height": 36,
+          "touchWidth": 235,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Run features",
+          "width": 134,
+          "height": 36,
+          "touchWidth": 134,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Review observations",
+          "width": 163,
+          "height": 32,
+          "touchWidth": 163,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Monthly",
+          "width": 76,
+          "height": 20,
+          "touchWidth": 76,
+          "touchHeight": 20,
+          "selector": "checkbox-label"
+        },
+        {
+          "label": "Seasonal",
+          "width": 81,
+          "height": 20,
+          "touchWidth": 81,
+          "touchHeight": 20,
+          "selector": "checkbox-label"
+        },
+        {
+          "label": "Crop seasons",
+          "width": 110,
+          "height": 20,
+          "touchWidth": 110,
+          "touchHeight": 20,
+          "selector": "checkbox-label"
+        },
+        {
+          "label": "Daily",
+          "width": 54,
+          "height": 20,
+          "touchWidth": 54,
+          "touchHeight": 20,
+          "selector": "checkbox-label"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 17
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-features",
+      "destination": "Data Hub",
+      "viewport": "mobile-390",
+      "requestedTab": "datahub",
+      "requestedSub": "features",
+      "resolvedTab": "datahub",
+      "resolvedSub": "features",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 776,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-features",
+      "destination": "Data Hub",
+      "viewport": "mobile-360",
+      "requestedTab": "datahub",
+      "requestedSub": "features",
+      "resolvedTab": "datahub",
+      "resolvedSub": "features",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 776,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "en",
+      "screen": "crop-rotation-overview",
+      "destination": "Crop Intelligence",
+      "viewport": "desktop-1440",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Edit rotation",
+          "width": 131,
+          "height": 36,
+          "touchWidth": 131,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "History period",
+          "width": 190,
+          "height": 36,
+          "touchWidth": 190,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Export Export",
+          "width": 88,
+          "height": 32,
+          "touchWidth": 88,
+          "touchHeight": 32,
+          "selector": "dropdown-menu-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 23
+    },
+    {
+      "locale": "en",
+      "screen": "crop-rotation-overview",
+      "destination": "Crop Intelligence",
+      "viewport": "mobile-390",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 1711,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 21
+    },
+    {
+      "locale": "en",
+      "screen": "crop-rotation-overview",
+      "destination": "Crop Intelligence",
+      "viewport": "mobile-360",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 1711,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 21
+    },
+    {
+      "locale": "en",
+      "screen": "rotation-planner",
+      "destination": "Crop Intelligence",
+      "viewport": "desktop-1440",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Back to overview",
+          "width": 139,
+          "height": 32,
+          "touchWidth": 139,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Simple",
+          "width": 69,
+          "height": 32,
+          "touchWidth": 69,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Expert",
+          "width": 67,
+          "height": 32,
+          "touchWidth": 67,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Season 1 label",
+          "width": 202,
+          "height": 36,
+          "touchWidth": 202,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Season 1 start",
+          "width": 202,
+          "height": 36,
+          "touchWidth": 202,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Season 1 end",
+          "width": 202,
+          "height": 36,
+          "touchWidth": 202,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Add season",
+          "width": 92,
+          "height": 32,
+          "touchWidth": 92,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "Export Export",
+          "width": 88,
+          "height": 32,
+          "touchWidth": 88,
+          "touchHeight": 32,
+          "selector": "dropdown-menu-trigger"
+        },
+        {
+          "label": "Knowledge crop…",
+          "width": 167,
+          "height": 36,
+          "touchWidth": 167,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "e.g. Maize",
+          "width": 160,
+          "height": 36,
+          "touchWidth": 160,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 160,
+          "height": 36,
+          "touchWidth": 160,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 160,
+          "height": 36,
+          "touchWidth": 160,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "summer_2023",
+          "width": 101,
+          "height": 36,
+          "touchWidth": 101,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Generate candidates",
+          "width": 181,
+          "height": 32,
+          "touchWidth": 181,
+          "touchHeight": 32,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 34
+    },
+    {
+      "locale": "en",
+      "screen": "rotation-planner",
+      "destination": "Crop Intelligence",
+      "viewport": "mobile-390",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 1711,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 32
+    },
+    {
+      "locale": "en",
+      "screen": "rotation-planner",
+      "destination": "Crop Intelligence",
+      "viewport": "mobile-360",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 1711,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 32
+    },
+    {
+      "locale": "en",
+      "screen": "map-satellite",
+      "destination": "Map & Satellite",
+      "viewport": "desktop-1440",
+      "requestedTab": "geo",
+      "requestedSub": "map",
+      "resolvedTab": "geo",
+      "resolvedSub": "map",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Index that drives the legend, timeline and inspector",
+          "width": 210,
+          "height": 36,
+          "touchWidth": 210,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Zoom in",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        },
+        {
+          "label": "Zoom out",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        },
+        {
+          "label": "LEGEND NDVI",
+          "width": 206,
+          "height": 32,
+          "touchWidth": 206,
+          "touchHeight": 32,
+          "selector": "collapsible-trigger"
+        },
+        {
+          "label": "Zoom the map to this field's boundary",
+          "width": 115,
+          "height": 36,
+          "touchWidth": 115,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Clear the selected field",
+          "width": 146,
+          "height": 36,
+          "touchWidth": 146,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Download this field's boundary as GeoJSON",
+          "width": 177,
+          "height": 36,
+          "touchWidth": 177,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Download the satellite timeline for this field as CSV",
+          "width": 134,
+          "height": 36,
+          "touchWidth": 134,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Index",
+          "width": 77,
+          "height": 36,
+          "touchWidth": 77,
+          "touchHeight": 36,
+          "selector": "select"
+        },
+        {
+          "label": "Open scene catalog",
+          "width": 158,
+          "height": 32,
+          "touchWidth": 158,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "VEGETATION INDICES 5",
+          "width": 370,
+          "height": 16,
+          "touchWidth": 370,
+          "touchHeight": 16,
+          "selector": "collapsible-trigger"
+        },
+        {
+          "label": "Show NDVI — vegetation vigor on the map",
+          "width": 44,
+          "height": 24,
+          "touchWidth": 44,
+          "touchHeight": 24,
+          "selector": "switch"
+        },
+        {
+          "label": "Show EVI — enhanced vegetation on the map",
+          "width": 44,
+          "height": 24,
+          "touchWidth": 44,
+          "touchHeight": 24,
+          "selector": "switch"
+        },
+        {
+          "label": "Show NDMI — canopy moisture on the map",
+          "width": 44,
+          "height": 24,
+          "touchWidth": 44,
+          "touchHeight": 24,
+          "selector": "switch"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 32
+    },
+    {
+      "locale": "en",
+      "screen": "map-satellite",
+      "destination": "Map & Satellite",
+      "viewport": "mobile-390",
+      "requestedTab": "geo",
+      "requestedSub": "map",
+      "resolvedTab": "geo",
+      "resolvedSub": "map",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 366,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 30
+    },
+    {
+      "locale": "en",
+      "screen": "map-satellite",
+      "destination": "Map & Satellite",
+      "viewport": "mobile-360",
+      "requestedTab": "geo",
+      "requestedSub": "map",
+      "resolvedTab": "geo",
+      "resolvedSub": "map",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 336,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 30
+    },
+    {
+      "locale": "en",
+      "screen": "decision-center-state",
+      "destination": "Decision Center",
+      "viewport": "desktop-1440",
+      "requestedTab": "decisions",
+      "requestedSub": "state",
+      "resolvedTab": "decisions",
+      "resolvedSub": "state",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Field state North Field (synthetic)",
+          "width": 326,
+          "height": 36,
+          "touchWidth": 326,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 160,
+          "height": 36,
+          "touchWidth": 160,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 160,
+          "height": 36,
+          "touchWidth": 160,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Assemble state",
+          "width": 148,
+          "height": 36,
+          "touchWidth": 148,
+          "touchHeight": 36,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 19
+    },
+    {
+      "locale": "en",
+      "screen": "decision-center-state",
+      "destination": "Decision Center",
+      "viewport": "mobile-390",
+      "requestedTab": "decisions",
+      "requestedSub": "state",
+      "resolvedTab": "decisions",
+      "resolvedSub": "state",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 1080,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 17
+    },
+    {
+      "locale": "en",
+      "screen": "decision-center-state",
+      "destination": "Decision Center",
+      "viewport": "mobile-360",
+      "requestedTab": "decisions",
+      "requestedSub": "state",
+      "resolvedTab": "decisions",
+      "resolvedSub": "state",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 1080,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 17
+    },
+    {
+      "locale": "en",
+      "screen": "ai-copilot",
+      "destination": "AI Copilot",
+      "viewport": "desktop-1440",
+      "requestedTab": "copilot",
+      "requestedSub": null,
+      "resolvedTab": "copilot",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Regenerate",
+          "width": 123,
+          "height": 36,
+          "touchWidth": 123,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Why this?",
+          "width": 73,
+          "height": 16,
+          "touchWidth": 73,
+          "touchHeight": 16,
+          "selector": "button"
+        },
+        {
+          "label": "Accept",
+          "width": 69,
+          "height": 23,
+          "touchWidth": 69,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Implemented",
+          "width": 104,
+          "height": 23,
+          "touchWidth": 104,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Deferred",
+          "width": 80,
+          "height": 23,
+          "touchWidth": 80,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Not applicable",
+          "width": 108,
+          "height": 23,
+          "touchWidth": 108,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Dismiss",
+          "width": 74,
+          "height": 23,
+          "touchWidth": 74,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Add a reason",
+          "width": 69,
+          "height": 17,
+          "touchWidth": 69,
+          "touchHeight": 17,
+          "selector": "button"
+        },
+        {
+          "label": "Why this?",
+          "width": 73,
+          "height": 16,
+          "touchWidth": 73,
+          "touchHeight": 16,
+          "selector": "button"
+        },
+        {
+          "label": "Accept",
+          "width": 69,
+          "height": 23,
+          "touchWidth": 69,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Implemented",
+          "width": 104,
+          "height": 23,
+          "touchWidth": 104,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Deferred",
+          "width": 80,
+          "height": 23,
+          "touchWidth": 80,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Not applicable",
+          "width": 108,
+          "height": 23,
+          "touchWidth": 108,
+          "touchHeight": 23,
+          "selector": "button"
+        },
+        {
+          "label": "Dismiss",
+          "width": 74,
+          "height": 23,
+          "touchWidth": 74,
+          "touchHeight": 23,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 61
+    },
+    {
+      "locale": "en",
+      "screen": "ai-copilot",
+      "destination": "AI Copilot",
+      "viewport": "mobile-390",
+      "requestedTab": "copilot",
+      "requestedSub": null,
+      "resolvedTab": "copilot",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 59
+    },
+    {
+      "locale": "en",
+      "screen": "ai-copilot",
+      "destination": "AI Copilot",
+      "viewport": "mobile-360",
+      "requestedTab": "copilot",
+      "requestedSub": null,
+      "resolvedTab": "copilot",
+      "resolvedSub": null,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 59
+    },
+    {
+      "locale": "en",
+      "screen": "reports-analytics",
+      "destination": "Reports & Analytics",
+      "viewport": "desktop-1440",
+      "requestedTab": "reports",
+      "requestedSub": "reports",
+      "resolvedTab": "reports",
+      "resolvedSub": "reports",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Farm performance",
+          "width": 173,
+          "height": 36,
+          "touchWidth": 173,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "PDF",
+          "width": 76,
+          "height": 36,
+          "touchWidth": 76,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "English",
+          "width": 98,
+          "height": 36,
+          "touchWidth": 98,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Whole organization",
+          "width": 178,
+          "height": 36,
+          "touchWidth": 178,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "input",
+          "width": 269,
+          "height": 36,
+          "touchWidth": 269,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 269,
+          "height": 36,
+          "touchWidth": 269,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "No repeat",
+          "width": 144,
+          "height": 36,
+          "touchWidth": 144,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Generate",
+          "width": 94,
+          "height": 36,
+          "touchWidth": 94,
+          "touchHeight": 36,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 17
+    },
+    {
+      "locale": "en",
+      "screen": "reports-analytics",
+      "destination": "Reports & Analytics",
+      "viewport": "mobile-390",
+      "requestedTab": "reports",
+      "requestedSub": "reports",
+      "resolvedTab": "reports",
+      "resolvedSub": "reports",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 366,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "en",
+      "screen": "reports-analytics",
+      "destination": "Reports & Analytics",
+      "viewport": "mobile-360",
+      "requestedTab": "reports",
+      "requestedSub": "reports",
+      "resolvedTab": "reports",
+      "resolvedSub": "reports",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 336,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-organization",
+      "destination": "Workspace & Settings",
+      "viewport": "desktop-1440",
+      "requestedTab": "settings",
+      "requestedSub": "organization",
+      "resolvedTab": "settings",
+      "resolvedSub": "organization",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Rename organization",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "name@example.com",
+          "width": 69,
+          "height": 36,
+          "touchWidth": 69,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "Role",
+          "width": 88,
+          "height": 36,
+          "touchWidth": 88,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "New owner",
+          "width": 114,
+          "height": 36,
+          "touchWidth": 114,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-organization",
+      "destination": "Workspace & Settings",
+      "viewport": "mobile-390",
+      "requestedTab": "settings",
+      "requestedSub": "organization",
+      "resolvedTab": "settings",
+      "resolvedSub": "organization",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 499,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-organization",
+      "destination": "Workspace & Settings",
+      "viewport": "mobile-360",
+      "requestedTab": "settings",
+      "requestedSub": "organization",
+      "resolvedTab": "settings",
+      "resolvedSub": "organization",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 499,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-preferences",
+      "destination": "Workspace & Settings",
+      "viewport": "desktop-1440",
+      "requestedTab": "settings",
+      "requestedSub": "preferences",
+      "resolvedTab": "settings",
+      "resolvedSub": "preferences",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 1,
+      "smallTouchTargets": [
+        {
+          "label": "Select a field",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Get started",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Notifications",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "Language",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Sign out",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "English",
+          "width": 91,
+          "height": 36,
+          "touchWidth": 91,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "UTC",
+          "width": 73,
+          "height": 36,
+          "touchWidth": 73,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "USD",
+          "width": 74,
+          "height": 36,
+          "touchWidth": 74,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Metric (ha, mm, °C)",
+          "width": 158,
+          "height": 36,
+          "touchWidth": 158,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Monday",
+          "width": 96,
+          "height": 36,
+          "touchWidth": 96,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "button",
+          "width": 50,
+          "height": 36,
+          "touchWidth": 50,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "Save preferences",
+          "width": 146,
+          "height": 36,
+          "touchWidth": 146,
+          "touchHeight": 36,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 18
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-preferences",
+      "destination": "Workspace & Settings",
+      "viewport": "mobile-390",
+      "requestedTab": "settings",
+      "requestedSub": "preferences",
+      "resolvedTab": "settings",
+      "resolvedSub": "preferences",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 499,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 1,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 16
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-preferences",
+      "destination": "Workspace & Settings",
+      "viewport": "mobile-360",
+      "requestedTab": "settings",
+      "requestedSub": "preferences",
+      "resolvedTab": "settings",
+      "resolvedSub": "preferences",
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true,
+      "lang": "en",
+      "dir": "ltr",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 499,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 1,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 16
+    },
+    {
+      "locale": "ar",
+      "screen": "overview",
+      "destination": "نظرة عامة",
+      "viewport": "desktop-1440",
+      "requestedTab": "overview",
+      "requestedSub": null,
+      "resolvedTab": "overview",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "إنشاء مزرعة",
+          "width": 123,
+          "height": 36,
+          "touchWidth": 123,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "جواز بيانات «North Field (synthetic)»",
+          "width": 281,
+          "height": 36,
+          "touchWidth": 281,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "استيراد القياسات",
+          "width": 132,
+          "height": 36,
+          "touchWidth": 132,
+          "touchHeight": 36,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 12
+    },
+    {
+      "locale": "ar",
+      "screen": "overview",
+      "destination": "نظرة عامة",
+      "viewport": "mobile-390",
+      "requestedTab": "overview",
+      "requestedSub": null,
+      "resolvedTab": "overview",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 10
+    },
+    {
+      "locale": "ar",
+      "screen": "overview",
+      "destination": "نظرة عامة",
+      "viewport": "mobile-360",
+      "requestedTab": "overview",
+      "requestedSub": null,
+      "resolvedTab": "overview",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 10
+    },
+    {
+      "locale": "ar",
+      "screen": "farms-fields",
+      "destination": "المزارع والحقول",
+      "viewport": "desktop-1440",
+      "requestedTab": "farms",
+      "requestedSub": null,
+      "resolvedTab": "farms",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "مزرعة جديدة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "Zoom in",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        },
+        {
+          "label": "Zoom out",
+          "width": 29,
+          "height": 29,
+          "touchWidth": 29,
+          "touchHeight": 29,
+          "selector": "button"
+        },
+        {
+          "label": "إضافة حقل",
+          "width": 108,
+          "height": 32,
+          "touchWidth": 108,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "تصدير تصدير",
+          "width": 79,
+          "height": 32,
+          "touchWidth": 79,
+          "touchHeight": 32,
+          "selector": "dropdown-menu-trigger"
+        },
+        {
+          "label": "فتح",
+          "width": 41,
+          "height": 32,
+          "touchWidth": 41,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "فتح",
+          "width": 41,
+          "height": 32,
+          "touchWidth": 41,
+          "touchHeight": 32,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "ar",
+      "screen": "farms-fields",
+      "destination": "المزارع والحقول",
+      "viewport": "mobile-390",
+      "requestedTab": "farms",
+      "requestedSub": null,
+      "resolvedTab": "farms",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "ar",
+      "screen": "farms-fields",
+      "destination": "المزارع والحقول",
+      "viewport": "mobile-360",
+      "requestedTab": "farms",
+      "requestedSub": null,
+      "resolvedTab": "farms",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-observations",
+      "destination": "مركز البيانات",
+      "viewport": "desktop-1440",
+      "requestedTab": "datahub",
+      "requestedSub": "observations",
+      "resolvedTab": "datahub",
+      "resolvedSub": "observations",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اختر حقلًا",
+          "width": 257,
+          "height": 36,
+          "touchWidth": 257,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-observations",
+      "destination": "مركز البيانات",
+      "viewport": "mobile-390",
+      "requestedTab": "datahub",
+      "requestedSub": "observations",
+      "resolvedTab": "datahub",
+      "resolvedSub": "observations",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 692,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 11
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-observations",
+      "destination": "مركز البيانات",
+      "viewport": "mobile-360",
+      "requestedTab": "datahub",
+      "requestedSub": "observations",
+      "resolvedTab": "datahub",
+      "resolvedSub": "observations",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 692,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 11
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-features",
+      "destination": "مركز البيانات",
+      "viewport": "desktop-1440",
+      "requestedTab": "datahub",
+      "requestedSub": "features",
+      "resolvedTab": "datahub",
+      "resolvedSub": "features",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-features",
+      "destination": "مركز البيانات",
+      "viewport": "mobile-390",
+      "requestedTab": "datahub",
+      "requestedSub": "features",
+      "resolvedTab": "datahub",
+      "resolvedSub": "features",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 692,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 11
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-features",
+      "destination": "مركز البيانات",
+      "viewport": "mobile-360",
+      "requestedTab": "datahub",
+      "requestedSub": "features",
+      "resolvedTab": "datahub",
+      "resolvedSub": "features",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 692,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 11
+    },
+    {
+      "locale": "ar",
+      "screen": "crop-rotation-overview",
+      "destination": "ذكاء المحاصيل",
+      "viewport": "desktop-1440",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 21
+    },
+    {
+      "locale": "ar",
+      "screen": "crop-rotation-overview",
+      "destination": "ذكاء المحاصيل",
+      "viewport": "mobile-390",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 1543,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 19
+    },
+    {
+      "locale": "ar",
+      "screen": "crop-rotation-overview",
+      "destination": "ذكاء المحاصيل",
+      "viewport": "mobile-360",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 1543,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 19
+    },
+    {
+      "locale": "ar",
+      "screen": "rotation-planner",
+      "destination": "ذكاء المحاصيل",
+      "viewport": "desktop-1440",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "العودة إلى النظرة العامة",
+          "width": 166,
+          "height": 32,
+          "touchWidth": 166,
+          "touchHeight": 32,
+          "selector": "button"
+        },
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 22
+    },
+    {
+      "locale": "ar",
+      "screen": "rotation-planner",
+      "destination": "ذكاء المحاصيل",
+      "viewport": "mobile-390",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 1543,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 20
+    },
+    {
+      "locale": "ar",
+      "screen": "rotation-planner",
+      "destination": "ذكاء المحاصيل",
+      "viewport": "mobile-360",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 1543,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 20
+    },
+    {
+      "locale": "ar",
+      "screen": "map-satellite",
+      "destination": "الخريطة والأقمار الصناعية",
+      "viewport": "desktop-1440",
+      "requestedTab": "geo",
+      "requestedSub": "map",
+      "resolvedTab": "geo",
+      "resolvedSub": "map",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الدليل الذي يقود المفتاح اللوني والخط الزمني ومفتش الحقل",
+          "width": 210,
+          "height": 36,
+          "touchWidth": 210,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "المفتاح اللوني NDVI",
+          "width": 206,
+          "height": 32,
+          "touchWidth": 206,
+          "touchHeight": 32,
+          "selector": "collapsible-trigger"
+        },
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 11
+    },
+    {
+      "locale": "ar",
+      "screen": "map-satellite",
+      "destination": "الخريطة والأقمار الصناعية",
+      "viewport": "mobile-390",
+      "requestedTab": "geo",
+      "requestedSub": "map",
+      "resolvedTab": "geo",
+      "resolvedSub": "map",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 366,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 9
+    },
+    {
+      "locale": "ar",
+      "screen": "map-satellite",
+      "destination": "الخريطة والأقمار الصناعية",
+      "viewport": "mobile-360",
+      "requestedTab": "geo",
+      "requestedSub": "map",
+      "resolvedTab": "geo",
+      "resolvedSub": "map",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 336,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 9
+    },
+    {
+      "locale": "ar",
+      "screen": "decision-center-state",
+      "destination": "مركز القرارات",
+      "viewport": "desktop-1440",
+      "requestedTab": "decisions",
+      "requestedSub": "state",
+      "resolvedTab": "decisions",
+      "resolvedSub": "state",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 16
+    },
+    {
+      "locale": "ar",
+      "screen": "decision-center-state",
+      "destination": "مركز القرارات",
+      "viewport": "mobile-390",
+      "requestedTab": "decisions",
+      "requestedSub": "state",
+      "resolvedTab": "decisions",
+      "resolvedSub": "state",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 1131,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 14
+    },
+    {
+      "locale": "ar",
+      "screen": "decision-center-state",
+      "destination": "مركز القرارات",
+      "viewport": "mobile-360",
+      "requestedTab": "decisions",
+      "requestedSub": "state",
+      "resolvedTab": "decisions",
+      "resolvedSub": "state",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 1131,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 14
+    },
+    {
+      "locale": "ar",
+      "screen": "ai-copilot",
+      "destination": "مساعد الذكاء الاصطناعي",
+      "viewport": "desktop-1440",
+      "requestedTab": "copilot",
+      "requestedSub": null,
+      "resolvedTab": "copilot",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 7
+    },
+    {
+      "locale": "ar",
+      "screen": "ai-copilot",
+      "destination": "مساعد الذكاء الاصطناعي",
+      "viewport": "mobile-390",
+      "requestedTab": "copilot",
+      "requestedSub": null,
+      "resolvedTab": "copilot",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 5
+    },
+    {
+      "locale": "ar",
+      "screen": "ai-copilot",
+      "destination": "مساعد الذكاء الاصطناعي",
+      "viewport": "mobile-360",
+      "requestedTab": "copilot",
+      "requestedSub": null,
+      "resolvedTab": "copilot",
+      "resolvedSub": null,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 5
+    },
+    {
+      "locale": "ar",
+      "screen": "reports-analytics",
+      "destination": "التقارير والتحليلات",
+      "viewport": "desktop-1440",
+      "requestedTab": "reports",
+      "requestedSub": "reports",
+      "resolvedTab": "reports",
+      "resolvedSub": "reports",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "أداء المزرعة",
+          "width": 121,
+          "height": 36,
+          "touchWidth": 121,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "PDF",
+          "width": 76,
+          "height": 36,
+          "touchWidth": 76,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "الإنجليزية",
+          "width": 103,
+          "height": 36,
+          "touchWidth": 103,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "المؤسسة كاملة",
+          "width": 139,
+          "height": 36,
+          "touchWidth": 139,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "input",
+          "width": 269,
+          "height": 36,
+          "touchWidth": 269,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "input",
+          "width": 269,
+          "height": 36,
+          "touchWidth": 269,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "بدون تكرار",
+          "width": 144,
+          "height": 36,
+          "touchWidth": 144,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "إنشاء",
+          "width": 63,
+          "height": 36,
+          "touchWidth": 63,
+          "touchHeight": 36,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 17
+    },
+    {
+      "locale": "ar",
+      "screen": "reports-analytics",
+      "destination": "التقارير والتحليلات",
+      "viewport": "mobile-390",
+      "requestedTab": "reports",
+      "requestedSub": "reports",
+      "resolvedTab": "reports",
+      "resolvedSub": "reports",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 366,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "ar",
+      "screen": "reports-analytics",
+      "destination": "التقارير والتحليلات",
+      "viewport": "mobile-360",
+      "requestedTab": "reports",
+      "requestedSub": "reports",
+      "resolvedTab": "reports",
+      "resolvedSub": "reports",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 336,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-organization",
+      "destination": "مساحة العمل والإعدادات",
+      "viewport": "desktop-1440",
+      "requestedTab": "settings",
+      "requestedSub": "organization",
+      "resolvedTab": "settings",
+      "resolvedSub": "organization",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "إعادة تسمية المنظمة",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "button"
+        },
+        {
+          "label": "name@example.com",
+          "width": 100,
+          "height": 36,
+          "touchWidth": 100,
+          "touchHeight": 36,
+          "selector": "input"
+        },
+        {
+          "label": "الدور",
+          "width": 83,
+          "height": 36,
+          "touchWidth": 83,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "المالك الجديد",
+          "width": 115,
+          "height": 36,
+          "touchWidth": 115,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 15
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-organization",
+      "destination": "مساحة العمل والإعدادات",
+      "viewport": "mobile-390",
+      "requestedTab": "settings",
+      "requestedSub": "organization",
+      "resolvedTab": "settings",
+      "resolvedSub": "organization",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 407,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-organization",
+      "destination": "مساحة العمل والإعدادات",
+      "viewport": "mobile-360",
+      "requestedTab": "settings",
+      "requestedSub": "organization",
+      "resolvedTab": "settings",
+      "resolvedSub": "organization",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 407,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 0,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 13
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-preferences",
+      "destination": "مساحة العمل والإعدادات",
+      "viewport": "desktop-1440",
+      "requestedTab": "settings",
+      "requestedSub": "preferences",
+      "resolvedTab": "settings",
+      "resolvedSub": "preferences",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 1,
+      "subPageRails": [
+        {
+          "clientWidth": 223,
+          "scrollWidth": 223,
+          "horizontallyScrollable": false
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 1,
+      "smallTouchTargets": [
+        {
+          "label": "اختر حقلًا",
+          "width": 280,
+          "height": 36,
+          "touchWidth": 280,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإشعارات",
+          "width": 36,
+          "height": 36,
+          "touchWidth": 36,
+          "touchHeight": 36,
+          "selector": "popover-trigger"
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "اللغة",
+          "width": 124,
+          "height": 36,
+          "touchWidth": 124,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "تسجيل الخروج",
+          "width": 40,
+          "height": 40,
+          "touchWidth": 40,
+          "touchHeight": 40,
+          "selector": "button"
+        },
+        {
+          "label": "الإنجليزية",
+          "width": 95,
+          "height": 36,
+          "touchWidth": 95,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "UTC",
+          "width": 73,
+          "height": 36,
+          "touchWidth": 73,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "USD",
+          "width": 74,
+          "height": 36,
+          "touchWidth": 74,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "متري (هكتار، مم، °م)",
+          "width": 153,
+          "height": 36,
+          "touchWidth": 153,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "الاثنين",
+          "width": 80,
+          "height": 36,
+          "touchWidth": 80,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "button",
+          "width": 50,
+          "height": 36,
+          "touchWidth": 50,
+          "touchHeight": 36,
+          "selector": "select-trigger"
+        },
+        {
+          "label": "حفظ التفضيلات",
+          "width": 122,
+          "height": 36,
+          "touchWidth": 122,
+          "touchHeight": 36,
+          "selector": "button"
+        }
+      ],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 18
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-preferences",
+      "destination": "مساحة العمل والإعدادات",
+      "viewport": "mobile-390",
+      "requestedTab": "settings",
+      "requestedSub": "preferences",
+      "resolvedTab": "settings",
+      "resolvedSub": "preferences",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 366,
+          "scrollWidth": 407,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 1,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 16
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-preferences",
+      "destination": "مساحة العمل والإعدادات",
+      "viewport": "mobile-360",
+      "requestedTab": "settings",
+      "requestedSub": "preferences",
+      "resolvedTab": "settings",
+      "resolvedSub": "preferences",
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false,
+      "lang": "ar",
+      "dir": "rtl",
+      "viewportWidth": 360,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "horizontalOverflow": false,
+      "bannerVisible": true,
+      "bannerContainsIllustrativeDisclosure": true,
+      "activeSidebarCurrentPageCount": 0,
+      "subPageRails": [
+        {
+          "clientWidth": 336,
+          "scrollWidth": 407,
+          "horizontallyScrollable": true
+        }
+      ],
+      "clippedSubPageLabels": [],
+      "unnamedVisibleButtonCount": 1,
+      "smallTouchTargets": [],
+      "sliderTouchTargets": [],
+      "visibleControlCount": 16
+    }
+  ],
+  "desktopNavigation": [
+    {
+      "locale": "en",
+      "screen": "overview",
+      "tab": "overview",
+      "sub": null,
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "farms-fields",
+      "tab": "farms",
+      "sub": null,
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-observations",
+      "tab": "datahub",
+      "sub": "observations",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-features",
+      "tab": "datahub",
+      "sub": "features",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "crop-rotation-overview",
+      "tab": "cropintel",
+      "sub": "rotation-overview",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "rotation-planner",
+      "tab": "cropintel",
+      "sub": "rotation-planner",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "map-satellite",
+      "tab": "geo",
+      "sub": "map",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "decision-center-state",
+      "tab": "decisions",
+      "sub": "state",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "ai-copilot",
+      "tab": "copilot",
+      "sub": null,
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "reports-analytics",
+      "tab": "reports",
+      "sub": "reports",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-organization",
+      "tab": "settings",
+      "sub": "organization",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-preferences",
+      "tab": "settings",
+      "sub": "preferences",
+      "activePageCount": 1,
+      "farmContextPreserved": true,
+      "fieldContextPreserved": true
+    },
+    {
+      "locale": "ar",
+      "screen": "overview",
+      "tab": "overview",
+      "sub": null,
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "farms-fields",
+      "tab": "farms",
+      "sub": null,
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-observations",
+      "tab": "datahub",
+      "sub": "observations",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-features",
+      "tab": "datahub",
+      "sub": "features",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "crop-rotation-overview",
+      "tab": "cropintel",
+      "sub": "rotation-overview",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "rotation-planner",
+      "tab": "cropintel",
+      "sub": "rotation-planner",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "map-satellite",
+      "tab": "geo",
+      "sub": "map",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "decision-center-state",
+      "tab": "decisions",
+      "sub": "state",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "ai-copilot",
+      "tab": "copilot",
+      "sub": null,
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "reports-analytics",
+      "tab": "reports",
+      "sub": "reports",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-organization",
+      "tab": "settings",
+      "sub": "organization",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-preferences",
+      "tab": "settings",
+      "sub": "preferences",
+      "activePageCount": 1,
+      "farmContextPreserved": false,
+      "fieldContextPreserved": false
+    }
+  ],
+  "routeChecks": [
+    {
+      "screen": "crop-rotation-overview",
+      "locale": "en",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "activePageCount": 1,
+      "lang": "en",
+      "dir": "ltr",
+      "ok": true,
+      "apiFailureCount": 0
+    },
+    {
+      "screen": "rotation-planner",
+      "locale": "en",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "activePageCount": 1,
+      "lang": "en",
+      "dir": "ltr",
+      "ok": true,
+      "apiFailureCount": 0
+    },
+    {
+      "screen": "crop-rotation-overview",
+      "locale": "ar",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-overview",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-overview",
+      "activePageCount": 1,
+      "lang": "ar",
+      "dir": "rtl",
+      "ok": true,
+      "apiFailureCount": 0
+    },
+    {
+      "screen": "rotation-planner",
+      "locale": "ar",
+      "requestedTab": "cropintel",
+      "requestedSub": "rotation-planner",
+      "resolvedTab": "cropintel",
+      "resolvedSub": "rotation-planner",
+      "activePageCount": 1,
+      "lang": "ar",
+      "dir": "rtl",
+      "ok": true,
+      "apiFailureCount": 0
+    }
+  ],
+  "mobileNavigation": [
+    {
+      "locale": "en",
+      "keyboardOpenedDialog": true,
+      "dialogClosedAfterEscape": true,
+      "shareVisible": true,
+      "shareActivated": false,
+      "onboardingVisible": true,
+      "overflow": false,
+      "buttons": [
+        {
+          "label": "Search & commands",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Overview",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Farms & Fields",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Data Hub",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Crop Intelligence",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Map & Satellite",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Decision Center",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "AI Copilot",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Reports & Analytics",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Workspace & Settings",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "Copy shareable link",
+          "width": 295,
+          "height": 44
+        },
+        {
+          "label": "Get started",
+          "width": 295,
+          "height": 44
+        },
+        {
+          "label": "Close",
+          "width": 44,
+          "height": 44
+        }
+      ]
+    },
+    {
+      "locale": "ar",
+      "keyboardOpenedDialog": true,
+      "dialogClosedAfterEscape": true,
+      "shareVisible": true,
+      "shareActivated": false,
+      "onboardingVisible": true,
+      "overflow": false,
+      "buttons": [
+        {
+          "label": "البحث والأوامر",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "نظرة عامة",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "المزارع والحقول",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "مركز البيانات",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "ذكاء المحاصيل",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "الخريطة والأقمار الصناعية",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "مركز القرارات",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "مساعد الذكاء الاصطناعي",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "التقارير والتحليلات",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "مساحة العمل والإعدادات",
+          "width": 303,
+          "height": 44
+        },
+        {
+          "label": "نسخ رابط قابل للمشاركة",
+          "width": 295,
+          "height": 44
+        },
+        {
+          "label": "ابدأ الآن",
+          "width": 295,
+          "height": 44
+        },
+        {
+          "label": "Close",
+          "width": 44,
+          "height": 44
+        }
+      ]
+    }
+  ],
+  "routeHistoryChecks": [
+    {
+      "states": [
+        {
+          "tab": "overview",
+          "sub": null,
+          "source": "croptwist-qa"
+        },
+        {
+          "tab": "datahub",
+          "sub": "observations",
+          "source": "croptwist-qa"
+        },
+        {
+          "tab": "cropintel",
+          "sub": "rotation-overview",
+          "source": "croptwist-qa"
+        },
+        {
+          "tab": "datahub",
+          "sub": "observations",
+          "source": "croptwist-qa"
+        },
+        {
+          "tab": "overview",
+          "sub": null,
+          "source": "croptwist-qa"
+        },
+        {
+          "tab": "datahub",
+          "sub": "observations",
+          "source": "croptwist-qa"
+        },
+        {
+          "tab": "cropintel",
+          "sub": "rotation-overview",
+          "source": "croptwist-qa"
+        }
+      ],
+      "queryPreservedEveryStep": true,
+      "backForwardRestoredRoutes": true,
+      "ok": true
+    }
+  ],
+  "keyboardChecks": [
+    {
+      "locale": "en",
+      "enterOpenedDialog": true,
+      "focusInsideDialog": true,
+      "escapeClosedDialog": true
+    },
+    {
+      "locale": "ar",
+      "enterOpenedDialog": true,
+      "focusInsideDialog": true,
+      "escapeClosedDialog": true
+    }
+  ],
+  "externalRequestsBlocked": [],
+  "guestConsoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "authenticatedConsoleErrors": [],
+  "pageErrors": {
+    "guest": [],
+    "authenticated": []
+  },
+  "authenticatedApiFailures": [],
+  "guestApiFailures": [
+    {
+      "method": "GET",
+      "path": "/api/v1/me",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "status": 401
+    }
+  ],
+  "authenticatedApiResponseCounts": {
+    "GET /api/v1/ai/conversations 200": 1,
+    "GET /api/v1/ai/providers 200": 1,
+    "GET /api/v1/data/catalog 200": 3,
+    "GET /api/v1/data/providers/health 200": 3,
+    "GET /api/v1/farms 200": 5,
+    "GET /api/v1/farms/:id/fields 200": 5,
+    "GET /api/v1/features/catalog 200": 2,
+    "GET /api/v1/fields/:id/boundary-versions 200": 1,
+    "GET /api/v1/fields/:id/crop-history 200": 4,
+    "GET /api/v1/fields/:id/data-coverage 200": 1,
+    "GET /api/v1/fields/:id/feature-runs 200": 1,
+    "GET /api/v1/fields/:id/field-states 200": 1,
+    "GET /api/v1/fields/:id/insights 200": 1,
+    "GET /api/v1/fields/:id/map 200": 1,
+    "GET /api/v1/fields/:id/map/layers 200": 1,
+    "GET /api/v1/fields/:id/observations 200": 7,
+    "GET /api/v1/fields/:id/recommendations 200": 1,
+    "GET /api/v1/fields/:id/rotation-runs 200": 2,
+    "GET /api/v1/fields/:id/satellite/processing 200": 1,
+    "GET /api/v1/fields/:id/satellite/profile 200": 1,
+    "GET /api/v1/fields/:id/vegetation/scenes 200": 1,
+    "GET /api/v1/fields/:id/vegetation/summary 200": 1,
+    "GET /api/v1/health 200": 3,
+    "GET /api/v1/health/ready 200": 3,
+    "GET /api/v1/knowledge/crops 200": 6,
+    "GET /api/v1/knowledge/packs 200": 5,
+    "GET /api/v1/knowledge/rotation-rules 200": 5,
+    "GET /api/v1/me 200": 5,
+    "GET /api/v1/notifications/unread-count 200": 3,
+    "GET /api/v1/orgs 200": 2,
+    "GET /api/v1/orgs/:id/activity 200": 2,
+    "GET /api/v1/orgs/:id/invitations 200": 2,
+    "GET /api/v1/orgs/:id/members 200": 2,
+    "GET /api/v1/preferences 200": 2,
+    "GET /api/v1/reports 200": 2
+  },
+  "fatalError": null,
+  "guestPreLoginConsoleErrorCount": 2,
+  "failedAssets": []
+}

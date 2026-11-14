@@ -52,7 +52,7 @@ export function SubPageRail({
       className={cn(
         vertical
           ? 'h-auto w-full flex-col items-stretch justify-start gap-1 rounded-none bg-transparent p-0'
-          : 'h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-stone-200 bg-white p-1 scrollbar-none',
+          : 'h-auto min-w-0 max-w-full w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none border-b border-stone-200 bg-white p-1 scrollbar-none',
         className,
       )}
     >
@@ -65,7 +65,7 @@ export function SubPageRail({
           aria-label={t(`sub.${sub.labelKey}`)}
           className={cn(
             'min-h-11 shrink-0 justify-start gap-2 whitespace-nowrap rounded-md px-3 text-sm font-medium text-stone-600 data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-900 data-[state=active]:shadow-none',
-            vertical ? 'w-full border-l-2 border-transparent data-[state=active]:border-emerald-700' : 'px-3.5',
+            vertical ? 'w-full border-l-2 border-transparent data-[state=active]:border-emerald-700' : 'flex-none px-3.5',
           )}
         >
           {/* Portfolio is farm-scoped while its siblings are field-scoped —
@@ -73,7 +73,7 @@ export function SubPageRail({
           {sub.id === 'portfolio' ? (
             <Globe2 className="h-3.5 w-3.5 shrink-0 text-teal-700" aria-hidden />
           ) : null}
-          <span className="truncate">{t(`sub.${sub.labelKey}`)}</span>
+          <span className={vertical ? 'truncate' : 'whitespace-nowrap'}>{t(`sub.${sub.labelKey}`)}</span>
         </TabsTrigger>
       ))}
     </TabsList>

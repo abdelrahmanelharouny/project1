@@ -47,6 +47,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ErrorState } from '@/components/croptwist/state-views'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -416,6 +417,9 @@ export default function DeveloperTab() {
         <Skeleton className="h-48 w-full" />
       </div>
     )
+  }
+  if (orgsQuery.isError) {
+    return <ErrorState message={t('common.loadError')} onRetry={() => void orgsQuery.refetch()} />
   }
   if (!org) return <NoOrgEmptyState t={t} />
 

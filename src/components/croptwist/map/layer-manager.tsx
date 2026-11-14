@@ -292,6 +292,7 @@ function VegetationRow({
             value={[ui.opacityPct]}
             onValueChange={(values) => onUiChange(layer.id, { opacityPct: values[0] ?? 70 })}
             className="py-1"
+            aria-label={t('opacity')}
             aria-valuetext={`${ui.opacityPct}%`}
           />
         </div>
@@ -469,6 +470,7 @@ function StatisticalZonesControls({
               value={[opacityPct]}
               onValueChange={(values) => onOpacityChange(values[0] ?? 60)}
               className="touch-none py-3"
+              aria-label={t('opacity')}
               aria-valuetext={`${opacityPct}%`}
             />
           </div>

@@ -1,0 +1,623 @@
+{
+  "target": "authenticated disposable croptwist_ui_qa_test session; browser data requests only",
+  "policy": "All external browser requests blocked; all non-GET /api/v1 requests blocked; /me, health and auth left live; 503s/delays injected only in the browser.",
+  "loadingChecks": [
+    {
+      "locale": "en",
+      "screen": "overview",
+      "requestCount": 4,
+      "ariaBusy": 0,
+      "skeletons": 8,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 8
+    },
+    {
+      "locale": "en",
+      "screen": "farms-fields",
+      "requestCount": 3,
+      "ariaBusy": 0,
+      "skeletons": 5,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 5
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-observations",
+      "requestCount": 7,
+      "ariaBusy": 0,
+      "skeletons": 15,
+      "spinners": 1,
+      "loadingText": 0,
+      "indicatorCount": 16
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-features",
+      "requestCount": 5,
+      "ariaBusy": 0,
+      "skeletons": 2,
+      "spinners": 2,
+      "loadingText": 2,
+      "indicatorCount": 6
+    },
+    {
+      "locale": "en",
+      "screen": "crop-rotation-overview",
+      "requestCount": 4,
+      "ariaBusy": 0,
+      "skeletons": 2,
+      "spinners": 1,
+      "loadingText": 0,
+      "indicatorCount": 3
+    },
+    {
+      "locale": "en",
+      "screen": "rotation-planner",
+      "requestCount": 5,
+      "ariaBusy": 0,
+      "skeletons": 2,
+      "spinners": 1,
+      "loadingText": 0,
+      "indicatorCount": 3
+    },
+    {
+      "locale": "en",
+      "screen": "map-satellite",
+      "requestCount": 8,
+      "ariaBusy": 0,
+      "skeletons": 19,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 19
+    },
+    {
+      "locale": "en",
+      "screen": "decision-center-state",
+      "requestCount": 4,
+      "ariaBusy": 0,
+      "skeletons": 4,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 4
+    },
+    {
+      "locale": "en",
+      "screen": "ai-copilot",
+      "requestCount": 7,
+      "ariaBusy": 0,
+      "skeletons": 16,
+      "spinners": 1,
+      "loadingText": 0,
+      "indicatorCount": 17
+    },
+    {
+      "locale": "en",
+      "screen": "reports-analytics",
+      "requestCount": 5,
+      "ariaBusy": 0,
+      "skeletons": 5,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 5
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-organization",
+      "requestCount": 7,
+      "ariaBusy": 0,
+      "skeletons": 4,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 4
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-preferences",
+      "requestCount": 3,
+      "ariaBusy": 0,
+      "skeletons": 6,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 6
+    },
+    {
+      "locale": "ar",
+      "screen": "overview",
+      "requestCount": 4,
+      "ariaBusy": 0,
+      "skeletons": 8,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 8
+    },
+    {
+      "locale": "ar",
+      "screen": "farms-fields",
+      "requestCount": 3,
+      "ariaBusy": 0,
+      "skeletons": 5,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 5
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-observations",
+      "requestCount": 9,
+      "ariaBusy": 0,
+      "skeletons": 15,
+      "spinners": 1,
+      "loadingText": 1,
+      "indicatorCount": 17
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-features",
+      "requestCount": 5,
+      "ariaBusy": 0,
+      "skeletons": 2,
+      "spinners": 2,
+      "loadingText": 2,
+      "indicatorCount": 6
+    },
+    {
+      "locale": "ar",
+      "screen": "crop-rotation-overview",
+      "requestCount": 4,
+      "ariaBusy": 0,
+      "skeletons": 2,
+      "spinners": 1,
+      "loadingText": 0,
+      "indicatorCount": 3
+    },
+    {
+      "locale": "ar",
+      "screen": "rotation-planner",
+      "requestCount": 5,
+      "ariaBusy": 0,
+      "skeletons": 2,
+      "spinners": 1,
+      "loadingText": 0,
+      "indicatorCount": 3
+    },
+    {
+      "locale": "ar",
+      "screen": "map-satellite",
+      "requestCount": 8,
+      "ariaBusy": 0,
+      "skeletons": 19,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 19
+    },
+    {
+      "locale": "ar",
+      "screen": "decision-center-state",
+      "requestCount": 4,
+      "ariaBusy": 0,
+      "skeletons": 4,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 4
+    },
+    {
+      "locale": "ar",
+      "screen": "ai-copilot",
+      "requestCount": 7,
+      "ariaBusy": 0,
+      "skeletons": 16,
+      "spinners": 1,
+      "loadingText": 0,
+      "indicatorCount": 17
+    },
+    {
+      "locale": "ar",
+      "screen": "reports-analytics",
+      "requestCount": 5,
+      "ariaBusy": 0,
+      "skeletons": 5,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 5
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-organization",
+      "requestCount": 7,
+      "ariaBusy": 0,
+      "skeletons": 4,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 4
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-preferences",
+      "requestCount": 4,
+      "ariaBusy": 0,
+      "skeletons": 6,
+      "spinners": 0,
+      "loadingText": 0,
+      "indicatorCount": 6
+    }
+  ],
+  "errorChecks": [
+    {
+      "locale": "en",
+      "screen": "overview",
+      "requestCount": 5,
+      "errorVisible": true,
+      "retryButtonCount": 1,
+      "retryTriggered": true,
+      "retryRequestCount": 1,
+      "alertCount": 1,
+      "alertText": [
+        "Could not load your farms. Request failed with status 503. Retry"
+      ],
+      "retryButtons": [
+        "Retry"
+      ],
+      "errorLines": [
+        "Could not load your farms. Request failed with status 503.",
+        "Retry"
+      ],
+      "mainTextLength": 852
+    },
+    {
+      "locale": "en",
+      "screen": "farms-fields",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 114
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-observations",
+      "requestCount": 6,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 1218
+    },
+    {
+      "locale": "en",
+      "screen": "data-hub-features",
+      "requestCount": 4,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 989
+    },
+    {
+      "locale": "en",
+      "screen": "crop-rotation-overview",
+      "requestCount": 3,
+      "errorVisible": true,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 1,
+      "alertText": [
+        "This view shows recorded past crops only. It is not a future rotation plan or an approved agronomic recommendation."
+      ],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 762
+    },
+    {
+      "locale": "en",
+      "screen": "rotation-planner",
+      "requestCount": 4,
+      "errorVisible": true,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 1,
+      "alertText": [
+        "Optimizer runs return comparison strategies for review only. They do not save a future rotation or approve agronomic recommendations. Review evidence and local conditions before ch"
+      ],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 1354
+    },
+    {
+      "locale": "en",
+      "screen": "map-satellite",
+      "requestCount": 8,
+      "errorVisible": true,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [
+        "Unavailable",
+        "The backend's own layer catalog for the selected field. Unavailable layers stay listed with the backend's reason — nothing is hidden."
+      ],
+      "mainTextLength": 970
+    },
+    {
+      "locale": "en",
+      "screen": "decision-center-state",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 783
+    },
+    {
+      "locale": "en",
+      "screen": "ai-copilot",
+      "requestCount": 12,
+      "errorVisible": true,
+      "retryButtonCount": 1,
+      "retryTriggered": true,
+      "retryRequestCount": 6,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [
+        "Retry"
+      ],
+      "errorLines": [
+        "Retry"
+      ],
+      "mainTextLength": 832
+    },
+    {
+      "locale": "en",
+      "screen": "reports-analytics",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 61
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-organization",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 199
+    },
+    {
+      "locale": "en",
+      "screen": "workspace-preferences",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 239
+    },
+    {
+      "locale": "ar",
+      "screen": "overview",
+      "requestCount": 2,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 984
+    },
+    {
+      "locale": "ar",
+      "screen": "farms-fields",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 106
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-observations",
+      "requestCount": 6,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 1191
+    },
+    {
+      "locale": "ar",
+      "screen": "data-hub-features",
+      "requestCount": 4,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 945
+    },
+    {
+      "locale": "ar",
+      "screen": "crop-rotation-overview",
+      "requestCount": 3,
+      "errorVisible": true,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 1,
+      "alertText": [
+        "يعرض هذا القسم المحاصيل المسجلة سابقًا فقط. لا يمثل خطة دورة مستقبلية أو توصية زراعية معتمدة."
+      ],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 706
+    },
+    {
+      "locale": "ar",
+      "screen": "rotation-planner",
+      "requestCount": 4,
+      "errorVisible": true,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 1,
+      "alertText": [
+        "تعرض عمليات التحسين استراتيجيات للمقارنة والمراجعة فقط. لا تحفظ دورة مستقبلية ولا تعتمد توصيات زراعية. راجع الأدلة والظروف المحلية قبل تعديل سجلات الحقل."
+      ],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 1261
+    },
+    {
+      "locale": "ar",
+      "screen": "map-satellite",
+      "requestCount": 8,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 897
+    },
+    {
+      "locale": "ar",
+      "screen": "decision-center-state",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 691
+    },
+    {
+      "locale": "ar",
+      "screen": "ai-copilot",
+      "requestCount": 14,
+      "errorVisible": true,
+      "retryButtonCount": 1,
+      "retryTriggered": true,
+      "retryRequestCount": 6,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [
+        "إعادة المحاولة"
+      ],
+      "errorLines": [
+        "إعادة المحاولة"
+      ],
+      "mainTextLength": 745
+    },
+    {
+      "locale": "ar",
+      "screen": "reports-analytics",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 61
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-organization",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 152
+    },
+    {
+      "locale": "ar",
+      "screen": "workspace-preferences",
+      "requestCount": 3,
+      "errorVisible": false,
+      "retryButtonCount": 0,
+      "retryTriggered": false,
+      "retryRequestCount": 0,
+      "alertCount": 0,
+      "alertText": [],
+      "retryButtons": [],
+      "errorLines": [],
+      "mainTextLength": 189
+    }
+  ],
+  "externalBlocked": [],
+  "blockedMutations": [],
+  "fatalError": null,
+  "injectedRequestCount": 3,
+  "interpretation": {
+    "loading": "Observed in 24 cases; this records initial loading only.",
+    "errorRetry": "INCONCLUSIVE — do not count as pass/fail coverage.",
+    "reason": "The harness sampled after 650ms while React Query retry/backoff was still active, and only 3 requests were intercepted across 24 error cases. It did not verify terminal error UI or Retry behavior per destination.",
+    "cases": 24,
+    "injectedRequests": 3,
+    "waitMs": 650,
+    "followUp": "Focused localized ErrorState/retry code fixes were applied afterward; they have not yet been browser-tested with a fresh 503 injection."
+  }
+}
