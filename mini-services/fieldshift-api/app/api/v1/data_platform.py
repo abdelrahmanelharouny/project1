@@ -297,6 +297,17 @@ def data_coverage(
 ) -> dict:
     """Per-variable, per-provider coverage summary for the coverage view."""
     field = get_field_for_principal(db, principal, field_id)
+    quality_statuses = ("valid", "suspect", "invalid", "missing", "estimated", "not_assessed")
+    quality_columns = []
+    for quality_status in quality_statuses:
+        condition = dbm.Observation.quality_status == quality_status
+        if quality_status == "valid":
+            condition = condition & dbm.Observation.value.is_not(None)
+        quality_columns.append(
+            func.sum(func.coalesce(condition.cast(Integer), 0)).label(
+                "valid_n" if quality_status == "valid" else f"quality_{quality_status}_n"
+            )
+        )
     rows = db.execute(
         select(
             dbm.Observation.variable_code,
@@ -309,9 +320,7 @@ def data_coverage(
             func.min(dbm.Observation.observed_at).label("first"),
             func.max(dbm.Observation.observed_at).label("last"),
             func.max(dbm.Observation.retrieved_at).label("last_retrieval"),
-            func.sum(
-                func.coalesce(dbm.Observation.value.is_not(None).cast(Integer), 0)
-            ).label("valid_n"),
+            *quality_columns,
         )
         .join(dbm.DatasetProduct, dbm.Observation.dataset_product_id == dbm.DatasetProduct.id)
         .join(dbm.DataSource, dbm.DatasetProduct.source_id == dbm.DataSource.id)
@@ -331,10 +340,26 @@ def data_coverage(
     for r in rows:
         entry = grouped.setdefault(
             r.variable_code,
-            {"variable_code": r.variable_code, "unit": r.unit, "total": 0, "valid": 0, "providers": []},
+            {
+                "variable_code": r.variable_code,
+                "unit": r.unit,
+                "total": 0,
+                "valid": 0,
+                "quality_counts": {quality_status: 0 for quality_status in quality_statuses},
+                "providers": [],
+            },
         )
         entry["total"] += int(r.n)
         entry["valid"] += int(r.valid_n or 0)
+        provider_quality = {
+            quality_status: int(
+                getattr(r, "valid_n" if quality_status == "valid" else f"quality_{quality_status}_n")
+                or 0
+            )
+            for quality_status in quality_statuses
+        }
+        for quality_status, count in provider_quality.items():
+            entry["quality_counts"][quality_status] += count
         entry["providers"].append(
             {
                 "provider_code": r.provider_code,
@@ -343,6 +368,7 @@ def data_coverage(
                 "product_version": r.product_version,
                 "count": int(r.n),
                 "valid_count": int(r.valid_n or 0),
+                "quality_counts": provider_quality,
                 "first": r.first.date().isoformat() if r.first else None,
                 "last": r.last.date().isoformat() if r.last else None,
                 "last_retrieval": r.last_retrieval.isoformat() if r.last_retrieval else None,
@@ -398,7 +424,11 @@ def import_observations_csv(
             details=[{"field": "file", "reason": "decoding failed"}],
         ) from None
 
-    result = parse_csv_observations(content, file_name=file.filename or "upload.csv")
+    result = parse_csv_observations(
+        content,
+        file_name=file.filename or "upload.csv",
+        raw_bytes=raw,
+    )
     job = create_import_job(
         db,
         field=field,

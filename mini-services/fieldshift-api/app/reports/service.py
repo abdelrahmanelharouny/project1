@@ -43,6 +43,9 @@ from app.domains.identity.service import (
     get_field_for_principal,
     get_farm_for_principal,
 )
+from app.geospatial.objectstore import NotFoundError as ArtifactNotFoundError
+from app.geospatial.objectstore import StorageError as ArtifactStorageError
+from app.geospatial.postgres_objectstore import PostgresStorage
 from app.reports import contracts, renderers
 
 logger = logging.getLogger("croptwist.reports")
@@ -141,10 +144,8 @@ def create_report_job(
     target organization (explicitly via farm/field/org scope, or implicitly
     when the principal belongs to exactly one organization).
 
-    Entitlements: when the target organization has a LIVE subscription the
-    ``exports_enabled`` flag and the ``reports_per_month`` quota are
-    enforced; without a subscription the gate is a pass-through (same rule
-    as the other P3 gates — free/unsubscribed orgs are not billed meters).
+    Entitlements are resolved for every organization; organizations without
+    a paid subscription receive the catalog's Free-plan limits.
     """
     if report_type not in contracts.REPORT_TYPES:
         raise ValidationFailed(
@@ -171,6 +172,10 @@ def create_report_job(
         farm = get_farm_for_principal(session, principal, farm_id)
         principal.require_org_role(farm.organization_id, "viewer")
         resolved_org_id = farm.organization_id
+        if field_id is not None:
+            field = get_field_for_principal(session, principal, field_id)
+            if field.farm_id != farm.id:
+                raise ValidationFailed("field_id must belong to the selected farm_id.")
     elif field_id is not None:
         field = get_field_for_principal(session, principal, field_id)
         farm = session.get(Farm, field.farm_id)
@@ -199,11 +204,9 @@ def create_report_job(
             details=[{"field": "date_from", "reason": str(date_from)}],
         )
 
-    # ---- entitlement gate (only when the org carries a live subscription)
-    subscription = entitlements.get_live_subscription(session, resolved_org_id)
-    if subscription is not None:
-        entitlements.require_flag(session, resolved_org_id, entitlements.KEY_EXPORTS_ENABLED)
-        entitlements.check_quota(session, resolved_org_id, entitlements.KEY_REPORTS_PER_MONTH)
+    # ---- resolve plan entitlements even without a paid subscription (Free)
+    entitlements.require_flag(session, resolved_org_id, entitlements.KEY_EXPORTS_ENABLED)
+    entitlements.check_quota(session, resolved_org_id, entitlements.KEY_REPORTS_PER_MONTH)
 
     job = ReportJob(
         organization_id=resolved_org_id,
@@ -249,77 +252,123 @@ def execute_report_job(
     *,
     now: datetime | None = None,
 ) -> tuple[bool, str | None]:
-    """Render one queued (or failed) report job. Returns (success, error).
+    """Render one report under a report-id advisory fence; return (success,error).
 
-    Never raises for data problems — a section that cannot be gathered is
-    rendered with ``provenance: "missing"`` and a note. Only infrastructural
-    failures (renderer crash, unwritable storage) mark the job failed.
+    The scheduler, inline entry points, and background worker all converge
+    here. A PostgreSQL session advisory lock serializes them across processes;
+    status is re-read after acquiring it, so a caller waiting behind a completed
+    render observes ``succeeded`` and cannot meter usage or emit ``report.ready``
+    again. A legacy ``running`` row fails closed because its effects are unknown.
     """
-    job = session.get(ReportJob, job_id)
-    if job is None:
-        raise NotFound("Report job not found.")
-    if job.status == contracts.REPORT_STATUS_RUNNING:
-        raise Conflict("Report job is already running.")
-    if job.status == contracts.REPORT_STATUS_EXPIRED:
-        raise Conflict("Report job has expired; regenerate it first.")
+    import hashlib
 
-    now = now or datetime.now(UTC)
-    job.status = contracts.REPORT_STATUS_RUNNING
-    job.error = None
-    session.commit()
+    from sqlalchemy import text
 
+    from app.core.database import engine
+
+    lock_key = int.from_bytes(
+        hashlib.blake2b(job_id.bytes, digest_size=8, person=b"report-exec").digest(),
+        byteorder="big",
+        signed=True,
+    )
+    connection = engine.connect()
+    acquired = False
     try:
-        spec = contracts.get_report_type(job.report_type)
-        payload = _build_payload(session, job, spec, now)
-        blob = renderers.render(payload, job.output_format, job.locale)
-        artifact_path = _write_artifact(job, blob)
-        job.file_path = str(artifact_path)
-        job.file_size_bytes = len(blob)
-        job.status = contracts.REPORT_STATUS_SUCCEEDED
+        if connection.dialect.name != "postgresql":
+            return False, "report execution requires PostgreSQL advisory locking"
+        connection.execute(
+            text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": lock_key}
+        )
+        connection.commit()
+        acquired = True
+
+        # Lock the domain row after obtaining the cross-process fence and force
+        # a fresh read: callers may have loaded a queued identity-map object
+        # before waiting for another executor to finish.
+        job = session.scalar(
+            select(ReportJob).where(ReportJob.id == job_id).with_for_update()
+        )
+        if job is None:
+            raise NotFound("Report job not found.")
+        session.refresh(job)
+        if job.status == contracts.REPORT_STATUS_SUCCEEDED:
+            return True, None
+        if job.status == contracts.REPORT_STATUS_EXPIRED:
+            return False, "Report job has expired; regenerate it first."
+        if job.status == contracts.REPORT_STATUS_RUNNING:
+            return False, "Report job is already running; replay refused."
+
+        now = now or datetime.now(UTC)
+        job.status = contracts.REPORT_STATUS_RUNNING
         job.error = None
-        job.retention_until = contracts.retention_until_for(now)
-        # Usage accounting ONLY for subscribed orgs (same rule as the gate).
-        if entitlements.get_live_subscription(session, job.organization_id) is not None:
+        session.commit()
+
+        try:
+            spec = contracts.get_report_type(job.report_type)
+            payload = _build_payload(session, job, spec, now)
+            blob = renderers.render(payload, job.output_format, job.locale)
+            artifact_path = _write_artifact(job, blob)
+            job.file_path = str(artifact_path)
+            job.file_size_bytes = len(blob)
+            job.status = contracts.REPORT_STATUS_SUCCEEDED
+            job.error = None
+            job.retention_until = contracts.retention_until_for(now)
+            # The report terminal state and meter increment share one commit.
+            # Re-entry observes succeeded before any later side effect.
             entitlements.increment_usage(
                 session, job.organization_id, entitlements.KEY_REPORTS_PER_MONTH
             )
-        session.commit()
-        if payload.get("rendering_notes"):
-            logger.info(
-                "report %s rendering notes: %s", job.id, payload["rendering_notes"]
-            )
-        # P3 W6: notify external systems (webhook deliveries are signed and
-        # dispatched by the retry sweep; emission here must never fail the job).
-        try:
-            from app.publicapi.emitters import emit_event
+            session.commit()
+            if payload.get("rendering_notes"):
+                logger.info(
+                    "report %s rendering notes: %s", job.id, payload["rendering_notes"]
+                )
+            # Event emission is intentionally after the terminal/meter commit.
+            # A crash can leave a missing ready event, but a retry will never
+            # duplicate it or charge usage again.
+            try:
+                from app.publicapi.emitters import emit_event
 
-            emit_event(
-                session,
-                job.organization_id,
-                "report.ready",
-                payload_id=str(job.id),
-                data={
-                    "report_job_id": str(job.id),
-                    "report_type": job.report_type,
-                    "format": job.output_format,
-                    "locale": job.locale,
-                },
+                emit_event(
+                    session,
+                    job.organization_id,
+                    "report.ready",
+                    payload_id=str(job.id),
+                    data={
+                        "report_job_id": str(job.id),
+                        "report_type": job.report_type,
+                        "format": job.output_format,
+                        "locale": job.locale,
+                    },
+                )
+                session.commit()
+            except Exception:  # noqa: BLE001 — notification delivery is best-effort
+                session.rollback()
+            return True, None
+        except Exception as exc:  # noqa: BLE001 — job failure must never raise
+            session.rollback()
+            job = session.get(ReportJob, job_id)
+            if job is None:  # pragma: no cover — row deleted mid-flight
+                return False, str(exc)
+            job.status = contracts.REPORT_STATUS_FAILED
+            job.error = _safe_error(exc)
+            job.retention_until = contracts.retention_until_for(
+                now, contracts.FAILED_JOB_RETENTION_DAYS
             )
             session.commit()
-        except Exception:  # noqa: BLE001
-            session.rollback()
-        return True, None
-    except Exception as exc:  # noqa: BLE001 — job failure must never raise
-        session.rollback()
-        job = session.get(ReportJob, job_id)
-        if job is None:  # pragma: no cover — row deleted mid-flight
-            return False, str(exc)
-        job.status = contracts.REPORT_STATUS_FAILED
-        job.error = _safe_error(exc)
-        job.retention_until = contracts.retention_until_for(now, contracts.FAILED_JOB_RETENTION_DAYS)
-        session.commit()
-        logger.warning("report job %s failed: %s", job_id, job.error)
-        return False, job.error
+            logger.warning("report job %s failed: %s", job_id, job.error)
+            return False, job.error
+    finally:
+        if acquired:
+            try:
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(:lock_key)"),
+                    {"lock_key": lock_key},
+                )
+                connection.commit()
+            except Exception:  # noqa: BLE001 — don't return a potentially locked connection
+                connection.invalidate()
+        connection.close()
 
 
 def _safe_error(exc: Exception) -> str:
@@ -328,7 +377,33 @@ def _safe_error(exc: Exception) -> str:
     return message[:2000]
 
 
-def _write_artifact(job: ReportJob, blob: bytes) -> Path:
+def _reports_backend() -> str:
+    """Return the configured report backend without requiring config changes."""
+    return str(getattr(settings, "reports_storage_backend", "local") or "local").lower()
+
+
+def _report_artifact_key(job: ReportJob) -> str:
+    """Stable tenant-scoped key shared by report writes, reads, and deletes."""
+    return f"org/{job.organization_id}/reports/{job.id}.{job.output_format}"
+
+
+def _report_content_type(output_format: str) -> str:
+    return {
+        "pdf": "application/pdf",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "csv": "text/csv; charset=utf-8",
+    }.get(output_format, "application/octet-stream")
+
+
+def _write_artifact(job: ReportJob, blob: bytes) -> Path | str:
+    if _reports_backend() == "postgres":
+        stored = PostgresStorage().put_bytes(
+            _report_artifact_key(job),
+            blob,
+            content_type=_report_content_type(job.output_format),
+            overwrite=True,
+        )
+        return stored.key
     base = Path(settings.reports_dir)
     base.mkdir(parents=True, exist_ok=True)
     path = base / f"{job.id}.{job.output_format}"
@@ -461,9 +536,12 @@ def _scope_fields(
     field_id: uuid.UUID | None = None,
 ) -> list[Field]:
     stmt = select(Field).join(Farm, Field.farm_id == Farm.id)
+    stmt = stmt.where(Farm.organization_id == organization_id)
     if field_id is not None:
-        # single-field scope (P07); the field was access-checked at creation
+        # Defense in depth: stored selectors must remain in the report org.
         stmt = stmt.where(Field.id == field_id)
+        if farm is not None:
+            stmt = stmt.where(Field.farm_id == farm.id)
     elif farm is not None:
         stmt = stmt.where(Field.farm_id == farm.id)
     else:
@@ -990,12 +1068,11 @@ def list_report_jobs(
 
 
 # ------------------------------------------------------------------ download
-def read_report_file(session: Session, principal: Principal, job_id: uuid.UUID) -> Path:
-    """Resolve the artifact path for download — traversal-safe.
+def read_report_file(session: Session, principal: Principal, job_id: uuid.UUID) -> Path | bytes:
+    """Read a report artifact after the authenticated tenant check.
 
-    The stored path must resolve INSIDE ``settings.reports_dir`` and carry
-    the job's id as its stem; anything else is treated as not found. Expired
-    artifacts return 404 (the sweep has usually removed them already).
+    PostgreSQL mode returns durable bytes from the shared artifact table;
+    local mode retains the historical traversal-safe Path contract.
     """
     job = get_report_job(session, principal, job_id)
     if job.status != contracts.REPORT_STATUS_SUCCEEDED or not job.file_path:
@@ -1003,6 +1080,13 @@ def read_report_file(session: Session, principal: Principal, job_id: uuid.UUID) 
     now = datetime.now(UTC)
     if job.retention_until is not None and job.retention_until <= now:
         raise NotFound("Report artifact has expired and is no longer downloadable.")
+    if _reports_backend() == "postgres":
+        if job.file_path != _report_artifact_key(job):
+            raise NotFound("Report artifact is not available for this job.")
+        try:
+            return PostgresStorage().read_bytes(job.file_path)
+        except (ArtifactNotFoundError, ArtifactStorageError) as exc:
+            raise NotFound("Report artifact is not available for this job.") from exc
     base = Path(settings.reports_dir).resolve()
     candidate = Path(job.file_path)
     if not candidate.is_absolute():
@@ -1026,12 +1110,19 @@ def delete_report_job(session: Session, principal: Principal, job_id: uuid.UUID)
         raise NotFound("Report job not found.")
     principal.require_org_role(job.organization_id, "manager")
     if job.file_path:
-        try:
-            path = Path(job.file_path)
-            if path.is_file() and Path(settings.reports_dir).resolve() in path.resolve().parents:
-                path.unlink()
-        except OSError:  # pragma: no cover — storage hiccup must not block
-            logger.warning("could not delete artifact for report %s", job.id)
+        if _reports_backend() == "postgres":
+            try:
+                if job.file_path == _report_artifact_key(job):
+                    PostgresStorage().delete(job.file_path)
+            except (ArtifactNotFoundError, ArtifactStorageError):
+                logger.warning("could not delete durable artifact for report %s", job.id)
+        else:
+            try:
+                path = Path(job.file_path)
+                if path.is_file() and Path(settings.reports_dir).resolve() in path.resolve().parents:
+                    path.unlink()
+            except OSError:  # pragma: no cover — storage hiccup must not block
+                logger.warning("could not delete artifact for report %s", job.id)
     session.delete(job)
     session.commit()
 
@@ -1067,15 +1158,22 @@ def purge_expired_reports(session: Session, now: datetime | None = None) -> int:
         ).all()
     )
     purged = 0
-    base = Path(settings.reports_dir).resolve()
     for job in due + unstamped:
         if job.file_path:
-            try:
-                path = Path(job.file_path)
-                if path.is_file() and base in path.resolve().parents:
-                    path.unlink()
-            except OSError:  # pragma: no cover
-                logger.warning("retention sweep could not delete %s", job.file_path)
+            if _reports_backend() == "postgres":
+                try:
+                    if job.file_path == _report_artifact_key(job):
+                        PostgresStorage().delete(job.file_path)
+                except (ArtifactNotFoundError, ArtifactStorageError):
+                    logger.warning("retention sweep could not delete durable artifact for report %s", job.id)
+            else:
+                try:
+                    base = Path(settings.reports_dir).resolve()
+                    path = Path(job.file_path)
+                    if path.is_file() and base in path.resolve().parents:
+                        path.unlink()
+                except OSError:  # pragma: no cover
+                    logger.warning("retention sweep could not delete local report artifact")
         job.file_path = None
         job.file_size_bytes = None
         job.status = contracts.REPORT_STATUS_EXPIRED

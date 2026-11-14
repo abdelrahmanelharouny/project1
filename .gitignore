@@ -86,3 +86,13 @@ mini-services/fieldshift-api/db/demo_fixtures/
 
 # session tooling scratch output (never commit)
 tool-results/
+
+# Isolated Next build outputs are generated, never source.
+.next-*
+
+# Required source SQL, not a generated local artifact.
+!deployment/supabase/local-postgis.sql
+
+# Generated integration snapshots and obsolete source archives
+.initial_snapshot.json
+download/*.zip

@@ -14,7 +14,7 @@ exists; the allocation constraint uses the most precise evaluable demand.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from app.rotation.problem import (
@@ -80,6 +80,7 @@ def _window_planting_overlap(
     """Overlap of the recurring (MM-DD) planting window with the season,
     handling year-wrapping windows (start > end)."""
     y0, y1 = season.start_date.year, season.end_date.year
+    overlaps: list[tuple[date, date]] = []
     for base_year in (y0, y0 - 1, y0 + 1):
         try:
             ws = _mmdd_to_date(base_year, planting_start)
@@ -93,8 +94,8 @@ def _window_planting_overlap(
         lo = max(ws, season.start_date)
         hi = min(we, season.end_date)
         if lo <= hi:
-            return lo, hi
-    return None
+            overlaps.append((lo, hi))
+    return min(overlaps, key=lambda item: item[0]) if overlaps else None
 
 
 def _windows_for_field(crop: KnowledgeCrop, hemisphere: str, country_code: str):
@@ -106,7 +107,10 @@ def _windows_for_field(crop: KnowledgeCrop, hemisphere: str, country_code: str):
 
 
 def estimate_water_requirement_mm(
-    crop: KnowledgeCrop, evidence: ClimateEvidence, season: SeasonSpec
+    crop: KnowledgeCrop,
+    evidence: ClimateEvidence,
+    season: SeasonSpec,
+    country_code: str | None = None,
 ) -> tuple[float | None, list[str]]:
     """FAO-56 single-Kc screening estimate (ADR-0017).
 
@@ -125,10 +129,10 @@ def estimate_water_requirement_mm(
         return None, missing
 
     stage_lengths = {
-        "initial": crop.numeric_trait("stage_init_days"),
-        "development": crop.numeric_trait("stage_dev_days"),
-        "mid": crop.numeric_trait("stage_mid_days"),
-        "late": crop.numeric_trait("stage_late_days"),
+        "initial": crop.numeric_trait("stage_init_days", country_code),
+        "development": crop.numeric_trait("stage_dev_days", country_code),
+        "mid": crop.numeric_trait("stage_mid_days", country_code),
+        "late": crop.numeric_trait("stage_late_days", country_code),
     }
     missing_stages = [s for s, v in stage_lengths.items() if v is None]
     if missing_stages:
@@ -179,7 +183,10 @@ def estimate_water_requirement_mm(
 
 
 def estimate_net_irrigation_mm(
-    crop: KnowledgeCrop, evidence: ClimateEvidence, season: SeasonSpec
+    crop: KnowledgeCrop,
+    evidence: ClimateEvidence,
+    season: SeasonSpec,
+    country_code: str | None = None,
 ) -> tuple[float | None, str | None, list[str]]:
     """Net irrigation requirement at candidate level (M6A, ADR-0019/0021).
 
@@ -195,7 +202,7 @@ def estimate_net_irrigation_mm(
             "irrigation requirement is not evaluable (rainfall credit unknown, "
             "never assumed)"
         ]
-    etc, etc_assumptions = estimate_water_requirement_mm(crop, evidence, season)
+    etc, etc_assumptions = estimate_water_requirement_mm(crop, evidence, season, country_code)
     if etc is None:
         return None, None, list(etc_assumptions)
 
@@ -307,14 +314,23 @@ def assess_crop(
         window_matched = None
         overlap = None
     else:
-        window_matched = None
-        overlap = None
-        for w in windows:
-            ov = _window_planting_overlap(season, w.planting_start, w.planting_end)
-            if ov is not None:
-                window_matched = w
-                overlap = ov
-                break
+        matches = [
+            (ov[0], w, ov)
+            for w in windows
+            if (ov := _window_planting_overlap(season, w.planting_start, w.planting_end))
+            is not None
+        ]
+        if matches:
+            _planting_date, window_matched, overlap = min(
+                matches,
+                key=lambda item: (
+                    item[0], item[1].planting_start, item[1].planting_end,
+                    item[1].source_key,
+                ),
+            )
+        else:
+            window_matched = None
+            overlap = None
         if window_matched is None:
             return CandidateAssessment(
                 crop_code=crop.crop_code,
@@ -342,25 +358,36 @@ def assess_crop(
             )
 
     # 4) duration fit
-    duration = crop.numeric_trait("duration_days_total")
+    duration = crop.numeric_trait("duration_days_total", country)
     duration_trait = crop.resolve_trait("duration_days_total", country)
     if duration is not None and window_matched is not None:
-        overflow = int(duration) - season.length_days
-        if overflow <= 0:
+        # The crop matures from a feasible planting date, not automatically
+        # from the season start. Use the earliest date admitted by any matching
+        # window (the most favorable feasible planting date).
+        planting_date = overlap[0]
+        maturity_date = planting_date + timedelta(days=max(0, int(duration) - 1))
+        overflow = max(0, (maturity_date - season.end_date).days)
+        if maturity_date <= season.end_date:
             reasons.append(
                 _reason(
                     "crop_calendar",
                     "duration_fits",
-                    f"Crop duration {int(duration)} d fits the {season.length_days}-d season.",
+                    f"Crop duration {int(duration)} d from the earliest feasible planting "
+                    f"date {planting_date.isoformat()} matures on {maturity_date.isoformat()}, "
+                    f"within the season ending {season.end_date.isoformat()}.",
                     source_refs=[_trait_ref(duration_trait)] if duration_trait else None,
                 )
             )
-        elif overflow <= DURATION_SPILL_TOLERANCE_DAYS:
+        elif maturity_date <= season.end_date + timedelta(
+            days=DURATION_SPILL_TOLERANCE_DAYS
+        ):
             reasons.append(
                 _reason(
                     "crop_calendar",
                     "duration_spills",
-                    f"Crop duration {int(duration)} d exceeds the season by {overflow} d "
+                    f"Crop duration {int(duration)} d from the earliest feasible planting "
+                    f"date {planting_date.isoformat()} matures on {maturity_date.isoformat()}, "
+                    f"{overflow} d after the season ends "
                     f"(within the {DURATION_SPILL_TOLERANCE_DAYS}-d harvest-spill tolerance) "
                     "— conditionally eligible.",
                     severity="conditional",
@@ -375,8 +402,10 @@ def assess_crop(
                     _reason(
                         "crop_calendar",
                         "duration_exceeds_season",
-                        f"Crop duration {int(duration)} d exceeds the {season.length_days}-d "
-                        f"season by {overflow} d (beyond tolerance).",
+                        f"Crop duration {int(duration)} d from the earliest feasible planting "
+                        f"date {planting_date.isoformat()} matures on {maturity_date.isoformat()}, "
+                        f"{overflow} d after the season ends (beyond the "
+                        f"{DURATION_SPILL_TOLERANCE_DAYS}-d harvest-spill tolerance).",
                         severity="hard",
                         source_refs=[_trait_ref(duration_trait)] if duration_trait else None,
                     ),
@@ -408,9 +437,9 @@ def assess_crop(
             )
         )
     else:
-        temp_opt_min = crop.numeric_trait("temp_opt_min_degC")
-        temp_min_abs = crop.numeric_trait("temp_min_abs_degC")
-        temp_opt_max = crop.numeric_trait("temp_opt_max_degC")
+        temp_opt_min = crop.numeric_trait("temp_opt_min_degC", country)
+        temp_min_abs = crop.numeric_trait("temp_min_abs_degC", country)
+        temp_opt_max = crop.numeric_trait("temp_opt_max_degC", country)
         mean_t = evidence.season_mean_temp_degC
         if mean_t is not None and temp_min_abs is not None:
             t_trait_min = crop.resolve_trait("temp_min_abs_degC", country)
@@ -461,34 +490,17 @@ def assess_crop(
                     )
                 )
 
-        precip_min = crop.numeric_trait("precip_min_annual_mm")
-        precip_max = crop.numeric_trait("precip_max_annual_mm")
         precip = evidence.season_precipitation_mm
-        if precip is not None and precip_min is not None and precip_max is not None:
-            if precip < precip_min:
-                reasons.append(
-                    _reason(
-                        "climate",
-                        "precipitation_below_reference_range",
-                        f"Season precipitation {precip} mm is below the crop's annual "
-                        f"reference minimum {precip_min} mm — rainfed deficit likely; "
-                        "irrigation-dependent. Compared against an ANNUAL range — a "
-                        "coarse screening signal, not a water budget.",
-                        severity="conditional",
-                        source_refs=[_trait_ref(crop.resolve_trait("precip_min_annual_mm", country))],
-                    )
+        annual_min = crop.resolve_trait("precip_min_annual_mm", country)
+        annual_max = crop.resolve_trait("precip_max_annual_mm", country)
+        if precip is not None and (annual_min is not None or annual_max is not None):
+            unevaluated.append(
+                _missing_dimension(
+                    "precipitation_temporal_support",
+                    "Seasonal precipitation is not compared with annual crop reference "
+                    "ranges; temporal support is incompatible without a matched annual total.",
                 )
-            elif precip > precip_max:
-                reasons.append(
-                    _reason(
-                        "climate",
-                        "precipitation_above_reference_range",
-                        f"Season precipitation {precip} mm exceeds the crop's annual "
-                        f"reference maximum {precip_max} mm — excess-moisture risk.",
-                        severity="conditional",
-                        source_refs=[_trait_ref(crop.resolve_trait("precip_max_annual_mm", country))],
-                    )
-                )
+            )
         # hot days (generic index, NOT crop-specific heat stress)
         if evidence.season_hot_days_35c:
             reasons.append(
@@ -504,8 +516,8 @@ def assess_crop(
 
     # 6) soil pH (evidence class surfaced — SoilGrids is a prediction)
     soil = farm.soil
-    ph_opt_min = crop.numeric_trait("ph_opt_min")
-    ph_opt_max = crop.numeric_trait("ph_opt_max")
+    ph_opt_min = crop.numeric_trait("ph_opt_min", country)
+    ph_opt_max = crop.numeric_trait("ph_opt_max", country)
     if soil is not None and soil.ph is not None and ph_opt_min is not None and ph_opt_max is not None:
         ph_value, ph_evidence_class = soil.ph
         ph_trait = crop.resolve_trait("ph_opt_min", country)
@@ -546,7 +558,7 @@ def assess_crop(
     nir_mm: float | None = None
     demand_basis: str | None = None
     if evidence is not None:
-        water_mm, why_not = estimate_water_requirement_mm(crop, evidence, season)
+        water_mm, why_not = estimate_water_requirement_mm(crop, evidence, season, country)
         if water_mm is None:
             unevaluated.append(
                 _missing_dimension("water_requirement", " ".join(why_not))
@@ -554,7 +566,7 @@ def assess_crop(
         else:
             water_assumptions = tuple(why_not)  # assumptions when estimated
         nir_mm, demand_basis, nir_why_not = estimate_net_irrigation_mm(
-            crop, evidence, season
+            crop, evidence, season, country
         )
         if nir_mm is None and water_mm is not None:
             demand_basis = (
@@ -630,10 +642,16 @@ def assess_crop(
     hard_excluded = any(r["severity"] == "hard" for r in reasons)
     if hard_excluded:
         status = "excluded"
-    elif unevaluated and any(
-        d["code"] == "crop_calendar" for d in unevaluated
+    elif any(
+        dimension["code"] in {"crop_calendar", "climate_evidence"}
+        for dimension in unevaluated
     ):
         status = "unevaluated"
+    elif unevaluated:
+        # Secondary missing dimensions (e.g. soil pH or Kc) are disclosed in
+        # unevaluated_dimensions but do not erase other screening evidence.
+        # Keep the assessment explicitly conditional rather than fully eligible.
+        status = "conditionally_eligible"
     elif any(r["severity"] == "conditional" for r in reasons):
         status = "conditionally_eligible"
     else:

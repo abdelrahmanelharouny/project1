@@ -20,8 +20,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import http.client
+import ipaddress
 import json
 import secrets
+import socket
+import ssl
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -93,6 +97,8 @@ def validate_webhook_url(url: str) -> str:
             "Webhook URL is too long (max 1000).", details=[{"field": "url", "reason": "too long"}]
         )
     parsed = urlsplit(candidate)
+    if any(ord(char) < 33 or ord(char) == 127 for char in candidate):
+        raise ValidationFailed("Webhook URL must not contain whitespace or control characters.")
     if parsed.scheme not in ("https", "http"):
         raise ValidationFailed(
             "Webhook URL must use https://.",
@@ -108,15 +114,97 @@ def validate_webhook_url(url: str) -> str:
             "Credentials in webhook URLs are not allowed.",
             details=[{"field": "url", "reason": "embedded credentials"}],
         )
+    local_host = host == "localhost"
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None and not literal_ip.is_global:
+        local_host = local_host or literal_ip.is_loopback
+        if not (parsed.scheme == "http" and local_host and _allow_insecure_local_urls()):
+            raise ValidationFailed(
+                "Webhook URL must not target a private, loopback, or non-global IP address."
+            )
     if parsed.scheme == "http":
-        local = host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local")
+        local = local_host
         if not (local and _allow_insecure_local_urls()):
             raise ValidationFailed(
                 "Webhook URL must use https:// (plain http is only allowed for "
                 "localhost in non-production environments).",
                 details=[{"field": "url", "reason": "insecure scheme"}],
             )
+    elif local_host:
+        raise ValidationFailed("Webhook URL must not target a localhost address.")
     return candidate
+
+
+def _resolve_pinned_address(host: str, port: int, scheme: str) -> str:
+    """Resolve once, reject every non-global result, and return a pinned IP."""
+    try:
+        try:
+            address = str(ipaddress.ip_address(host))
+            addresses = {address}
+        except ValueError:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            addresses = {str(info[4][0]).split("%", 1)[0] for info in infos}
+    except (OSError, ValueError) as exc:
+        raise ValidationFailed("Webhook host could not be resolved safely.") from exc
+    if not addresses:
+        raise ValidationFailed("Webhook host has no usable address.")
+    is_loopback_host = host == "localhost"
+    try:
+        is_loopback_host = is_loopback_host or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass
+    local_http_allowed = (
+        scheme == "http" and _allow_insecure_local_urls() and is_loopback_host
+    )
+    for raw_address in addresses:
+        address = ipaddress.ip_address(raw_address)
+        if address.is_global:
+            continue
+        if local_http_allowed and address.is_loopback:
+            continue
+        raise ValidationFailed("Webhook host resolves to a private or non-global address.")
+    return sorted(addresses)[0]
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, port: int, address: str, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        self._pinned_address = address
+
+    def connect(self) -> None:
+        raw = socket.create_connection((self._pinned_address, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host: str, port: int, address: str, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout)
+        self._pinned_address = address
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self._pinned_address, self.port), self.timeout)
+
+
+def _post_pinned(url: str, body: bytes, headers: dict[str, str], timeout: float) -> int:
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    address = _resolve_pinned_address(host, port, parsed.scheme)
+    connection_cls = _PinnedHTTPSConnection if parsed.scheme == "https" else _PinnedHTTPConnection
+    connection = connection_cls(host, port, address, timeout)
+    target = parsed.path or "/"
+    if parsed.query:
+        target += "?" + parsed.query
+    try:
+        connection.request("POST", target, body=body, headers=headers)
+        response = connection.getresponse()
+        # Redirects are deliberately not followed. The caller records non-2xx.
+        return int(response.status)
+    finally:
+        connection.close()
 
 
 def validate_event_types(events: list[str] | None) -> list[str]:
@@ -592,14 +680,22 @@ def deliver_webhook(
     error: str | None = None
     ok = False
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as client:
-            response = client.post(endpoint.url, content=body, headers=headers)
-        status_code = response.status_code
-        if 200 <= response.status_code < 300:
+        validate_webhook_url(endpoint.url)
+        if transport is not None:
+            with httpx.Client(
+                transport=transport,
+                timeout=timeout,
+                follow_redirects=False,
+            ) as client:
+                response = client.post(endpoint.url, content=body, headers=headers)
+            status_code = response.status_code
+        else:
+            status_code = _post_pinned(endpoint.url, body, headers, timeout)
+        if 200 <= status_code < 300:
             ok = True
         else:
-            error = f"receiver returned HTTP {response.status_code}"
-    except httpx.HTTPError as exc:
+            error = f"receiver returned HTTP {status_code}"
+    except (httpx.HTTPError, OSError, ValueError, ssl.SSLError, http.client.HTTPException, ValidationFailed) as exc:
         error = f"transport error: {type(exc).__name__}"
 
     if ok:

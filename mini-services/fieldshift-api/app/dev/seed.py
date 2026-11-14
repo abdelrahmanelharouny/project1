@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.billing.catalog import ensure_plan_catalog
 from app.core.security import generate_token, hash_password, verify_password
 from app.db.models import AuthToken, Farm, Field, IngestionJob, Membership, Organization, User
 from app.data_platform.ingestion.service import start_ingestion_job
@@ -52,6 +53,10 @@ _FIELDS = [
 
 
 def ensure_demo_workspace(db: Session) -> dict:
+    # CI invokes this developer-only seeder before application startup. Ensure
+    # the canonical, insert-missing-only plan data exists before field limits
+    # are enforced; do not bypass or modify the organization's Free plan.
+    ensure_plan_catalog(db)
     user = db.scalar(select(User).where(User.email == DEMO_EMAIL))
     created = False
     if user is None:

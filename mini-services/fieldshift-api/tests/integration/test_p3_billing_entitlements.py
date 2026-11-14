@@ -25,10 +25,10 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.db.models_p3 import BillingEvent, Invoice
+from app.db.models_p3 import BillingEvent, Invoice, Notification, Subscription
 
 WEBHOOK_URL = "/api/v1/billing/webhook"
 
@@ -269,16 +269,19 @@ class TestEntitlementEnforcement:
         assert fourth.json()["error"]["code"] == "PAYMENT_REQUIRED"
         assert "max_fields" in fourth.json()["error"]["message"]
 
-    def test_not_enforced_without_live_subscription(self, client, auth_headers):
-        # registered user with a personal org but NO subscription: the P1/P2
-        # passthrough rule keeps resource creation ungated
+    def test_free_plan_limits_apply_without_live_subscription(self, client, auth_headers):
+        # Missing subscription resolves to the explicit Free plan rather than
+        # bypassing the product's farm/field quotas.
         headers, user = auth_headers
         first = _create_farm(client, headers, "Farm One")
         second = _create_farm(client, headers, "Farm Two")
         assert first.status_code == 201
-        assert second.status_code == 201  # would be 402 under the free plan gate
-        fields = client.get(f"/api/v1/farms/{first.json()['id']}/fields", headers=headers).json()
-        assert fields["total"] == 0
+        assert second.status_code == 402
+        farm_id = first.json()["id"]
+        for i in range(3):
+            assert _create_field(client, headers, farm_id, f"Free Field {i}").status_code == 201
+        fourth = _create_field(client, headers, farm_id, "Free Field 3")
+        assert fourth.status_code == 402
 
     def test_higher_plan_raises_the_limit(self, client, auth_headers):
         headers, user = auth_headers
@@ -290,18 +293,47 @@ class TestEntitlementEnforcement:
 
 
 class TestSandboxPaymentSimulation:
-    def test_sandbox_pay_processes_through_webhook_pipeline(self, client, auth_headers):
+    def test_sandbox_pay_processes_through_webhook_pipeline(self, client, auth_headers, db):
         headers, user = auth_headers
-        _start_subscription(client, headers, _org_id(user), "starter")
+        org = _org_id(user)
+        _start_subscription(client, headers, org, "starter")
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
+        invoice = Invoice(
+            organization_id=uuid.UUID(org),
+            subscription_id=subscription.id,
+            number=f"CT-TEST-{uuid.uuid4().hex[:8]}",
+            status="open",
+            amount_cents=1900,
+            currency_code="USD",
+            period_start=subscription.current_period_start.date(),
+            period_end=subscription.current_period_end.date(),
+            issued_at=datetime.now(UTC),
+            provider_ref=subscription.provider_subscription_ref,
+            provider_invoice_ref=f"inv_test_{uuid.uuid4().hex}",
+        )
+        db.add(invoice)
+        db.commit()
         resp = client.post(
             "/api/v1/billing/sandbox/pay",
             headers=headers,
-            json={"organization_id": _org_id(user), "outcome": "succeeded"},
+            json={"organization_id": org, "outcome": "succeeded"},
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["status"] == "processed"
         assert body["outcome"] == "succeeded"
+        snapshot = client.get(
+            "/api/v1/billing/subscription", headers=headers, params={"organization_id": org}
+        ).json()
+        assert snapshot["subscription"]["provider"] == "sandbox"
+        assert snapshot["subscription"]["provider_mode"] == "test"
+        event = db.get(BillingEvent, uuid.UUID(body["billing_event_id"]))
+        assert event.provider == "sandbox"
+        assert event.invoice_id == invoice.id
+        assert event.provider_transaction_id.startswith("txn_sandbox_")
+        assert event.provider_subscription_ref == subscription.provider_subscription_ref
         # the simulated provider payment also produced the billing notification
         notifs = client.get("/api/v1/notifications", headers=headers).json()
         assert any(
@@ -323,7 +355,7 @@ class TestSandboxPaymentSimulation:
 
 
 class TestBillingWebhookReceiver:
-    def _org_with_open_invoice(self, client, auth_headers) -> tuple[dict, str]:
+    def _org_with_open_invoice(self, client, auth_headers, db) -> tuple[dict, str]:
         """free (active, $0 invoice) -> change to starter -> renewal_due
         webhook creates an OPEN invoice for 1900 cents."""
         headers, user = auth_headers
@@ -337,10 +369,15 @@ class TestBillingWebhookReceiver:
             ).status_code
             == 200
         )
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
         renewal = {
             "event_type": "subscription.renewal_due",
             "event_id": f"evt_renew_{uuid.uuid4().hex}",
             "organization_id": org,
+            "provider_subscription_ref": subscription.provider_subscription_ref,
+            "period_start": subscription.current_period_end.isoformat(),
         }
         raw, sig_headers = _signed_webhook(renewal)
         resp = client.post(WEBHOOK_URL, content=raw, headers=sig_headers)
@@ -351,13 +388,17 @@ class TestBillingWebhookReceiver:
     def test_valid_signature_processes_payment_and_marks_invoice_paid(
         self, client, auth_headers, db
     ):
-        headers, org = self._org_with_open_invoice(client, auth_headers)
+        headers, org = self._org_with_open_invoice(client, auth_headers, db)
         before = client.get(
             "/api/v1/billing/invoices", headers=headers, params={"organization_id": org}
         ).json()
         open_invoices = [i for i in before["items"] if i["status"] == "open"]
         assert len(open_invoices) == 1
         assert open_invoices[0]["amount_cents"] == 1900
+        invoice = db.get(Invoice, uuid.UUID(open_invoices[0]["id"]))
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
 
         event_id = f"evt_pay_{uuid.uuid4().hex}"
         raw, sig_headers = _signed_webhook(
@@ -365,6 +406,10 @@ class TestBillingWebhookReceiver:
                 "event_type": "payment.succeeded",
                 "event_id": event_id,
                 "organization_id": org,
+                "provider_subscription_ref": subscription.provider_subscription_ref,
+                "invoice_id": str(invoice.id),
+                "provider_invoice_ref": invoice.provider_invoice_ref,
+                "provider_transaction_id": f"txn_pay_{uuid.uuid4().hex}",
                 "amount_cents": 1900,
                 "currency": "USD",
             }
@@ -431,13 +476,26 @@ class TestBillingWebhookReceiver:
         assert rows[0].payload == {}
 
     def test_duplicate_provider_event_id_is_idempotent(self, client, auth_headers, db):
-        headers, org = self._org_with_open_invoice(client, auth_headers)
+        headers, org = self._org_with_open_invoice(client, auth_headers, db)
+        invoice = db.scalar(
+            select(Invoice).where(
+                Invoice.organization_id == uuid.UUID(org), Invoice.status == "open"
+            )
+        )
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
         event_id = f"evt_dup_{uuid.uuid4().hex}"
         payload = {
             "event_type": "payment.succeeded",
             "event_id": event_id,
             "organization_id": org,
+            "provider_subscription_ref": subscription.provider_subscription_ref,
+            "invoice_id": str(invoice.id),
+            "provider_invoice_ref": invoice.provider_invoice_ref,
+            "provider_transaction_id": f"txn_dup_{uuid.uuid4().hex}",
             "amount_cents": 1900,
+            "currency": "USD",
         }
         raw, sig_headers = _signed_webhook(payload)
         first = client.post(WEBHOOK_URL, content=raw, headers=sig_headers)
@@ -463,6 +521,60 @@ class TestBillingWebhookReceiver:
         assert len(rows) == 1
         assert rows[0].status == "duplicate"
 
+    def test_payment_amount_or_currency_mismatch_cannot_settle_invoice(
+        self, client, auth_headers, db
+    ):
+        headers, org = self._org_with_open_invoice(client, auth_headers, db)
+        invoice = db.scalar(
+            select(Invoice).where(
+                Invoice.organization_id == uuid.UUID(org), Invoice.status == "open"
+            )
+        )
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
+        status_before = subscription.status
+        notifications_before = int(
+            db.scalar(
+                select(func.count()).select_from(Notification).where(
+                    Notification.organization_id == uuid.UUID(org),
+                    Notification.category == "billing",
+                )
+            )
+        )
+        for amount, currency in ((1899, "USD"), (1900, "EUR")):
+            raw, sig_headers = _signed_webhook(
+                {
+                    "event_type": "payment.succeeded",
+                    "event_id": f"evt_mismatch_{uuid.uuid4().hex}",
+                    "organization_id": org,
+                    "provider_subscription_ref": subscription.provider_subscription_ref,
+                    "invoice_id": str(invoice.id),
+                    "provider_invoice_ref": invoice.provider_invoice_ref,
+                    "provider_transaction_id": f"txn_mismatch_{uuid.uuid4().hex}",
+                    "amount_cents": amount,
+                    "currency": currency,
+                }
+            )
+            response = client.post(WEBHOOK_URL, content=raw, headers=sig_headers)
+            assert response.status_code == 422
+        invoices = client.get(
+            "/api/v1/billing/invoices", headers=headers, params={"organization_id": org}
+        ).json()
+        assert any(invoice["status"] == "open" for invoice in invoices["items"])
+        db.expire_all()
+        assert db.get(Invoice, invoice.id).status == "open"
+        assert db.get(Subscription, subscription.id).status == status_before
+        notifications_after = int(
+            db.scalar(
+                select(func.count()).select_from(Notification).where(
+                    Notification.organization_id == uuid.UUID(org),
+                    Notification.category == "billing",
+                )
+            )
+        )
+        assert notifications_after == notifications_before
+
     def test_unparsable_body_rejected(self, client, db):
         """A non-JSON body is recorded as an invalid event and rejected. The
         receiver verifies signatures over raw bytes; an unparsable body can
@@ -484,9 +596,12 @@ class TestBillingWebhookReceiver:
 
 
 class TestReportsQuotaAccounting:
-    def test_quota_enforced_after_increment_usage(self, client, auth_headers, db):
+    def test_quota_enforced_after_increment_usage(
+        self, client, auth_headers, db, tmp_path, monkeypatch
+    ):
         from app.billing import entitlements
 
+        monkeypatch.setattr(settings, "reports_dir", str(tmp_path / "reports_storage"))
         headers, user = auth_headers
         org = _org_id(user)
         _start_subscription(client, headers, org, "starter")  # reports_per_month = 15
@@ -498,7 +613,7 @@ class TestReportsQuotaAccounting:
             json={"report_type": "org_executive", "format": "csv", "sync": True},
         )
         assert created.status_code == 201, created.text
-        assert created.json()["status"] == "succeeded"
+        assert created.json()["status"] == "succeeded", created.text
 
         usage = client.get(
             "/api/v1/billing/usage", headers=headers, params={"organization_id": org}
@@ -527,9 +642,8 @@ class TestReportsQuotaAccounting:
 class TestOrgMemberSeatCap:
     """max_org_members enforcement on invitation acceptance (P3 §4.2).
 
-    Same conditionality contract as farms/fields: the cap bites ONLY when
-    the organization carries a live subscription (P0/P1/P2 flows with no
-    subscription pass through untouched).
+    Missing subscriptions resolve to the catalog's Free plan, so the cap is
+    enforced consistently before and after billing activation.
     """
 
     def test_seat_cap_free_plan_blocks_third_member_and_upgrade_unlocks(self, client):
@@ -553,26 +667,16 @@ class TestOrgMemberSeatCap:
                 "/api/v1/invitations/accept", headers=headers_invitee, json={"token": token}
             )
 
-        # No subscription yet: pass-through (legacy behavior preserved).
-        assert accept(b_headers, invite(b["user"]["email"], "viewer")).status_code == 200
+        # No subscription resolves to Free: A already holds the only seat.
+        bob_token = invite(b["user"]["email"], "viewer")
+        blocked_bob = accept(b_headers, bob_token)
+        assert blocked_bob.status_code == 402, blocked_bob.text
 
-        # Free plan carries max_org_members=1; A already holds the only seat.
-        _start_subscription(client, a_headers, org, "free")
+        # Upgrade unlocks three seats. The still-pending invitation can now be
+        # accepted, and the fourth member remains blocked.
+        _start_subscription(client, a_headers, org, "starter")
+        assert accept(b_headers, bob_token).status_code == 200
         carol_token = invite(c["user"]["email"], "viewer")
-        blocked = accept(c_headers, carol_token)
-        assert blocked.status_code == 402, blocked.text
-        err = blocked.json()["error"]
-        assert err["code"] == "PAYMENT_REQUIRED"
-        assert "max_org_members" in err["message"]
-
-        # Upgrade raises the cap to 3 (A + B + C); Carol's STILL-PENDING
-        # invitation becomes acceptable, and the 4th member is denied.
-        resp = client.post(
-            "/api/v1/billing/subscription/change",
-            headers=a_headers,
-            json={"organization_id": org, "new_plan_code": "starter"},
-        )
-        assert resp.status_code == 200, resp.text
         assert accept(c_headers, carol_token).status_code == 200
         fourth = accept(d_headers, invite(d["user"]["email"], "viewer"))
         assert fourth.status_code == 402, fourth.text

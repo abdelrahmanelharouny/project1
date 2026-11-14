@@ -1,6 +1,7 @@
 """Contract + integration tests for the farmer CSV observations import (M3)."""
 
 from datetime import UTC, datetime
+import hashlib
 
 import pytest
 
@@ -20,6 +21,23 @@ VALID_CSV = (
 
 
 class TestCsvParsing:
+    def test_bom_normalized_headers_and_raw_upload_digest(self):
+        raw = b"\xef\xbb\xbf DATE , Variable_Code , VALUE , UNIT \n2024-03-01,precipitation,2.5,mm\n"
+        result = parse_csv_observations(
+            raw.decode("utf-8"), file_name="bom.csv", raw_bytes=raw
+        )
+        assert len(result.observations) == 1
+        assert result.coverage["file_sha256"] == hashlib.sha256(raw).hexdigest()
+        assert result.observations[0].value == 2.5
+
+    @pytest.mark.parametrize("bad_value", ["NaN", "Infinity", "-Infinity"])
+    def test_non_finite_values_are_rejected(self, bad_value):
+        csv_text = f"date,variable_code,value,unit\n2024-03-01,precipitation,{bad_value},mm\n"
+        result = parse_csv_observations(csv_text, file_name="non-finite.csv")
+        assert result.observations == []
+        assert result.coverage["rows_rejected"] == 1
+        assert any("must be finite" in warning for warning in result.warnings)
+
     def test_valid_rows_become_canonical_observations(self):
         result = parse_csv_observations(VALID_CSV, file_name="log.csv")
         assert len(result.observations) == 3

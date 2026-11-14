@@ -22,9 +22,12 @@ P07 (advanced map + spatial analytics + exports):
 - GET  /fields/{field_id}/map/layers                  — unified honest layer
   catalog (vegetation products, environmental series, infrastructure).
 - GET  /fields/{field_id}/satellite/products/{asset_id}/tiles/{z}/{x}/{y}.png
-  — XYZ web-mercator tile rendered server-side from the stored COG
+  — XYZ web-mercator tile rendered server-side from the stored derived raster
   (documented-range colormap, transparent nodata, bounded LRU cache,
   membership gated, no storage URLs leaked).
+- GET  /fields/{field_id}/satellite/products/{asset_id}/value?lon=&lat=
+  — field-contained, nearest-pixel inspection of a stored derived raster with
+  scene and processing provenance (membership gated, no storage URLs leaked).
 - GET  /fields/{field_id}/satellite/products/{asset_id}/zones — statistical
   tercile zone polygons (GeoJSON, explicitly non-agronomic).
 - GET  /fields/{field_id}/satellite/products/{asset_id}/distribution —
@@ -44,8 +47,9 @@ P07 (advanced map + spatial analytics + exports):
 - GET  /fields/{field_id}/satellite/timeline.csv      — provenance-complete
   CSV export of persisted satellite observations (bounded).
 
-No endpoint performs raster work in-request beyond small windowed tile
-renders from already-processed products; no endpoint fabricates data.
+No endpoint derives new raster products in-request. Map tiles and single-pixel
+samples read already-processed assets; previews are never substituted and no
+endpoint fabricates data.
 """
 
 import uuid
@@ -263,8 +267,13 @@ def get_field_map_layers(
             RasterAsset.field_id == field_id, RasterAsset.asset_kind == "derived"
         )
     ).all()
-    scene_ids = {a.scene_id for a in latest_assets}
-    scene_flags: dict[str, bool] = {}
+    scene_keys = {
+        (asset.scene_id, asset.provider_code)
+        for asset in latest_assets
+        if asset.scene_id is not None
+    }
+    scene_ids = {scene_id for scene_id, _provider_code in scene_keys}
+    scene_flags: dict[tuple[str, str], bool] = {}
     if scene_ids:
         for scene in db.scalars(
             select(SatelliteScene).where(
@@ -272,11 +281,15 @@ def get_field_map_layers(
                 SatelliteScene.scene_id.in_(scene_ids),
             )
         ).all():
-            scene_flags[scene.scene_id] = bool(scene.is_synthetic)
+            key = (scene.scene_id, scene.provider_code)
+            if key in scene_keys:
+                scene_flags[key] = bool(scene.is_synthetic)
     for layer in catalog["layers"]["vegetation"]:
         latest = layer.get("latest")
-        if latest and latest.get("scene_id") in scene_flags:
-            latest["is_synthetic"] = scene_flags[latest["scene_id"]]
+        if latest:
+            key = (latest.get("scene_id"), latest.get("provider_code"))
+            if key in scene_flags:
+                latest["is_synthetic"] = scene_flags[key]
     return catalog
 
 
@@ -293,7 +306,7 @@ def get_product_tile(
 ) -> Response:
     """Render one XYZ tile of a derived product (membership gated).
 
-    Server-side windowed render from the stored COG with the documented
+    Server-side render from the stored derived raster with the documented
     colormap; nodata is transparent. The client never receives storage keys
     or object-store URLs — only tile pixels. Tiles are cached server-side
     keyed by asset checksum so reprocessed products never serve stale pixels.
@@ -348,6 +361,85 @@ def get_product_tile(
             "X-Processing-Version": asset.processing_version or "",
         },
     )
+
+
+# ---------------------------------------------------------- product sampling
+@router.get("/fields/{field_id}/satellite/products/{asset_id}/value")
+def get_product_value(
+    field_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    lon: float = Query(..., ge=-180.0, le=180.0),
+    lat: float = Query(..., ge=-90.0, le=90.0),
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Inspect the stored derived-raster pixel at a WGS84 field coordinate."""
+    from sqlalchemy import text
+
+    from app.geospatial.objectstore import get_raster_storage
+    from app.geospatial.rendering import sample_product_value
+
+    field = get_field_for_principal(db, principal, field_id)
+    asset = db.get(RasterAsset, asset_id)
+    if (
+        asset is None
+        or asset.field_id != field_id
+        or asset.asset_kind != "derived"
+        or not asset.index_code
+    ):
+        # Foreign, preview, incomplete, and unknown assets are indistinguishable.
+        raise NotFound("Derived product not found for this field.")
+
+    covered = db.execute(
+        text(
+            "SELECT ST_Covers(boundary, "
+            "ST_SetSRID(ST_Point(:lon, :lat), 4326)) "
+            "FROM fields WHERE id = :fid"
+        ),
+        {"fid": str(field.id), "lon": lon, "lat": lat},
+    ).scalar()
+    if not covered:
+        raise ValidationFailed("coordinate is outside the field boundary")
+
+    scene = db.scalars(
+        select(SatelliteScene).where(
+            SatelliteScene.field_id == field_id,
+            SatelliteScene.scene_id == asset.scene_id,
+            SatelliteScene.provider_code == asset.provider_code,
+        )
+    ).first()
+    try:
+        sample = sample_product_value(
+            asset=asset, storage=get_raster_storage(), lon=lon, lat=lat
+        )
+    except Exception as exc:  # do not disclose storage locations or keys
+        raise HTTPException(
+            status_code=502, detail="stored raster could not be sampled"
+        ) from exc
+
+    result = {
+        "available": sample["available"],
+        "asset_id": str(asset.id),
+        "index": asset.index_code,
+        "lon": lon,
+        "lat": lat,
+        "value": sample["value"],
+        "scene_id": scene.scene_id if scene is not None else asset.scene_id,
+        "acquired_at": (
+            scene.acquired_at if scene is not None else asset.acquired_at
+        ),
+        "processing_version": asset.processing_version,
+        "spatial_resolution_m": asset.spatial_resolution_m,
+        "crs": sample["crs"],
+        "provider_code": (
+            scene.provider_code if scene is not None else asset.provider_code
+        ),
+        "cloud_cover_pct": scene.cloud_cover_pct if scene is not None else None,
+        "is_synthetic": scene.is_synthetic if scene is not None else None,
+    }
+    if not sample["available"]:
+        result["unavailable_reason"] = sample["unavailable_reason"]
+    return result
 
 
 # ------------------------------------------------------------- zone polygons

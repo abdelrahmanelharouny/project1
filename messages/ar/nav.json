@@ -32,5 +32,12 @@
   "insights": "الرؤى",
   "reports": "التقارير",
   "developer": "المطورون",
-  "getStarted": "ابدأ الآن"
+  "getStarted": "ابدأ الآن",
+  "groupWorkspace": "مساحة العمل",
+  "groupDataIntelligence": "ذكاء البيانات",
+  "groupAgriculturalPlanning": "التخطيط الزراعي",
+  "groupDecisionIntelligence": "ذكاء القرار",
+  "groupInsights": "الرؤى والإدارة",
+  "workspaceCaption": "العمليات الزراعية",
+  "primaryNavigation": "التنقل الرئيسي"
 }

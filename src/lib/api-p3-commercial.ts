@@ -3,7 +3,7 @@
  * (insights), Reports and the Developer console.
  *
  * Mirrors the conventions of `src/lib/api.ts`: every request uses a RELATIVE
- * path plus the `XTransformPort=3030` gateway parameter, HttpOnly session
+ * same-origin path routed by the Next.js server-side rewrite, HttpOnly session
  * cookies carry authentication automatically, and non-2xx responses throw the
  * shared `ApiError` (same class identity, so `describeError` keeps working).
  *
@@ -21,13 +21,6 @@
  */
 import { ApiError, refreshSession } from './api'
 import type { ApiErrorBody } from './types'
-
-const PORT_QUERY = 'XTransformPort=3030'
-
-function withPort(path: string): string {
-  const joiner = path.includes('?') ? '&' : '?'
-  return `${path}${joiner}${PORT_QUERY}`
-}
 
 /** URL query string from a params object; null/undefined/'' values are skipped. */
 function qs(params: Record<string, string | number | boolean | null | undefined>): string {
@@ -53,7 +46,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   let response: Response
   try {
-    response = await fetch(withPort(path), {
+    response = await fetch(path, {
       method: options.method ?? 'GET',
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -622,7 +615,7 @@ export interface ReportDownload {
 export async function downloadReport(jobId: string): Promise<ReportDownload> {
   let response: Response
   try {
-    response = await fetch(withPort(`/api/v1/reports/${jobId}/download`), {
+    response = await fetch(`/api/v1/reports/${jobId}/download`, {
       method: 'GET',
       headers: { Accept: 'application/octet-stream' },
       cache: 'no-store',

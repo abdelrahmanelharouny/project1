@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -33,6 +34,7 @@ from app.domains.identity.service import (
     request_password_reset,
     revoke_token,
     rotate_refresh_token,
+    SESSION_COOKIE_NAME,
 )
 from app.db.models import Membership, Organization, User
 
@@ -169,6 +171,18 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     user, org, token, expires_at, refresh_token, refresh_expires_at = register_user(
         db, email=payload.email, password=payload.password, display_name=payload.display_name
     )
+    if token is None:
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "status": "verification_required",
+                "message": (
+                    "Account created. A verification email has been sent. No session is "
+                    "available until email verification is complete."
+                ),
+                "user": {"id": str(user.id), "email": user.email},
+            },
+        )
     return {
         "token": token,
         "token_type": "bearer",
@@ -205,7 +219,12 @@ def logout(
     db: Session = Depends(get_db),
 ) -> Response:
     auth_header = request.headers.get("authorization", "")
-    token_plain = auth_header.removeprefix("Bearer ").strip()
+    scheme, separator, credentials = auth_header.partition(" ")
+    token_plain = (
+        credentials.strip()
+        if separator and scheme.lower() == "bearer"
+        else request.cookies.get(SESSION_COOKIE_NAME, "")
+    )
     revoke_token(db, principal, token_plain)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -222,10 +241,17 @@ def password_reset(payload: PasswordResetRequest, request: Request, db: Session 
     a sandbox/testing convenience (documented); production delivers it
     out-of-band via email."""
     _limit_auth(request)
-    body: dict[str, str] = {
-        "status": "queued",
-        "message": "If the account exists, a password reset has been initiated.",
-    }
+    body: dict[str, str] = (
+        {
+            "status": "queued",
+            "message": "If the account exists, a password reset has been initiated.",
+        }
+        if settings.dev_mode
+        else {
+            "status": "accepted",
+            "message": "If the account exists, password-reset instructions will be sent by email.",
+        }
+    )
     reset_token = request_password_reset(db, payload.email)
     if settings.dev_mode and reset_token is not None:
         body["reset_token"] = reset_token
@@ -247,10 +273,17 @@ def verify_email_request(
     """Request an email verification challenge (generic response shape; in
     dev_mode the plaintext token is included as a sandbox convenience)."""
     _limit_auth(request)
-    body: dict[str, str] = {
-        "status": "queued",
-        "message": "If the account exists, an email verification has been initiated.",
-    }
+    body: dict[str, str] = (
+        {
+            "status": "queued",
+            "message": "If the account exists, an email verification has been initiated.",
+        }
+        if settings.dev_mode
+        else {
+            "status": "accepted",
+            "message": "If the account exists, verification instructions will be sent by email.",
+        }
+    )
     verification_token = request_email_verification(db, payload.email)
     if settings.dev_mode and verification_token is not None:
         body["verification_token"] = verification_token

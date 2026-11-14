@@ -157,18 +157,19 @@ class TestFmaskMasking:
             fmask_exclude_mask=0b011011,
         )
         p = products[0]
-        # Cloud block 6x7=42 pixels (window intersection) + nodata patch 4x6=24
-        # fmask-marked pixels — all inside the field mask.
+        # The 42-pixel cloud block and 24-pixel nodata patch are both invalid,
+        # but only the cloud block is counted in Fmask provenance.
         assert p.valid_pixels < p.masked_pixels
         assert (p.masked_pixels - p.valid_pixels) == 66
         fm = prov["fmask"]
-        assert fm["cloud_pixels_in_window"] == 66
+        assert fm["cloud_pixels_in_window"] == 42
         assert fm["shadow_pixels_in_window"] == 42  # cloud block also carries shadow+cirrus
         assert fm["cirrus_pixels_in_window"] == 42
 
     def test_nodata_never_treated_as_zero(self, cloud_scene):
         geo = fixture_field_geojson()
         reading = _read(cloud_scene, geo)
+        assert np.all(reading.fmask[24:30, 23:29] == 0)
         products, _ = pre.derive_index_products(
             reading=reading,
             geometry_geojson=geo,

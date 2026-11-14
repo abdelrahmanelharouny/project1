@@ -29,8 +29,13 @@ def readiness(response: Response) -> dict:
         info = check_database()
         if not info.get("postgis_version"):
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return {"status": "unavailable", "reason": "PostGIS extension not installed"}
+            return {"status": "unavailable", "reason": "PostGIS unavailable"}
+        if not info.get("alembic_ok"):
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {"status": "unavailable", "reason": "database schema is not ready"}
         return {"status": "ok", **info}
-    except Exception as exc:  # noqa: BLE001 — readiness must not leak internals
+    except Exception:  # noqa: BLE001 — readiness must not leak internals
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return {"status": "unavailable", "reason": "database unavailable", "detail_type": type(exc).__name__}
+        # Keep connection strings, hostnames, and driver details out of the
+        # public probe. The exception is available to normal application logs.
+        return {"status": "unavailable", "reason": "database unavailable"}

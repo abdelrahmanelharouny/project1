@@ -183,6 +183,25 @@ export interface P07ZonePolygons {
   reason?: string
 }
 
+/** Exact response contract for sampling a resolved derived-product asset. */
+export interface P07ProductValueSample {
+  available: boolean
+  asset_id: string
+  index: string
+  lon: number
+  lat: number
+  value: number | null
+  scene_id: string
+  acquired_at: string | null
+  processing_version: string
+  spatial_resolution_m: number | null
+  crs: string | null
+  provider_code: string | null
+  cloud_cover_pct: number | null
+  is_synthetic: boolean | null
+  unavailable_reason?: string
+}
+
 export interface P07ZoneHistoryEntry {
   acquired_at: string | null
   scene_id: string

@@ -696,7 +696,9 @@ class RasterProcessingJob(Base, TimestampMixin):
 
     Idempotency: at most one active (queued|running) job per
     (scene_id, processing_version, indices_digest) — enforced with a partial
-    unique index. Re-submission while an equivalent job is active replays the
+    unique index. The service scopes the digest by field_id because products
+    are field-specific while this existing index does not include field_id.
+    Same-field re-submission while an equivalent job is active replays the
     SAME job instead of duplicating work.
     """
 

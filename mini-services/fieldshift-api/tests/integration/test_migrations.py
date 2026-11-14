@@ -11,14 +11,27 @@ import sys
 import psycopg2
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SCRATCH_DB = "croptwist_mig_test"
-SCRATCH_URL = f"postgresql+psycopg2://postgres@127.0.0.1:5433/{SCRATCH_DB}"
+TEST_URL = make_url(os.environ.get(
+    "CROPTWIST_TEST_DB_URL", "postgresql+psycopg2://postgres@127.0.0.1:5433/croptwist_test"
+))
+SCRATCH_DB = f"croptwist_mig_test_{os.getpid()}"
+SCRATCH_URL = TEST_URL.set(database=SCRATCH_DB).render_as_string(hide_password=False)
+
+
+def _connect_scratch_server(dbname: str):
+    if TEST_URL.host not in {"localhost", "127.0.0.1"}:
+        raise RuntimeError("Destructive migration fixtures require a local isolated test server")
+    return psycopg2.connect(
+        host=TEST_URL.host, port=TEST_URL.port or 5432,
+        user=TEST_URL.username, password=TEST_URL.password, dbname=dbname,
+    )
 
 
 def _psql(dbname: str, sql: str) -> None:
-    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname=dbname)
+    conn = _connect_scratch_server(dbname)
     conn.autocommit = True
     conn.cursor().execute(sql)
     conn.close()
@@ -43,14 +56,14 @@ def _alembic(*args: str) -> subprocess.CompletedProcess:
 
 @pytest.fixture()
 def scratch_db():
-    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="postgres")
+    conn = _connect_scratch_server("postgres")
     conn.autocommit = True
     cur = conn.cursor()
     cur.execute(f"DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)")
     cur.execute(f"CREATE DATABASE {SCRATCH_DB} ENCODING 'UTF8'")
     conn.close()
     yield SCRATCH_DB
-    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="postgres")
+    conn = _connect_scratch_server("postgres")
     conn.autocommit = True
     conn.cursor().execute(f"DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)")
     conn.close()

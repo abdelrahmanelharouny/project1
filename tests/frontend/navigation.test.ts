@@ -125,17 +125,17 @@ describe('destination resolution', () => {
     expect(new Set(DESTINATIONS.map((d) => d.labelKey)).size).toBe(9)
   })
 
-  test('sub-page totals: 31 sub-pages across 6 multi-sub destinations (P03: 6 management views promoted + preferences; P04: datahub scene catalog)', () => {
+  test('sub-page totals: 33 sub-pages across 6 multi-sub destinations (31 established + 2 additive Crop Rotation Figma views)', () => {
     const total = DESTINATIONS.reduce((acc, d) => acc + d.subPages.length, 0)
-    expect(total).toBe(31)
+    expect(total).toBe(33)
     expect(DESTINATIONS.filter((d) => d.subPages.length > 0)).toHaveLength(6)
   })
 
-  test('cropintel exposes the six promoted management sub-pages in order (P03 W2.1)', () => {
+  test('cropintel retains its existing order and adds the two Crop Rotation Figma views', () => {
     const cropintel = destinationById('cropintel')!
     const ids = cropintel.subPages.map((s) => s.id)
     expect(ids).toEqual([
-      'rotation', 'irrigation', 'soil', 'plan', 'covers', 'timeline',
+      'rotation', 'rotation-overview', 'rotation-planner', 'irrigation', 'soil', 'plan', 'covers', 'timeline',
       'residue', 'erosion', 'operations', 'soilmemory', 'forecast',
     ])
     // the six management views sit between soil and soil-memory
@@ -166,6 +166,13 @@ describe('destination resolution', () => {
   test('destination id resolves with explicit valid sub', () => {
     expect(resolveTarget('cropintel', 'soilmemory')).toEqual({ tab: 'cropintel', sub: 'soilmemory' })
     expect(resolveTarget('decisions', 'twin')).toEqual({ tab: 'decisions', sub: 'twin' })
+  })
+
+  test('additive Crop Rotation Figma routes preserve the legacy optimizer route and default', () => {
+    expect(resolveTarget('cropintel', 'rotation-overview')).toEqual({ tab: 'cropintel', sub: 'rotation-overview' })
+    expect(resolveTarget('cropintel', 'rotation-planner')).toEqual({ tab: 'cropintel', sub: 'rotation-planner' })
+    expect(resolveTarget('cropintel')).toEqual({ tab: 'cropintel', sub: 'rotation' })
+    expect(resolveTarget('rotation')).toEqual({ tab: 'cropintel', sub: 'rotation' })
   })
 
   test('destination id with invalid sub falls back to the destination default (no loops)', () => {

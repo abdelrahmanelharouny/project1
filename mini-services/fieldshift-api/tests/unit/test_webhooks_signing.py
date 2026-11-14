@@ -17,6 +17,7 @@ import hashlib
 import hmac as hmac_mod
 import json
 import operator
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -653,6 +654,36 @@ def test_validate_webhook_url_rules(monkeypatch):
         webhooks.validate_webhook_url("http://localhost:9000/hook")
 
 
+def test_webhook_rejects_private_ip_literals_and_dns_rebinding(monkeypatch):
+    monkeypatch.setattr(config.settings, "environment", "production")
+    for url in (
+        "https://127.0.0.1/hook",
+        "https://10.0.0.8/hook",
+        "https://192.168.1.5/hook",
+        "https://[::1]/hook",
+        "https://169.254.169.254/latest/meta-data/",
+    ):
+        with pytest.raises(ValidationFailed):
+            webhooks.validate_webhook_url(url)
+
+    monkeypatch.setattr(
+        webhooks.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("127.0.0.1", 443))],
+    )
+    with pytest.raises(ValidationFailed, match="private or non-global"):
+        webhooks._resolve_pinned_address("rebound.example", 443, "https")
+
+
+def test_webhook_dns_resolution_pins_public_address(monkeypatch):
+    monkeypatch.setattr(
+        webhooks.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("8.8.8.8", 443))],
+    )
+    assert webhooks._resolve_pinned_address("hooks.example", 443, "https") == "8.8.8.8"
+
+
 def test_validate_event_types_rules():
     assert webhooks.validate_event_types(["report.ready", "farm.updated"]) == [
         "farm.updated", "report.ready",
@@ -661,6 +692,32 @@ def test_validate_event_types_rules():
         webhooks.validate_event_types([])
     with pytest.raises(ValidationFailed):
         webhooks.validate_event_types(["farm.updated", "not.an.event"])
+
+
+def test_billing_webhook_signatures_reject_stale_and_future_timestamps():
+    from app.billing.provider import SandboxBillingProvider
+
+    provider = SandboxBillingProvider(secret="unit-test-secret")
+    payload = {"event_type": "payment.succeeded", "event_id": "event-1"}
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    now = int(time.time())
+    valid = f"{now}." + provider.sign_webhook(
+        payload=payload, secret="unit-test-secret", timestamp=str(now)
+    )
+    stale_ts = now - 601
+    stale = f"{stale_ts}." + provider.sign_webhook(
+        payload=payload, secret="unit-test-secret", timestamp=str(stale_ts)
+    )
+    future_ts = now + 601
+    future = f"{future_ts}." + provider.sign_webhook(
+        payload=payload, secret="unit-test-secret", timestamp=str(future_ts)
+    )
+    assert provider.verify_webhook(payload=raw, signature=valid, secret="unit-test-secret")
+    assert not provider.verify_webhook(payload=raw, signature=stale, secret="unit-test-secret")
+    assert not provider.verify_webhook(payload=raw, signature=future, secret="unit-test-secret")
+    assert not provider.verify_webhook(
+        payload=raw, signature="not-a-timestamp.mac", secret="unit-test-secret"
+    )
 
 
 def test_developer_event_activity_written():

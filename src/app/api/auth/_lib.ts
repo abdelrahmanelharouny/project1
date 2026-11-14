@@ -6,8 +6,7 @@
  * goes back to the browser.
  */
 import { NextResponse } from 'next/server'
-
-const API_BASE = 'http://127.0.0.1:3030/api/v1'
+import { getApiBase } from '@/lib/api-origin'
 
 export const ACCESS_COOKIE = 'fs_token'
 export const REFRESH_COOKIE = 'fs_refresh'
@@ -33,7 +32,17 @@ export function isSecure(request: Request): boolean {
   }
 }
 
-/** Server-side call to the FastAPI backend (never sees XTransformPort). */
+function sessionCookieOptions(request: Request) {
+  const secure = isSecure(request)
+  return {
+    httpOnly: true,
+    sameSite: secure ? ('none' as const) : ('lax' as const),
+    secure,
+    path: '/',
+  }
+}
+
+/** Server-side call to the FastAPI backend through the validated origin. */
 export async function backend<T>(
   path: string,
   init?: RequestInit,
@@ -44,7 +53,7 @@ export async function backend<T>(
   error?: BackendErrorShape
 }> {
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${getApiBase()}${path}`, {
       cache: 'no-store',
       ...init,
       headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
@@ -102,8 +111,7 @@ export function setSessionCookies(
   request: Request,
   session: { token?: string; refresh_token?: string | null },
 ): NextResponse {
-  const secure = isSecure(request)
-  const base = { httpOnly: true, sameSite: 'lax' as const, secure, path: '/' }
+  const base = sessionCookieOptions(request)
   if (session.token) {
     response.cookies.set(ACCESS_COOKIE, session.token, { ...base, maxAge: ACCESS_MAX_AGE })
   }
@@ -116,9 +124,10 @@ export function setSessionCookies(
   return response
 }
 
-export function clearSessionCookies(response: NextResponse): NextResponse {
+export function clearSessionCookies(response: NextResponse, request: Request): NextResponse {
+  const base = sessionCookieOptions(request)
   for (const name of [ACCESS_COOKIE, REFRESH_COOKIE]) {
-    response.cookies.set(name, '', { httpOnly: true, path: '/', sameSite: 'lax', maxAge: 0 })
+    response.cookies.set(name, '', { ...base, maxAge: 0 })
   }
   return response
 }

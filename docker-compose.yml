@@ -90,9 +90,12 @@ services:
       # .next/standalone/) -> runner (standalone server on 3000).
       context: .
       dockerfile: Dockerfile
+      args:
+        CROPTWIST_API_ORIGIN: ${CROPTWIST_API_ORIGIN:-http://api:3030}
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      CROPTWIST_API_ORIGIN: ${CROPTWIST_API_ORIGIN:-http://api:3030}
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       NEXT_TELEMETRY_DISABLED: "1"
@@ -102,8 +105,8 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      # oven/bun:1-slim has no curl/wget; use the bun runtime itself.
-      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:3000/').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]
+      # Node runtime health probe; no curl/wget dependency.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 3

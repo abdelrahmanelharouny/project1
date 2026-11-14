@@ -2,8 +2,8 @@
  * P3 Workstream A (Account sphere) — typed fetch functions for organizations,
  * members, invitations, activity, onboarding, notifications and preferences.
  *
- * Mirrors the fetch pattern in src/lib/api.ts: RELATIVE paths carrying the
- * `XTransformPort=3030` gateway parameter, cookies attached automatically
+ * Mirrors the fetch pattern in src/lib/api.ts: RELATIVE same-origin paths,
+ * server-side Next.js rewrite, and cookies attached automatically
  * (HttpOnly session cookies), one transparent 401 -> cookie-refresh retry,
  * and structured error envelopes surfaced through the shared ApiError class.
  *
@@ -18,13 +18,6 @@ import type { ApiErrorBody } from './types'
 // Shared request plumbing (mirrors src/lib/api.ts — do not duplicate tokens
 // here; authentication is HttpOnly-cookie based)
 // ---------------------------------------------------------------------------
-
-const PORT_QUERY = 'XTransformPort=3030'
-
-function withPort(path: string): string {
-  const joiner = path.includes('?') ? '&' : '?'
-  return `${path}${joiner}${PORT_QUERY}`
-}
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
@@ -41,7 +34,7 @@ async function request<T>(
 
   let response: Response
   try {
-    response = await fetch(withPort(path), {
+    response = await fetch(path, {
       method: options.method ?? 'GET',
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,

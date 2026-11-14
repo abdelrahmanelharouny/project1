@@ -10,19 +10,21 @@ Value semantics:
 - value_int entitlements: a count limit; -1 means UNLIMITED.
 
 Usage accounting: ``increment_usage``/``check_quota`` read/write
-usage_counters rows keyed (organization, key, period_start) where the
-period is the subscription's current billing period (monthly → calendar
-month; yearly → calendar year).
+usage_counters rows keyed (organization, key, period_start). Scenario runs
+have an explicit calendar-month cadence independent of billing period; other
+keys retain their existing monthly/yearly subscription-period behavior.
 """
 
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.errors import Forbidden, PaymentRequired
+from app.db.models import Organization
 from app.db.models_p3 import Plan, PlanEntitlement, Subscription, UsageCounter
 
 # Entitlement keys (stable contract — frontend + backend agree on names).
@@ -158,9 +160,29 @@ def _period_start(subscription: Subscription | None, now: datetime) -> date:
     return date(now.year, now.month, 1)
 
 
-def current_usage(db: Session, organization_id: uuid.UUID, key: str) -> int:
-    subscription = get_live_subscription(db, organization_id)
-    period = _period_start(subscription, datetime.now(UTC))
+def scenario_quota_period_start(now: datetime | None = None) -> date:
+    """Return the calendar-month bucket used for scenario runs.
+
+    This key deliberately ignores a subscription's billing period, so annual
+    plans, mid-month plan changes, and the Free-plan floor all meter the same
+    monthly entitlement window.
+    """
+    instant = now or datetime.now(UTC)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
+    instant = instant.astimezone(UTC)
+    return date(instant.year, instant.month, 1)
+
+
+def _period_for_key(key: str, subscription: Subscription | None, now: datetime) -> date:
+    if key == KEY_SCENARIO_RUNS_PER_MONTH:
+        return scenario_quota_period_start(now)
+    return _period_start(subscription, now)
+
+
+def _usage_for_period(
+    db: Session, organization_id: uuid.UUID, key: str, period: date
+) -> int:
     row = db.scalar(
         select(UsageCounter).where(
             UsageCounter.organization_id == organization_id,
@@ -171,26 +193,109 @@ def current_usage(db: Session, organization_id: uuid.UUID, key: str) -> int:
     return int(row.used_value) if row else 0
 
 
-def increment_usage(db: Session, organization_id: uuid.UUID, key: str, *, amount: int = 1) -> int:
-    """Add `amount` to the period counter and return the new value."""
-    subscription = get_live_subscription(db, organization_id)
-    now = datetime.now(UTC)
-    period = _period_start(subscription, now)
-    row = db.scalar(
-        select(UsageCounter).where(
-            UsageCounter.organization_id == organization_id,
-            UsageCounter.key == key,
-            UsageCounter.period_start == period,
+def _atomic_increment_usage(
+    db: Session,
+    organization_id: uuid.UUID,
+    key: str,
+    period: date,
+    amount: int,
+) -> int:
+    """Increment a usage bucket with one PostgreSQL INSERT .. ON CONFLICT."""
+    statement = (
+        pg_insert(UsageCounter)
+        .values(
+            organization_id=organization_id,
+            key=key,
+            period_start=period,
+            used_value=amount,
         )
+        .on_conflict_do_update(
+            index_elements=[
+                UsageCounter.organization_id,
+                UsageCounter.key,
+                UsageCounter.period_start,
+            ],
+            set_={
+                "used_value": UsageCounter.used_value + amount,
+                "updated_at": func.now(),
+            },
+        )
+        .returning(UsageCounter.used_value)
     )
-    if row is None:
-        row = UsageCounter(organization_id=organization_id, key=key, period_start=period, used_value=amount)
-        db.add(row)
-        db.flush()
-        return amount
-    row.used_value += amount
-    db.flush()
-    return int(row.used_value)
+    return int(db.scalar(statement))
+
+
+def current_usage(db: Session, organization_id: uuid.UUID, key: str) -> int:
+    now = datetime.now(UTC)
+    # The scenario key must never inherit an annual billing period. Retaining
+    # the existing period policy for all other counters avoids changing
+    # reports, API, AI, and unrelated yearly entitlements.
+    subscription = (
+        None if key == KEY_SCENARIO_RUNS_PER_MONTH else get_live_subscription(db, organization_id)
+    )
+    return _usage_for_period(db, organization_id, key, _period_for_key(key, subscription, now))
+
+
+def increment_usage(db: Session, organization_id: uuid.UUID, key: str, *, amount: int = 1) -> int:
+    """Atomically add ``amount`` to the appropriate period counter."""
+    subscription = (
+        None if key == KEY_SCENARIO_RUNS_PER_MONTH else get_live_subscription(db, organization_id)
+    )
+    now = datetime.now(UTC)
+    return _atomic_increment_usage(
+        db, organization_id, key, _period_for_key(key, subscription, now), amount
+    )
+
+
+def lock_organization(db: Session, organization_id: uuid.UUID) -> bool:
+    """Lock the organization row as the first lock for billing/quota state.
+
+    Subscription mutations and scenario reservations share this lock so an
+    entitlement snapshot cannot race a plan or status transition. Callers that
+    need to preserve a domain-specific missing-organization error can inspect
+    the boolean result.
+    """
+    locked_id = db.scalar(
+        select(Organization.id)
+        .where(Organization.id == organization_id)
+        .with_for_update()
+    )
+    return locked_id is not None
+
+
+def lock_organization_for_quota(db: Session, organization_id: uuid.UUID) -> None:
+    """Lock the organization row before reading or reserving quota state."""
+    if not lock_organization(db, organization_id):
+        raise Forbidden("Unknown organization.")
+
+
+def reserve_scenario_run(
+    db: Session,
+    organization_id: uuid.UUID,
+    *,
+    organization_locked: bool = False,
+    now: datetime | None = None,
+) -> int:
+    """Check and reserve one scenario run in the caller's transaction.
+
+    The organization-row lock serializes contenders even when no usage row
+    exists yet. The returned upsert value is committed or rolled back with
+    the new execution row by the caller; an admitted run therefore remains
+    charged if the later calculation fails under the established policy.
+    """
+    if not organization_locked:
+        lock_organization_for_quota(db, organization_id)
+    limit = limit_for(db, organization_id, KEY_SCENARIO_RUNS_PER_MONTH)
+    period = scenario_quota_period_start(now)
+    used = _usage_for_period(db, organization_id, KEY_SCENARIO_RUNS_PER_MONTH, period)
+    if limit != UNLIMITED and used >= limit:
+        raise PaymentRequired(
+            f"Plan limit reached for '{KEY_SCENARIO_RUNS_PER_MONTH}' "
+            f"({used}/{limit} this period). Upgrade to continue."
+        )
+    return _atomic_increment_usage(
+        db, organization_id, KEY_SCENARIO_RUNS_PER_MONTH, period, 1
+    )
 
 
 def check_quota(db: Session, organization_id: uuid.UUID, key: str) -> int:

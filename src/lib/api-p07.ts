@@ -1,8 +1,8 @@
 /**
  * P07 API client — advanced map experience, spatial analytics and exports.
  *
- * Follows the established api.ts conventions: relative paths only, the
- * gateway port query is appended automatically, session cookies ride along
+ * Follows the established api.ts conventions: relative paths only, Next.js
+ * owns the server-side API rewrite, and session cookies ride along
  * (HttpOnly, never readable by JS), one 401 refresh retry, honest error
  * surfacing through ApiError-like messages. Binary endpoints (CSV export)
  * stream to a Blob; tile URLs are returned as TEMPLATE STRINGS for MapLibre
@@ -16,16 +16,10 @@ import type {
   P07FarmOverview,
   P07GeoJSONExport,
   P07LayerCatalog,
+  P07ProductValueSample,
   P07SpatialAnalytics,
   P07ZonePolygons,
 } from './types-p07'
-
-const PORT_QUERY = 'XTransformPort=3030'
-
-function withPort(path: string): string {
-  const joiner = path.includes('?') ? '&' : '?'
-  return `${path}${joiner}${PORT_QUERY}`
-}
 
 export class ApiP07Error extends Error {
   status: number
@@ -37,7 +31,7 @@ export class ApiP07Error extends Error {
 }
 
 async function p07Request<T>(path: string, init?: RequestInit): Promise<T> {
-  let response = await fetch(withPort(path), {
+  let response = await fetch(path, {
     ...init,
     headers: { ...(init?.headers ?? {}) },
     credentials: 'same-origin',
@@ -46,7 +40,7 @@ async function p07Request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 401) {
     const { refreshSession } = await import('./api')
     await refreshSession()
-    response = await fetch(withPort(path), {
+    response = await fetch(path, {
       ...init,
       credentials: 'same-origin',
       cache: 'no-store',
@@ -111,6 +105,18 @@ export function getProductZones(fieldId: string, assetId: string): Promise<P07Zo
   )
 }
 
+export function getProductValueSample(
+  fieldId: string,
+  assetId: string,
+  lon: number,
+  lat: number,
+): Promise<P07ProductValueSample> {
+  const query = new URLSearchParams({ lon: String(lon), lat: String(lat) })
+  return p07Request<P07ProductValueSample>(
+    `/api/v1/fields/${fieldId}/satellite/products/${assetId}/value?${query.toString()}`,
+  )
+}
+
 export function getProductDistribution(
   fieldId: string,
   assetId: string,
@@ -122,24 +128,22 @@ export function getProductDistribution(
 }
 
 /**
- * XYZ tile URL template for MapLibre raster sources. The template keeps the
- * gateway port query; MapLibre substitutes {z}/{x}/{y} and sends the
- * session cookies itself (same-origin). Tiles are rendered server-side from
+ * XYZ tile URL template for MapLibre raster sources. MapLibre substitutes
+ * {z}/{x}/{y} and sends the session cookies itself (same-origin). Tiles are
+ * rendered server-side from
  * the stored COG — the browser never sees object-store keys or signed URLs.
  */
 export function productTileUrlTemplate(
   fieldId: string,
   assetId: string,
 ): string {
-  return withPort(
-    `/api/v1/fields/${fieldId}/satellite/products/${assetId}/tiles/{z}/{x}/{y}.png`,
-  )
+  return `/api/v1/fields/${fieldId}/satellite/products/${assetId}/tiles/{z}/{x}/{y}.png`
 }
 
 // ------------------------------------------------------------------ exports
 export async function exportFieldBoundaryGeoJSON(fieldId: string): Promise<Blob> {
   const response = await fetch(
-    withPort(`/api/v1/fields/${fieldId}/boundary.geojson`),
+    `/api/v1/fields/${fieldId}/boundary.geojson`,
     { credentials: 'same-origin', cache: 'no-store' },
   )
   if (!response.ok) throw new ApiP07Error(response.status, `HTTP_${response.status}`)
@@ -148,7 +152,7 @@ export async function exportFieldBoundaryGeoJSON(fieldId: string): Promise<Blob>
 
 export async function exportFarmFieldsGeoJSON(farmId: string): Promise<Blob> {
   const response = await fetch(
-    withPort(`/api/v1/farms/${farmId}/fields.geojson`),
+    `/api/v1/farms/${farmId}/fields.geojson`,
     { credentials: 'same-origin', cache: 'no-store' },
   )
   if (!response.ok) throw new ApiP07Error(response.status, `HTTP_${response.status}`)
@@ -163,7 +167,7 @@ export async function exportSatelliteTimelineCSV(
   if (index) qs.set('index', index)
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
   const response = await fetch(
-    withPort(`/api/v1/fields/${fieldId}/satellite/timeline.csv${suffix}`),
+    `/api/v1/fields/${fieldId}/satellite/timeline.csv${suffix}`,
     { credentials: 'same-origin', cache: 'no-store' },
   )
   if (!response.ok) throw new ApiP07Error(response.status, `HTTP_${response.status}`)

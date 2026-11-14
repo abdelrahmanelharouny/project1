@@ -53,6 +53,16 @@ class TestRegistrationAndLogin:
             "/api/v1/auth/refresh", json={"refresh_token": user["refresh_token"]}
         ).status_code == 401
 
+    def test_cookie_logout_revokes_token_family(self, client, auth_headers):
+        _, user = auth_headers
+        cookie = {"fs_token": user["token"]}
+        assert client.get("/api/v1/me", cookies=cookie).status_code == 200
+        assert client.post("/api/v1/auth/logout", cookies=cookie).status_code == 204
+        assert client.get("/api/v1/me", cookies=cookie).status_code == 401
+        assert client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": user["refresh_token"]}
+        ).status_code == 401
+
 
 class TestTenantIsolation:
     def test_other_user_cannot_read_farm(self, client, farm_with_field):

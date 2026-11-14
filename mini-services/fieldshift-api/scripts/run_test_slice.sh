@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# P04 verification helper: fresh test DB per slice (the sandbox overlay
-# transiently exhausts inodes during truncate storms; dropping the test DB
-# between slices keeps file churn bounded).
-set -u
-cd /home/z/my-project/mini-services/fieldshift-api
-PY=.venv/bin/python
-$PY - <<'EOF'
-import psycopg2
-conn = psycopg2.connect(host='127.0.0.1', port=5433, user='postgres', dbname='postgres')
-conn.autocommit = True
-cur = conn.cursor()
-for attempt in range(30):
-    try:
-        cur.execute('DROP DATABASE IF EXISTS croptwist_test')
-        break
-    except psycopg2.OperationalError:
-        import time; time.sleep(2)
-print('fresh test db ready')
-conn.close()
-EOF
-exec $PY -m pytest "$@" -p no:cacheprovider -q
+# Run integration slices only against an explicitly isolated local test DB.
+# Database reset/drop is deliberately not performed by this helper.
+set -euo pipefail
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT"
+PY=${CROPTWIST_TEST_PYTHON:-"$ROOT/.venv/bin/python"}
+export CROPTWIST_TEST_DB_URL=${CROPTWIST_TEST_DB_URL:-postgresql+psycopg2://postgres@127.0.0.1:5433/croptwist_test}
+"$PY" - <<'PY'
+import os
+from urllib.parse import urlsplit
+url = urlsplit(os.environ['CROPTWIST_TEST_DB_URL'])
+name = url.path.lstrip('/')
+if (url.scheme not in {'postgresql', 'postgresql+psycopg2'}
+    or url.hostname not in {'127.0.0.1', 'localhost', '::1'}
+    or not name.startswith('croptwist_') or not name.endswith('test')
+    or not name.replace('_', '').isalnum()):
+    raise SystemExit('Refusing destructive test fixtures: select a local disposable croptwist_*test database.')
+print('Isolated test DSN validated; this runner never drops databases.')
+PY
+exec "$PY" -m pytest "$@" -p no:cacheprovider

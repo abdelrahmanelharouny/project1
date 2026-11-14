@@ -398,6 +398,52 @@ def main() -> int:
     r = httpx.get(f"{BASE}/notifications/unread-count", headers=p3_headers, timeout=30)
     check("P3 unread count 200", r.status_code == 200, f"got {r.status_code}")
 
+    # Retain the Free export-denial assertion before changing the plan.
+    r = httpx.post(f"{BASE}/reports", headers=p3_headers, timeout=30,
+                   json={"report_type": "org_executive", "format": "csv", "sync": True})
+    check("P3 free-plan report export denied 403", r.status_code == 403,
+          f"got {r.status_code}")
+    r = httpx.post(f"{BASE}/orgs/{org_id}/invitations", headers=p3_headers, timeout=30,
+                   json={"email": f"free-denied-{stamp}@test.local", "role_code": "viewer"})
+    check("P3 Free pending invitation created", r.status_code == 201,
+          f"got {r.status_code}")
+    if r.status_code == 201:
+        invitation_token = r.json().get("token")
+        invitee = httpx.post(
+            f"{BASE}/auth/register",
+            json={"email": f"free-denied-{stamp}@test.local",
+                  "password": "free-invitee-password-1",
+                  "display_name": "Free seat-limit invitee"},
+            timeout=30,
+        )
+        check("P3 Free invitee registration 201", invitee.status_code == 201,
+              f"got {invitee.status_code}")
+        if invitee.status_code == 201 and invitation_token:
+            accepted = httpx.post(
+                f"{BASE}/invitations/accept",
+                headers={"Authorization": f"Bearer {invitee.json()['token']}"},
+                json={"token": invitation_token},
+                timeout=30,
+            )
+            check("P3 Free seat cap blocks invite acceptance 402",
+                  accepted.status_code == 402, f"got {accepted.status_code}")
+            if accepted.status_code == 402:
+                check("P3 invite denial names max_org_members",
+                      "max_org_members" in accepted.json()["error"]["message"])
+    r = httpx.post(f"{BASE}/developer/keys", headers=p3_headers, timeout=30,
+                   json={"name": "Free denied key", "scopes": ["org:read"], "organization_id": org_id})
+    check("P3 Free API issuance denied 403", r.status_code == 403,
+          f"got {r.status_code}")
+    if r.status_code == 403:
+        check("P3 API denial names disabled plan feature",
+              "not part of your current plan" in r.json()["error"]["message"])
+    # Synthetic sandbox subscription transition only: no real charge/send.
+    r = httpx.post(f"{BASE}/billing/subscription/change", headers=p3_headers, timeout=30,
+                   json={"organization_id": org_id, "new_plan_code": "professional",
+                         "billing_period": "monthly"})
+    check("P3 synthetic paid-tier upgrade 200", r.status_code == 200,
+          f"got {r.status_code}")
+
     # team: invite a viewer, member directory reflects it
     r = httpx.post(f"{BASE}/orgs/{org_id}/invitations", headers=p3_headers, timeout=30,
                    json={"email": f"p3-invitee-{stamp}@test.local", "role_code": "viewer"})
@@ -438,11 +484,42 @@ def main() -> int:
             check("P3 cross-tenant farm invisible 404", r.status_code == 404,
                   f"got {r.status_code}")
 
-    # reports: free plan disables exports — structured 403, not a crash
+    # Paid-tier report creation is checked only on synthetic sandbox data.
     r = httpx.post(f"{BASE}/reports", headers=p3_headers, timeout=30,
                    json={"report_type": "org_executive", "format": "csv", "sync": True})
-    check("P3 free-plan report export denied 403", r.status_code == 403,
+    check("P3 synthetic CSV report created 201", r.status_code == 201,
           f"got {r.status_code}")
+    if r.status_code == 201:
+        report = r.json()
+        report_id = report.get("id")
+        report_status = report.get("status")
+        report_error = report.get("error")
+        # CI starts the actual in-process worker pool, so a sync-requested
+        # report may correctly be returned as queued before that worker runs.
+        # Poll the documented status resource instead of racing the worker.
+        if report_id and report_status in ("queued", "running"):
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                time.sleep(0.25)
+                status_response = httpx.get(
+                    f"{BASE}/reports/{report_id}/status",
+                    headers=p3_headers,
+                    timeout=30,
+                )
+                if status_response.status_code != 200:
+                    report_error = f"status endpoint returned {status_response.status_code}"
+                    break
+                status_body = status_response.json()
+                report_status = status_body.get("status")
+                report_error = status_body.get("error")
+                if report_status not in ("queued", "running"):
+                    break
+        check("P3 synthetic CSV report succeeded", report_status == "succeeded",
+              str(report_error))
+        if report_id and report_status == "succeeded":
+            downloaded = httpx.get(f"{BASE}/reports/{report_id}/download", headers=p3_headers, timeout=30)
+            check("P3 synthetic CSV download 200", downloaded.status_code == 200,
+                  f"got {downloaded.status_code}")
 
     # ops health: aggregate surface, authenticated, no secrets
     r = httpx.get(f"{BASE}/ops/health", headers=p3_headers, timeout=30)

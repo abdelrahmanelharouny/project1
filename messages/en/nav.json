@@ -32,5 +32,12 @@
   "insights": "Insights",
   "reports": "Reports",
   "developer": "Developer",
-  "getStarted": "Get started"
+  "getStarted": "Get started",
+  "groupWorkspace": "Workspace",
+  "groupDataIntelligence": "Data Intelligence",
+  "groupAgriculturalPlanning": "Agricultural Planning",
+  "groupDecisionIntelligence": "Decision Intelligence",
+  "groupInsights": "Insights & administration",
+  "workspaceCaption": "Agricultural operations",
+  "primaryNavigation": "Primary navigation"
 }

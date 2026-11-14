@@ -9,7 +9,7 @@
  *    lifecycle actions (A12).
  * 3. Insights strip — seasonal-aware anomaly/trend cards (A1) and the short
  *    AI field brief.
- * 4. Advisor chat   — grounded multi-turn Q&A with stable sessions (A8).
+ * 4. AI Core Copilot — field-scoped, validated streaming with cited evidence.
  *
  * Honesty rules carried over from the rest of the workspace: every
  * recommendation shows the evidence it is based on, confidence is stated with
@@ -17,9 +17,8 @@
  * sits next to the disclaimer.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -30,12 +29,9 @@ import {
   GitBranch,
   History,
   Info,
-  MessageCircleQuestion,
   Minus,
   RefreshCw,
-  Send,
   Sparkles,
-  SquareCheck,
   ThumbsDown,
   ThumbsUp,
   TrendingDown,
@@ -50,9 +46,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import AiCopilot from '@/components/croptwist/ai-copilot'
 import {
-  useAdvisorHistory,
-  useAdvisorQuery,
   useFieldInsights,
   useFieldRecommendations,
   useRecommendationFeedback,
@@ -60,7 +55,6 @@ import {
 } from '@/hooks/use-croptwist'
 import { useCropTwistUi } from '@/lib/store'
 import type {
-  AdvisorEvidence,
   EvidenceQuality,
   FeedbackState,
   FieldInsightItem,
@@ -214,7 +208,6 @@ function Header() {
 export default function AiInsights() {
   const t = useTranslations('aiinsights')
   const selectedField = useCropTwistUi((s) => s.selectedField)
-  const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const fieldId = selectedField?.id ?? null
 
   if (!fieldId || !selectedField) {
@@ -237,7 +230,7 @@ export default function AiInsights() {
       <RecommendationsSection fieldId={fieldId} />
       <InsightsStrip fieldId={fieldId} />
       {/* Keyed by field: switching fields remounts the chat and resets its state. */}
-      <AdvisorChat key={fieldId} fieldId={fieldId} />
+      <AiCopilot key={fieldId} fieldId={fieldId} fieldName={selectedField.name} />
     </div>
   )
 }
@@ -826,246 +819,5 @@ function InsightsStrip({ fieldId }: { fieldId: string }) {
         )}
       </CardContent>
     </Card>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// d) Advisor chat — grounded multi-turn Q&A with stable sessions (A8)
-// ---------------------------------------------------------------------------
-
-interface ChatMessage {
-  role: 'user' | 'assistant'
-  question: string | null
-  answer: string | null
-  created_at: string
-  evidence?: AdvisorEvidence[]
-}
-
-function AdvisorChat({ fieldId }: { fieldId: string }) {
-  const t = useTranslations('aiinsights')
-  const locale = useLocale()
-  const queryClient = useQueryClient()
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const history = useAdvisorHistory(fieldId, 20, sessionId)
-  const ask = useAdvisorQuery(fieldId)
-  const [draft, setDraft] = useState('')
-  const [optimistic, setOptimistic] = useState<ChatMessage[]>([])
-  const [error, setError] = useState(false)
-  const [lastDisclaimer, setLastDisclaimer] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-
-  const display = useMemo<ChatMessage[]>(() => {
-    const persisted = history.data?.messages ?? []
-    return [...persisted, ...optimistic]
-  }, [history.data, optimistic])
-
-  // Keep the newest message in view (history load, send, thinking state).
-  useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [display.length, ask.isPending])
-
-  const submit = () => {
-    const question = draft.trim()
-    if (!question || ask.isPending) return
-    setDraft('')
-    setError(false)
-    const userMessage: ChatMessage = {
-      role: 'user',
-      question,
-      answer: null,
-      created_at: new Date().toISOString(),
-    }
-    setOptimistic([userMessage])
-    ask.mutate(
-      { question, sessionId },
-      {
-        onSuccess: async (response) => {
-          setLastDisclaimer(response.disclaimer ?? null)
-          // The server issues/reuses the stable session id (A8).
-          if (response.session_id) setSessionId(response.session_id)
-          setOptimistic([
-            userMessage,
-            {
-              role: 'assistant',
-              question: null,
-              answer: response.answer,
-              created_at: response.created_at || new Date().toISOString(),
-              evidence: Array.isArray(response.evidence_used) ? response.evidence_used : [],
-            },
-          ])
-          // The hook already invalidated the history; wait for the refetch to
-          // land, then let the persisted messages replace the optimistic ones.
-          try {
-            await queryClient.invalidateQueries({ queryKey: ['advisor-history'] })
-          } catch {
-            // Refetch failed — keep the optimistic answer visible.
-            return
-          }
-          setOptimistic([])
-        },
-        onError: () => {
-          setOptimistic([])
-          setDraft(question) // never lose the farmer's question
-          setError(true)
-        },
-      },
-    )
-  }
-
-  const startNewConversation = () => {
-    setSessionId(null)
-    setOptimistic([])
-    setLastDisclaimer(null)
-    setError(false)
-    setDraft('')
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageCircleQuestion className="h-4 w-4 text-emerald-700" aria-hidden />
-          {t('advisorTitle')}
-        </CardTitle>
-        <CardDescription>{t('advisorDesc')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div
-          ref={scrollRef}
-          role="log"
-          aria-live="polite"
-          aria-label={t('history')}
-          className="flex max-h-96 flex-col gap-2 overflow-y-auto pe-1 scrollbar-thin"
-        >
-          {history.isLoading && <Skeleton className="h-16 w-full" />}
-
-          {!history.isLoading && display.length === 0 && (
-            <p className="py-6 text-center text-sm text-stone-500">{t('noMessagesYet')}</p>
-          )}
-
-          {display.map((message, index) => (
-            <ChatBubble
-              key={`${message.created_at}-${index}`}
-              message={message}
-              locale={locale}
-            />
-          ))}
-
-          {ask.isPending && (
-            <div
-              className="flex items-center gap-1.5 self-start rounded-2xl rounded-ss-sm border border-stone-200 bg-white px-3 py-2.5"
-              role="status"
-            >
-              <span className="sr-only">{t('thinking')}</span>
-              {[0, 150, 300].map((delay) => (
-                <span
-                  key={delay}
-                  className="h-1.5 w-1.5 animate-bounce rounded-full bg-stone-400"
-                  style={{ animationDelay: `${delay}ms` }}
-                  aria-hidden
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {error && (
-          <p role="alert" className="flex items-center gap-1.5 text-xs text-red-800">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {t('advisorError')}
-          </p>
-        )}
-
-        <div className="flex items-end gap-2">
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                submit()
-              }
-            }}
-            placeholder={t('questionPlaceholder')}
-            aria-label={t('questionPlaceholder')}
-            rows={2}
-            className="min-h-11 flex-1 resize-none"
-            disabled={ask.isPending}
-          />
-          <Button
-            size="icon"
-            onClick={submit}
-            disabled={ask.isPending || draft.trim().length === 0}
-            aria-label={t('send')}
-            title={t('send')}
-            className="h-11 w-11 shrink-0"
-          >
-            <Send className="h-4 w-4" aria-hidden />
-          </Button>
-        </div>
-
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[11px] leading-relaxed text-stone-500">
-            {lastDisclaimer ?? t('disclaimer')}
-          </p>
-          {sessionId && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={startNewConversation}
-              disabled={ask.isPending}
-              className="min-h-8 shrink-0 text-[11px] text-stone-600"
-            >
-              <SquareCheck className="me-1 h-3 w-3" aria-hidden />
-              {t('advisorNewConversation')}
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function ChatBubble({ message, locale }: { message: ChatMessage; locale: string }) {
-  const t = useTranslations('aiinsights')
-  const when = formatWhen(message.created_at, locale)
-
-  if (message.role === 'user') {
-    return (
-      <div
-        className="max-w-[85%] self-end rounded-2xl rounded-ee-sm bg-emerald-700 px-3 py-2 text-sm leading-relaxed text-emerald-50"
-        title={when}
-      >
-        {message.question}
-      </div>
-    )
-  }
-
-  const evidence = message.evidence ?? []
-  return (
-    <div
-      className="max-w-[85%] self-start rounded-2xl rounded-ss-sm border border-stone-200 bg-white px-3 py-2 text-sm leading-relaxed text-stone-800"
-      title={when}
-    >
-      {message.answer}
-      {evidence.length > 0 && (
-        <div className="mt-2 space-y-1 border-t border-stone-100 pt-2">
-          <p className="text-[11px] font-semibold text-stone-500">{t('evidenceChips')}</p>
-          <div className="flex flex-wrap gap-1">
-            {evidence.map((ev) => (
-              <span
-                key={ev.id}
-                title={ev.detail ?? ev.label}
-                className="inline-flex max-w-56 items-center gap-1 rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-[11px] text-stone-600"
-              >
-                <FileText className="h-3 w-3 shrink-0" aria-hidden />
-                <span className="truncate">{ev.label}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
   )
 }

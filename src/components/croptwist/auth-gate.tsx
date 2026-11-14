@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Cloud, FlaskConical, Loader2, LogIn, Sprout, UserPlus } from 'lucide-react'
+import { Cloud, FlaskConical, Loader2, LogIn, MailCheck, Sprout, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,15 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { useHealthReady } from '@/hooks/use-croptwist'
-import { demoLogin, describeError, login, register } from '@/lib/api'
+import { handleRegistrationResult } from '@/lib/auth-registration'
+import {
+  confirmEmailVerification,
+  demoLogin,
+  describeError,
+  login,
+  register,
+  requestEmailVerification,
+} from '@/lib/api'
 
 interface AuthGateProps {
   onAuthed: () => void
@@ -50,11 +58,14 @@ function BackendStatusLine() {
  */
 export function AuthGate({ onAuthed }: AuthGateProps) {
   const t = useTranslations('auth')
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login')
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [regName, setRegName] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
+  const [verificationEmail, setVerificationEmail] = useState('')
+  const [verificationToken, setVerificationToken] = useState('')
 
   const loginMutation = useMutation({
     mutationFn: () => login({ email: loginEmail.trim(), password: loginPassword }),
@@ -73,11 +84,50 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
   const registerMutation = useMutation({
     mutationFn: () =>
       register({ display_name: regName.trim(), email: regEmail.trim(), password: regPassword }),
+    onSuccess: (result) => {
+      handleRegistrationResult(result, {
+        onVerificationRequired: (email) => {
+          setVerificationEmail(email)
+          setVerificationToken('')
+          toast.success(t('verificationSentToast'))
+        },
+        onAuthenticated: (auth) => {
+          toast.success(t('accountCreated', { name: auth.user.display_name }), {
+            description: auth.organization ? t('orgReady', { name: auth.organization.name }) : undefined,
+          })
+          onAuthed()
+        },
+      })
+    },
+    onError: (err) => {
+      const { title, description } = describeError(err)
+      toast.error(title, { description })
+    },
+  })
+
+  const verificationMutation = useMutation({
+    mutationFn: async () => {
+      await confirmEmailVerification({ token: verificationToken.trim() })
+      // The confirmation endpoint returns {status:"ok"}, not a session. Only
+      // after it succeeds do we log in (which sets the HttpOnly cookies).
+      return login({ email: verificationEmail, password: regPassword })
+    },
     onSuccess: (auth) => {
       toast.success(t('accountCreated', { name: auth.user.display_name }), {
         description: auth.organization ? t('orgReady', { name: auth.organization.name }) : undefined,
       })
       onAuthed()
+    },
+    // Do not display upstream error details here: a token is a credential and
+    // must never be echoed back in UI errors or logs.
+    onError: () => toast.error(t('verificationFailed')),
+  })
+
+  const resendMutation = useMutation({
+    mutationFn: () => requestEmailVerification({ email: verificationEmail }),
+    onSuccess: () => {
+      setVerificationToken('')
+      toast.success(t('verificationResent'))
     },
     onError: (err) => {
       const { title, description } = describeError(err)
@@ -115,7 +165,22 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
     registerMutation.mutate()
   }
 
-  const busy = loginMutation.isPending || registerMutation.isPending || demoMutation.isPending
+  const submitVerification = (event: FormEvent) => {
+    event.preventDefault()
+    const token = verificationToken.trim()
+    if (token.length < 16 || token.length > 200) {
+      toast.error(t('verificationCodeInvalid'))
+      return
+    }
+    verificationMutation.mutate()
+  }
+
+  const busy =
+    loginMutation.isPending ||
+    registerMutation.isPending ||
+    verificationMutation.isPending ||
+    resendMutation.isPending ||
+    demoMutation.isPending
 
   return (
     <div className="flex min-h-screen flex-col bg-stone-100">
@@ -137,7 +202,7 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
             <CardContent className="space-y-4">
               <BackendStatusLine />
 
-              <Tabs defaultValue="login">
+              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'login' | 'register')}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="login">{t('signInTab')}</TabsTrigger>
                   <TabsTrigger value="register">{t('registerTab')}</TabsTrigger>
@@ -180,52 +245,128 @@ export function AuthGate({ onAuthed }: AuthGateProps) {
                 </TabsContent>
 
                 <TabsContent value="register">
-                  <form onSubmit={submitRegister} className="space-y-3 pt-1" aria-label={t('registerForm')}>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="reg-name">{t('displayName')}</Label>
-                      <Input
-                        id="reg-name"
-                        autoComplete="name"
-                        placeholder="Amina Hassan"
-                        value={regName}
-                        onChange={(e) => setRegName(e.target.value)}
+                  {verificationEmail ? (
+                    <div className="space-y-3 pt-1">
+                      <div className="space-y-1.5" role="status">
+                        <h2 className="text-sm font-semibold text-stone-900">{t('checkEmailTitle')}</h2>
+                        <p className="text-sm text-stone-600">
+                          {t('checkEmailDescription', { email: verificationEmail })}
+                        </p>
+                      </div>
+                      <form
+                        onSubmit={submitVerification}
+                        className="space-y-3"
+                        aria-label={t('verificationForm')}
+                      >
+                        <div className="space-y-1.5">
+                          <Label htmlFor="verification-token">{t('verificationCode')}</Label>
+                          <Input
+                            id="verification-token"
+                            type="text"
+                            dir="ltr"
+                            autoComplete="one-time-code"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            maxLength={200}
+                            placeholder={t('verificationCodePlaceholder')}
+                            value={verificationToken}
+                            onChange={(e) => setVerificationToken(e.target.value)}
+                            disabled={busy}
+                          />
+                        </div>
+                        <Button
+                          type="submit"
+                          className="w-full bg-emerald-700 hover:bg-emerald-800"
+                          disabled={busy}
+                        >
+                          {verificationMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          ) : (
+                            <MailCheck className="h-4 w-4" aria-hidden />
+                          )}
+                          {t('verifyEmail')}
+                        </Button>
+                      </form>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => resendMutation.mutate()}
                         disabled={busy}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="reg-email">{t('email')}</Label>
-                      <Input
-                        id="reg-email"
-                        type="email"
-                        autoComplete="email"
-                        placeholder="farmer@example.com"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
+                      >
+                        {resendMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : (
+                          <MailCheck className="h-4 w-4" aria-hidden />
+                        )}
+                        {t('resendVerification')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="w-full text-stone-600"
+                        onClick={() => {
+                          setVerificationEmail('')
+                          setVerificationToken('')
+                        }}
                         disabled={busy}
-                      />
+                      >
+                        {t('useDifferentEmail')}
+                      </Button>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="reg-password">{t('password')}</Label>
-                      <Input
-                        id="reg-password"
-                        type="password"
-                        autoComplete="new-password"
-                        placeholder={t('passwordPlaceholder')}
-                        value={regPassword}
-                        onChange={(e) => setRegPassword(e.target.value)}
+                  ) : (
+                    <form onSubmit={submitRegister} className="space-y-3 pt-1" aria-label={t('registerForm')}>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="reg-name">{t('displayName')}</Label>
+                        <Input
+                          id="reg-name"
+                          autoComplete="name"
+                          placeholder="Amina Hassan"
+                          value={regName}
+                          onChange={(e) => setRegName(e.target.value)}
+                          disabled={busy}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="reg-email">{t('email')}</Label>
+                        <Input
+                          id="reg-email"
+                          type="email"
+                          autoComplete="email"
+                          placeholder="farmer@example.com"
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          disabled={busy}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="reg-password">{t('password')}</Label>
+                        <Input
+                          id="reg-password"
+                          type="password"
+                          autoComplete="new-password"
+                          placeholder={t('passwordPlaceholder')}
+                          value={regPassword}
+                          onChange={(e) => setRegPassword(e.target.value)}
+                          disabled={busy}
+                        />
+                        <p className="text-xs text-stone-500">{t('passwordHint')}</p>
+                      </div>
+                      <Button
+                        type="submit"
+                        className="w-full bg-emerald-700 hover:bg-emerald-800"
                         disabled={busy}
-                      />
-                      <p className="text-xs text-stone-500">{t('passwordHint')}</p>
-                    </div>
-                    <Button type="submit" className="w-full bg-emerald-700 hover:bg-emerald-800" disabled={busy}>
-                      {registerMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      ) : (
-                        <UserPlus className="h-4 w-4" aria-hidden />
-                      )}
-                      {t('createAccount')}
-                    </Button>
-                  </form>
+                      >
+                        {registerMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : (
+                          <UserPlus className="h-4 w-4" aria-hidden />
+                        )}
+                        {t('createAccount')}
+                      </Button>
+                    </form>
+                  )}
                 </TabsContent>
               </Tabs>
 

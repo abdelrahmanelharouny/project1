@@ -52,6 +52,11 @@ def _feature_run(client, headers, field_id):
 
 WINTER = {"label": "winter_2025", "start_date": "2024-12-01", "end_date": "2025-03-31"}
 SUMMER = {"label": "summer_2025", "start_date": "2025-05-01", "end_date": "2025-09-15"}
+BARLEY_SPRING = {
+    "label": "barley_spring_2025",
+    "start_date": "2025-03-01",
+    "end_date": "2025-06-28",
+}
 
 
 @pytest.fixture()
@@ -210,12 +215,12 @@ class TestRotationRunsApi:
     def test_water_respected_when_feasible(self, client, prepared_field):
         headers = prepared_field["headers"]
         field_id = prepared_field["field"]["id"]
-        # conftest field is ~423 ha; barley needs ~331 mm → ~1.40M m3,
-        # wheat_spring ~367 mm → ~1.55M m3. 1.45M fits barley-class crops only.
+        # Spring barley's 120-day crop cycle fits Mar 1–Jun 28. The former
+        # Dec–Mar window correctly excluded barley before water feasibility.
         resp = client.post(
             f"/api/v1/fields/{field_id}/rotation-runs", headers=headers,
-            json={"seasons": [WINTER], "hemisphere": "north",
-                  "strategy_profiles": ["water_priority"], "water_allocation_m3": 1450000.0},
+            json={"seasons": [BARLEY_SPRING], "hemisphere": "north",
+                  "strategy_profiles": ["water_priority"], "water_allocation_m3": 3000000.0},
         )
         run = resp.json()
         assert run["solver_status"] in ("optimal", "feasible")

@@ -77,6 +77,9 @@ export const DESTINATIONS: readonly DestinationDef[] = [
     // `?sub=management` keeps resolving forever via SUB_ALIASES below.
     subPages: [
       { id: 'rotation', labelKey: 'rotation' },
+      // Additive Figma views; keep `rotation` in place for permanent legacy links.
+      { id: 'rotation-overview', labelKey: 'rotationOverview' },
+      { id: 'rotation-planner', labelKey: 'rotationPlanner' },
       { id: 'irrigation', labelKey: 'irrigation' },
       { id: 'soil', labelKey: 'soil' },
       { id: 'plan', labelKey: 'plan' },

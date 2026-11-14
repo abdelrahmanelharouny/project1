@@ -83,22 +83,31 @@ class TestF03IdempotencyScoping:
         run_b = payload.get("run_id") or payload.get("id")
         assert run_b != run_a
 
-    def test_cross_tenant_key_replay_returns_own_run(self, client, farm_with_field, auth_headers):
+    def test_cross_tenant_key_replay_returns_own_run(self, client, farm_with_field):
         # a second tenant cannot replay a key it observed from tenant one
-        headers_b = auth_headers[0]
+        email = f"tenant-{uuid.uuid4().hex[:10]}@test.local"
+        registered = client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": "test-password-1", "display_name": "Other Tenant"},
+        )
+        assert registered.status_code == 201, registered.text
+        headers_b = {"Authorization": f"Bearer {registered.json()['token']}"}
         resp = client.post(
             "/api/v1/farms", headers=headers_b,
             json={"name": "Other Farm", "country_code": "EG", "timezone": "Africa/Cairo",
                   "currency_code": "EGP"},
         )
+        assert resp.status_code == 201, resp.text
         farm_b = resp.json()
-        field_b = client.post(
+        field_response = client.post(
             f"/api/v1/farms/{farm_b['id']}/fields", headers=headers_b,
             json={"name": "B Field", "geometry": {
                 "type": "Polygon",
                 "coordinates": [[[31.60, 31.10], [31.62, 31.10], [31.62, 31.12], [31.60, 31.12], [31.60, 31.10]]],
             }},
-        ).json()
+        )
+        assert field_response.status_code == 201, field_response.text
+        field_b = field_response.json()
 
         headers_a = farm_with_field["headers"]
         field_a = farm_with_field["field"]

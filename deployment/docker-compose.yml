@@ -1,0 +1,76 @@
+# LOCAL ONLY. All state is disposable/local; never point migrate at Supabase.
+name: croptwist-deployment-local
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local-disposable-only
+      POSTGRES_DB: croptwist_deploy_local
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./supabase/local-postgis.sql:/docker-entrypoint-initdb.d/01-postgis.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d croptwist_deploy_local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build:
+      context: ../mini-services/fieldshift-api
+    environment:
+      CROPTWIST_DATABASE_URL: postgresql+psycopg2://postgres:local-disposable-only@db:5432/croptwist_deploy_local
+      PGOPTIONS: -c search_path=public,extensions
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+  api:
+    build:
+      context: ../mini-services/fieldshift-api
+    environment:
+      CROPTWIST_ENVIRONMENT: development
+      CROPTWIST_DEV_MODE: "false"
+      CROPTWIST_DATABASE_URL: postgresql+psycopg2://postgres:local-disposable-only@db:5432/croptwist_deploy_local
+      CROPTWIST_DATABASE_SEARCH_PATH: public,extensions
+      CROPTWIST_DATABASE_POOL_SIZE: "5"
+      CROPTWIST_DATABASE_MAX_OVERFLOW: "5"
+      CROPTWIST_TRUSTED_HOSTS: localhost,127.0.0.1,api
+      CROPTWIST_CORS_ALLOW_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      CROPTWIST_JOB_WORKERS: "2"
+      CROPTWIST_SCHEDULER_ENABLED: "true"
+      CROPTWIST_RASTER_STORAGE_ROOT: /data/rasters
+      CROPTWIST_REPORTS_DIR: /data/reports
+    ports:
+      - "127.0.0.1:3030:3030"
+    volumes:
+      - files:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3030/api/v1/health/ready', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+  web:
+    build:
+      context: ..
+      args:
+        CROPTWIST_API_ORIGIN: http://api:3030
+    environment:
+      NODE_ENV: production
+      CROPTWIST_API_ORIGIN: http://api:3030
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  database:
+  files:

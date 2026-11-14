@@ -27,11 +27,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.errors import NotFound
+from app.core.rate_limit import check as check_ai_rate_limit
 from app.db import models_ai
 from app.domains.identity.service import get_field_for_principal, get_principal
 from app.intelligence import advisor as advisor_service
@@ -65,6 +66,7 @@ async def get_recommendations(
 ) -> dict:
     field = get_field_for_principal(db, principal, field_id)
     if refresh or force:
+        check_ai_rate_limit("ai_core", str(principal.id))
         payload = await recommendation_service.refresh_field_recommendations_async(
             db, field, locale=_clean_locale(locale), force=force
         )
@@ -85,6 +87,7 @@ async def refresh_recommendations(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
+    check_ai_rate_limit("ai_core", str(principal.id))
     field = get_field_for_principal(db, principal, field_id)
     payload = await recommendation_service.refresh_field_recommendations_async(
         db, field, locale=_clean_locale(locale), force=force
@@ -100,6 +103,7 @@ async def get_insights(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
+    check_ai_rate_limit("ai_core", str(principal.id))
     field = get_field_for_principal(db, principal, field_id)
     insights = await asyncio.to_thread(detect_feature_anomalies, db, field.id)
     brief = await advisor_service.field_brief_async(db, field, locale=_clean_locale(locale))
@@ -131,15 +135,18 @@ async def advisor_query(
     principal: Any = Depends(get_principal),
     db: Session = Depends(get_db),
 ) -> dict:
+    check_ai_rate_limit("ai_core", str(principal.id))
     field = get_field_for_principal(db, principal, field_id)
 
     session: models_ai.AIAdvisorSession | None = None
     if payload.session_id is not None:
-        session = session_service.get_or_404_for_field(db, payload.session_id, field.id)
+        session = session_service.get_or_404_for_field(
+            db, payload.session_id, field.id, owner_user_id=principal.id
+        )
         if session is None:
             raise NotFound("Advisor session not found for this field.")
     else:
-        session = session_service.create_session(db, field.id)
+        session = session_service.create_session(db, field.id, owner_user_id=principal.id)
 
     history = session_service.recent_history(db, session.id, ai_settings.advisor_history_turns)
     result = await advisor_service.answer_field_question_async(
@@ -189,12 +196,24 @@ def advisor_history(
     get_field_for_principal(db, principal, field_id)
     stmt = (
         select(models_ai.AIAdvisorMessage)
-        .where(models_ai.AIAdvisorMessage.field_id == field_id)
+        .outerjoin(
+            models_ai.AIAdvisorSession,
+            models_ai.AIAdvisorMessage.session_id == models_ai.AIAdvisorSession.id,
+        )
+        .where(
+            models_ai.AIAdvisorMessage.field_id == field_id,
+            or_(
+                models_ai.AIAdvisorSession.owner_user_id == principal.id,
+                models_ai.AIAdvisorSession.owner_user_id.is_(None),
+            ),
+        )
         .order_by(models_ai.AIAdvisorMessage.created_at.asc())
         .limit(limit)
     )
     if session_id is not None:
-        session = session_service.get_or_404_for_field(db, session_id, field_id)
+        session = session_service.get_or_404_for_field(
+            db, session_id, field_id, owner_user_id=principal.id
+        )
         if session is None:
             raise NotFound("Advisor session not found for this field.")
         stmt = stmt.where(models_ai.AIAdvisorMessage.session_id == session_id)

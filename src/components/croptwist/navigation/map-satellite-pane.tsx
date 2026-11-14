@@ -29,7 +29,7 @@
  * the pane says so. The processing ledger keeps its poll behavior untouched.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { TriangleAlert } from 'lucide-react'
 
@@ -45,6 +45,7 @@ import {
   FarmMap,
   type FarmMapFitRequest,
   type FarmMapOverlay,
+  type FarmMapStatisticalZone,
 } from '@/components/croptwist/farm-map'
 import { SatelliteIntelligence } from '@/components/croptwist/satellite'
 import {
@@ -59,21 +60,55 @@ import {
 } from '@/components/croptwist/map/field-inspector'
 import { SpatialLegend } from '@/components/croptwist/map/spatial-legend'
 import { useFields, useSatelliteProcessing } from '@/hooks/use-croptwist'
-import { useLayerCatalog } from '@/hooks/use-p07'
+import { useLayerCatalog, useProductValueSample, useProductZones } from '@/hooks/use-p07'
+import { formatDay } from '@/lib/format'
 import { productTileUrlTemplate } from '@/lib/api-p07'
 import {
   dayFromIso,
   opacityFraction,
+  resolveFocusLayer,
   sortDatesDescending,
   zIndexForOrderSlot,
   type TemporalCompatibilityInput,
 } from '@/lib/map/temporal'
 import { useCropTwistUi } from '@/lib/store'
 import type { Field, SatelliteProcessingScene } from '@/lib/types'
-import type { P07IndexCode, P07VegetationLayer } from '@/lib/types-p07'
+import type {
+  P07IndexCode,
+  P07LayerDates,
+  P07VegetationLayer,
+  P07ZonePolygons,
+} from '@/lib/types-p07'
 
 /** P07 vegetation indexes (backend catalog contract: exactly these five). */
 const P07_INDEX_CODES: readonly P07IndexCode[] = ['ndvi', 'evi', 'ndmi', 'ndwi', 'bsi']
+
+function resolveDerivedAssetId(
+  layer: P07VegetationLayer,
+  entry: P07LayerDates,
+  sceneMap: Map<string, SatelliteProcessingScene>,
+): string | null {
+  if (
+    layer.latest?.scene_id === entry.scene_id &&
+    layer.latest.processing_version === entry.processing_version
+  ) {
+    return layer.latest.asset_id
+  }
+  const scene = sceneMap.get(entry.scene_id)
+  if (!scene) return null
+  return (
+    scene.products.find(
+      (product) =>
+        product.index_code === layer.code &&
+        product.processing_version === entry.processing_version,
+    )?.asset_id ?? null
+  )
+}
+
+function displayNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 5 }).format(value)
+}
 
 export function MapSatellitePane() {
   const t = useTranslations('p07map')
@@ -107,9 +142,31 @@ export function MapSatellitePane() {
   } | null>(null)
   const [focusIndex, setFocusIndex] = useState<P07IndexCode>('ndvi')
   const [fitRequest, setFitRequest] = useState<FarmMapFitRequest | null>(null)
+  const [zoneUiOverride, setZoneUiOverride] = useState<{
+    fieldId: string
+    visible: boolean
+    opacityPct: number
+  } | null>(null)
+  const [sampleRequest, setSampleRequest] = useState<{
+    fieldId: string
+    lon: number
+    lat: number
+    requestId: number
+  } | null>(null)
+  const sampleRequestId = useRef(0)
+  const [selectedZone, setSelectedZone] = useState<{
+    fieldId: string
+    assetId: string
+    properties: FarmMapStatisticalZone
+  } | null>(null)
   // Tile errors are stored per visible-overlay set (key = the id list), so
   // stale sets age out without any effect-driven state clearing.
   const [overlayErrorsBySet, setOverlayErrorsBySet] = useState<Record<string, string[]>>({})
+
+  const zonesVisible =
+    zoneUiOverride?.fieldId === fieldId ? zoneUiOverride.visible : false
+  const zonesOpacityPct =
+    zoneUiOverride?.fieldId === fieldId ? zoneUiOverride.opacityPct : 60
 
   const vegetation = useMemo(() => catalog?.layers.vegetation ?? [], [catalog])
 
@@ -151,13 +208,10 @@ export function MapSatellitePane() {
   )
 
   // ------------------------------------------------------------ focus layer
-  const focusLayer = useMemo<P07VegetationLayer | null>(() => {
-    return (
-      vegetation.find((layer) => layer.code === focusIndex && layer.available) ??
-      vegetation.find((layer) => layer.available) ??
-      null
-    )
-  }, [vegetation, focusIndex])
+  const focusLayer = useMemo(
+    () => resolveFocusLayer(vegetation, focusIndex),
+    [vegetation, focusIndex],
+  )
 
   const focusUi = focusLayer ? (layerUi[focusLayer.id] ?? DEFAULT_LAYER_UI) : DEFAULT_LAYER_UI
 
@@ -192,6 +246,76 @@ export function MapSatellitePane() {
     return map
   }, [processingQuery.data])
 
+  const focusAssetId = useMemo(
+    () =>
+      focusLayer && focusEntry
+        ? resolveDerivedAssetId(focusLayer, focusEntry, sceneMap)
+        : null,
+    [focusLayer, focusEntry, sceneMap],
+  )
+  const activeSamplePoint =
+    sampleRequest?.fieldId === fieldId
+      ? {
+          lon: sampleRequest.lon,
+          lat: sampleRequest.lat,
+          requestId: sampleRequest.requestId,
+        }
+      : null
+  const sampleQuery = useProductValueSample(fieldId, focusAssetId, activeSamplePoint)
+
+  const statisticalZonesLayer = catalog?.layers.infrastructure.find(
+    (layer) => layer.code === 'statistical_zones',
+  )
+  const zonesQuery = useProductZones(
+    fieldId,
+    focusAssetId,
+    zonesVisible && statisticalZonesLayer?.available === true,
+  )
+  const zoneResponseMatchesFocus =
+    !!zonesQuery.data &&
+    zonesQuery.data.asset_id === focusAssetId &&
+    zonesQuery.data.index === focusLayer?.code
+  const statisticalZones: P07ZonePolygons | null = zoneResponseMatchesFocus
+    ? zonesQuery.data ?? null
+    : null
+  const statisticalZonesError = zonesQuery.isError || (!!zonesQuery.data && !zoneResponseMatchesFocus)
+  const statisticalZonesGeoJSON = useMemo<GeoJSON.FeatureCollection>(() => ({
+    type: 'FeatureCollection',
+    features: (statisticalZones?.features ?? []).filter((feature) => feature.geometry !== null) as unknown as GeoJSON.Feature[],
+  }), [statisticalZones])
+
+  const handleZonesVisibleChange = useCallback(
+    (visible: boolean) => {
+      setZoneUiOverride((prev) => ({
+        fieldId: fieldId ?? '',
+        visible,
+        opacityPct: prev?.fieldId === fieldId ? prev.opacityPct : 60,
+      }))
+    },
+    [fieldId],
+  )
+  const handleZonesOpacityChange = useCallback(
+    (opacityPct: number) => {
+      setZoneUiOverride((prev) => ({
+        fieldId: fieldId ?? '',
+        visible: prev?.fieldId === fieldId ? prev.visible : false,
+        opacityPct,
+      }))
+    },
+    [fieldId],
+  )
+  const handleStatisticalZoneClick = useCallback(
+    (properties: FarmMapStatisticalZone) => {
+      if (!fieldId || !focusAssetId) return
+      setSelectedZone({ fieldId, assetId: focusAssetId, properties })
+    },
+    [fieldId, focusAssetId],
+  )
+  const displayedZone =
+    selectedZone?.fieldId === fieldId && selectedZone.assetId === focusAssetId
+      ? selectedZone.properties
+      : null
+
   // --------------------------------------------------------------- overlays
   // One overlay per VISIBLE vegetation layer with its own selected date.
   // Only real, backend-resolved assets become overlays — otherwise the layer
@@ -200,25 +324,6 @@ export function MapSatellitePane() {
     const out: FarmMapOverlay[] = []
     const missing: string[] = []
     if (!fieldId || !catalog) return { overlays: out, missingTiles: missing }
-
-    const resolveAssetId = (
-      layer: P07VegetationLayer,
-      sceneId: string,
-      processingVersion: string | null,
-    ): string | null => {
-      if (layer.latest && layer.latest.scene_id === sceneId) return layer.latest.asset_id
-      const scene = sceneMap.get(sceneId)
-      if (!scene) return null
-      const candidates = scene.products.filter((product) => product.index_code === layer.code)
-      if (candidates.length === 0) return null
-      if (processingVersion) {
-        const exact = candidates.find(
-          (product) => product.processing_version === processingVersion,
-        )
-        if (exact) return exact.asset_id
-      }
-      return candidates[candidates.length - 1]?.asset_id ?? null
-    }
 
     for (const layer of vegetation) {
       if (!layer.available) continue
@@ -233,7 +338,7 @@ export function MapSatellitePane() {
         missing.push(layer.label)
         continue
       }
-      const assetId = resolveAssetId(layer, entry.scene_id, entry.processing_version)
+      const assetId = resolveDerivedAssetId(layer, entry, sceneMap)
       if (!assetId) {
         missing.push(layer.label)
         continue
@@ -292,6 +397,19 @@ export function MapSatellitePane() {
     [setSelectedField],
   )
 
+  const handleBoundaryClick = useCallback(
+    (field: Field, lngLat: { lng: number; lat: number }) => {
+      handleFieldSelect(field)
+      setSampleRequest({
+        fieldId: field.id,
+        lon: lngLat.lng,
+        lat: lngLat.lat,
+        requestId: ++sampleRequestId.current,
+      })
+    },
+    [handleFieldSelect],
+  )
+
   const handleClearSelection = useCallback(() => setSelectedField(null), [setSelectedField])
 
   const handleFit = useCallback(() => {
@@ -330,7 +448,7 @@ export function MapSatellitePane() {
               {t('focusIndex')}
             </label>
             <Select
-              value={focusIndex}
+              value={focusLayer?.code ?? focusIndex}
               onValueChange={(value) => setFocusIndex(value as P07IndexCode)}
             >
               <SelectTrigger
@@ -370,8 +488,14 @@ export function MapSatellitePane() {
               fields={fields}
               selectedFieldId={selectedField?.id ?? null}
               onFieldSelect={handleFieldSelect}
-              onFieldClick={handleFieldSelect}
+              onFieldClick={handleBoundaryClick}
               overlays={overlays}
+              statisticalZones={statisticalZonesGeoJSON}
+              statisticalZonesVisible={
+                zonesVisible && statisticalZonesGeoJSON.features.length > 0
+              }
+              statisticalZonesOpacity={zonesOpacityPct / 100}
+              onStatisticalZoneClick={handleStatisticalZoneClick}
               onOverlayError={handleOverlayError}
               fitRequest={fitRequest}
             />
@@ -379,11 +503,118 @@ export function MapSatellitePane() {
                 purpose: MapLibre's nav control sits at physical top-right, so
                 a logical start-3 anchor would collide with it in RTL. */}
             <SpatialLegend
-              index={focusIndex}
+              index={focusLayer?.code ?? focusIndex}
               className="absolute left-3 top-3 z-10 w-56"
               defaultOpen={false}
             />
           </div>
+
+          <section
+            className="rounded-lg border border-stone-200 bg-stone-50/70 p-3"
+            aria-live="polite"
+          >
+            <h3 className="text-sm font-semibold text-stone-800">{t('sampleTitle')}</h3>
+            {!activeSamplePoint && (
+              <p className="mt-1 text-xs text-stone-600">{t('samplePrompt')}</p>
+            )}
+            {activeSamplePoint && (
+              <>
+                <p className="mt-1 text-[11px] text-stone-500">{t('sampleCoordinates')}</p>
+                <p dir="ltr" className="font-mono text-xs text-stone-700">
+                  {String(activeSamplePoint.lon)}, {String(activeSamplePoint.lat)}
+                </p>
+              </>
+            )}
+            {activeSamplePoint && !focusAssetId && (
+              <p className="mt-2 text-xs text-amber-900" role="status">
+                {catalogQuery.isLoading || processingQuery.isLoading
+                  ? t('sampleWaitingProduct')
+                  : t('sampleNoProduct')}
+              </p>
+            )}
+            {activeSamplePoint && focusAssetId && sampleQuery.isLoading && (
+              <p className="mt-2 text-xs text-stone-600" role="status">{t('sampleLoading')}</p>
+            )}
+            {activeSamplePoint && focusAssetId && sampleQuery.isError && (
+              <p className="mt-2 text-xs text-amber-900" role="alert">{t('sampleError')}</p>
+            )}
+            {activeSamplePoint && sampleQuery.data && (
+              <div className="mt-2 space-y-2">
+                <p
+                  className={
+                    sampleQuery.data.available && sampleQuery.data.value !== null
+                      ? 'text-sm font-semibold text-stone-900'
+                      : 'text-xs font-medium text-amber-900'
+                  }
+                  role="status"
+                >
+                  {sampleQuery.data.available && sampleQuery.data.value !== null
+                    ? `${t('sampleValue')}: ${displayNumber(sampleQuery.data.value)}`
+                    : t('sampleNoValidPixel')}
+                </p>
+                {sampleQuery.data.unavailable_reason && (
+                  <p className="text-[11px] text-amber-900">
+                    {t('sampleReason')}:{' '}
+                    {t(
+                      sampleQuery.data.unavailable_reason === 'point_outside_raster_extent'
+                        ? 'sampleOutsideRaster'
+                        : 'sampleMaskedPixel',
+                    )}
+                  </p>
+                )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-stone-600">
+                  <dt>{t('sampleIndex')}</dt><dd>{sampleQuery.data.index.toUpperCase()}</dd>
+                  <dt>{t('sampleAcquired')}</dt>
+                  <dd>{sampleQuery.data.acquired_at ? formatDay(sampleQuery.data.acquired_at) : t('sampleNotReported')}</dd>
+                  <dt>{t('sampleScene')}</dt><dd className="break-all">{sampleQuery.data.scene_id}</dd>
+                  <dt>{t('sampleVersion')}</dt><dd>{sampleQuery.data.processing_version}</dd>
+                  <dt>{t('sampleResolution')}</dt>
+                  <dd>{sampleQuery.data.spatial_resolution_m == null ? t('sampleNotReported') : `${displayNumber(sampleQuery.data.spatial_resolution_m)} m`}</dd>
+                  <dt>{t('sampleSource')}</dt><dd>{sampleQuery.data.provider_code || t('sampleNotReported')}</dd>
+                  <dt>{t('sampleCrs')}</dt><dd>{sampleQuery.data.crs || t('sampleNotReported')}</dd>
+                  <dt>{t('sampleCloud')}</dt>
+                  <dd>{sampleQuery.data.cloud_cover_pct == null ? t('sampleNotReported') : `${displayNumber(sampleQuery.data.cloud_cover_pct)}%`}</dd>
+                  <dt>{t('sampleSynthetic')}</dt>
+                  <dd>
+                    {sampleQuery.data.is_synthetic == null
+                      ? t('sampleNotReported')
+                      : sampleQuery.data.is_synthetic
+                        ? t('sampleYes')
+                        : t('sampleNo')}
+                  </dd>
+                </dl>
+              </div>
+            )}
+          </section>
+
+          {zonesVisible && (
+            <section className="rounded-lg border border-emerald-200 bg-white p-3" aria-live="polite">
+              <h3 className="text-sm font-semibold text-stone-800">{t('zoneClickTitle')}</h3>
+              <p className="mt-1 text-[11px] text-amber-900">{t('zonesStatisticalNote')}</p>
+              {!displayedZone && (
+                <p className="mt-1 text-[11px] text-stone-500">{t('zoneClickPrompt')}</p>
+              )}
+              {displayedZone && (
+                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-stone-600">
+                  <dt>{t('zoneColumn')}</dt>
+                  <dd>{t(displayedZone.zone === 'lowest_tercile'
+                    ? 'zoneLowestTercile'
+                    : displayedZone.zone === 'middle_tercile'
+                      ? 'zoneMiddleTercile'
+                      : displayedZone.zone === 'highest_tercile'
+                        ? 'zoneHighestTercile'
+                        : 'zoneColumn')}</dd>
+                  <dt>{t('zoneClickMean')}</dt><dd>{displayNumber(displayedZone.mean)}</dd>
+                  <dt>{t('zoneClickShare')}</dt><dd>{displayNumber(displayedZone.pixel_share * 100)}%</dd>
+                  <dt>{t('zoneClickRange')}</dt>
+                  <dd>{displayedZone.value_range
+                    ? `${displayNumber(displayedZone.value_range[0])} – ${displayNumber(displayedZone.value_range[1])}`
+                    : '—'}</dd>
+                  <dt>{t('zoneClickPixels')}</dt><dd>{displayNumber(displayedZone.pixel_count)}</dd>
+                </dl>
+              )}
+            </section>
+          )}
 
           {/* Honest overlay status — tile failures and unresolved assets */}
           {(overlayErrors.length > 0 || missingTiles.length > 0) && (
@@ -409,7 +640,7 @@ export function MapSatellitePane() {
 
           <FieldInspector
             field={inspectorField}
-            index={focusIndex}
+            index={focusLayer?.code ?? focusIndex}
             latest={focusLayer?.latest ?? null}
             onFit={handleFit}
             onClear={handleClearSelection}
@@ -428,6 +659,20 @@ export function MapSatellitePane() {
           onUiChange={handleUiChange}
           order={order}
           onOrderChange={handleOrderChange}
+          statisticalZonesVisible={zonesVisible}
+          onStatisticalZonesVisibleChange={handleZonesVisibleChange}
+          statisticalZonesOpacityPct={zonesOpacityPct}
+          onStatisticalZonesOpacityChange={handleZonesOpacityChange}
+          statisticalZonesLoading={zonesQuery.isLoading}
+          statisticalZonesError={statisticalZonesError}
+          onRetryStatisticalZones={() => void zonesQuery.refetch()}
+          statisticalZones={statisticalZones}
+          hasFocusAsset={Boolean(focusAssetId)}
+          statisticalZonesUnavailableReason={
+            !statisticalZonesLayer || statisticalZonesLayer.available === false
+              ? statisticalZonesLayer?.unavailable_reason || t('zonesUnavailable')
+              : undefined
+          }
         />
       </div>
     </div>

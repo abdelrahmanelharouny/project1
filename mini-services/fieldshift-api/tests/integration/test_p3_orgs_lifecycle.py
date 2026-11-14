@@ -42,6 +42,19 @@ def _create_org(client, headers, name: str = "Riverbend Farms") -> dict:
     return resp.json()
 
 
+def _start_starter(client, headers, organization_id: str) -> None:
+    resp = client.post(
+        "/api/v1/billing/subscription",
+        headers=headers,
+        json={
+            "organization_id": organization_id,
+            "plan_code": "starter",
+            "billing_period": "monthly",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+
 def _org_story(client):
     """Owner A + org + manager B + viewer C (all joined through invitations).
 
@@ -49,6 +62,7 @@ def _org_story(client):
     """
     a_headers, a_user = _register(client, "Alice")
     org = _create_org(client, a_headers)
+    _start_starter(client, a_headers, org["id"])
 
     b_headers, b_user = _register(client, "Bob")
     c_headers, c_user = _register(client, "Carol")
@@ -213,6 +227,7 @@ class TestInvitationFlow:
     def test_accept_joins_second_user_to_org(self, client):
         a_headers, _ = _register(client, "Alice")
         org = _create_org(client, a_headers)
+        _start_starter(client, a_headers, org["id"])
         b_headers, b_user = _register(client, "Bob")
 
         token = client.post(
@@ -240,6 +255,7 @@ class TestInvitationFlow:
     def test_accept_rejects_wrong_email(self, client):
         a_headers, _ = _register(client, "Alice")
         org = _create_org(client, a_headers)
+        _start_starter(client, a_headers, org["id"])
         b_headers, _b = _register(client, "Bob")
         c_headers, _c = _register(client, "Carol")
 

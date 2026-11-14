@@ -2,16 +2,17 @@
 
 Reports were historically executed by the API scheduler sweep (every 15 s,
 bounded batch). That remains the default path. This module adds the SAME
-execution as a replayable background-job kind so long report renders (large
-PDF/XLSX payloads, field-intelligence reports over many observations) can be
-picked up by the standalone worker process (`python -m app.worker`) instead
-of the API — independently deployable, restart-safe, never blocking request
-handlers.
+execution as a background-job kind so long report renders (large PDF/XLSX
+payloads, field-intelligence reports over many observations) can be picked up
+by the standalone worker process (`python -m app.worker`) instead of the API.
+The shared report-service advisory fence serializes both entry points; only a
+queued report is replayed, while succeeded rows reconcile without side effects
+and an already-running row fails closed.
 
-Idempotency contract (mirrors raster_processing):
+Idempotency contract:
 - One `background_jobs` row per `report_jobs` row (`ref_kind=report`,
-  `ref_id=report_job_id`); the executor re-checks the job row status before
-  rendering, so a replayed orphan never double-renders a succeeded job.
+  `ref_id=report_job_id`); the executor checks terminal state before rendering,
+  and the report service rechecks it after acquiring a per-report advisory lock.
 - Failures surface on both rows with a storage-safe error message.
 """
 
@@ -52,13 +53,33 @@ def execute_report_background_job(background_job_id: uuid.UUID, progress: Any = 
         if report is None:
             _fail(session, bg, "report job row disappeared")
             return
-        if report.status in (
-            "succeeded",
-            "running",
-            "expired",
-        ):  # idempotency: never double-render
-            bg.status = "succeeded" if report.status == "succeeded" else "cancelled"
-            bg.progress = 100 if report.status == "succeeded" else bg.progress
+        if report.status == "succeeded":
+            # Domain success commits together with usage metering. Reconcile a
+            # crash-window background row without re-entering report service.
+            bg.status = "succeeded"
+            bg.progress = 100
+            bg.result = {
+                "report_job_id": str(report_id),
+                "report_type": report.report_type,
+                "format": report.output_format,
+            }
+            session.commit()
+            return
+        if report.status == "expired":
+            bg.status = "cancelled"
+            session.commit()
+            return
+        if report.status == "failed":
+            bg.status = "failed"
+            bg.error = report.error or "report job has failed; replay refused"
+            session.commit()
+            return
+        if report.status == "running":
+            # A legacy/inline/scheduler executor may have made progress before
+            # the crash. Never reset it to queued or risk repeating metering or
+            # report.ready emission; recovery marks this queue record failed.
+            bg.status = "failed"
+            bg.error = "report job was already running; replay refused"
             session.commit()
             return
         if callable(progress):
@@ -89,24 +110,88 @@ def replay_report_job(background_job_id: uuid.UUID, progress: Any = None) -> Non
     execute_report_background_job(background_job_id, progress)
 
 
-def submit_report_job(report_job_id: uuid.UUID, *, created_by: uuid.UUID | None = None) -> Any:
+def submit_report_job(
+    report_job_id: uuid.UUID,
+    *,
+    created_by: uuid.UUID | None = None,
+    db: Any = None,
+) -> Any:
     """Enqueue report rendering as a background job (worker path).
 
     The API keeps its scheduler sweep; callers that know a report is heavy
     (field-intelligence PDFs) can route through this instead so the work
-    lands on the worker pool.
+    lands on the worker pool. When ``db`` is supplied, the companion row and
+    the report link are committed by the caller, and the queue wake-up is
+    deferred by ``jobs.submit`` until that commit.
     """
     from app.core import jobs as core_jobs
     from app.db.models import BackgroundJob
+    from app.db.models_p3 import ReportJob
+    from sqlalchemy import select
 
-    return core_jobs.submit(
+    callback = lambda background_job_id, progress=None: execute_report_background_job(
+        background_job_id, progress
+    )
+
+    def _existing(session: Any) -> Any:
+        return session.scalar(
+            select(BackgroundJob)
+            .where(
+                BackgroundJob.kind == REPORT_JOB_KIND,
+                BackgroundJob.ref_kind == "report",
+                BackgroundJob.ref_id == report_job_id,
+            )
+            .order_by(BackgroundJob.created_at.desc())
+        )
+
+    if db is not None:
+        existing = _existing(db)
+        if existing is None:
+            queued = core_jobs.submit(
+                REPORT_JOB_KIND,
+                callback,
+                db=db,
+                ref_kind="report",
+                ref_id=report_job_id,
+                label=f"report:{report_job_id}",
+                created_by=created_by,
+            )
+        else:
+            queued = existing
+            if queued.status == "queued":
+                core_jobs.enqueue_existing(queued.id, callback)
+        report = db.get(ReportJob, report_job_id)
+        if report is not None and report.background_job_id != queued.id:
+            report.background_job_id = queued.id
+            db.flush()
+        return queued
+
+    with SessionLocal() as lookup:
+        existing = _existing(lookup)
+    if existing is not None:
+        if existing.status == "queued":
+            core_jobs.enqueue_existing(existing.id, callback)
+        return existing
+
+    queued = core_jobs.submit(
         REPORT_JOB_KIND,
-        lambda job_id, progress=None: execute_report_background_job(job_id, progress),
+        callback,
         ref_kind="report",
-        ref_id=str(report_job_id),
+        ref_id=report_job_id,
         label=f"report:{report_job_id}",
         created_by=created_by,
     )
+    # Preserve the domain-to-queue link for callers using the legacy
+    # self-contained submission form. The API/scheduler path passes ``db``
+    # above and keeps this link in the same transaction as the queue row.
+    from app.db.models_p3 import ReportJob
+
+    with SessionLocal() as session:
+        report = session.get(ReportJob, report_job_id)
+        if report is not None:
+            report.background_job_id = queued.id
+            session.commit()
+    return queued
 
 
 def _fail(session: Any, bg: Any, message: str) -> None:

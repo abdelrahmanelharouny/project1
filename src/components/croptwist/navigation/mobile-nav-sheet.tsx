@@ -15,8 +15,8 @@
  */
 
 import { useRef, useState } from 'react'
-import { useTranslations } from 'next-intl'
-import { ChevronRight, Menu, Search } from 'lucide-react'
+import { useLocale, useTranslations } from 'next-intl'
+import { ChevronRight, Menu, Search, Sprout } from 'lucide-react'
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -28,11 +28,14 @@ export function MobileNavSheet({
   activeTab,
   activeSub,
   onNavigate,
+  onOpenOnboarding,
 }: {
   activeTab: DestinationId
   activeSub: string | null
   onNavigate: (tab: DestinationId, sub: string | null) => void
+  onOpenOnboarding: () => void
 }) {
+  const locale = useLocale()
   const t = useTranslations('destinations')
   const tNav = useTranslations('nav')
   const [open, setOpen] = useState(false)
@@ -51,6 +54,11 @@ export function MobileNavSheet({
     openPalette(true)
   }
 
+  const handleOpenOnboarding = () => {
+    setOpen(false)
+    onOpenOnboarding()
+  }
+
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -66,21 +74,21 @@ export function MobileNavSheet({
         </Button>
       </SheetTrigger>
       <SheetContent
-        side="left"
+        side={locale === 'ar' ? 'right' : 'left'}
         className="flex w-[320px] max-w-[88vw] flex-col gap-0 overflow-y-auto p-0 sm:w-[340px]"
       >
-        <SheetHeader className="border-b border-stone-200 px-4 py-3.5 text-left">
+        <SheetHeader className="border-b border-stone-200 px-4 py-3.5 text-start">
           <SheetTitle className="text-sm font-semibold text-stone-900">{t('menuTitle')}</SheetTitle>
         </SheetHeader>
         <nav aria-label={t('railAria')} className="flex-1 px-2 py-2">
           <button
             type="button"
             onClick={handleOpenPalette}
-            className="mb-2 flex min-h-11 w-full items-center gap-2.5 rounded-md border border-stone-200 bg-white px-3 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            className="mb-2 flex min-h-11 w-full items-center gap-2.5 rounded-md border border-stone-200 bg-white px-3 text-start text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           >
             <Search className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
             <span className="truncate">{t('paletteOpenLabel')}</span>
-            <kbd className="ml-auto hidden rounded border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-medium text-stone-500 sm:inline-block">
+            <kbd className="ms-auto hidden rounded border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-medium text-stone-500 sm:inline-block">
               ⌘K
             </kbd>
           </button>
@@ -95,7 +103,7 @@ export function MobileNavSheet({
                     aria-current={isDestActive ? 'page' : undefined}
                     onClick={() => handleNavigate(dest.id, dest.subPages[0]?.id ?? null)}
                     className={cn(
-                      'flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700',
+                      'flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-3 text-start text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700',
                       isDestActive
                         ? 'bg-emerald-50 text-emerald-900'
                         : 'text-stone-700 hover:bg-stone-100 hover:text-stone-900',
@@ -103,11 +111,11 @@ export function MobileNavSheet({
                   >
                     <span className="truncate">{t(dest.labelKey)}</span>
                     {dest.subPages.length > 0 ? (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
+                      <ChevronRight className="h-4 w-4 shrink-0 text-stone-400 rtl:rotate-180" aria-hidden />
                     ) : null}
                   </button>
                   {isDestActive && dest.subPages.length > 0 ? (
-                    <ul className="mb-1 ml-3 mt-1 space-y-0.5 border-l border-stone-200 pl-2">
+                    <ul className="mb-1 ms-3 mt-1 space-y-0.5 border-s border-stone-200 ps-2">
                       {dest.subPages.map((sub) => {
                         const isSubActive = sub.id === activeSub
                         return (
@@ -117,7 +125,7 @@ export function MobileNavSheet({
                               aria-current={isSubActive ? 'location' : undefined}
                               onClick={() => handleNavigate(dest.id, sub.id)}
                               className={cn(
-                                'flex min-h-11 w-full items-center rounded-md px-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700',
+                                'flex min-h-11 w-full items-center rounded-md px-3 text-start text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700',
                                 isSubActive
                                   ? 'bg-emerald-50 font-medium text-emerald-900'
                                   : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900',
@@ -135,9 +143,18 @@ export function MobileNavSheet({
             })}
           </ul>
         </nav>
-        <p className="border-t border-stone-200 px-4 py-3 text-[11px] text-stone-400">
-          {tNav('footerNote')}
-        </p>
+        <div className="border-t border-stone-200 px-3 py-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleOpenOnboarding}
+            className="mb-2 min-h-11 w-full justify-start gap-2 text-sm"
+          >
+            <Sprout className="h-4 w-4 text-emerald-700" aria-hidden />
+            {tNav('getStarted')}
+          </Button>
+          <p className="px-1 py-1 text-[11px] text-stone-400">{tNav('footerNote')}</p>
+        </div>
       </SheetContent>
     </Sheet>
   )

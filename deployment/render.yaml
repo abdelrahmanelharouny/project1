@@ -1,0 +1,39 @@
+# CANDIDATE ONLY: do not apply until STAGING_GUIDE.md storage/lifecycle gates pass.
+# Requires a cardless Hobby workspace. No workers, databases, disks, or paid cron.
+services:
+  - type: web
+    name: croptwist-api-staging
+    runtime: docker
+    plan: free
+    branch: feature/croptwist-free-deployment
+    rootDir: mini-services/fieldshift-api
+    dockerfilePath: ./Dockerfile
+    autoDeployTrigger: "off"
+    healthCheckPath: /api/v1/health/ready
+    envVars:
+      - key: CROPTWIST_ENVIRONMENT
+        value: staging
+      - key: CROPTWIST_DEV_MODE
+        value: "false"
+      - key: CROPTWIST_DATABASE_URL
+        sync: false
+      - key: CROPTWIST_TRUSTED_HOSTS
+        sync: false
+      - key: CROPTWIST_CORS_ALLOW_ORIGINS
+        sync: false
+      - key: CROPTWIST_DATABASE_SEARCH_PATH
+        value: public,extensions
+      - key: CROPTWIST_DATABASE_POOL_SIZE
+        value: "2"
+      - key: CROPTWIST_DATABASE_MAX_OVERFLOW
+        value: "0"
+      - key: CROPTWIST_DATABASE_SSLMODE
+        value: verify-full
+      - key: CROPTWIST_DATABASE_SSLROOTCERT
+        sync: false
+      - key: CROPTWIST_BILLING_WEBHOOK_SECRET
+        sync: false
+      - key: CROPTWIST_RASTER_URL_SECRET
+        sync: false
+# A secret file containing the dashboard CA must be configured manually.
+# Runtime storage, scheduler and worker ownership must be resolved before launch.

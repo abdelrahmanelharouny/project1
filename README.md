@@ -27,7 +27,7 @@ All analytics artifacts are immutable and checksummed; every module exposes `/ve
 .
 ├── src/                          # Next.js 16 App Router frontend (React 19, Tailwind v4, shadcn/ui)
 ├── next.config.ts                # output: "standalone"; /api/v1 rewrite fallback to :3030
-├── Dockerfile                    # web image (oven/bun → standalone server on 3000)
+├── Dockerfile                    # Bun install → Node 22 build/runtime on 3000
 ├── docker-compose.yml            # full stack: db + api + web + gateway
 ├── Caddyfile                     # gateway on :81 (?XTransformPort=<port> routing)
 ├── .env.example                  # root-level environment template
@@ -43,7 +43,7 @@ All analytics artifacts are immutable and checksummed; every module exposes `/ve
     └── .env.example              # annotated CROPTWIST_* template
 ```
 
-The backend is a **modular monolith**: one FastAPI service (`uvicorn app.main:app`) with versioned routers and SQLAlchemy/Alembic schema on PostgreSQL 16 + PostGIS 3.5. The frontend talks to it through relative `/api/v1` URLs: behind the Caddy gateway requests carry `?XTransformPort=3030`; when hitting the web server directly, `next.config.ts` rewrites `/api/v1/*` to `127.0.0.1:3030` (works when both share a host — the sandbox case). The current revision is `0023_p07_field_reports`; use the migration files and master audit as the source of truth rather than older table-count notes.
+The backend is a **modular monolith**: one FastAPI service (`uvicorn app.main:app`) with versioned routers and SQLAlchemy/Alembic schema on PostgreSQL 16 + PostGIS. The frontend calls relative `/api/v1` URLs; Next rewrites them to the server-only `CROPTWIST_API_ORIGIN`. Local direct development defaults to `127.0.0.1:3030`; Compose explicitly supplies `http://api:3030`; Vercel requires an HTTPS origin. Browser helpers no longer require the sandbox-only `XTransformPort` gateway query. The current revision is `0023_p07_field_reports`; use the migration files and master audit as the source of truth rather than older table-count notes.
 
 ## Quickstart (Docker Compose)
 
@@ -98,9 +98,10 @@ Open the app on port 3000 (or the gateway on 81). API docs: FastAPI's OpenAPI UI
 ## Testing
 
 ```bash
-cd /home/z/my-project/mini-services/fieldshift-api
+# Run from the repository root.
+cd mini-services/fieldshift-api
 .venv/bin/python -m pytest tests -q     # needs local PG + PostGIS on 5433 (db croptwist_test)
-cd /home/z/my-project && bun run lint   # frontend lint
+cd ../.. && bun run lint               # frontend lint
 bun test tests/frontend              # frontend helper/navigation regression tests
 cd mini-services/llm-bridge && ../../node_modules/.bin/tsc --noEmit
 ```
@@ -109,10 +110,20 @@ CI (`.github/workflows/ci.yml`) runs backend migration checks, pytest and API/br
 
 ## Documentation
 
+- Project-control dashboard: [`PROJECT_CONTROL.md`](PROJECT_CONTROL.md) (current status, branch registry, integration queue, quality gates and decisions)
 - Backend README: [`mini-services/fieldshift-api/README.md`](mini-services/fieldshift-api/README.md)
 - Backend docs cited from code: [`mini-services/fieldshift-api/docs/`](mini-services/fieldshift-api/docs/) and [`KNOWN_LIMITATIONS.md`](mini-services/fieldshift-api/KNOWN_LIMITATIONS.md)
 - Platform-wide docs: [`docs/`](docs/) — architecture, scientific deepening program, milestone records (`docs/m6b/`, `docs/m6c/`, `docs/m7/`), data dictionary, diagrams
 - Current repository audit: [`docs/MASTER_REPOSITORY_AUDIT.md`](docs/MASTER_REPOSITORY_AUDIT.md)
 - Prioritized gap matrix: [`docs/MASTER_GAP_ANALYSIS.md`](docs/MASTER_GAP_ANALYSIS.md)
+- Remediation status for `remediation/legacy-hardening`: [`docs/implementation/REMEDIATION_STATUS_2026-11-14.md`](docs/implementation/REMEDIATION_STATUS_2026-11-14.md)
 - AI architecture and roadmap: [`docs/architecture/CROPTWIST_AI_ARCHITECTURE.md`](docs/architecture/CROPTWIST_AI_ARCHITECTURE.md)
 - Deployment guide: [`mini-services/fieldshift-api/docs/architecture/deployment.md`](mini-services/fieldshift-api/docs/architecture/deployment.md)
+
+## Selected hosting foundation: Vercel + Supabase
+
+The deployment workstream prepares Vercel for Next.js and Supabase for PostgreSQL/PostGIS while retaining FastAPI, authentication and Python processing. See [`deployment/ARCHITECTURE.md`](deployment/ARCHITECTURE.md), [`SUPABASE_SETUP.md`](deployment/SUPABASE_SETUP.md), [`VERCEL_SETUP.md`](deployment/VERCEL_SETUP.md), and [`VERIFICATION.md`](deployment/VERIFICATION.md).
+
+No hosted service is deployed by this branch. All Vercel Git deployments are disabled until the redesign/eligibility gates pass. Vercel Hobby excludes commercial use; Render Free is only a conditional API staging candidate, not reliable continuous-worker or durable-file hosting. Read [`FREE_TIER_LIMITS.md`](deployment/FREE_TIER_LIMITS.md) and [`STAGING_GUIDE.md`](deployment/STAGING_GUIDE.md) before provisioning. The deferred Alembic discrepancy remains unchanged and blocking.
+
+The standalone frontend runs on Node.js 22.x; Bun 1.3.4 remains the frozen dependency/build-script tool. The additional local deployment Compose topology is `deployment/docker-compose.yml`; the original root topology is retained with an explicit internal API origin.
