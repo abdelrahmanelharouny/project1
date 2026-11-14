@@ -71,12 +71,18 @@ def _extension_owned_relations(connection):
 
 
 def _make_include_object(connection):
-    extension_relations = _extension_owned_relations(connection)
-    default_schema = connection.dialect.default_schema_name
+    # Resolve catalog metadata only when autogenerate invokes this callback.
+    # Alembic also imports env.py for normal upgrades; an eager SELECT here
+    # would autobegin a transaction before Alembic starts its migration txn.
+    extension_relations: set[tuple[str, str]] | None = None
 
     def include_extension_aware_object(obj, name, type_, reflected, compare_to):
+        nonlocal extension_relations
         relation = obj if type_ == "table" else getattr(obj, "table", None)
         if relation is not None:
+            if extension_relations is None:
+                extension_relations = _extension_owned_relations(connection)
+            default_schema = connection.dialect.default_schema_name
             schema = getattr(relation, "schema", None) or default_schema
             if (schema, relation.name) in extension_relations:
                 return False
