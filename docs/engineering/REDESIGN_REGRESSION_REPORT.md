@@ -42,4 +42,4 @@ The route manifest remains the existing static page contract: `/` plus nine cano
 
 ## Delivery state
 
-At report creation, changes are present only in the local worktree `feature/croptwist-ui-ux-redesign`; this branch is based on `feature/ai-complete-integration` at `38f8891696f6c27e79e25ddf65b33549f4a51397`. The branch has not yet been committed or pushed. Update this section with exact implementation commit SHA and remote verification after the authorized checkpoint. Do not merge into `main`; GIS integration and full regression remain separate gates.
+The verified implementation checkpoint is `851ae78b0f232df6e9be911ee17f25039db6fd88`, pushed to `origin/feature/croptwist-ui-ux-redesign`; the remote ref matches this SHA and the local worktree is clean. The branch is based on `feature/ai-complete-integration` at `38f8891696f6c27e79e25ddf65b33549f4a51397`. Remote `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`. No PR was opened and no merge was performed; GIS integration and full regression remain separate gates.

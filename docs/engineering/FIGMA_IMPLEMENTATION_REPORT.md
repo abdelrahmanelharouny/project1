@@ -4,7 +4,7 @@
 **Repository:** `https://github.com/abdelrahmanelharouny/project1`<br>
 **Branch:** `feature/croptwist-ui-ux-redesign`<br>
 **Base / initial branch SHA:** `38f8891696f6c27e79e25ddf65b33549f4a51397` (`feature/ai-complete-integration`)<br>
-**Implementation commit / push:** Pending at report creation; update after the verified Git checkpoint.
+**Implementation commit / push:** `851ae78b0f232df6e9be911ee17f25039db6fd88` pushed to `origin/feature/croptwist-ui-ux-redesign`; remote SHA matches. Remote `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`.
 
 ## Figma-to-product mapping
 
@@ -26,6 +26,7 @@ The Figma board is accessible in a read-only public canvas, but editable style p
 - Updated the Data Hub Features screen with a backend-driven no-results state, an actual route to Data Hub observations, and loading/unavailable/retry states. No feature values, availability status, or farm metrics are fabricated.
 - Updated HTTPS authentication cookie handling for embedded Preview: `Secure; HttpOnly; SameSite=None` for forwarded HTTPS, while plain-HTTP local development remains `SameSite=Lax`; deletion uses matching attributes. No API endpoint or data contract was changed.
 - Added English/Arabic copy for the new Data Hub states and unit coverage for the HTTPS and local cookie behavior.
+- Replaced the inherited external ChatGLM favicon and “First vertical slice” description with a local static CropTwist sprout mark and factual product metadata.
 
 ## Product-preservation notes
 
