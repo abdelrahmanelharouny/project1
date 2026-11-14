@@ -106,8 +106,8 @@ def write_fixture_scene(
     fmask = np.zeros((height, width), dtype="uint8")
     if with_cloud_block:
         fmask[4:12, 4:12] = FMASK_CLOUD | FMASK_CIRRUS | FMASK_SHADOW
-    if with_nodata_patch:
-        fmask[height - 10 : height - 4, width - 12 : width - 6] = FMASK_CLOUD
+    # The nodata patch intentionally remains Fmask-clear so nodata tests can
+    # distinguish source-band validity from cloud masking.
     fmask_path = str(directory / f"{scene_id}.fmask.tif")
     with rasterio.open(
         fmask_path,

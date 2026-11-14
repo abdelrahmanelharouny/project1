@@ -267,8 +267,13 @@ def get_field_map_layers(
             RasterAsset.field_id == field_id, RasterAsset.asset_kind == "derived"
         )
     ).all()
-    scene_ids = {a.scene_id for a in latest_assets}
-    scene_flags: dict[str, bool] = {}
+    scene_keys = {
+        (asset.scene_id, asset.provider_code)
+        for asset in latest_assets
+        if asset.scene_id is not None
+    }
+    scene_ids = {scene_id for scene_id, _provider_code in scene_keys}
+    scene_flags: dict[tuple[str, str], bool] = {}
     if scene_ids:
         for scene in db.scalars(
             select(SatelliteScene).where(
@@ -276,11 +281,15 @@ def get_field_map_layers(
                 SatelliteScene.scene_id.in_(scene_ids),
             )
         ).all():
-            scene_flags[scene.scene_id] = bool(scene.is_synthetic)
+            key = (scene.scene_id, scene.provider_code)
+            if key in scene_keys:
+                scene_flags[key] = bool(scene.is_synthetic)
     for layer in catalog["layers"]["vegetation"]:
         latest = layer.get("latest")
-        if latest and latest.get("scene_id") in scene_flags:
-            latest["is_synthetic"] = scene_flags[latest["scene_id"]]
+        if latest:
+            key = (latest.get("scene_id"), latest.get("provider_code"))
+            if key in scene_flags:
+                latest["is_synthetic"] = scene_flags[key]
     return catalog
 
 
@@ -372,8 +381,13 @@ def get_product_value(
 
     field = get_field_for_principal(db, principal, field_id)
     asset = db.get(RasterAsset, asset_id)
-    if asset is None or asset.field_id != field_id or asset.asset_kind != "derived":
-        # Foreign, preview, and unknown assets are indistinguishable.
+    if (
+        asset is None
+        or asset.field_id != field_id
+        or asset.asset_kind != "derived"
+        or not asset.index_code
+    ):
+        # Foreign, preview, incomplete, and unknown assets are indistinguishable.
         raise NotFound("Derived product not found for this field.")
 
     covered = db.execute(
@@ -391,6 +405,7 @@ def get_product_value(
         select(SatelliteScene).where(
             SatelliteScene.field_id == field_id,
             SatelliteScene.scene_id == asset.scene_id,
+            SatelliteScene.provider_code == asset.provider_code,
         )
     ).first()
     try:
