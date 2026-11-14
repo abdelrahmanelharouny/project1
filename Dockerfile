@@ -7,7 +7,7 @@
 # .next/standalone/, so the runner layer needs no manual copying beyond the
 # safety copies below.
 
-FROM oven/bun:1 AS deps
+FROM oven/bun:1.3.4 AS deps
 WORKDIR /app
 # Lockfile-driven install; bun blocks lifecycle (postinstall) scripts unless
 # they are allowlisted in trustedDependencies, so this is reproducible.
@@ -16,20 +16,25 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-FROM oven/bun:1 AS builder
+FROM node:22-bookworm-slim AS builder
 WORKDIR /app
+COPY --from=deps /usr/local/bin/bun /usr/local/bin/bun
+ARG CROPTWIST_API_ORIGIN=http://127.0.0.1:3030
+ENV CROPTWIST_API_ORIGIN=${CROPTWIST_API_ORIGIN}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 # Runs: next build && cp static+public into .next/standalone
 RUN bun run build
 
-FROM oven/bun:1-slim AS runner
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app
+ARG CROPTWIST_API_ORIGIN=http://127.0.0.1:3030
 ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    CROPTWIST_API_ORIGIN=${CROPTWIST_API_ORIGIN}
 
 # Non-root runtime user (explicit USER root in case the base switches users).
 USER root
@@ -45,5 +50,5 @@ COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 USER nextjs
 EXPOSE 3000
 
-# Matches package.json "start" (NODE_ENV=production bun .next/standalone/server.js)
-CMD ["bun", "server.js"]
+# Next.js production runs on Node 22; Bun is only the lockfile/build tool.
+CMD ["node", "server.js"]

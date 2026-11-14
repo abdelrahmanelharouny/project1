@@ -1,0 +1,23 @@
+# Never upload local secrets or generated machine state.
+.env
+.env.*
+!.env.example
+node_modules
+.next
+.git
+*.log
+
+# The Vercel project serves the root Next.js frontend only.
+mini-services
+db
+docs
+tests
+examples
+skills
+tool-results
+upload
+download
+deploy-verified-soil.png
+
+# Isolated Next build outputs are generated, never source.
+.next-*

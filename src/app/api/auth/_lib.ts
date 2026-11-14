@@ -6,8 +6,7 @@
  * goes back to the browser.
  */
 import { NextResponse } from 'next/server'
-
-const API_BASE = 'http://127.0.0.1:3030/api/v1'
+import { getApiBase } from '@/lib/api-origin'
 
 export const ACCESS_COOKIE = 'fs_token'
 export const REFRESH_COOKIE = 'fs_refresh'
@@ -43,7 +42,7 @@ function sessionCookieOptions(request: Request) {
   }
 }
 
-/** Server-side call to the FastAPI backend (never sees XTransformPort). */
+/** Server-side call to the FastAPI backend through the validated origin. */
 export async function backend<T>(
   path: string,
   init?: RequestInit,
@@ -54,7 +53,7 @@ export async function backend<T>(
   error?: BackendErrorShape
 }> {
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${getApiBase()}${path}`, {
       cache: 'no-store',
       ...init,
       headers: { Accept: 'application/json', ...(init?.headers ?? {}) },

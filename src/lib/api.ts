@@ -1,9 +1,10 @@
 /**
  * Typed fetch wrapper for the CropTwist API.
  *
- * Gateway rule: every request goes to a RELATIVE path and carries the
- * `XTransformPort=3030` query parameter so the Caddy gateway forwards it to
- * the FastAPI mini-service. Absolute URLs are never used.
+ * Deployment rule: every browser request goes to a RELATIVE same-origin
+ * `/api/v1` path. Next.js owns the server-side rewrite to the FastAPI
+ * mini-service, so absolute backend URLs and gateway query parameters are
+ * never used in browser code.
  */
 import type {
   AdvisorEvidence,
@@ -108,9 +109,7 @@ import type {
  * gateway / rewrite), and the backend accepts the fs_token cookie as a
  * bearer credential.
  */
-const PORT_QUERY = 'XTransformPort=3030'
-/** Next.js route handlers that own the session cookies (no XTransformPort —
- * these are handled by Next itself, NOT the backend gateway). */
+/** Next.js route handlers that own the session cookies. */
 const AUTH_BASE = '/api/auth'
 
 /** Coverage window enforced by the backend for ingestion jobs. */
@@ -157,11 +156,6 @@ export function describeError(err: unknown): { title: string; description?: stri
     return { title: 'Network error', description: err.message }
   }
   return { title: 'Unexpected error' }
-}
-
-function withPort(path: string): string {
-  const joiner = path.includes('?') ? '&' : '?'
-  return `${path}${joiner}${PORT_QUERY}`
 }
 
 /**
@@ -258,7 +252,7 @@ async function request<T>(
 
   let response: Response
   try {
-    response = await fetch(withPort(path), {
+    response = await fetch(path, {
       method: options.method ?? 'GET',
       headers,
       body:
@@ -467,7 +461,7 @@ export function extractChirps(fieldId: string, file: File, input: ChirpsExtractI
 }
 
 /** Download URL for the farmer CSV template (relative, gateway-routed). */
-export const CSV_TEMPLATE_URL = withPort('/api/v1/data/imports/observations-csv/template')
+export const CSV_TEMPLATE_URL = '/api/v1/data/imports/observations-csv/template'
 
 export function getJob(jobId: string): Promise<DataJob> {
   return request<DataJob>(`/api/v1/jobs/${jobId}`)
@@ -2032,7 +2026,7 @@ export function cancelSatelliteProcessingJob(
  */
 export async function fetchSatelliteAssetBlob(fieldId: string, assetId: string): Promise<Blob> {
   const load = () =>
-    fetch(withPort(`/api/v1/fields/${fieldId}/satellite/assets/${assetId}/content`), {
+    fetch(`/api/v1/fields/${fieldId}/satellite/assets/${assetId}/content`, {
       cache: 'no-store',
     })
   let response: Response

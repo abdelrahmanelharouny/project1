@@ -23,3 +23,6 @@ deploy-verified-soil.png
 
 # Keep: package.json, bun.lock, next.config.ts, src/, public/, prisma/,
 # tailwind/postcss/eslint configs, tsconfig.json, components.json
+
+# Isolated Next build outputs are generated, never source.
+.next-*

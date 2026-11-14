@@ -1,0 +1,83 @@
+name: Deployment configuration checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/croptwist-free-deployment]
+permissions:
+  contents: read
+concurrency:
+  group: deployment-checks-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+      - run: python3 -m unittest discover -s deployment/tests -v
+      - run: bun install --frozen-lockfile
+      - run: bun x tsc --noEmit
+      - run: bun run lint
+      - run: bun test tests/frontend
+      - name: Vercel-style build, no provider credentials or deployment
+        run: bun run build
+        env:
+          VERCEL: "1"
+          CROPTWIST_API_ORIGIN: https://croptwist-api.invalid
+      - run: docker compose -f deployment/docker-compose.yml config --quiet
+      - name: Build standalone frontend container with internal origin
+        run: docker build --build-arg CROPTWIST_API_ORIGIN=http://api:3030 -t croptwist-web:check .
+  postgis:
+    runs-on: ubuntu-latest
+    services:
+      database:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: croptwist_test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGPASSWORD: postgres
+      CROPTWIST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/croptwist_deploy_ci
+      CROPTWIST_DATABASE_SEARCH_PATH: public,extensions
+      CROPTWIST_TEST_DB_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/croptwist_test
+      CROPTWIST_SCHEDULER_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r mini-services/fieldshift-api/requirements.txt
+      - name: Fresh dedicated-schema PostGIS target
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+          createdb -h 127.0.0.1 -p 5433 -U postgres -T template0 croptwist_deploy_ci
+          psql -h 127.0.0.1 -p 5433 -U postgres -d croptwist_deploy_ci -v ON_ERROR_STOP=1 -c 'CREATE SCHEMA extensions; CREATE EXTENSION postgis WITH SCHEMA extensions;'
+      - name: Plan then apply only to disposable loopback database
+        run: |
+          python deployment/scripts/database.py plan --output /tmp/plan.sql 2>/tmp/plan-meta.log
+          HASH=$(tail -1 /tmp/plan-meta.log | python -c 'import json,sys; print(json.load(sys.stdin)["plan_sha256"])')
+          python deployment/scripts/database.py upgrade --disposable --approved-plan-sha256 "$HASH"
+          python deployment/scripts/database.py upgrade --disposable --approved-plan-sha256 "$HASH"
+          python deployment/scripts/database.py probe
+      - name: Backend regression suite in a separate disposable test database
+        working-directory: mini-services/fieldshift-api
+        env:
+          CROPTWIST_DATABASE_SEARCH_PATH: public
+        run: python -m pytest tests -q
+      - name: Deferred Alembic discrepancy remains a blocking check
+        working-directory: mini-services/fieldshift-api
+        env:
+          PGOPTIONS: -c search_path=public,extensions
+        run: alembic check
+      - name: Build API and separate worker images
+        run: |
+          docker build --target api -t croptwist-api:check mini-services/fieldshift-api
+          docker build --target worker -t croptwist-worker:check mini-services/fieldshift-api
+# No Vercel/Supabase/Render credentials, remote migrations, paid resources,
+# deploy hooks, production promotion, or scheduled keep-alive exist here.
