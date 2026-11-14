@@ -15,6 +15,7 @@ router = APIRouter(prefix="/farms", tags=["farms"])
 
 
 class FarmCreate(BaseModel):
+    organization_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=200)
     country_code: str = Field(min_length=2, max_length=2)
     admin_region: str | None = Field(default=None, max_length=200)

@@ -7,6 +7,7 @@ Production deployments must provide real values via their secret manager
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,6 +52,9 @@ class Settings(BaseSettings):
     # background tasks (provider ingestion today). 0 disables the executor
     # and keeps the legacy inline-in-request execution (used by tests).
     job_workers: int = 2
+    # A running job is recoverable only after this much inactivity; progress
+    # commits refresh the durable background row's updated_at timestamp.
+    job_stale_after_seconds: int = 6 * 60 * 60
 
     # P3 W5/W6: periodic maintenance scheduler (report queue, webhook
     # retries, subscription expiry, retention sweeps). Disable in unit
@@ -147,7 +151,7 @@ class Settings(BaseSettings):
     # any live processing is claimed. The webhook secret signs/verifies
     # provider callbacks; rotation restarts acceptance (replay window).
     billing_provider: str = "sandbox"
-    billing_webhook_secret: str = "sandbox-billing-webhook-secret-change-me"
+    billing_webhook_secret: str = ""
     billing_grace_seconds: int = 3 * 24 * 3600  # past_due → grace window
     billing_max_webhook_payload_bytes: int = 262_144
 
@@ -163,6 +167,29 @@ class Settings(BaseSettings):
     reports_dir: str = "/home/z/my-project/mini-services/fieldshift-api/reports_storage"
     report_retention_days: int = 30
     report_max_per_month_free: int = 3
+
+    @model_validator(mode="after")
+    def _production_must_not_use_sandbox_billing(self) -> "Settings":
+        if self.environment.lower() == "production":
+            if self.dev_mode:
+                raise ValueError("CROPTWIST_DEV_MODE must be false in production.")
+            if self.billing_provider == "sandbox":
+                raise ValueError(
+                    "The sandbox billing provider is not permitted in production; "
+                    "a verified production billing adapter is not available in this build."
+                )
+            if (
+                not self.billing_webhook_secret
+                or len(self.billing_webhook_secret) < 32
+            ):
+                raise ValueError(
+                    "Production requires an explicitly configured billing webhook secret "
+                    "of at least 32 characters."
+                )
+            raise ValueError(
+                "No production billing adapter is implemented; refusing production startup."
+            )
+        return self
 
 
 @lru_cache

@@ -81,7 +81,17 @@ def _discover(client, headers, field_id, **overrides):
     )
 
 
-def _add_viewer_member(client, owner_headers, farm_id, email):
+def _add_viewer_member(client, owner_headers, farm_id, organization_id, email):
+    subscription = client.post(
+        "/api/v1/billing/subscription",
+        headers=owner_headers,
+        json={
+            "organization_id": organization_id,
+            "plan_code": "starter",
+            "billing_period": "monthly",
+        },
+    )
+    assert subscription.status_code == 200, subscription.text
     resp = client.post(
         f"/api/v1/farms/{farm_id}/members",
         headers=owner_headers,
@@ -175,7 +185,13 @@ def test_discovery_requires_operator_role(client, farm_with_field, auth_headers,
     )
     assert reg.status_code == 201
     viewer_headers = {"Authorization": f"Bearer {reg.json()['token']}"}
-    _add_viewer_member(client, ctx["headers"], ctx["farm"]["id"], email)
+    _add_viewer_member(
+        client,
+        ctx["headers"],
+        ctx["farm"]["id"],
+        ctx["user"]["organization"]["id"],
+        email,
+    )
 
     # Viewer can list scenes (member-level read)...
     listing = client.get(

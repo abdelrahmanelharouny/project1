@@ -34,7 +34,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.activity import service as activity
+from app.billing import entitlements
 from app.billing.entitlements import (
+    KEY_API_ENABLED,
     KEY_API_RATE_LIMIT_PER_MINUTE,
     resolve_entitlements,
     get_live_subscription,
@@ -229,22 +231,18 @@ def _assert_api_keys_within_limit(
 
 
 def _resolve_rate_limit(session: Session, organization_id: uuid.UUID) -> int:
-    """Per-key throttle snapshotted from the plan's api_rate_limit_per_minute.
-
-    Falls back to :data:`DEFAULT_RATE_LIMIT_PER_MINUTE` when there is no live
-    subscription or the plan grants 0 (no public API) — the DB constraint
-    requires rate_limit_per_minute > 0, and issued keys must keep working.
-    """
-    subscription = get_live_subscription(session, organization_id)
-    if subscription is None:
-        return DEFAULT_RATE_LIMIT_PER_MINUTE
+    """Resolve a positive per-key limit or fail closed for disabled plans."""
     entitlements = resolve_entitlements(session, organization_id)
     entry = entitlements.get(KEY_API_RATE_LIMIT_PER_MINUTE) or {}
     try:
         value = int(entry.get("value") or 0)
     except (TypeError, ValueError):
         value = 0
-    return value if value > 0 else DEFAULT_RATE_LIMIT_PER_MINUTE
+    if value == -1:
+        return 2_147_483_647
+    if value <= 0:
+        raise Forbidden("The current plan does not enable the public API.")
+    return value
 
 
 # --------------------------------------------------------------------------
@@ -265,6 +263,7 @@ def create_api_key(
     """
     organization_id = resolve_org_id(principal, organization_id)
     principal.require_org_role(organization_id, "org_admin")
+    entitlements.require_flag(session, organization_id, KEY_API_ENABLED)
     clean_name = (name or "").strip()
     if not 1 <= len(clean_name) <= 120:
         raise ValidationFailed(
@@ -520,6 +519,13 @@ def authenticate_api_key(
     if key.expires_at is not None and key.expires_at < moment:
         raise Unauthorized("API key has expired.")
 
+    entitlements.require_flag(session, key.organization_id, KEY_API_ENABLED)
+    current_limit = entitlements.limit_for(
+        session, key.organization_id, KEY_API_RATE_LIMIT_PER_MINUTE
+    )
+    if current_limit == 0:
+        raise Forbidden("The current plan does not enable the public API.")
+
     scopes = set(key.scopes or [])
     missing = [scope for scope in required_scopes if scope not in scopes]
     if missing:
@@ -528,7 +534,12 @@ def authenticate_api_key(
             details=[{"field": "scopes", "reason": missing}],
         )
 
-    (limiter or key_rate_limiter).check(str(key.id), int(key.rate_limit_per_minute))
+    effective_limit = (
+        int(key.rate_limit_per_minute)
+        if current_limit < 0
+        else min(int(key.rate_limit_per_minute), current_limit)
+    )
+    (limiter or key_rate_limiter).check(str(key.id), effective_limit)
 
     key.last_used_at = moment
     record_usage(session, key.id, "", 200)

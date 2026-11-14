@@ -127,34 +127,39 @@ def _norm_min_max(values: dict[str, float], invert: bool) -> dict[str, float]:
 def _per_crop_scores(
     problem: RotationProblem, candidates: list[str]
 ) -> tuple[dict[str, dict[str, float]], dict[str, str]]:
-    """Solution-independent per-crop scores per criterion (0..1), pooled across
-    planning seasons (a crop's water estimate differs per season; the pooled
-    min-max uses the per-season assessments of the first season — the same
-    basis candidate generation reports). Criteria that cannot be scored from
-    evidence are OMITTED (never zero-filled) and the omission reason is
-    returned."""
+    """Solution-independent per-crop scores pooled across all planning seasons.
+
+    A crop is scored for a season-dependent criterion only when every planning
+    season has evidence; values are averaged across seasons, never copied from
+    the first season. Missing evidence omits a criterion rather than zero-filling.
+    """
     scores: dict[str, dict[str, float]] = {}
     skipped: dict[str, str] = {}
-    first_season = problem.seasons[0].label if problem.seasons else ""
-
-    def _assessment(code: str):
-        return problem.candidates.get(first_season, {}).get(code)
 
     water_raw: dict[str, float] = {}
     for code in candidates:
-        a = _assessment(code)
-        if a is not None and a.water_requirement_mm is not None:
-            water_raw[code] = a.water_requirement_mm
+        assessments = [
+            problem.candidates.get(season.label, {}).get(code)
+            for season in problem.seasons
+        ]
+        values = [
+            assessment.water_requirement_mm
+            for assessment in assessments
+            if assessment is not None and assessment.water_requirement_mm is not None
+        ]
+        if problem.seasons and len(values) == len(problem.seasons):
+            water_raw[code] = sum(values) / len(values)
 
-    if water_raw:
+    if candidates and set(water_raw) == set(candidates):
         scores["water_requirement_mm"] = _norm_min_max(water_raw, invert=True)
     else:
         skipped["water_requirement_mm"] = (
-            "no candidate has an estimable water requirement (missing ET0/Kc evidence)"
+            "omitted because at least one candidate lacks a complete water estimate "
+            "for every planning season"
         )
 
     def _sub(crop, code, lo, hi):
-        v = crop.numeric_trait(code)
+        v = crop.numeric_trait(code, problem.farm.country_code)
         if v is None:
             return None
         return max(0.0, min(1.0, (v - lo) / (hi - lo)))
@@ -163,10 +168,6 @@ def _per_crop_scores(
     for code in candidates:
         crop = problem.knowledge.crops[code]
         parts = []
-        if crop.is_legume:
-            parts.append(1.0)
-        if crop.is_cover_crop_capable:
-            parts.append(1.0)
         rd = _sub(crop, "root_depth_effective_m", 0.3, 1.8)
         if rd is not None:
             parts.append(rd)
@@ -175,10 +176,12 @@ def _per_crop_scores(
             parts.append(nf)
         if parts:
             soil[code] = sum(parts) / len(parts)
-    if soil:
+    if candidates and set(soil) == set(candidates):
         scores["soil_health_index"] = soil
     else:
-        skipped["soil_health_index"] = "no soil-health sub-indicators evaluable"
+        skipped["soil_health_index"] = (
+            "omitted because at least one candidate lacks soil-health sub-indicators"
+        )
 
     if problem.farm.margin_index_by_crop:
         margin = {
@@ -186,11 +189,11 @@ def _per_crop_scores(
             for c in candidates
             if c in problem.farm.margin_index_by_crop
         }
-        if margin:
+        if margin and set(margin) == set(candidates):
             scores["economic_margin_index"] = margin
         else:
             skipped["economic_margin_index"] = (
-                "farmer margin indices exist but cover none of the admissible candidates"
+                "omitted because farmer-supplied margins do not cover every candidate"
             )
     else:
         skipped["economic_margin_index"] = (
@@ -199,32 +202,40 @@ def _per_crop_scores(
 
     resilience: dict[str, float] = {}
     for code in candidates:
-        a = _assessment(code)
-        if a is None:
-            continue
-        codes = {r["code"] for r in a.reasons}
-        if "temperature_within_optimum" in codes:
-            resilience[code] = 1.0
-        elif any(c.startswith("temperature_") for c in codes):
-            resilience[code] = 0.0
-    if resilience:
+        season_scores: list[float] = []
+        for season in problem.seasons:
+            assessment = problem.candidates.get(season.label, {}).get(code)
+            if assessment is None:
+                continue
+            codes = {reason["code"] for reason in assessment.reasons}
+            if "temperature_within_optimum" in codes:
+                season_scores.append(1.0)
+            elif any(value.startswith("temperature_") for value in codes):
+                season_scores.append(0.0)
+        if problem.seasons and len(season_scores) == len(problem.seasons):
+            resilience[code] = sum(season_scores) / len(season_scores)
+    if candidates and set(resilience) == set(candidates):
         scores["climate_resilience_index"] = resilience
     else:
         skipped["climate_resilience_index"] = (
-            "temperature evidence not evaluable for any candidate"
+            "omitted because temperature evidence is incomplete for at least one "
+            "candidate or planning season"
         )
 
     erosion: dict[str, float] = {}
-    season0 = problem.seasons[0]
     for code in candidates:
         crop = problem.knowledge.crops[code]
-        d = crop.numeric_trait("duration_days_total")
-        if d is not None:
-            erosion[code] = min(1.0, d / season0.length_days)
-    if erosion:
+        d = crop.numeric_trait("duration_days_total", problem.farm.country_code)
+        if d is not None and problem.seasons:
+            erosion[code] = sum(
+                min(1.0, d / season.length_days) for season in problem.seasons
+            ) / len(problem.seasons)
+    if candidates and set(erosion) == set(candidates):
         scores["erosion_reduction_index"] = erosion
     else:
-        skipped["erosion_reduction_index"] = "crop durations missing for all candidates"
+        skipped["erosion_reduction_index"] = (
+            "omitted because crop duration evidence is missing for at least one candidate"
+        )
 
     cover = {
         code: 1.0

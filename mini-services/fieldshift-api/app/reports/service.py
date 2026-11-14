@@ -141,10 +141,8 @@ def create_report_job(
     target organization (explicitly via farm/field/org scope, or implicitly
     when the principal belongs to exactly one organization).
 
-    Entitlements: when the target organization has a LIVE subscription the
-    ``exports_enabled`` flag and the ``reports_per_month`` quota are
-    enforced; without a subscription the gate is a pass-through (same rule
-    as the other P3 gates — free/unsubscribed orgs are not billed meters).
+    Entitlements are resolved for every organization; organizations without
+    a paid subscription receive the catalog's Free-plan limits.
     """
     if report_type not in contracts.REPORT_TYPES:
         raise ValidationFailed(
@@ -171,6 +169,10 @@ def create_report_job(
         farm = get_farm_for_principal(session, principal, farm_id)
         principal.require_org_role(farm.organization_id, "viewer")
         resolved_org_id = farm.organization_id
+        if field_id is not None:
+            field = get_field_for_principal(session, principal, field_id)
+            if field.farm_id != farm.id:
+                raise ValidationFailed("field_id must belong to the selected farm_id.")
     elif field_id is not None:
         field = get_field_for_principal(session, principal, field_id)
         farm = session.get(Farm, field.farm_id)
@@ -199,11 +201,9 @@ def create_report_job(
             details=[{"field": "date_from", "reason": str(date_from)}],
         )
 
-    # ---- entitlement gate (only when the org carries a live subscription)
-    subscription = entitlements.get_live_subscription(session, resolved_org_id)
-    if subscription is not None:
-        entitlements.require_flag(session, resolved_org_id, entitlements.KEY_EXPORTS_ENABLED)
-        entitlements.check_quota(session, resolved_org_id, entitlements.KEY_REPORTS_PER_MONTH)
+    # ---- resolve plan entitlements even without a paid subscription (Free)
+    entitlements.require_flag(session, resolved_org_id, entitlements.KEY_EXPORTS_ENABLED)
+    entitlements.check_quota(session, resolved_org_id, entitlements.KEY_REPORTS_PER_MONTH)
 
     job = ReportJob(
         organization_id=resolved_org_id,
@@ -278,11 +278,11 @@ def execute_report_job(
         job.status = contracts.REPORT_STATUS_SUCCEEDED
         job.error = None
         job.retention_until = contracts.retention_until_for(now)
-        # Usage accounting ONLY for subscribed orgs (same rule as the gate).
-        if entitlements.get_live_subscription(session, job.organization_id) is not None:
-            entitlements.increment_usage(
-                session, job.organization_id, entitlements.KEY_REPORTS_PER_MONTH
-            )
+        # Meter against the same resolved plan (including the Free plan) that
+        # was checked when this report was requested.
+        entitlements.increment_usage(
+            session, job.organization_id, entitlements.KEY_REPORTS_PER_MONTH
+        )
         session.commit()
         if payload.get("rendering_notes"):
             logger.info(
@@ -461,9 +461,12 @@ def _scope_fields(
     field_id: uuid.UUID | None = None,
 ) -> list[Field]:
     stmt = select(Field).join(Farm, Field.farm_id == Farm.id)
+    stmt = stmt.where(Farm.organization_id == organization_id)
     if field_id is not None:
-        # single-field scope (P07); the field was access-checked at creation
+        # Defense in depth: stored selectors must remain in the report org.
         stmt = stmt.where(Field.id == field_id)
+        if farm is not None:
+            stmt = stmt.where(Field.farm_id == farm.id)
     elif farm is not None:
         stmt = stmt.where(Field.farm_id == farm.id)
     else:

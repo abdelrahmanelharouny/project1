@@ -287,6 +287,9 @@ def _execute_ingestion_job_by_id(job_id: Any, progress) -> None:  # noqa: ANN001
             else None,
             options=params.get("options", {}),
         )
+        worker_db.refresh(job)
+        if job.status != "succeeded":
+            raise RuntimeError(job.error_summary or f"ingestion domain job ended as {job.status}")
         progress(100, "done")
 
 
@@ -490,24 +493,30 @@ def _persist_result(db: Session, job: IngestionJob, *, field: Field, result) -> 
                 processing_version=obs.processing_version,
                 metadata=obs.metadata,
             )
-            db.add(row)
             try:
-                db.flush()
+                # A row-local savepoint protects earlier valid observations
+                # while keeping the outer import transaction intact.
+                with db.begin_nested():
+                    db.add(row)
+                    db.flush()
+                    for flag in obs.quality_flags:
+                        db.add(
+                            ObservationQualityFlag(
+                                observation_id=row.id,
+                                flag_code=flag.get("flag_code", "UNKNOWN"),
+                                severity=flag.get("severity", "info"),
+                                message=flag.get("message", ""),
+                                details=flag.get("details", {}),
+                            )
+                        )
             except IntegrityError:
-                # Natural-key duplicate (retry/same-day refetch) — idempotent skip.
-                db.rollback()
+                rejected += 1
+                warnings.append(
+                    f"{obs.variable_code}@{obs.observed_at.date()} skipped: "
+                    "duplicate or database integrity constraint."
+                )
                 continue
             inserted += 1
-            for flag in obs.quality_flags:
-                db.add(
-                    ObservationQualityFlag(
-                        observation_id=row.id,
-                        flag_code=flag.get("flag_code", "UNKNOWN"),
-                        severity=flag.get("severity", "info"),
-                        message=flag.get("message", ""),
-                        details=flag.get("details", {}),
-                    )
-                )
         db.commit()
         job.status = "succeeded"
         job.records_received = received

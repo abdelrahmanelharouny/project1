@@ -22,8 +22,10 @@ from app.rotation.problem import (
 )
 
 
-def _source_ref(crop: KnowledgeCrop, trait_code: str) -> dict[str, Any] | None:
-    t = crop.trait(trait_code)
+def _source_ref(
+    crop: KnowledgeCrop, trait_code: str, country_code: str | None = None
+) -> dict[str, Any] | None:
+    t = crop.resolve_trait(trait_code, country_code)
     if t is None:
         return None
     return {
@@ -54,7 +56,7 @@ def _refs_for_traits(
         crop = problem.knowledge.crops.get(crop_code or "")
         if crop is None:
             continue
-        ref = _source_ref(crop, trait_code)
+        ref = _source_ref(crop, trait_code, problem.farm.country_code)
         if ref is not None:
             refs[(ref["pack_version"], ref["source_key"])] = ref
     return tuple(refs.values())
@@ -103,13 +105,9 @@ def criterion_soil_health(
     scores: list[float] = []
     missing: list[str] = []
     sub_specs = [
-        ("legume_n_fixation", lambda c: 1.0 if c.is_legume else None,
-         "crop flag is_legume (descriptor)"),
-        ("cover_crop_capability", lambda c: 1.0 if c.is_cover_crop_capable else None,
-         "crop flag is_cover_crop_capable (descriptor)"),
-        ("root_depth", lambda c: _bounded(c.numeric_trait("root_depth_effective_m"), 0.3, 1.8),
+        ("root_depth", lambda c, country: _bounded(c.numeric_trait("root_depth_effective_m", country), 0.3, 1.8),
          "trait root_depth_effective_m (FAO-56 Table 22)"),
-        ("n_fixation_capacity", lambda c: _bounded(c.numeric_trait("n_fixation_capacity_kg_ha"), 0, 200),
+        ("n_fixation_capacity", lambda c, country: _bounded(c.numeric_trait("n_fixation_capacity_kg_ha", country), 0, 200),
          "trait n_fixation_capacity_kg_ha (Herridge et al. 2008)"),
     ]
     for season, crop_code in _assigned(problem, assignment):
@@ -122,7 +120,7 @@ def criterion_soil_health(
         per_crop: list[float] = []
         missing_sub: list[str] = []
         for name, fn, _desc in sub_specs:
-            v = fn(crop)
+            v = fn(crop, problem.farm.country_code)
             if v is None:
                 missing_sub.append(name)
             else:
@@ -143,9 +141,8 @@ def criterion_soil_health(
             normalized=None,
             evaluable=False,
             missing_evidence=tuple(missing) or ("no seasons assigned",),
-            derivation="Mean of available soil-health sub-indicators (legume flag, "
-            "cover-crop capability, root depth, N-fixation capacity); missing "
-            "sub-indicators are skipped, never zero-filled.",
+            derivation="Mean of sourced numeric soil-health indicators (root depth "
+            "and N-fixation capacity); missing indicators are not zero-filled.",
         )
     return CriterionResult(
         criterion_code="soil_health_index",
@@ -155,8 +152,8 @@ def criterion_soil_health(
         normalized=None,
         evaluable=True,
         missing_evidence=tuple(missing),
-        derivation="Mean of available soil-health sub-indicators per season "
-        "(legume flag, cover capability, root depth, N-fixation capacity).",
+        derivation="Mean of sourced numeric soil-health indicators per season "
+        "(root depth and N-fixation capacity).",
         source_refs=(
             _refs_for_traits(problem, assignment, "root_depth_effective_m")
             + _refs_for_traits(problem, assignment, "n_fixation_capacity_kg_ha")
@@ -308,7 +305,11 @@ def criterion_erosion(
         if crop_code is None:
             continue
         crop = problem.knowledge.crops.get(crop_code)
-        duration = crop.numeric_trait("duration_days_total") if crop else None
+        duration = (
+            crop.numeric_trait("duration_days_total", problem.farm.country_code)
+            if crop
+            else None
+        )
         if duration is None:
             missing.append(f"{season.label}: duration unknown for '{crop_code}'")
         else:

@@ -215,31 +215,38 @@ def accept_invitation(db: Session, principal: Principal, *, token: str) -> Membe
     if already is not None:
         if already.status == "active":
             raise Conflict("You are already a member of this organization.")
+        active_members = int(
+            db.scalar(
+                select(func.count())
+                .select_from(Membership)
+                .where(
+                    Membership.organization_id == invitation.organization_id,
+                    Membership.status == "active",
+                )
+            )
+            or 0
+        )
+        entitlements.assert_within_limit(
+            db, invitation.organization_id, entitlements.KEY_MAX_ORG_MEMBERS, active_members
+        )
         already.status = "active"
         already.role_code = invitation.role_code
         membership = already
     else:
-        # Seat cap enforcement (P3 §4.2): activating a membership consumes a
-        # seat. Same conditionality contract as the farm/field gates — the
-        # limit bites ONLY when the target organization carries a live
-        # subscription, so org-less / legacy personal accounts (P1/P2 golden
-        # flows, seed/demo users) pass through untouched. REACTIVATION of a
-        # lapsed membership never counts (the seat was already held).
-        if entitlements.get_live_subscription(db, invitation.organization_id) is not None:
-            active_members = int(
-                db.scalar(
-                    select(func.count())
-                    .select_from(Membership)
-                    .where(
-                        Membership.organization_id == invitation.organization_id,
-                        Membership.status == "active",
-                    )
+        active_members = int(
+            db.scalar(
+                select(func.count())
+                .select_from(Membership)
+                .where(
+                    Membership.organization_id == invitation.organization_id,
+                    Membership.status == "active",
                 )
-                or 0
             )
-            entitlements.assert_within_limit(
-                db, invitation.organization_id, entitlements.KEY_MAX_ORG_MEMBERS, active_members
-            )
+            or 0
+        )
+        entitlements.assert_within_limit(
+            db, invitation.organization_id, entitlements.KEY_MAX_ORG_MEMBERS, active_members
+        )
         membership = Membership(
             organization_id=invitation.organization_id,
             user_id=principal.id,

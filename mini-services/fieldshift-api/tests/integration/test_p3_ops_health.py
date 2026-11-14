@@ -59,6 +59,16 @@ class TestOpsHealthAccess:
     def test_plain_member_gets_aggregate_surface_without_secrets(self, client):
         a_headers, a = _register(client, "OpsOwner")
         org = a["organization"]["id"]
+        subscription = client.post(
+            "/api/v1/billing/subscription",
+            headers=a_headers,
+            json={
+                "organization_id": org,
+                "plan_code": "starter",
+                "billing_period": "monthly",
+            },
+        )
+        assert subscription.status_code == 200, subscription.text
         invite = _invite(client, a_headers, org, "viewer")
         v_headers, _v = _register_with_token(client, invite["token"], "OpsViewer")
         resp = client.get("/api/v1/ops/health", headers=v_headers)

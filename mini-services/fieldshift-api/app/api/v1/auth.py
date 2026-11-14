@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -33,6 +34,7 @@ from app.domains.identity.service import (
     request_password_reset,
     revoke_token,
     rotate_refresh_token,
+    SESSION_COOKIE_NAME,
 )
 from app.db.models import Membership, Organization, User
 
@@ -169,6 +171,18 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     user, org, token, expires_at, refresh_token, refresh_expires_at = register_user(
         db, email=payload.email, password=payload.password, display_name=payload.display_name
     )
+    if token is None:
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "status": "verification_required",
+                "message": (
+                    "Account created. No session is available until email verification "
+                    "is complete; email delivery must be configured for this deployment."
+                ),
+                "user": {"id": str(user.id), "email": user.email},
+            },
+        )
     return {
         "token": token,
         "token_type": "bearer",
@@ -205,7 +219,12 @@ def logout(
     db: Session = Depends(get_db),
 ) -> Response:
     auth_header = request.headers.get("authorization", "")
-    token_plain = auth_header.removeprefix("Bearer ").strip()
+    scheme, separator, credentials = auth_header.partition(" ")
+    token_plain = (
+        credentials.strip()
+        if separator and scheme.lower() == "bearer"
+        else request.cookies.get(SESSION_COOKIE_NAME, "")
+    )
     revoke_token(db, principal, token_plain)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -174,8 +174,17 @@ class FakePrincipal:
 
 @pytest.fixture(autouse=True)
 def no_subscription(monkeypatch):
-    """Default: org has no live subscription (pass-through gates, default rate)."""
+    """Default fake plan: API enabled with a positive rate for service tests."""
     monkeypatch.setattr(api_keys, "get_live_subscription", lambda session, org_id: None)
+    monkeypatch.setattr(api_keys.entitlements, "require_flag", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_keys.entitlements, "limit_for", lambda *args, **kwargs: 100)
+    monkeypatch.setattr(
+        api_keys,
+        "resolve_entitlements",
+        lambda session, org_id: {
+            api_keys.KEY_API_RATE_LIMIT_PER_MINUTE: {"value": 100, "kind": "int"}
+        },
+    )
 
 
 def make_key(session: FakeSession, *, scopes=("farms:read", "org:read"), status="active",
@@ -251,7 +260,7 @@ def test_create_api_key_stores_only_hash_and_audits(monkeypatch):
     assert stored.name == "Integration key"  # trimmed
     assert stored.scopes == ["farms:read", "org:read"]  # sorted, deduped
     assert stored.status == "active"
-    assert stored.rate_limit_per_minute == api_keys.DEFAULT_RATE_LIMIT_PER_MINUTE
+    assert stored.rate_limit_per_minute == 100
     assert stored.organization_id == ORG_A
     assert stored.created_by == USER_ID
     assert session.commits == 1
@@ -302,8 +311,11 @@ def test_resolve_org_id_requires_disambiguation_for_multi_org():
 
 
 def test_api_key_gate_bites_only_when_plan_defines_limit(monkeypatch):
-    """No subscription → pass-through; subscription without the (optional)
-    max_api_keys entitlement → pass-through; with entitlement → enforced."""
+    """The optional active-key count cap applies only when a plan defines it.
+
+    Key issuance/authentication are separately gated by api_enabled and the
+    current rate entitlement.
+    """
     session = FakeSession()
     recorded = []
 
@@ -328,10 +340,27 @@ def test_api_key_gate_bites_only_when_plan_defines_limit(monkeypatch):
     assert recorded == [(api_keys.KEY_MAX_API_KEYS, 2)]
 
 
+def test_create_api_key_denied_when_plan_disables_public_api(monkeypatch):
+    session = FakeSession()
+
+    def deny(*_args, **_kwargs):
+        raise Forbidden("API access is not included in this plan.")
+
+    monkeypatch.setattr(api_keys.entitlements, "require_flag", deny)
+    with pytest.raises(Forbidden):
+        api_keys.create_api_key(
+            session,
+            FakePrincipal(),
+            name="disabled plan key",
+            scopes=["farms:read"],
+        )
+    assert not any(isinstance(obj, ApiKey) for obj in session.objects)
+
+
 def test_resolve_rate_limit_from_plan_entitlement(monkeypatch):
     session = FakeSession()
-    # no subscription → default
-    assert api_keys._resolve_rate_limit(session, ORG_A) == api_keys.DEFAULT_RATE_LIMIT_PER_MINUTE
+    # A positive resolved Free/paid plan rate is used; no hidden fallback.
+    assert api_keys._resolve_rate_limit(session, ORG_A) == 100
 
     sub = SimpleNamespace(plan_id=uuid.uuid4())
     monkeypatch.setattr(api_keys, "get_live_subscription", lambda db, org: sub)
@@ -343,12 +372,13 @@ def test_resolve_rate_limit_from_plan_entitlement(monkeypatch):
     )
     assert api_keys._resolve_rate_limit(session, ORG_A) == 300
 
-    # plan grants 0 (no public API) → issued keys still get the sane default
+    # zero is a denial, never converted into a usable default-rate key
     monkeypatch.setattr(
         api_keys, "resolve_entitlements",
         lambda db, org: {"api_rate_limit_per_minute": {"value": 0, "kind": "int"}},
     )
-    assert api_keys._resolve_rate_limit(session, ORG_A) == api_keys.DEFAULT_RATE_LIMIT_PER_MINUTE
+    with pytest.raises(Forbidden):
+        api_keys._resolve_rate_limit(session, ORG_A)
 
 
 # ---------------------------------------------------------------------------

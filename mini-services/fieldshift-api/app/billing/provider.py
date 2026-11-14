@@ -143,6 +143,8 @@ class SandboxBillingProvider(BillingProvider):
         if len(parts) != 2:
             return False
         timestamp, mac = parts
+        if self.stale_timestamp(timestamp):
+            return False
         expected = compute_signature(payload=payload, secret=secret, timestamp=timestamp)
         return hmac.compare_digest(expected, mac)
 

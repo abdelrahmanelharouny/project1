@@ -482,8 +482,16 @@ def process_billing_webhook(
             raise NotFound("No live subscription for this organization.")
 
         if event_type == "payment.succeeded":
-            amount = int(payload.get("amount_cents") or 0)
-            _settle_payment(db, subscription=subscription, amount_cents=amount)
+            amount_value = payload.get("amount_cents")
+            if type(amount_value) is not int:
+                raise ValidationFailed("payment.succeeded requires integer amount_cents.")
+            currency_code = str(payload.get("currency") or "").upper()
+            _settle_payment(
+                db,
+                subscription=subscription,
+                amount_cents=amount_value,
+                currency_code=currency_code,
+            )
         elif event_type == "payment.declined":
             _enter_past_due(db, subscription=subscription)
         elif event_type == "subscription.renewal_due":
@@ -531,21 +539,33 @@ def process_billing_webhook(
     return event
 
 
-def _settle_payment(db: Session, *, subscription: Subscription, amount_cents: int) -> None:
+def _settle_payment(
+    db: Session,
+    *,
+    subscription: Subscription,
+    amount_cents: int,
+    currency_code: str,
+) -> None:
     """Payment success: clear past_due/grace, open invoice → paid."""
     now = datetime.now(UTC)
     open_invoice = db.scalar(
         select(Invoice)
         .where(
             Invoice.organization_id == subscription.organization_id,
+            Invoice.subscription_id == subscription.id,
             Invoice.status == "open",
         )
         .order_by(Invoice.issued_at.desc())
         .limit(1)
     )
-    if open_invoice is not None:
-        open_invoice.status = "paid"
-        open_invoice.paid_at = now
+    if open_invoice is None:
+        raise ValidationFailed("No open invoice exists for this subscription payment.")
+    if amount_cents != open_invoice.amount_cents:
+        raise ValidationFailed("Payment amount does not match the open invoice.")
+    if currency_code != open_invoice.currency_code.upper():
+        raise ValidationFailed("Payment currency does not match the open invoice.")
+    open_invoice.status = "paid"
+    open_invoice.paid_at = now
     if subscription.status in ("past_due", "grace"):
         _record_transition(
             db,

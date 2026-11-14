@@ -1196,14 +1196,11 @@ def enforce_scenario_run_quota(
     scenario runs is exhausted. Returns the gated organization id (callers
     increment the usage counter against it after persisting a NEW run), or
     None when no gate applies (no acting user, no org context, or the
-    organization has no live subscription)."""
+    organization has no organization context)."""
     from app.billing import entitlements
 
     org_id = quota_organization_for_run(db, scenario, created_by)
     if org_id is None:
-        return None
-    # P3 gate: only organizations WITH a live subscription are metered.
-    if entitlements.get_live_subscription(db, org_id) is None:
         return None
     entitlements.check_quota(db, org_id, entitlements.KEY_SCENARIO_RUNS_PER_MONTH)
     return org_id

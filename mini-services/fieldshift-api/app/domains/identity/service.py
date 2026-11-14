@@ -188,6 +188,8 @@ def get_principal(
         raise Unauthorized("Token expired or revoked.")
     if not user.is_active:
         raise Unauthorized("Account disabled.")
+    if not user.email_verified:
+        raise EmailNotVerified("Verify your email before signing in.")
     memberships = list(
         db.scalars(select(Membership).where(Membership.user_id == user.id)).all()
     )
@@ -277,12 +279,12 @@ def _revoke_family(db: Session, family_id: uuid.UUID | None, now: datetime) -> N
 
 def register_user(
     db: Session, *, email: str, password: str, display_name: str
-) -> tuple[User, Organization, str, datetime, str, datetime]:
-    """Create a user + personal organization and issue an access/refresh pair.
+) -> tuple[User, Organization, str | None, datetime | None, str | None, datetime | None]:
+    """Create a user + personal organization and issue a session only in dev.
 
-    Returns (user, org, access_token, access_expires_at, refresh_token,
-    refresh_expires_at). When NOT dev_mode an email-verification challenge is
-    created; its plaintext token is never returned to clients.
+    Unverified non-development registrations receive no usable access or
+    refresh token. They must verify before logging in; configured email delivery
+    is required to complete that flow outside development.
     """
     email_normalized = email.strip().lower()
     existing = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
@@ -300,14 +302,16 @@ def register_user(
     db.flush()
     db.add(Membership(organization_id=org.id, user_id=user.id, role_code="owner", status="active"))
     db.flush()
-    family_id = uuid.uuid4()
-    access, access_expires_at, refresh, refresh_expires_at = _issue_token_pair(
-        db, user.id, family_id
-    )
     if not settings.dev_mode:
-        # Unverified deployments: create the verification challenge. The plain
-        # token goes out-of-band (email); it is NEVER returned to clients.
+        # The challenge hash is stored, but this build has no real email
+        # adapter; never return a session that could bypass verification.
         _issue_credential_token(db, user.id, "email_verification")
+        access = access_expires_at = refresh = refresh_expires_at = None
+    else:
+        family_id = uuid.uuid4()
+        access, access_expires_at, refresh, refresh_expires_at = _issue_token_pair(
+            db, user.id, family_id
+        )
     record_auth_audit(
         db,
         actor_id=user.id,
@@ -417,7 +421,7 @@ def rotate_refresh_token(
     token = db.scalar(
         select(AuthToken).where(
             AuthToken.token_hash == token_hash, AuthToken.kind == "refresh"
-        )
+        ).with_for_update()
     )
     if token is None:
         raise Unauthorized("Invalid refresh token.")
@@ -425,6 +429,10 @@ def rotate_refresh_token(
     if user is None:  # pragma: no cover — FK guarantees the user row
         raise Unauthorized("Invalid refresh token.")
     now = datetime.now(UTC)
+    if not user.is_active:
+        raise Unauthorized("Account disabled.")
+    if not user.email_verified:
+        raise EmailNotVerified("Verify your email before refreshing a session.")
     if token.revoked_at is not None:
         # REUSE DETECTED: a rotated (revoked) token came back. Revoke the
         # whole family — all tokens minted from this login/rotation chain.
@@ -629,7 +637,7 @@ def add_member(
     db: Session, principal: Principal, farm: Farm, *, email: str, role_code: str
 ) -> Membership:
     """Add an existing CropTwist account to the farm's organization (owner-only)."""
-    require_farm_role(db, principal, farm, "owner")
+    principal.require_owner(farm.organization_id)
     email_normalized = email.strip().lower()
     user = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
     if user is None:
@@ -647,6 +655,25 @@ def add_member(
             f"Unknown role '{role_code}'.",
             details=[{"field": "role_code", "reason": role_code}],
         )
+    from app.billing import entitlements
+
+    active_members = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Membership)
+            .where(
+                Membership.organization_id == farm.organization_id,
+                Membership.status == "active",
+            )
+        )
+        or 0
+    )
+    entitlements.assert_within_limit(
+        db,
+        farm.organization_id,
+        entitlements.KEY_MAX_ORG_MEMBERS,
+        active_members,
+    )
     membership = Membership(
         organization_id=farm.organization_id,
         user_id=user.id,
@@ -672,7 +699,7 @@ def update_member_role(
     db: Session, principal: Principal, farm: Farm, membership_id: uuid.UUID, new_role: str
 ) -> Membership:
     """Change a member's role (owner-only) with a last-owner guard."""
-    require_farm_role(db, principal, farm, "owner")
+    principal.require_owner(farm.organization_id)
     if new_role not in ROLE_ORDER:
         raise ValidationFailed(
             f"Unknown role '{new_role}'.",
@@ -710,7 +737,7 @@ def update_member_role(
 
 def remove_member(db: Session, principal: Principal, farm: Farm, membership_id: uuid.UUID) -> None:
     """Remove a member from the farm's organization (owner-only, last-owner guard)."""
-    require_farm_role(db, principal, farm, "owner")
+    principal.require_owner(farm.organization_id)
     membership = db.scalar(
         select(Membership).where(
             Membership.id == membership_id,

@@ -1,6 +1,6 @@
 # CropTwist — Outcome-Based Project TODO
 
-**Tracking baseline:** repository checkout `main`; current status is an implementation snapshot, not a production-readiness declaration. A checked box means the stated outcome has evidence in code and/or executed checks; it does not imply live external readiness.
+**Tracking baseline:** dedicated branch `remediation/legacy-hardening`, based on the current `main` checkpoint. This is an implementation snapshot, not a production-readiness declaration. A checked box means the stated outcome has evidence in code and/or executed checks; it does not imply live external readiness.
 
 ## Delivered in this working batch
 
@@ -10,6 +10,18 @@
 - [x] **Field briefs are screened before rendering.** Structured output must include visible citations resolved against the current evidence pack and pass numeric screening; one constrained retry is allowed, then model text is omitted. Sync and async paths have passing unit coverage.
 - [x] **Root Compose settings align with API configuration.** The `CROPTWIST_` prefix, non-demo default, readiness healthcheck, and safe local example are in place and statically verified; no container was started.
 - [x] **Master audit, prioritized gap matrix, AI architecture, and verification report** are written under `docs/`; older limitation records now identify their historical scope.
+
+## Remediation branch progress — 2026-11-14
+
+- [x] **Authentication hardening:** non-development registration issues no session before verification; token resolution and refresh reject unverified users; refresh rotation is serialized; logout resolves bearer/cookie transport and revokes the token family. API-level regressions were added but await a database-backed run; production email delivery remains absent.
+- [x] **Authorization and quotas:** legacy membership mutation requires the exact owner role; legacy member additions now apply the organization-seat entitlement. Missing subscriptions resolve to Free limits for the changed farm, field, report, seat, and public-API paths. Tests were updated/added; PostGIS integration was not available.
+- [x] **Billing/API/webhook guards:** zero API rate limits remain zero/denied; API-key creation/authentication check current plan enablement/rate; production startup fails closed without a real billing adapter and explicit strong secret; webhook timestamps, payment invoice amount/currency, and outbound destination resolution/redirect behavior are guarded. Signing secrets remain plaintext at rest; sandbox-only processing remains.
+- [x] **Observation integrity:** CSV header normalization, BOM handling, finite-number checks, raw-upload SHA-256, observation invariants, per-row ingestion savepoints, and quality-aware usable coverage are in place. CSV parser contracts: 17 passed, 2 DB-backed persistence cases deselected.
+- [x] **Report scope:** selected farm/field combinations are cross-checked and report field queries enforce both selectors.
+- [x] **Agronomic score correctness:** knowledge-pack version rows are not mixed; regional trait lookup matches explanation lookup; seasonal rainfall is not compared to annual reference ranges; critical calendar/climate gaps are unevaluated; incomplete weighted criteria are omitted rather than zero-filled; season-dependent rotation scores pool across seasons; soil-health composites use sourced numeric traits only.
+- [~] **Durable jobs:** persisted polling, atomic row-lock claims, startup executor registration, and bounded stale-job recovery are implemented. Multi-process/PostgreSQL recovery was not runtime-tested; raster-domain/generic-job commit ordering still needs verification, and the GIS-owned processing service was not changed.
+- [ ] **GIS workstream D:** direct HLS Fmask/CRS/windowing, raster lineage, and end-to-end provider correctness remain open for the separate GIS workstream. No GIS/raster implementation file was changed on this branch.
+- [x] **Local verification:** database-independent backend unit suite — 941 passed; CSV parser contract suite — 17 passed / 2 deselected; frontend suite — 122 passed; frontend TypeScript check — passed; modified Python modules compiled; `git diff --check` passed. Database/PostGIS integration, migrations, container startup, live providers, hosted CI, and Ruff remain unverified/unavailable.
 
 ## Product outcomes
 

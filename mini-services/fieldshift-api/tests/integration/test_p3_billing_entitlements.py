@@ -269,16 +269,19 @@ class TestEntitlementEnforcement:
         assert fourth.json()["error"]["code"] == "PAYMENT_REQUIRED"
         assert "max_fields" in fourth.json()["error"]["message"]
 
-    def test_not_enforced_without_live_subscription(self, client, auth_headers):
-        # registered user with a personal org but NO subscription: the P1/P2
-        # passthrough rule keeps resource creation ungated
+    def test_free_plan_limits_apply_without_live_subscription(self, client, auth_headers):
+        # Missing subscription resolves to the explicit Free plan rather than
+        # bypassing the product's farm/field quotas.
         headers, user = auth_headers
         first = _create_farm(client, headers, "Farm One")
         second = _create_farm(client, headers, "Farm Two")
         assert first.status_code == 201
-        assert second.status_code == 201  # would be 402 under the free plan gate
-        fields = client.get(f"/api/v1/farms/{first.json()['id']}/fields", headers=headers).json()
-        assert fields["total"] == 0
+        assert second.status_code == 402
+        farm_id = first.json()["id"]
+        for i in range(3):
+            assert _create_field(client, headers, farm_id, f"Free Field {i}").status_code == 201
+        fourth = _create_field(client, headers, farm_id, "Free Field 3")
+        assert fourth.status_code == 402
 
     def test_higher_plan_raises_the_limit(self, client, auth_headers):
         headers, user = auth_headers
@@ -438,6 +441,7 @@ class TestBillingWebhookReceiver:
             "event_id": event_id,
             "organization_id": org,
             "amount_cents": 1900,
+            "currency": "USD",
         }
         raw, sig_headers = _signed_webhook(payload)
         first = client.post(WEBHOOK_URL, content=raw, headers=sig_headers)
@@ -462,6 +466,27 @@ class TestBillingWebhookReceiver:
         )
         assert len(rows) == 1
         assert rows[0].status == "duplicate"
+
+    def test_payment_amount_or_currency_mismatch_cannot_settle_invoice(
+        self, client, auth_headers
+    ):
+        headers, org = self._org_with_open_invoice(client, auth_headers)
+        for amount, currency in ((1899, "USD"), (1900, "EUR")):
+            raw, sig_headers = _signed_webhook(
+                {
+                    "event_type": "payment.succeeded",
+                    "event_id": f"evt_mismatch_{uuid.uuid4().hex}",
+                    "organization_id": org,
+                    "amount_cents": amount,
+                    "currency": currency,
+                }
+            )
+            response = client.post(WEBHOOK_URL, content=raw, headers=sig_headers)
+            assert response.status_code == 422
+        invoices = client.get(
+            "/api/v1/billing/invoices", headers=headers, params={"organization_id": org}
+        ).json()
+        assert any(invoice["status"] == "open" for invoice in invoices["items"])
 
     def test_unparsable_body_rejected(self, client, db):
         """A non-JSON body is recorded as an invalid event and rejected. The
@@ -527,9 +552,8 @@ class TestReportsQuotaAccounting:
 class TestOrgMemberSeatCap:
     """max_org_members enforcement on invitation acceptance (P3 §4.2).
 
-    Same conditionality contract as farms/fields: the cap bites ONLY when
-    the organization carries a live subscription (P0/P1/P2 flows with no
-    subscription pass through untouched).
+    Missing subscriptions resolve to the catalog's Free plan, so the cap is
+    enforced consistently before and after billing activation.
     """
 
     def test_seat_cap_free_plan_blocks_third_member_and_upgrade_unlocks(self, client):
@@ -553,26 +577,16 @@ class TestOrgMemberSeatCap:
                 "/api/v1/invitations/accept", headers=headers_invitee, json={"token": token}
             )
 
-        # No subscription yet: pass-through (legacy behavior preserved).
-        assert accept(b_headers, invite(b["user"]["email"], "viewer")).status_code == 200
+        # No subscription resolves to Free: A already holds the only seat.
+        bob_token = invite(b["user"]["email"], "viewer")
+        blocked_bob = accept(b_headers, bob_token)
+        assert blocked_bob.status_code == 402, blocked_bob.text
 
-        # Free plan carries max_org_members=1; A already holds the only seat.
-        _start_subscription(client, a_headers, org, "free")
+        # Upgrade unlocks three seats. The still-pending invitation can now be
+        # accepted, and the fourth member remains blocked.
+        _start_subscription(client, a_headers, org, "starter")
+        assert accept(b_headers, bob_token).status_code == 200
         carol_token = invite(c["user"]["email"], "viewer")
-        blocked = accept(c_headers, carol_token)
-        assert blocked.status_code == 402, blocked.text
-        err = blocked.json()["error"]
-        assert err["code"] == "PAYMENT_REQUIRED"
-        assert "max_org_members" in err["message"]
-
-        # Upgrade raises the cap to 3 (A + B + C); Carol's STILL-PENDING
-        # invitation becomes acceptable, and the 4th member is denied.
-        resp = client.post(
-            "/api/v1/billing/subscription/change",
-            headers=a_headers,
-            json={"organization_id": org, "new_plan_code": "starter"},
-        )
-        assert resp.status_code == 200, resp.text
         assert accept(c_headers, carol_token).status_code == 200
         fourth = accept(d_headers, invite(d["user"]["email"], "viewer"))
         assert fourth.status_code == 402, fourth.text

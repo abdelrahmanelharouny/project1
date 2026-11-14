@@ -16,6 +16,7 @@ records — never a trust-the-file loader:
 import csv
 import hashlib
 import io
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -69,20 +70,32 @@ def _provenance(file_name: str, file_sha256: str) -> SourceProvenance:
 
 
 def parse_csv_observations(
-    content: str, *, file_name: str, field_area_ha: float | None = None
+    content: str,
+    *,
+    file_name: str,
+    field_area_ha: float | None = None,
+    raw_bytes: bytes | None = None,
 ) -> ProviderFetchResult:
     """Parse + validate CSV content into a canonical provider result.
 
     Row-level problems do not abort the import: they are counted as rejected
     rows and reported as warnings, so the farmer sees exactly what landed.
     """
-    file_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    file_sha256 = hashlib.sha256(
+        raw_bytes if raw_bytes is not None else content.encode("utf-8")
+    ).hexdigest()
     warnings: list[str] = []
     observations: list[CanonicalObservation] = []
     rejected = 0
 
+    content = content.removeprefix("\ufeff")
     reader = csv.DictReader(io.StringIO(content))
-    headers = set(h.strip().lower() for h in (reader.fieldnames or []))
+    original_headers = reader.fieldnames or []
+    normalized_headers = [header.strip().lower() for header in original_headers]
+    if len(set(normalized_headers)) != len(normalized_headers):
+        raise ValidationFailed("CSV contains duplicate headers after normalization.")
+    reader.fieldnames = normalized_headers
+    headers = set(normalized_headers)
     missing = REQUIRED_HEADERS - headers
     if missing:
         raise ValidationFailed(
@@ -154,6 +167,10 @@ def parse_csv_observations(
             except ValueError:
                 rejected += 1
                 warnings.append(f"Row {row_number}: value '{value_raw}' is not a number.")
+                continue
+            if not math.isfinite(value):
+                rejected += 1
+                warnings.append(f"Row {row_number}: value '{value_raw}' must be finite.")
                 continue
 
         key = (var_raw, observed.date().isoformat())
