@@ -35,6 +35,8 @@ from app.db.models import (
 
 logger = logging.getLogger("croptwist.ingestion")
 
+_OBSERVATION_BATCH_SIZE = 100
+
 
 def set_scene_acquisition_status(
     db: Session,
@@ -528,60 +530,122 @@ def _persist_result(db: Session, job: IngestionJob, *, field: Field, result) -> 
     inserted = 0
     warnings = list(result.warnings)
 
-    try:
-        for obs in result.observations:
-            if obs.quality_status == "missing" and obs.value is not None:
-                rejected += 1
-                warnings.append(
-                    f"{obs.variable_code}@{obs.observed_at.date()} rejected: missing rows must not carry a value."
-                )
-                continue
-            row = Observation(
-                field_id=field.id,
-                dataset_product_id=product.id,
-                variable_code=obs.variable_code,
-                value=obs.value,
-                unit=obs.unit,
-                observed_at=obs.observed_at,
-                period_start=obs.period_start,
-                period_end=obs.period_end,
-                time_support=obs.time_support.value,
-                spatial_support_type=obs.spatial_support_type.value,
-                spatial_resolution_m=obs.spatial_resolution_m,
-                quality_status=obs.quality_status.value,
-                evidence_class=obs.evidence_class.value,
-                uncertainty_value=obs.uncertainty_value,
-                uncertainty_type=obs.uncertainty_type,
-                is_synthetic=obs.is_synthetic,
-                ingestion_job_id=job.id,
-                retrieved_at=datetime.now(UTC),
-                processing_version=obs.processing_version,
-                metadata=obs.metadata,
+    def _new_observation(obs) -> Observation:
+        return Observation(
+            field_id=field.id,
+            dataset_product_id=product.id,
+            variable_code=obs.variable_code,
+            value=obs.value,
+            unit=obs.unit,
+            observed_at=obs.observed_at,
+            period_start=obs.period_start,
+            period_end=obs.period_end,
+            time_support=obs.time_support.value,
+            spatial_support_type=obs.spatial_support_type.value,
+            spatial_resolution_m=obs.spatial_resolution_m,
+            quality_status=obs.quality_status.value,
+            evidence_class=obs.evidence_class.value,
+            uncertainty_value=obs.uncertainty_value,
+            uncertainty_type=obs.uncertainty_type,
+            is_synthetic=obs.is_synthetic,
+            ingestion_job_id=job.id,
+            retrieved_at=datetime.now(UTC),
+            processing_version=obs.processing_version,
+            metadata=obs.metadata,
+        )
+
+    def _quality_flags(row: Observation, obs) -> list[ObservationQualityFlag]:
+        return [
+            ObservationQualityFlag(
+                observation_id=row.id,
+                flag_code=flag.get("flag_code", "UNKNOWN"),
+                severity=flag.get("severity", "info"),
+                message=flag.get("message", ""),
+                details=flag.get("details", {}),
             )
-            try:
-                # A row-local savepoint protects earlier valid observations
-                # while keeping the outer import transaction intact.
-                with db.begin_nested():
-                    db.add(row)
+            for flag in obs.quality_flags
+        ]
+
+    def _persist_chunk(events: list[tuple[str, Any]], candidates: list[Any]) -> None:
+        """Persist one bounded chunk, retrying rows individually only on failure.
+
+        A failed chunk savepoint expires/rolls back every ORM object involved in
+        that attempt. The fallback therefore constructs fresh rows rather than
+        reusing those objects, which keeps the session usable after PostgreSQL
+        rejects a duplicate or another row-level integrity violation.
+        """
+        nonlocal inserted, rejected
+
+        successful = [False] * len(candidates)
+        try:
+            rows = [_new_observation(obs) for obs in candidates]
+            with db.begin_nested():
+                db.add_all(rows)
+                db.flush()
+                flags = [
+                    flag
+                    for row, obs in zip(rows, candidates)
+                    for flag in _quality_flags(row, obs)
+                ]
+                if flags:
+                    db.add_all(flags)
                     db.flush()
-                    for flag in obs.quality_flags:
-                        db.add(
-                            ObservationQualityFlag(
-                                observation_id=row.id,
-                                flag_code=flag.get("flag_code", "UNKNOWN"),
-                                severity=flag.get("severity", "info"),
-                                message=flag.get("message", ""),
-                                details=flag.get("details", {}),
-                            )
-                        )
-            except IntegrityError:
+            successful = [True] * len(candidates)
+        except IntegrityError:
+            # The chunk savepoint is gone; use a fresh row and a row-local
+            # savepoint so one duplicate/bad row cannot poison its neighbours.
+            for index, obs in enumerate(candidates):
+                row = _new_observation(obs)
+                try:
+                    with db.begin_nested():
+                        db.add(row)
+                        db.flush()
+                        flags = _quality_flags(row, obs)
+                        if flags:
+                            db.add_all(flags)
+                            db.flush()
+                    successful[index] = True
+                except IntegrityError:
+                    continue
+
+        candidate_index = 0
+        for event_kind, event_value in events:
+            if event_kind == "missing":
                 rejected += 1
+                warnings.append(event_value)
+                continue
+            if successful[candidate_index]:
+                inserted += 1
+            else:
+                rejected += 1
+                obs = event_value
                 warnings.append(
                     f"{obs.variable_code}@{obs.observed_at.date()} skipped: "
                     "duplicate or database integrity constraint."
                 )
+            candidate_index += 1
+
+    try:
+        events: list[tuple[str, Any]] = []
+        candidates: list[Any] = []
+        for obs in result.observations:
+            if obs.quality_status == "missing" and obs.value is not None:
+                events.append(
+                    (
+                        "missing",
+                        f"{obs.variable_code}@{obs.observed_at.date()} rejected: "
+                        "missing rows must not carry a value.",
+                    )
+                )
                 continue
-            inserted += 1
+            events.append(("candidate", obs))
+            candidates.append(obs)
+            if len(events) >= _OBSERVATION_BATCH_SIZE:
+                _persist_chunk(events, candidates)
+                events = []
+                candidates = []
+        if events:
+            _persist_chunk(events, candidates)
         db.commit()
         job.status = "succeeded"
         job.records_received = received

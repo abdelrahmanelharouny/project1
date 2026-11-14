@@ -36,16 +36,19 @@ def fixture_field(client, auth_headers):
     return _make_fixture_field(client, auth_headers)
 
 
-def _make_fixture_field(client, auth_headers):
+def _make_fixture_field(client, auth_headers, *, farm_id=None):
     """Farm + field whose geometry matches the raster fixture scene."""
     headers, _user = auth_headers
-    farm_resp = client.post(
-        "/api/v1/farms",
-        headers=headers,
-        json={"name": "Fixture Farm", "country_code": "EG", "timezone": "Africa/Cairo"},
-    )
-    assert farm_resp.status_code == 201, farm_resp.text
-    farm = farm_resp.json()
+    if farm_id is None:
+        farm_resp = client.post(
+            "/api/v1/farms",
+            headers=headers,
+            json={"name": "Fixture Farm", "country_code": "EG", "timezone": "Africa/Cairo"},
+        )
+        assert farm_resp.status_code == 201, farm_resp.text
+        farm = farm_resp.json()
+    else:
+        farm = {"id": farm_id}
     field_resp = client.post(
         f"/api/v1/farms/{farm['id']}/fields",
         headers=headers,
@@ -225,7 +228,9 @@ class TestProcessingIdempotency:
         from app.data_platform.processing import service as proc
 
         first_field_id = uuid.UUID(fixture_field["field"]["id"])
-        second_field = _make_fixture_field(client, auth_headers)
+        second_field = _make_fixture_field(
+            client, auth_headers, farm_id=fixture_field["farm"]["id"]
+        )
         second_field_id = uuid.UUID(second_field["field"]["id"])
         assert first_field_id != second_field_id
 
@@ -331,7 +336,7 @@ class TestProcessingIdempotency:
         assert result["skipped"] == []
 
         job_id = uuid.UUID(result["jobs"][0]["job_id"])
-        _process_inline(job_id)
+        _process_inline(db, job_id)
         db.expire_all()
         job = db.get(RasterProcessingJob, job_id)
         assert job.status == "succeeded", job.error
