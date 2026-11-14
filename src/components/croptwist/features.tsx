@@ -544,6 +544,7 @@ export function Features() {
   const selectedField = useCropTwistUi((s) => s.selectedField)
   const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const goToFarms = useCropTwistUi((s) => s.setActiveTab)
+  const navigateTo = useCropTwistUi((s) => s.navigateTo)
   const catalogQuery = useFeatureCatalog()
   const runsQuery = useFeatureRuns(selectedField?.id ?? null)
   const [openRunId, setOpenRunId] = useState<string | null>(null)
@@ -595,7 +596,15 @@ export function Features() {
                 {t('mainDesc')}
               </CardDescription>
             </div>
-            <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="max-w-full truncate border-stone-300 font-normal text-stone-600">
+                {selectedField.name}
+              </Badge>
+              {catalogQuery.data && (
+                <Badge variant="outline" className="font-mono text-[10px] font-normal text-stone-500">
+                  {catalogQuery.data.feature_catalog_version}
+                </Badge>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -610,13 +619,23 @@ export function Features() {
           <CardDescription>
             {runsQuery.isLoading
               ? t('loadingRuns')
-              : runs.length === 0
-                ? t('noRuns')
-                : t('runsCount', { count: runsQuery.data?.total ?? runs.length })}
+              : runsQuery.isError
+                ? t('runsUnavailable')
+                : runs.length === 0
+                  ? t('noRuns')
+                  : t('runsCount', { count: runsQuery.data?.total ?? runs.length })}
           </CardDescription>
         </CardHeader>
-        {runs.length > 0 && (
+        {runs.length > 0 ? (
           <CardContent className="space-y-2">
+            {runsQuery.isError && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">
+                <span>{t('runsUnavailable')}</span>
+                <Button variant="outline" size="sm" onClick={() => void runsQuery.refetch()}>
+                  {t('retryRuns')}
+                </Button>
+              </div>
+            )}
             {runs.map((run) => (
               <div
                 key={run.run_id}
@@ -660,6 +679,41 @@ export function Features() {
               </div>
             ))}
           </CardContent>
+        ) : runsQuery.isLoading ? (
+          <CardContent>
+            <p className="flex items-center gap-2 py-4 text-sm text-stone-500" role="status">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              {t('loadingRuns')}
+            </p>
+          </CardContent>
+        ) : runsQuery.isError ? (
+          <CardContent>
+            <div className="flex flex-col items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center" role="alert">
+              <p className="text-sm text-red-800">{t('runsUnavailable')}</p>
+              <Button variant="outline" size="sm" onClick={() => void runsQuery.refetch()}>
+                {t('retryRuns')}
+              </Button>
+            </div>
+          </CardContent>
+        ) : (
+          <CardContent>
+            <div className="ct-feature-empty" role="status">
+              <span className="ct-feature-empty-icon" aria-hidden>
+                <CalendarRange className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-stone-900">{t('noCalculatedFeatures')}</p>
+                <p className="mt-1 text-xs text-stone-500">{t('noRuns')}</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateTo('datahub', 'observations')}
+              >
+                {t('reviewObservations')}
+              </Button>
+            </div>
+          </CardContent>
         )}
       </Card>
 
@@ -676,12 +730,22 @@ export function Features() {
               </Badge>
             )}
           </CardTitle>
-          <CardDescription>
-            {t('catalogDesc')}
-          </CardDescription>
+          <CardDescription>{t('catalogDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
-          {catalogQuery.data && (
+          {catalogQuery.isLoading ? (
+            <p className="flex items-center gap-2 py-4 text-sm text-stone-500" role="status">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              {t('catalogLoading')}
+            </p>
+          ) : catalogQuery.isError ? (
+            <div className="flex flex-col items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center" role="alert">
+              <p className="text-sm text-red-800">{t('catalogUnavailable')}</p>
+              <Button variant="outline" size="sm" onClick={() => void catalogQuery.refetch()}>
+                {t('retryRuns')}
+              </Button>
+            </div>
+          ) : catalogQuery.data && catalogQuery.data.features.length > 0 ? (
             <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
               {catalogQuery.data.features.map((f) => (
                 <div key={f.feature_code} className="rounded-lg border border-stone-200 p-3">
@@ -704,6 +768,10 @@ export function Features() {
                 </div>
               ))}
             </div>
+          ) : (
+            <p className="rounded-lg border border-dashed border-stone-300 p-5 text-sm text-stone-500">
+              {t('catalogEmpty')}
+            </p>
           )}
         </CardContent>
       </Card>

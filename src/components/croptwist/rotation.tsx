@@ -839,11 +839,21 @@ function KnowledgeBrowser() {
 // ------------------------------------------------------------------ main
 
 export function Rotation() {
+  return <RotationWorkbench plannerMode={false} />
+}
+
+export function RotationPlanner() {
+  return <RotationWorkbench plannerMode />
+}
+
+function RotationWorkbench({ plannerMode }: { plannerMode: boolean }) {
   const t = useTranslations('rotation')
   const tCommon = useTranslations('common')
   const selectedField = useCropTwistUi((s) => s.selectedField)
   const setSelectedField = useCropTwistUi((s) => s.setSelectedField)
   const goToFarms = useCropTwistUi((s) => s.setActiveTab)
+  const navigateTo = useCropTwistUi((s) => s.navigateTo)
+  const [expertMode, setExpertMode] = useState(false)
   const [seasons, setSeasons] = useState<SeasonWindow[]>([
     { label: 'summer_2026', start: '2026-05-01', end: '2026-09-15' },
   ])
@@ -855,6 +865,38 @@ export function Rotation() {
 
   return (
     <div className="space-y-4">
+      {plannerMode ? (
+        <section className="space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">{t('overviewEyebrow')}</p>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{t('plannerTitle')}</h2>
+              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{t('plannerDesc')}</p>
+            </div>
+            <Button variant="outline" size="sm" className="w-full shrink-0 sm:w-auto" onClick={() => navigateTo('cropintel', 'rotation-overview')}>
+              {t('backToOverview')}
+            </Button>
+          </div>
+          {hasField ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Badge variant="outline" className="border-emerald-800/70 text-emerald-300">{selectedField.name}</Badge>
+              <div role="group" aria-label={t('modeToggleAria')} className="inline-flex rounded-lg border border-border bg-card p-1">
+                <Button type="button" size="sm" variant={expertMode ? 'ghost' : 'default'} aria-pressed={!expertMode} onClick={() => setExpertMode(false)}>
+                  {t('simpleMode')}
+                </Button>
+                <Button type="button" size="sm" variant={expertMode ? 'default' : 'ghost'} aria-pressed={expertMode} onClick={() => setExpertMode(true)}>
+                  {t('expertMode')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          <Alert className="border-emerald-900/40 bg-emerald-950/20">
+            <Info className="h-4 w-4 text-emerald-300" aria-hidden />
+            <AlertDescription className="text-xs leading-relaxed text-muted-foreground">{t('analysisOnlyNote')}</AlertDescription>
+          </Alert>
+        </section>
+      ) : null}
+
       {!hasField ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-stone-500">
@@ -930,11 +972,11 @@ export function Rotation() {
 
           <CropHistoryCard selectedField={selectedField} />
           <CandidatesCard selectedField={selectedField} seasons={seasons} />
-          <RunOptimizerCard selectedField={selectedField} seasons={seasons} />
+          {(!plannerMode || expertMode) ? <RunOptimizerCard selectedField={selectedField} seasons={seasons} /> : null}
         </>
       )}
 
-      <KnowledgeBrowser />
+      {(!plannerMode || expertMode) ? <KnowledgeBrowser /> : null}
     </div>
   )
 }

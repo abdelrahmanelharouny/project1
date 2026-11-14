@@ -16,7 +16,8 @@ import { FarmsFields } from '@/components/croptwist/farms-fields'
 import { Observations } from '@/components/croptwist/observations'
 import { Features } from '@/components/croptwist/features'
 import { DataPassport } from '@/components/croptwist/data-passport'
-import { Rotation } from '@/components/croptwist/rotation'
+import { Rotation, RotationPlanner } from '@/components/croptwist/rotation'
+import { RotationOverview } from '@/components/croptwist/rotation-overview'
 import { Water } from '@/components/croptwist/water'
 import { FieldStateView } from '@/components/croptwist/field-state'
 import Scenarios from '@/components/croptwist/scenarios'
@@ -44,7 +45,7 @@ import InsightsTab from '@/components/croptwist/p3/insights-tab'
 import AnalyticsHub from '@/components/croptwist/p7/analytics-hub'
 import ReportsTab from '@/components/croptwist/p3/reports-tab'
 import DeveloperTab from '@/components/croptwist/p3/developer-tab'
-import { DestinationRail } from '@/components/croptwist/navigation/destination-rail'
+import { WorkspaceSidebar } from '@/components/croptwist/navigation/workspace-sidebar'
 import { MobileNavSheet } from '@/components/croptwist/navigation/mobile-nav-sheet'
 import { SubPageRail } from '@/components/croptwist/navigation/sub-page-rail'
 import { ContextBar } from '@/components/croptwist/navigation/context-bar'
@@ -233,6 +234,9 @@ function SessionHeader({
 }) {
   const t = useTranslations('nav')
   const tCommon = useTranslations('common')
+  const tDestinations = useTranslations('destinations')
+  const destination = destinationById(activeTab)
+  const subPage = destination?.subPages.find((item) => item.id === activeSub)
 
   const handleShare = () => {
     navigator.clipboard
@@ -242,13 +246,14 @@ function SessionHeader({
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/85 backdrop-blur">
+    <header className="ct-topbar sticky top-0 z-40 border-b border-stone-200 bg-white/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-4 py-2 sm:gap-3 sm:px-6">
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2.5">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2.5 xl:hidden">
           <MobileNavSheet
             activeTab={activeTab}
             activeSub={activeSub}
             onNavigate={(tab, sub) => onNavigate(tab, sub)}
+            onOpenOnboarding={onOpenOnboarding}
           />
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-700 text-emerald-50">
             <Sprout className="h-4.5 w-4.5" aria-hidden />
@@ -260,6 +265,18 @@ function SessionHeader({
             </p>
           </div>
         </div>
+        <div className="hidden min-w-0 flex-1 items-center pl-2 xl:flex">
+          <div className="min-w-0 leading-tight">
+            <p className="truncate text-sm font-semibold text-stone-900">
+              {destination ? tDestinations(destination.labelKey) : 'CropTwist'}
+            </p>
+            {subPage ? (
+              <p className="truncate text-[11px] text-stone-500">
+                {tDestinations(`sub.${subPage.labelKey}`)}
+              </p>
+            ) : null}
+          </div>
+        </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
           <ContextBar className="mr-1 hidden xl:block" />
           <CommandPalette onNavigate={(tab, sub) => onNavigate(tab, sub)} />
@@ -269,7 +286,7 @@ function SessionHeader({
             onClick={onOpenOnboarding}
             aria-label={t('getStarted')}
             title={t('getStarted')}
-            className="h-10 w-10 text-stone-600 hover:text-stone-900"
+            className="hidden h-10 w-10 text-stone-600 hover:text-stone-900 sm:inline-flex"
           >
             <Sprout className="h-4 w-4" aria-hidden />
           </Button>
@@ -280,10 +297,17 @@ function SessionHeader({
             onClick={handleShare}
             aria-label={tCommon('shareView')}
             title={tCommon('shareView')}
-            className="h-10 w-10 text-stone-600 hover:text-stone-900"
+            className="hidden h-10 w-10 text-stone-600 hover:text-stone-900 sm:inline-flex"
           >
             <Link2 className="h-4 w-4" aria-hidden />
           </Button>
+          <span
+            className="ct-user-chip hidden 2xl:flex"
+            title={`${session.user.display_name} · ${session.user.email}`}
+            aria-label={session.user.display_name}
+          >
+            {session.user.display_name.trim().charAt(0).toUpperCase() || 'U'}
+          </span>
           <LocaleSwitcher />
           <Button
             variant="ghost"
@@ -297,8 +321,7 @@ function SessionHeader({
           </Button>
         </div>
       </div>
-      {/* Mobile/tablet context row: the field picker lives under the header
-          until the desktop layout can host it inline (≥lg). */}
+      {/* Keep the field picker reachable under the topbar below desktop widths. */}
       <div className="border-t border-stone-100 px-4 pb-2 pt-1.5 sm:px-6 xl:hidden">
         <ContextBar />
       </div>
@@ -342,6 +365,8 @@ const SUB_PAGE_CONTENT: Record<string, React.ReactNode> = {
   // promoted to URL-keyed sub-pages (blueprint §C2); `?sub=management`
   // resolves to `plan` forever via the SUB_ALIASES map.
   'cropintel:rotation': <Rotation />,
+  'cropintel:rotation-overview': <RotationOverview />,
+  'cropintel:rotation-planner': <RotationPlanner />,
   'cropintel:irrigation': <Water />,
   'cropintel:soil': <Soil />,
   'cropintel:plan': <PlanPage />,
@@ -485,47 +510,49 @@ export function Workspace() {
   const effectiveSub =
     activeSub && isValidSub(activeTab, activeSub) ? activeSub : defaultSubFor(activeTab) ?? ''
 
-  if (phase === 'checking') return <CheckingScreen />
-  if (phase === 'guest' || !session) return <AuthGate onAuthed={handleAuthed} />
+  if (phase === 'checking') return <div className="ct-app"><CheckingScreen /></div>
+  if (phase === 'guest' || !session) {
+    return <div className="ct-app"><AuthGate onAuthed={handleAuthed} /></div>
+  }
 
   return (
-    <div className="flex min-h-screen flex-col bg-stone-100">
-      <SessionHeader
-        session={session}
+    <div className="ct-app flex min-h-screen flex-col xl:flex-row">
+      <WorkspaceSidebar
         activeTab={activeTab}
-        activeSub={activeSub}
-        onNavigate={navigateTo}
-        onSignOut={handleSignOut}
-        onOpenOnboarding={() => setOnboardingOpen(true)}
+        activeSub={effectiveSub || null}
+        onNavigate={(tab, sub) => navigateTo(tab, sub)}
       />
-      <OnboardingWizard open={onboardingOpen} onOpenChange={setOnboardingOpen} />
+      <div className="ct-workspace-main flex min-w-0 flex-1 flex-col">
+        <SessionHeader
+          session={session}
+          activeTab={activeTab}
+          activeSub={activeSub}
+          onNavigate={navigateTo}
+          onSignOut={handleSignOut}
+          onOpenOnboarding={() => setOnboardingOpen(true)}
+        />
+        <OnboardingWizard open={onboardingOpen} onOpenChange={setOnboardingOpen} />
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-4 sm:px-6 sm:py-6">
-        <WorkspaceH1 activeTab={activeTab} activeSub={effectiveSub} />
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as DestinationId)}
-        >
-          {/* Desktop destination rail (≥xl — nine 44px items need ~1230px,
-              guaranteed by the max-w-7xl shell). Below xl the header hamburger
-              sheet is the navigation (audit P1/P7 — no horizontal strip). */}
-          <div className="hidden xl:block">
-            <DestinationRail activeTab={activeTab} onSelect={setActiveTab} />
-          </div>
+        <main className="w-full flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-7">
+          <WorkspaceH1 activeTab={activeTab} activeSub={effectiveSub} />
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as DestinationId)}
+          >
+            {DESTINATIONS.map((dest) => (
+              <TabsContent key={dest.id} value={dest.id} className="mt-0">
+                <DestinationBody
+                  destination={dest}
+                  activeSub={effectiveSub}
+                  onSelectSub={setActiveSub}
+                />
+              </TabsContent>
+            ))}
+          </Tabs>
+        </main>
 
-          {DESTINATIONS.map((dest) => (
-            <TabsContent key={dest.id} value={dest.id} className="mt-4">
-              <DestinationBody
-                destination={dest}
-                activeSub={effectiveSub}
-                onSelectSub={setActiveSub}
-              />
-            </TabsContent>
-          ))}
-        </Tabs>
-      </main>
-
-      <Footer />
+        <Footer />
+      </div>
     </div>
   )
 }

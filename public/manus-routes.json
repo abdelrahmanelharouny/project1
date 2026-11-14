@@ -5,6 +5,8 @@
     {"path": "/?tab=farms", "title": "Farms & Fields"},
     {"path": "/?tab=datahub", "title": "Data Hub"},
     {"path": "/?tab=cropintel", "title": "Crop Intelligence"},
+    {"path": "/?tab=cropintel&sub=rotation-overview", "title": "Crop Rotation Overview"},
+    {"path": "/?tab=cropintel&sub=rotation-planner", "title": "Rotation Planner"},
     {"path": "/?tab=geo", "title": "Map & Satellite"},
     {"path": "/?tab=decisions", "title": "Decision Center"},
     {"path": "/?tab=copilot", "title": "AI Copilot"},

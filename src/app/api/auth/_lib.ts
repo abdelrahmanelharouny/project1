@@ -33,6 +33,16 @@ export function isSecure(request: Request): boolean {
   }
 }
 
+function sessionCookieOptions(request: Request) {
+  const secure = isSecure(request)
+  return {
+    httpOnly: true,
+    sameSite: secure ? ('none' as const) : ('lax' as const),
+    secure,
+    path: '/',
+  }
+}
+
 /** Server-side call to the FastAPI backend (never sees XTransformPort). */
 export async function backend<T>(
   path: string,
@@ -102,8 +112,7 @@ export function setSessionCookies(
   request: Request,
   session: { token?: string; refresh_token?: string | null },
 ): NextResponse {
-  const secure = isSecure(request)
-  const base = { httpOnly: true, sameSite: 'lax' as const, secure, path: '/' }
+  const base = sessionCookieOptions(request)
   if (session.token) {
     response.cookies.set(ACCESS_COOKIE, session.token, { ...base, maxAge: ACCESS_MAX_AGE })
   }
@@ -116,9 +125,10 @@ export function setSessionCookies(
   return response
 }
 
-export function clearSessionCookies(response: NextResponse): NextResponse {
+export function clearSessionCookies(response: NextResponse, request: Request): NextResponse {
+  const base = sessionCookieOptions(request)
   for (const name of [ACCESS_COOKIE, REFRESH_COOKIE]) {
-    response.cookies.set(name, '', { httpOnly: true, path: '/', sameSite: 'lax', maxAge: 0 })
+    response.cookies.set(name, '', { ...base, maxAge: 0 })
   }
   return response
 }

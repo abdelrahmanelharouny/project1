@@ -36,6 +36,8 @@
     "scenes": "Scene catalog",
     "evidence": "Evidence gaps & actions",
     "rotation": "Rotation optimizer",
+    "rotationOverview": "Crop Rotation Overview",
+    "rotationPlanner": "Rotation Planner",
     "irrigation": "Irrigation planning",
     "soil": "Soil intelligence",
     "plan": "Management plan",

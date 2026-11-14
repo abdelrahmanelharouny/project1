@@ -79,8 +79,15 @@
   "runLine": "{start} ← {end} · {levels} · {count} قيمة",
   "hideDetails": "إخفاء التفاصيل",
   "details": "التفاصيل",
+  "noCalculatedFeatures": "لا توجد خصائص محسوبة بعد.",
+  "reviewObservations": "مراجعة القياسات",
+  "runsUnavailable": "تعذر تحميل الخصائص المحسوبة.",
+  "retryRuns": "إعادة المحاولة",
 
   "catalogTitle": "كتالوج الخصائص",
   "catalogDesc": "التعريفات بيانات مُصدَّرة: كل قيمة تسجّل إصدار الكتالوج ومرجع الصيغة التي حُسبت بها.",
-  "coverageMin": "تغطية ≥ {pct}%"
+  "coverageMin": "تغطية ≥ {pct}%",
+  "catalogLoading": "جارٍ تحميل كتالوج الخصائص…",
+  "catalogUnavailable": "تعذر تحميل كتالوج الخصائص.",
+  "catalogEmpty": "لا توجد تعريفات خصائص متاحة."
 }

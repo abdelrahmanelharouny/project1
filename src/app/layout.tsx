@@ -19,9 +19,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "CropTwist — Agricultural decision support",
   description:
-    "CropTwist brings field boundaries, observations and data passports together for calm, evidence-aware agronomic decisions. First vertical slice.",
+    "CropTwist brings field boundaries, observations and data passports together for clear, evidence-aware agricultural decisions.",
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/logo.svg",
   },
 };
 
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
 // was ever emitted. `viewportFit: "cover"` activates the existing safe-area
 // CSS without changing any layout on non-notched devices.
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
+  themeColor: "#0b1713",
   viewportFit: "cover",
 };
 
@@ -47,7 +47,7 @@ export default async function RootLayout({
   return (
     <html lang={locale} dir={dirFor(locale as Locale)} suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ct-theme antialiased bg-background text-foreground`}
       >
         <Providers>
           <NextIntlClientProvider locale={locale} messages={messages}>

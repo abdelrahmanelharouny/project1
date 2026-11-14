@@ -79,8 +79,15 @@
   "runLine": "{start} → {end} · {levels} · {count} values",
   "hideDetails": "Hide details",
   "details": "Details",
+  "noCalculatedFeatures": "No calculated features yet.",
+  "reviewObservations": "Review observations",
+  "runsUnavailable": "Calculated features could not be loaded.",
+  "retryRuns": "Retry",
 
   "catalogTitle": "Feature catalog",
   "catalogDesc": "Definitions are versioned data: every value records the catalog version and formula reference it was computed with.",
-  "coverageMin": "coverage ≥ {pct}%"
+  "coverageMin": "coverage ≥ {pct}%",
+  "catalogLoading": "Loading feature catalog…",
+  "catalogUnavailable": "Feature catalog could not be loaded.",
+  "catalogEmpty": "No feature definitions are available."
 }
