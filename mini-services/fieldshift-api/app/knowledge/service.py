@@ -117,6 +117,7 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
         )
 
     crops: dict[str, KnowledgeCrop] = {}
+    winning_crop_rows: dict[str, dbm.Crop] = {}
     for crop_row in crop_rows:
         pcode, pver = pack_meta[crop_row.pack_id]
         # Later pack versions win on crop_code collision (packs compose;
@@ -124,6 +125,7 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
         # Deterministic: the last row in (pack_version, pack_code) order wins.
         if crop_row.crop_code in crops:
             del crops[crop_row.crop_code]
+        winning_crop_rows[crop_row.crop_code] = crop_row
         family = crop_row.family
         crops[crop_row.crop_code] = KnowledgeCrop(
             crop_code=crop_row.crop_code,
@@ -142,7 +144,11 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
 
     for t in trait_rows:
         owner = next((c for c in crop_rows if c.id == t.crop_id), None)
-        if owner is None or owner.crop_code not in crops:
+        if (
+            owner is None
+            or owner.crop_code not in crops
+            or winning_crop_rows[owner.crop_code].id != owner.id
+        ):
             continue
         crop = crops[owner.crop_code]
         value = _trait_value(t, owner)
@@ -154,7 +160,11 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
 
     for w in window_rows:
         owner = next((c for c in crop_rows if c.id == w.crop_id), None)
-        if owner is None or owner.crop_code not in crops:
+        if (
+            owner is None
+            or owner.crop_code not in crops
+            or winning_crop_rows[owner.crop_code].id != owner.id
+        ):
             continue
         pcode, pver = pack_meta[w.pack_id]
         src = citations[w.source_id]
@@ -180,9 +190,16 @@ def load_knowledge(db: Session) -> KnowledgeBaseData:
     # be silently zero-filled (kc_initial=0.0), which would under-estimate
     # ETc — missing evidence must leave the estimate unevaluated, never zero.
     water_anchor_src: dict[str, tuple[Any, Any, Any, str]] = {}
-    for wp in water_rows:
+    for wp in sorted(
+        water_rows,
+        key=lambda row: (pack_meta[row.pack_id], row.growth_stage, str(row.id)),
+    ):
         owner = next((c for c in crop_rows if c.id == wp.crop_id), None)
-        if owner is None or owner.crop_code not in crops:
+        if (
+            owner is None
+            or owner.crop_code not in crops
+            or winning_crop_rows[owner.crop_code].id != owner.id
+        ):
             continue
         if wp.crop_variety_id is not None:
             continue  # variety-level Kc not resolved in this slice

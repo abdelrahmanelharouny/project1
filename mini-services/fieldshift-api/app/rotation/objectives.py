@@ -22,8 +22,10 @@ from app.rotation.problem import (
 )
 
 
-def _source_ref(crop: KnowledgeCrop, trait_code: str) -> dict[str, Any] | None:
-    t = crop.trait(trait_code)
+def _source_ref(
+    crop: KnowledgeCrop, trait_code: str, country_code: str | None = None
+) -> dict[str, Any] | None:
+    t = crop.resolve_trait(trait_code, country_code)
     if t is None:
         return None
     return {
@@ -54,7 +56,7 @@ def _refs_for_traits(
         crop = problem.knowledge.crops.get(crop_code or "")
         if crop is None:
             continue
-        ref = _source_ref(crop, trait_code)
+        ref = _source_ref(crop, trait_code, problem.farm.country_code)
         if ref is not None:
             refs[(ref["pack_version"], ref["source_key"])] = ref
     return tuple(refs.values())
@@ -103,13 +105,9 @@ def criterion_soil_health(
     scores: list[float] = []
     missing: list[str] = []
     sub_specs = [
-        ("legume_n_fixation", lambda c: 1.0 if c.is_legume else None,
-         "crop flag is_legume (descriptor)"),
-        ("cover_crop_capability", lambda c: 1.0 if c.is_cover_crop_capable else None,
-         "crop flag is_cover_crop_capable (descriptor)"),
-        ("root_depth", lambda c: _bounded(c.numeric_trait("root_depth_effective_m"), 0.3, 1.8),
+        ("root_depth", lambda c, country: _bounded(c.numeric_trait("root_depth_effective_m", country), 0.3, 1.8),
          "trait root_depth_effective_m (FAO-56 Table 22)"),
-        ("n_fixation_capacity", lambda c: _bounded(c.numeric_trait("n_fixation_capacity_kg_ha"), 0, 200),
+        ("n_fixation_capacity", lambda c, country: _bounded(c.numeric_trait("n_fixation_capacity_kg_ha", country), 0, 200),
          "trait n_fixation_capacity_kg_ha (Herridge et al. 2008)"),
     ]
     for season, crop_code in _assigned(problem, assignment):
@@ -122,7 +120,7 @@ def criterion_soil_health(
         per_crop: list[float] = []
         missing_sub: list[str] = []
         for name, fn, _desc in sub_specs:
-            v = fn(crop)
+            v = fn(crop, problem.farm.country_code)
             if v is None:
                 missing_sub.append(name)
             else:
@@ -143,9 +141,8 @@ def criterion_soil_health(
             normalized=None,
             evaluable=False,
             missing_evidence=tuple(missing) or ("no seasons assigned",),
-            derivation="Mean of available soil-health sub-indicators (legume flag, "
-            "cover-crop capability, root depth, N-fixation capacity); missing "
-            "sub-indicators are skipped, never zero-filled.",
+            derivation="Mean of sourced numeric soil-health indicators (root depth "
+            "and N-fixation capacity); missing indicators are not zero-filled.",
         )
     return CriterionResult(
         criterion_code="soil_health_index",
@@ -155,8 +152,8 @@ def criterion_soil_health(
         normalized=None,
         evaluable=True,
         missing_evidence=tuple(missing),
-        derivation="Mean of available soil-health sub-indicators per season "
-        "(legume flag, cover capability, root depth, N-fixation capacity).",
+        derivation="Mean of sourced numeric soil-health indicators per season "
+        "(root depth and N-fixation capacity).",
         source_refs=(
             _refs_for_traits(problem, assignment, "root_depth_effective_m")
             + _refs_for_traits(problem, assignment, "n_fixation_capacity_kg_ha")
@@ -250,28 +247,29 @@ def criterion_diversity(
 def criterion_resilience(
     problem: RotationProblem, assignment: dict[str, str | None]
 ) -> CriterionResult:
-    """Fraction of seasons whose temperature evidence fell WITHIN the crop's
-    sourced optimum (evaluated during candidate generation). Seasons without
-    temperature evaluation are listed as missing, never zero."""
+    """Temperature-fit screen: fraction of evaluated seasons inside the crop's
+    sourced optimum. Missing temperature evidence is excluded from the
+    denominator and listed; this is not a crop-yield forecast."""
     good = 0
     missing: list[str] = []
-    total = 0
+    evaluated = 0
     for season, crop_code in _assigned(problem, assignment):
         if crop_code is None:
             continue
-        total += 1
         assessment = problem.candidates.get(season.label, {}).get(crop_code)
         if assessment is None:
             missing.append(f"{season.label}: unevaluated candidate '{crop_code}'")
             continue
         codes = {r["code"] for r in assessment.reasons}
         if "temperature_within_optimum" in codes:
+            evaluated += 1
             good += 1
         elif any(c.startswith("temperature_") for c in codes):
+            evaluated += 1
             pass  # evaluated but outside optimum → contributes 0
         else:
             missing.append(f"{season.label}: temperature not evaluated for '{crop_code}'")
-    if not total or (good == 0 and missing):
+    if not evaluated:
         return CriterionResult(
             criterion_code="climate_resilience_index",
             raw_value=None,
@@ -281,18 +279,20 @@ def criterion_resilience(
             evaluable=False,
             missing_evidence=tuple(missing) or ("no seasons assigned",),
             derivation="Fraction of seasons with temperature evidence inside the crop's "
-            "sourced optimum range (candidate-generation outcome).",
+            "sourced optimum range (candidate-generation outcome); a temperature-fit "
+            "screen, not a crop-yield forecast.",
         )
     return CriterionResult(
         criterion_code="climate_resilience_index",
-        raw_value=round(good / total, 4),
+        raw_value=round(good / evaluated, 4),
         unit="fraction 0..1",
         direction="maximize",
         normalized=None,
         evaluable=True,
         missing_evidence=tuple(missing),
         derivation="Fraction of seasons with temperature evidence inside the crop's "
-        "sourced optimum range (candidate-generation outcome).",
+        "sourced optimum range among seasons with temperature evidence "
+        "(candidate-generation outcome); a temperature-fit screen, not a crop-yield forecast.",
         source_refs=_refs_for_traits(problem, assignment, "temp_opt_min_degC"),
     )
 
@@ -308,7 +308,11 @@ def criterion_erosion(
         if crop_code is None:
             continue
         crop = problem.knowledge.crops.get(crop_code)
-        duration = crop.numeric_trait("duration_days_total") if crop else None
+        duration = (
+            crop.numeric_trait("duration_days_total", problem.farm.country_code)
+            if crop
+            else None
+        )
         if duration is None:
             missing.append(f"{season.label}: duration unknown for '{crop_code}'")
         else:
@@ -497,12 +501,14 @@ def weighted_objective(solution: StrategySolution) -> tuple[float | None, dict[s
     criteria; skipped weights are reported with reasons (never silently dropped)."""
     weights = solution.profile_weights
     evaluable = {c.criterion_code: c for c in solution.criteria if c.evaluable and c.normalized is not None}
-    skipped: dict[str, str] = {}
+    # Keep per-season score omissions from the optimizer visible even if other
+    # seasons supplied enough evidence for the criterion to remain in use.
+    skipped: dict[str, str] = dict(solution.skipped_weights)
     total_w = 0.0
     effective: dict[str, float] = {}
     for code, w in weights.items():
         if w <= 0:
-            skipped[code] = "weight is zero"
+            skipped.setdefault(code, "weight is zero")
             continue
         crit = evaluable.get(code)
         if crit is None:
@@ -512,7 +518,7 @@ def weighted_objective(solution: StrategySolution) -> tuple[float | None, dict[s
             reason = "criterion not evaluable from available evidence"
             if missing is not None and missing.missing_evidence:
                 reason += f": {missing.missing_evidence[0]}"
-            skipped[code] = reason
+            skipped.setdefault(code, reason)
             continue
         effective[code] = w
         total_w += w

@@ -6,6 +6,7 @@ tests start the executor explicitly and shut it down after each test.
 
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -75,20 +76,37 @@ class TestExecutor:
         finally:
             jobs.shutdown_workers()
 
-    def test_stale_running_row_marked_interrupted(self, monkeypatch, db):
-        """'running' rows found at startup are failed, not re-executed."""
+    def test_stale_ownerless_running_row_fails_closed(
+        self, monkeypatch, db, farm_with_field
+    ):
+        """Actually stale legacy rows fail closed; they are never replayed."""
         executed = []
-        jobs.register_kind("stale_kind", lambda jid, p: executed.append(jid))
-        row = BackgroundJob(kind="stale_kind", status="running", started_at=None)
+        ingestion = IngestionJob(
+            field_id=uuid.UUID(farm_with_field["field"]["id"]),
+            provider_code="synthetic",
+            status="running",
+            request_parameters={"variables": [], "options": {}},
+        )
+        db.add(ingestion)
+        db.flush()
+        row = BackgroundJob(
+            kind="ingestion",
+            status="running",
+            ref_kind="ingestion",
+            ref_id=ingestion.id,
+            started_at=None,
+            updated_at=datetime.now(UTC) - timedelta(hours=7),
+        )
         db.add(row)
         db.commit()
+        jobs.register_kind("ingestion", lambda jid, p: executed.append(jid))
         monkeypatch.setattr(settings, "job_workers", 1)
         assert jobs.start_workers() == 1
         try:
             time.sleep(0.3)
             db.refresh(row)
             assert row.status == "failed"
-            assert row.error == "interrupted by restart"
+            assert row.error == "stale running job has no valid owner lease; replay refused"
             assert executed == []  # never re-executed
         finally:
             jobs.shutdown_workers()

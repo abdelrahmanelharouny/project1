@@ -121,8 +121,9 @@ class KnowledgeCrop:
                 return regional
         return self.traits.get(code)
 
-    def numeric_trait(self, code: str) -> float | None:
-        t = self.traits.get(code)
+    def numeric_trait(self, code: str, country_code: str | None = None) -> float | None:
+        """Numeric value using the same region-first resolution as citations."""
+        t = self.resolve_trait(code, country_code)
         return t.value_numeric if t else None
 
 

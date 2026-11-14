@@ -114,5 +114,6 @@ CI (`.github/workflows/ci.yml`) runs backend migration checks, pytest and API/br
 - Platform-wide docs: [`docs/`](docs/) — architecture, scientific deepening program, milestone records (`docs/m6b/`, `docs/m6c/`, `docs/m7/`), data dictionary, diagrams
 - Current repository audit: [`docs/MASTER_REPOSITORY_AUDIT.md`](docs/MASTER_REPOSITORY_AUDIT.md)
 - Prioritized gap matrix: [`docs/MASTER_GAP_ANALYSIS.md`](docs/MASTER_GAP_ANALYSIS.md)
+- Remediation status for `remediation/legacy-hardening`: [`docs/implementation/REMEDIATION_STATUS_2026-11-14.md`](docs/implementation/REMEDIATION_STATUS_2026-11-14.md)
 - AI architecture and roadmap: [`docs/architecture/CROPTWIST_AI_ARCHITECTURE.md`](docs/architecture/CROPTWIST_AI_ARCHITECTURE.md)
 - Deployment guide: [`mini-services/fieldshift-api/docs/architecture/deployment.md`](mini-services/fieldshift-api/docs/architecture/deployment.md)

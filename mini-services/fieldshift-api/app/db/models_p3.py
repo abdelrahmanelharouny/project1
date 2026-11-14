@@ -199,6 +199,8 @@ class Invoice(Base, TimestampMixin):
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     provider_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider_invoice_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider_transaction_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("number", name="uq_invoice_number"),
@@ -207,6 +209,14 @@ class Invoice(Base, TimestampMixin):
         ),
         CheckConstraint("amount_cents >= 0", name="ck_invoice_amount"),
         Index("ix_invoices_org", organization_id),
+        Index(
+            "uq_invoice_provider_invoice_ref",
+            "provider_ref",
+            "provider_invoice_ref",
+            unique=True,
+            postgresql_where=text_("provider_invoice_ref IS NOT NULL"),
+        ),
+        Index("ix_invoice_provider_transaction_ref", provider_transaction_ref),
     )
 
 
@@ -219,6 +229,11 @@ class BillingEvent(Base):
     provider: Mapped[str] = mapped_column(String(30), nullable=False)
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     provider_event_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    provider_transaction_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider_subscription_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
+    )
     signature_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="received")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -235,6 +250,15 @@ class BillingEvent(Base):
             name="ck_billing_event_status",
         ),
         Index("ix_billing_events_created", "created_at"),
+        Index(
+            "uq_billing_event_provider_transaction",
+            "provider",
+            "provider_transaction_id",
+            unique=True,
+            postgresql_where=text_(
+                "provider_transaction_id IS NOT NULL AND status IN ('processed','duplicate')"
+            ),
+        ),
     )
 
 
@@ -422,6 +446,7 @@ class ReportJob(Base, TimestampMixin):
         CheckConstraint("date_to >= date_from", name="ck_report_period"),
         Index("ix_report_jobs_org_created", organization_id, text_("created_at DESC")),
         Index("ix_report_jobs_due", "next_run_at"),
+        Index("ix_report_jobs_field", "field_id"),
     )
 
 

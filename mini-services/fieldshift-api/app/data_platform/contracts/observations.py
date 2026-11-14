@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.errors import InvalidDateRange, UnsupportedVariable
 from app.data_platform.contracts.variables import SUPPORTED_VARIABLE_CODES
@@ -76,16 +76,16 @@ class CanonicalObservation(BaseModel):
     """
 
     variable_code: str
-    value: float | None = None
+    value: float | None = Field(default=None, allow_inf_nan=False)
     unit: str
     observed_at: datetime  # instant/day anchor, UTC
     period_start: datetime
     period_end: datetime
     time_support: TimeSupport = TimeSupport.daily
     spatial_support_type: SpatialSupportType = SpatialSupportType.field_intersection
-    spatial_resolution_m: float | None = None
+    spatial_resolution_m: float | None = Field(default=None, allow_inf_nan=False)
     quality_status: QualityStatus = QualityStatus.valid
-    uncertainty_value: float | None = None
+    uncertainty_value: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     uncertainty_type: str | None = None
     evidence_class: EvidenceClass = EvidenceClass.reanalysis_model_estimate
     is_synthetic: bool = False
@@ -99,6 +99,14 @@ class CanonicalObservation(BaseModel):
         if v.tzinfo is None:
             raise ValueError("timestamps must carry UTC timezone")
         return v.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def _validate_evidence_consistency(self) -> "CanonicalObservation":
+        if (self.value is None) != (self.quality_status == QualityStatus.missing):
+            raise ValueError("value must be None exactly when quality_status is missing")
+        if self.period_end < self.period_start:
+            raise ValueError("period_end must be on or after period_start")
+        return self
 
 
 class ProviderFetchResult(BaseModel):

@@ -14,8 +14,9 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.rate_limit import _reset_store
-from app.db.models import AuditEvent, Membership
+from app.db.models import AuditEvent, AuthToken, Membership, User
 from app.domains.identity.service import (
+    _issue_token_pair,
     confirm_email_verification,
     request_email_verification,
 )
@@ -194,12 +195,30 @@ class TestPasswordReset:
 class TestEmailVerification:
     def test_unverified_login_gated_until_verified(self, client, db, monkeypatch):
         monkeypatch.setattr(settings, "dev_mode", False)
-        data = _register(client)
-        email = data["user"]["email"]
+        email = f"unverified-{uuid.uuid4().hex[:8]}@test.local"
+        registered = client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": PASSWORD, "display_name": "Farmer"},
+        )
+        assert registered.status_code == 202
+        registration_body = registered.json()
+        assert registration_body["status"] == "verification_required"
+        assert "token" not in registration_body
+        assert "refresh_token" not in registration_body
+        user = db.scalar(select(User).where(User.email == email))
+        assert user is not None and user.email_verified is False
+        assert db.scalars(select(AuthToken).where(AuthToken.user_id == user.id)).all() == []
 
         gated = _login(client, email)
         assert gated.status_code == 403
         assert gated.json()["error"]["code"] == "EMAIL_NOT_VERIFIED"
+
+        # Even an access/refresh token issued by an older or alternate path
+        # cannot authenticate an unverified account.
+        access, _, refresh, _ = _issue_token_pair(db, user.id, uuid.uuid4())
+        db.commit()
+        assert client.get("/api/v1/me", headers={"Authorization": f"Bearer {access}"}).status_code == 403
+        assert client.post("/api/v1/auth/refresh", json={"refresh_token": refresh}).status_code == 403
 
         # API request keeps the generic shape (no token leaked outside dev_mode).
         resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
@@ -221,6 +240,16 @@ class TestRbacMatrix:
     def test_role_matrix_and_last_owner_guard(self, client, db):
         owner = _register(client)  # org A
         owner_headers = {"Authorization": f"Bearer {owner['token']}"}
+        subscription = client.post(
+            "/api/v1/billing/subscription",
+            headers=owner_headers,
+            json={
+                "organization_id": owner["organization"]["id"],
+                "plan_code": "starter",
+                "billing_period": "monthly",
+            },
+        )
+        assert subscription.status_code == 200, subscription.text
         farm_resp = _create_farm(client, owner_headers, "Home Farm")
         assert farm_resp.status_code == 201, farm_resp.text
         farm = farm_resp.json()
@@ -246,14 +275,16 @@ class TestRbacMatrix:
         viewer_membership_id = member_payload["id"]
         assert {"id", "user_id", "email", "display_name", "role_code", "status", "created_at"} <= set(member_payload)
 
-        # Farm creation targets the principal's OLDEST active membership org
-        # (deterministic — their own registration org). A viewer may still
-        # create farms THERE (they own that org); what RBAC forbids is
-        # touching org A: farm mutation, members, engine runs.
+        # Farm creation must target the selected organization explicitly for
+        # multi-organization principals; it must not guess the oldest member.
         own_farm = client.post(
             "/api/v1/farms",
             headers=viewer_headers,
-            json={"name": "Viewer Own Farm", "country_code": "EG"},
+            json={
+                "organization_id": viewer["organization"]["id"],
+                "name": "Viewer Own Farm",
+                "country_code": "EG",
+            },
         )
         assert own_farm.status_code == 201, own_farm.text
 
@@ -296,6 +327,21 @@ class TestRbacMatrix:
             ).status_code
             == 403
         )
+
+        # Promote the viewer to org_admin, then prove equal role rank cannot
+        # grant owner through the legacy farm-member mutation route.
+        promoted = client.patch(
+            f"/api/v1/farms/{farm['id']}/members/{viewer_membership_id}",
+            headers=owner_headers,
+            json={"role_code": "org_admin"},
+        )
+        assert promoted.status_code == 200, promoted.text
+        elevation = client.patch(
+            f"/api/v1/farms/{farm['id']}/members/{viewer_membership_id}",
+            headers=viewer_headers,
+            json={"role_code": "owner"},
+        )
+        assert elevation.status_code == 403
 
         members = client.get(
             f"/api/v1/farms/{farm['id']}/members", headers=owner_headers

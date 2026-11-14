@@ -5,6 +5,7 @@ All tests construct the pure dataclasses directly — no database, no HTTP
 (ADR-0015: the decision core is independent of ORM/HTTP).
 """
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -278,6 +279,31 @@ class TestCandidateGeneration:
         ph_reason = next(r for r in assessment.reasons if r["code"] == "ph_outside_optimum")
         assert "global_soil_prediction" in ph_reason["message"]
 
+    def test_numeric_trait_uses_region_override_and_keeps_global_fallback(self):
+        crop = _crop("maize", duration=140)
+        global_trait = crop.traits["duration_days_total"]
+        crop.traits["duration_days_total@EG"] = replace(
+            global_trait, value_numeric=90, region_code="EG", pack_version="kp-eg-2"
+        )
+        assert crop.numeric_trait("duration_days_total", "EG") == 90
+        assert crop.numeric_trait("duration_days_total", "US") == 140
+
+    def test_seasonal_precipitation_is_not_compared_to_annual_reference(self):
+        crop = _crop(
+            "maize",
+            duration=120,
+            windows=[_window("05-01", "06-01")],
+            traits_extra={"precip_min_annual_mm": 700.0},
+        )
+        from app.rotation.candidates import generate_candidates
+
+        assessment = generate_candidates(_knowledge([crop]), _farm())["s2025"]["maize"]
+        reason_codes = {reason["code"] for reason in assessment.reasons}
+        missing_codes = {dimension["code"] for dimension in assessment.unevaluated_dimensions}
+        assert "precipitation_below_reference_range" not in reason_codes
+        assert "precipitation_temporal_support" in missing_codes
+        assert assessment.status != "eligible"
+
 
 # ------------------------------------------------------------- optimizer
 
@@ -338,6 +364,37 @@ class TestOptimizerConstraints:
         from app.rotation.optimizer import InfeasibleResult
         assert isinstance(result, InfeasibleResult)
         assert any(c["constraint"] == "water_allocation" for c in result.conflicts)
+
+    def test_water_scores_average_all_seasons_instead_of_reusing_first(self):
+        crops = self._admissible_two()
+        second = SeasonSpec(label="s2026", start_date=date(2026, 5, 1), end_date=date(2026, 9, 15))
+        problem = _problem(crops, seasons=(SUMMER, second))
+        from app.rotation.optimizer import _per_crop_scores
+
+        for season_label, values in {
+            "s2025": {"barley": 10.0, "wheat": 60.0},
+            "s2026": {"barley": 90.0, "wheat": 60.0},
+        }.items():
+            for crop_code, water_value in values.items():
+                problem.candidates[season_label][crop_code] = CandidateAssessment(
+                    crop_code=crop_code,
+                    status="eligible",
+                    water_requirement_mm=water_value,
+                )
+        scores, _ = _per_crop_scores(problem, ["barley", "wheat"])
+        assert scores["water_requirement_mm"]["barley"] > scores["water_requirement_mm"]["wheat"]
+
+    def test_incomplete_water_evidence_omits_weighted_criterion(self):
+        crops = [
+            _crop("barley", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.3, 1.15, 0.25)),
+            _crop("wheat", "poaceae", duration=135, windows=[_window("05-01", "06-01")], kc=None),
+        ]
+        problem = _problem(crops)
+        from app.rotation.optimizer import _per_crop_scores
+
+        scores, skipped = _per_crop_scores(problem, ["barley", "wheat"])
+        assert "water_requirement_mm" not in scores
+        assert "water_requirement_mm" in skipped
 
     def test_confirmed_rotation_break_enforced_pairwise(self):
         crops = [
@@ -402,8 +459,8 @@ class TestOptimizerConstraints:
 class TestObjectivesAndPareto:
     def _solutions(self):
         crops = [
-            _crop("barley", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.3, 1.15, 0.25), traits_extra={"root_depth_effective_m": 1.0}),
-            _crop("soybean", "fabaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.4, 1.15, 0.5), legume=True, cover=True, traits_extra={"root_depth_effective_m": 1.0}),
+            _crop("barley", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.3, 1.15, 0.25), traits_extra={"root_depth_effective_m": 0.6}),
+            _crop("soybean", "fabaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.4, 1.15, 0.5), legume=True, cover=True, traits_extra={"root_depth_effective_m": 1.2, "n_fixation_capacity_kg_ha": 120}),
         ]
         problem = _problem(crops)
         from app.rotation import objectives as obj
@@ -466,8 +523,8 @@ class TestObjectivesAndPareto:
     def test_weight_change_changes_ranking(self):
         """Preference change must be able to change the recommended strategy."""
         crops = [
-            _crop("barley", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.3, 1.0, 0.25)),
-            _crop("soybean", "fabaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.5, 1.3, 0.6), legume=True, cover=True),
+            _crop("barley", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.3, 1.0, 0.25), traits_extra={"root_depth_effective_m": 0.6}),
+            _crop("soybean", "fabaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.5, 1.3, 0.6), legume=True, cover=True, traits_extra={"root_depth_effective_m": 1.2, "n_fixation_capacity_kg_ha": 120}),
         ]
         problem = _problem(crops)
         from app.rotation.optimizer import optimize_strategy
@@ -483,6 +540,18 @@ class TestObjectivesAndPareto:
         })
         assert dict(s_water.assignment)["s2025"] == "barley"
         assert dict(s_soil.assignment)["s2025"] == "soybean"
+
+    def test_incomplete_soil_data_omits_weighted_criterion(self):
+        crops = [
+            _crop("barley", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.3, 1.0, 0.25)),
+            _crop("soybean", "fabaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.5, 1.3, 0.6), traits_extra={"root_depth_effective_m": 1.2}),
+        ]
+        problem = _problem(crops)
+        from app.rotation.optimizer import _per_crop_scores
+
+        scores, skipped = _per_crop_scores(problem, ["barley", "soybean"])
+        assert "soil_health_index" not in scores
+        assert "soil_health_index" in skipped
 
     def test_missing_economics_never_zero(self):
         crops = [_crop("barley", "poaceae", duration=120, windows=[_window("05-01", "06-01")], kc=(0.3, 1.15, 0.25))]

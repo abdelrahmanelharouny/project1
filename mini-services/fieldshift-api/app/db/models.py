@@ -355,9 +355,9 @@ class BackgroundJob(Base, TimestampMixin):
     endpoint (``GET /api/v1/jobs/background``) regardless of job kind.
 
     Lifecycle: queued -> running -> succeeded | failed. Rows are never
-    hard-deleted (audit/provenance). Jobs left 'running' by a process crash
-    are marked failed('interrupted') on the next startup — only 'queued'
-    jobs are re-enqueued.
+    hard-deleted (audit/provenance). Running work is owned by one worker
+    generation; a lease heartbeat and monotonically increasing fencing token
+    govern progress, finalization, and crash recovery.
     """
 
     __tablename__ = "background_jobs"
@@ -376,6 +376,13 @@ class BackgroundJob(Base, TimestampMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    fencing_token: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text_("0")
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -383,7 +390,9 @@ class BackgroundJob(Base, TimestampMixin):
             name="ck_background_job_status",
         ),
         CheckConstraint("progress >= 0 AND progress <= 100", name="ck_background_job_progress"),
+        CheckConstraint("fencing_token >= 0", name="ck_background_job_fencing_token_nonnegative"),
         Index("ix_background_jobs_status", status),
+        Index("ix_background_jobs_status_lease", status, lease_expires_at),
         Index("ix_background_jobs_ref", ref_kind, ref_id),
         Index("ix_background_jobs_created_by", created_by),
     )

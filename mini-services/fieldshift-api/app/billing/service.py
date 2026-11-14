@@ -164,6 +164,7 @@ def _create_invoice(
         issued_at=datetime.now(UTC),
         paid_at=datetime.now(UTC) if amount_cents == 0 else None,
         provider_ref=subscription.provider_subscription_ref,
+        provider_invoice_ref=f"inv_{subscription.provider}_{uuid.uuid4().hex}",
     )
     db.add(invoice)
     return invoice
@@ -416,6 +417,123 @@ def resume_subscription(
 
 
 # -------------------------------------------------------- webhook pipeline
+def _parse_callback_identity(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate identity fields before any callback can mutate billing state."""
+    org_ref = payload.get("organization_id")
+    if not isinstance(org_ref, str) or not org_ref:
+        raise ValidationFailed("payload.organization_id is required.")
+    try:
+        organization_id = uuid.UUID(org_ref)
+    except (ValueError, AttributeError) as exc:
+        raise ValidationFailed("payload.organization_id must be a UUID.") from exc
+
+    subscription_ref = payload.get("provider_subscription_ref")
+    if not isinstance(subscription_ref, str) or not subscription_ref.strip():
+        raise ValidationFailed("payload.provider_subscription_ref is required.")
+    if len(subscription_ref) > 200:
+        raise ValidationFailed("payload.provider_subscription_ref is too long.")
+
+    identity: dict[str, Any] = {
+        "organization_id": organization_id,
+        "provider_subscription_ref": subscription_ref,
+    }
+    if event_type in ("payment.succeeded", "payment.declined"):
+        invoice_ref = payload.get("invoice_id")
+        try:
+            invoice_id = uuid.UUID(invoice_ref) if isinstance(invoice_ref, str) else None
+        except ValueError as exc:
+            raise ValidationFailed("payload.invoice_id must be a UUID.") from exc
+        if invoice_id is None:
+            raise ValidationFailed("payload.invoice_id is required.")
+
+        transaction_id = payload.get("provider_transaction_id")
+        if not isinstance(transaction_id, str) or not transaction_id.strip():
+            raise ValidationFailed("payload.provider_transaction_id is required.")
+        if len(transaction_id) > 200:
+            raise ValidationFailed("payload.provider_transaction_id is too long.")
+
+        amount_cents = payload.get("amount_cents")
+        if type(amount_cents) is not int or amount_cents < 0:
+            raise ValidationFailed("Payment requires a non-negative integer amount_cents.")
+        currency_code = payload.get("currency")
+        if not isinstance(currency_code, str) or len(currency_code.strip()) != 3:
+            raise ValidationFailed("Payment requires a three-letter currency.")
+        currency_code = currency_code.strip().upper()
+        if not currency_code.isalpha():
+            raise ValidationFailed("Payment currency must contain three letters.")
+
+        provider_invoice_ref = payload.get("provider_invoice_ref")
+        if provider_invoice_ref is not None and (
+            not isinstance(provider_invoice_ref, str)
+            or not provider_invoice_ref.strip()
+            or len(provider_invoice_ref) > 200
+        ):
+            raise ValidationFailed("payload.provider_invoice_ref is invalid.")
+        identity.update(
+            invoice_id=invoice_id,
+            provider_transaction_id=transaction_id,
+            amount_cents=amount_cents,
+            currency_code=currency_code,
+            provider_invoice_ref=provider_invoice_ref,
+        )
+    elif event_type == "subscription.renewal_due":
+        period_start = payload.get("period_start")
+        if not isinstance(period_start, str) or not period_start:
+            raise ValidationFailed("payload.period_start is required for a renewal.")
+        try:
+            parsed_start = datetime.fromisoformat(period_start.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValidationFailed("payload.period_start must be an ISO datetime.") from exc
+        if parsed_start.tzinfo is None:
+            raise ValidationFailed("payload.period_start must include a timezone.")
+        identity["period_start"] = parsed_start.astimezone(UTC)
+    return identity
+
+
+def _resolve_callback_subscription(
+    db: Session, *, provider: str, organization_id: uuid.UUID, subscription_ref: str
+) -> Subscription:
+    subscription = db.scalar(
+        select(Subscription)
+        .where(
+            Subscription.provider == provider,
+            Subscription.organization_id == organization_id,
+            Subscription.provider_subscription_ref == subscription_ref,
+        )
+        .with_for_update()
+        .limit(1)
+    )
+    if subscription is None:
+        raise NotFound("No subscription matches this provider identity.")
+    return subscription
+
+
+def _resolve_callback_invoice(
+    db: Session, *, identity: dict[str, Any], subscription: Subscription
+) -> Invoice:
+    invoice = db.scalar(
+        select(Invoice)
+        .where(
+            Invoice.id == identity["invoice_id"],
+            Invoice.organization_id == subscription.organization_id,
+            Invoice.subscription_id == subscription.id,
+        )
+        .with_for_update()
+    )
+    if invoice is None:
+        raise NotFound("No invoice matches this subscription payment.")
+    if invoice.provider_ref and invoice.provider_ref != subscription.provider_subscription_ref:
+        raise ValidationFailed("Invoice provider subscription does not match the callback.")
+    supplied_invoice_ref = identity.get("provider_invoice_ref")
+    if supplied_invoice_ref is not None and invoice.provider_invoice_ref != supplied_invoice_ref:
+        raise ValidationFailed("Invoice provider reference does not match the callback.")
+    if identity["amount_cents"] != invoice.amount_cents:
+        raise ValidationFailed("Payment amount does not match the referenced invoice.")
+    if identity["currency_code"] != invoice.currency_code.upper():
+        raise ValidationFailed("Payment currency does not match the referenced invoice.")
+    return invoice
+
+
 def process_billing_webhook(
     db: Session,
     *,
@@ -429,9 +547,11 @@ def process_billing_webhook(
 
     - Signature-invalid events are REJECTED (status 'failed') and never
       processed.
-    - (provider, provider_event_id) unique: replays return the original row
-      with status 'duplicate' and never double-process (no duplicate
-      invoices/transactions).
+    - (provider, provider_event_id) and successfully processed provider
+      transaction identity are idempotent, even when event IDs differ.
+    - Payment callbacks must bind an invoice UUID, transaction ID, and exact
+      provider subscription reference; there is deliberately no open-invoice
+      fallback.
     - Handled event types: payment.succeeded, payment.declined,
       subscription.renewal_due, subscription.expired.
     """
@@ -456,54 +576,171 @@ def process_billing_webhook(
             BillingEvent.provider == provider, BillingEvent.provider_event_id == provider_event_id
         )
     )
-    if existing is not None:
-        existing.status = "duplicate" if existing.status == "processed" else existing.status
+    if existing is not None and existing.status in ("processed", "duplicate"):
+        existing.status = "duplicate"
         db.commit()
         return existing
 
-    event = BillingEvent(
-        provider=provider,
-        event_type=event_type[:80],
-        provider_event_id=provider_event_id[:200],
-        signature_valid=True,
-        status="received",
-        payload=payload,
-    )
-    db.add(event)
+    if existing is None:
+        event = BillingEvent(
+            provider=provider,
+            event_type=event_type[:80],
+            provider_event_id=provider_event_id[:200],
+            signature_valid=True,
+            status="received",
+            payload=payload,
+        )
+        db.add(event)
+    else:
+        # A previously failed delivery can retry with the same provider event ID.
+        event = existing
+        event.event_type = event_type[:80]
+        event.signature_valid = True
+        event.status = "received"
+        event.error = None
+        event.payload = payload
+        event.processed_at = None
+        event.provider_transaction_id = None
+        event.provider_subscription_ref = None
+        event.invoice_id = None
     db.flush()
 
-    org_ref = payload.get("organization_id")
+    audit_transaction_id = payload.get("provider_transaction_id")
+    if not isinstance(audit_transaction_id, str) or not audit_transaction_id.strip():
+        audit_transaction_id = None
+    elif len(audit_transaction_id) > 200:
+        audit_transaction_id = None
+    audit_subscription_ref = payload.get("provider_subscription_ref")
+    if not isinstance(audit_subscription_ref, str) or len(audit_subscription_ref) > 200:
+        audit_subscription_ref = None
+    audit_invoice_id: uuid.UUID | None = None
+    subscription: Subscription | None = None
     try:
-        if not isinstance(org_ref, str) or not org_ref:
-            raise ValidationFailed("payload.organization_id is required.")
-        organization_id = uuid.UUID(org_ref)
-        subscription = entitlements.get_live_subscription(db, organization_id)
-        if subscription is None:
-            raise NotFound("No live subscription for this organization.")
+        identity = _parse_callback_identity(event_type, payload)
+        audit_subscription_ref = identity["provider_subscription_ref"]
+        audit_invoice_id = identity.get("invoice_id")
+        subscription = _resolve_callback_subscription(
+            db,
+            provider=provider,
+            organization_id=identity["organization_id"],
+            subscription_ref=identity["provider_subscription_ref"],
+        )
+        event.provider_subscription_ref = subscription.provider_subscription_ref
 
         if event_type == "payment.succeeded":
-            amount = int(payload.get("amount_cents") or 0)
-            _settle_payment(db, subscription=subscription, amount_cents=amount)
-        elif event_type == "payment.declined":
-            _enter_past_due(db, subscription=subscription)
-        elif event_type == "subscription.renewal_due":
-            _renew(db, subscription=subscription, paid=payload.get("simulate_outcome") != "declined")
-        elif event_type == "subscription.ended":
-            _record_transition(
+            invoice = _resolve_callback_invoice(db, identity=identity, subscription=subscription)
+            event.invoice_id = invoice.id
+            transaction_id = identity["provider_transaction_id"]
+            existing_transaction = db.scalar(
+                select(BillingEvent).where(
+                    BillingEvent.provider == provider,
+                    BillingEvent.provider_transaction_id == transaction_id,
+                    BillingEvent.status.in_(("processed", "duplicate")),
+                )
+            )
+            if existing_transaction is not None:
+                if (
+                    existing_transaction.invoice_id != invoice.id
+                    or existing_transaction.provider_subscription_ref
+                    != subscription.provider_subscription_ref
+                ):
+                    raise ValidationFailed(
+                        "Provider transaction identity conflicts with a prior payment."
+                    )
+                event.status = "duplicate"
+                event.processed_at = datetime.now(UTC)
+                db.commit()
+                return event
+            _settle_payment(
                 db,
                 subscription=subscription,
-                event_type="subscription.ended",
-                to_status="canceled",
-                actor_user_id=None,
-                details={"source": "provider_webhook"},
+                invoice=invoice,
+                amount_cents=identity["amount_cents"],
+                currency_code=identity["currency_code"],
+                provider_transaction_id=transaction_id,
             )
+            event.provider_transaction_id = transaction_id
+        elif event_type == "payment.declined":
+            invoice = _resolve_callback_invoice(db, identity=identity, subscription=subscription)
+            event.invoice_id = invoice.id
+            transaction_id = identity["provider_transaction_id"]
+            existing_transaction = db.scalar(
+                select(BillingEvent).where(
+                    BillingEvent.provider == provider,
+                    BillingEvent.provider_transaction_id == transaction_id,
+                    BillingEvent.status.in_(("processed", "duplicate")),
+                )
+            )
+            if existing_transaction is not None:
+                if (
+                    existing_transaction.invoice_id != invoice.id
+                    or existing_transaction.provider_subscription_ref
+                    != subscription.provider_subscription_ref
+                ):
+                    raise ValidationFailed(
+                        "Provider transaction identity conflicts with a prior payment."
+                    )
+                event.status = "duplicate"
+                event.processed_at = datetime.now(UTC)
+                db.commit()
+                return event
+            _enter_past_due(db, subscription=subscription, invoice=invoice)
+            event.provider_transaction_id = transaction_id
+        elif event_type == "subscription.renewal_due":
+            if subscription.status not in LIVE_STATUSES:
+                pass  # stale lifecycle event for a terminal subscription
+            elif identity["period_start"] < subscription.current_period_end:
+                pass  # already-applied or delayed renewal; never roll forward twice
+            elif identity["period_start"] > subscription.current_period_end:
+                raise ValidationFailed("Renewal period_start does not match the current period end.")
+            else:
+                _renew(
+                    db,
+                    subscription=subscription,
+                    paid=payload.get("simulate_outcome") != "declined",
+                    expected_period_start=identity["period_start"],
+                )
+        elif event_type in ("subscription.ended", "subscription.expired"):
+            if subscription.status in LIVE_STATUSES:
+                terminal_status = "expired" if event_type == "subscription.expired" else "canceled"
+                _record_transition(
+                    db,
+                    subscription=subscription,
+                    event_type=event_type,
+                    to_status=terminal_status,
+                    actor_user_id=None,
+                    details={"source": "provider_webhook"},
+                )
         else:
             raise ValidationFailed(f"Unhandled billing event type '{event_type}'.")
         event.status = "processed"
         event.processed_at = datetime.now(UTC)
     except Exception as exc:
-        event.status = "failed"
-        event.error = f"{type(exc).__name__}: {exc}"[:2000]
+        # A webhook is one atomic domain transaction. Discard every invoice,
+        # subscription, activity, and notification mutation before writing a
+        # separate failed-event audit row; never commit a partial settlement.
+        db.rollback()
+        failed_event = db.scalar(
+            select(BillingEvent).where(
+                BillingEvent.provider == provider,
+                BillingEvent.provider_event_id == provider_event_id,
+            )
+        )
+        if failed_event is None:
+            failed_event = BillingEvent(
+                provider=provider,
+                event_type=event_type[:80],
+                provider_event_id=provider_event_id[:200],
+                signature_valid=True,
+                payload=payload,
+            )
+            db.add(failed_event)
+        failed_event.status = "failed"
+        failed_event.error = f"{type(exc).__name__}: {exc}"[:2000]
+        failed_event.processed_at = None
+        failed_event.provider_transaction_id = audit_transaction_id
+        failed_event.provider_subscription_ref = audit_subscription_ref
+        failed_event.invoice_id = audit_invoice_id
         db.commit()
         raise
     db.commit()
@@ -511,10 +748,10 @@ def process_billing_webhook(
     try:
         from app.publicapi.emitters import emit_event
 
-        if isinstance(org_ref, str) and org_ref:
+        if subscription is not None:
             emit_event(
                 db,
-                uuid.UUID(org_ref),
+                subscription.organization_id,
                 "subscription.updated",
                 payload_id=str(event.id),
                 data={
@@ -531,22 +768,32 @@ def process_billing_webhook(
     return event
 
 
-def _settle_payment(db: Session, *, subscription: Subscription, amount_cents: int) -> None:
-    """Payment success: clear past_due/grace, open invoice → paid."""
+def _settle_payment(
+    db: Session,
+    *,
+    subscription: Subscription,
+    invoice: Invoice,
+    amount_cents: int,
+    currency_code: str,
+    provider_transaction_id: str,
+) -> None:
+    """Settle only the referenced invoice; never infer from open invoice order."""
     now = datetime.now(UTC)
-    open_invoice = db.scalar(
-        select(Invoice)
-        .where(
-            Invoice.organization_id == subscription.organization_id,
-            Invoice.status == "open",
-        )
-        .order_by(Invoice.issued_at.desc())
-        .limit(1)
-    )
-    if open_invoice is not None:
-        open_invoice.status = "paid"
-        open_invoice.paid_at = now
-    if subscription.status in ("past_due", "grace"):
+    if invoice.status == "paid":
+        if invoice.provider_transaction_ref in (None, provider_transaction_id):
+            return  # a delayed replay cannot emit a second notification
+        raise ValidationFailed("The referenced invoice was paid by a different transaction.")
+    if invoice.status != "open":
+        raise ValidationFailed("The referenced invoice is not open for payment.")
+    if amount_cents != invoice.amount_cents:
+        raise ValidationFailed("Payment amount does not match the referenced invoice.")
+    if currency_code != invoice.currency_code.upper():
+        raise ValidationFailed("Payment currency does not match the referenced invoice.")
+    invoice.status = "paid"
+    invoice.paid_at = now
+    invoice.provider_transaction_ref = provider_transaction_id
+    is_current_period = invoice.period_start == subscription.current_period_start.date()
+    if is_current_period and subscription.status in ("past_due", "grace"):
         _record_transition(
             db,
             subscription=subscription,
@@ -564,14 +811,20 @@ def _settle_payment(db: Session, *, subscription: Subscription, amount_cents: in
         category="billing",
         severity="info",
         title="Payment received",
-        body="Your latest invoice has been paid. Thank you.",
-        dedupe_key=f"billing:paid:{subscription.id}:{now.date().isoformat()}",
+        body="Your invoice has been paid. Thank you.",
+        dedupe_key=f"billing:paid:{invoice.id}",
+        commit=False,
     )
 
 
-def _enter_past_due(db: Session, *, subscription: Subscription) -> None:
+def _enter_past_due(db: Session, *, subscription: Subscription, invoice: Invoice) -> None:
     now = datetime.now(UTC)
-    if subscription.status == "past_due":
+    if (
+        invoice.status != "open"
+        or invoice.period_start != subscription.current_period_start.date()
+        or subscription.status not in LIVE_STATUSES
+        or subscription.status == "past_due"
+    ):
         return
     _record_transition(
         db,
@@ -589,14 +842,23 @@ def _enter_past_due(db: Session, *, subscription: Subscription) -> None:
         category="billing",
         severity="critical",
         title="Payment failed",
-        body="Your latest payment failed. Update your payment method to avoid service limits.",
-        dedupe_key=f"billing:failed:{subscription.id}:{now.date().isoformat()}",
+        body="A payment attempt for this invoice failed. Update your payment method to avoid service limits.",
+        dedupe_key=f"billing:failed:{invoice.id}",
+        commit=False,
     )
 
 
-def _renew(db: Session, *, subscription: Subscription, paid: bool) -> None:
+def _renew(
+    db: Session,
+    *,
+    subscription: Subscription,
+    paid: bool,
+    expected_period_start: datetime,
+) -> None:
     """Period rollover: honor cancel_at_period_end, expire trials, renew."""
     now = datetime.now(UTC)
+    if expected_period_start != subscription.current_period_end.astimezone(UTC):
+        raise ValidationFailed("Renewal period_start does not match the current period end.")
     if subscription.cancel_at_period_end:
         subscription.canceled_at = now
         _record_transition(
@@ -634,7 +896,18 @@ def _renew(db: Session, *, subscription: Subscription, paid: bool) -> None:
         currency_code=currency,
     )
     if not paid:
-        _enter_past_due(db, subscription=subscription)
+        invoice = db.scalar(
+            select(Invoice)
+            .where(
+                Invoice.subscription_id == subscription.id,
+                Invoice.period_start == start.date(),
+                Invoice.period_end == end.date(),
+            )
+            .order_by(Invoice.issued_at.desc())
+            .limit(1)
+        )
+        if invoice is not None:
+            _enter_past_due(db, subscription=subscription, invoice=invoice)
 
 
 def expire_stale_subscriptions(db: Session) -> int:
@@ -690,15 +963,33 @@ def simulate_sandbox_payment(
         raise Conflict("No live subscription.")
     if subscription.provider != "sandbox":
         raise ValidationFailed("Payment simulation is only available for the sandbox provider.")
+    open_invoices = list(
+        db.scalars(
+            select(Invoice)
+            .where(
+                Invoice.organization_id == organization_id,
+                Invoice.subscription_id == subscription.id,
+                Invoice.status == "open",
+            )
+            .with_for_update()
+        ).all()
+    )
+    if not open_invoices:
+        raise Conflict("No open invoice is available for sandbox payment simulation.")
+    if len(open_invoices) != 1:
+        raise Conflict("Sandbox payment simulation requires an explicit invoice when multiple are open.")
+    invoice = open_invoices[0]
+    if invoice.provider_invoice_ref is None:
+        invoice.provider_invoice_ref = f"inv_sandbox_{invoice.id}"
     provider = get_provider("sandbox")
     assert isinstance(provider, SandboxBillingProvider)
-    plan = db.get(Plan, subscription.plan_id)
-    amount, currency = _price_for(db, plan, subscription.billing_period) if plan else (0, "USD")
     result = provider.simulate_payment(
         outcome=outcome,
         subscription_ref=subscription.provider_subscription_ref or "",
-        amount_cents=amount or 0,
-        currency=currency,
+        invoice_id=str(invoice.id),
+        provider_invoice_ref=invoice.provider_invoice_ref,
+        amount_cents=invoice.amount_cents,
+        currency=invoice.currency_code,
     )
     payload = {
         "organization_id": str(organization_id),

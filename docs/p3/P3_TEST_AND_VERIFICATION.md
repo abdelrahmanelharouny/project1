@@ -1,9 +1,8 @@
 # P3 Test & Verification — structure and plan
 
-**Status: TEMPLATE.** Result cells marked **TBD** are to be filled by the integrator after the
-verification pass. This file deliberately contains **no fabricated results** — only the test
-structure, the static facts that are verifiable in the repo today, and the checklist of what must
-be exercised before P3 can be called verified.
+**Status: historical verification template plus a dated remediation result below.** Remaining
+**TBD** cells were not exercised by the focused integration mission and must not be treated as
+passed. This document deliberately contains **no fabricated results**.
 
 Suggested command preamble (match the existing house workflow in
 `docs/implementation/TEST_MATRIX.md`): backend `cd mini-services/fieldshift-api && pytest …`;
@@ -20,17 +19,18 @@ Static facts (verifiable in the tree today):
 | `tests/unit/test_publicapi_keys.py` | API key generation/hashing, scopes, rotation, throttling, auth dependency | 23 |
 | `tests/unit/test_report_renderers.py` | pdf/xlsx/csv renderers incl. Arabic shaping/fallback paths | 17 |
 | `tests/unit/test_webhooks_signing.py` | webhook HMAC signing/verification, backoff, delivery state machine | 28 |
+| `tests/unit/test_invoice_identity.py` | callback invoice/transaction/subscription identity parsing; synthetic sandbox identity | 7 cases (5 test functions) |
 
-Total existing P3 unit coverage: **68 tests in 3 files**. Everything else in this section is TBD.
+The original 68-test/3-file figure is a historical baseline and excludes the new billing identity tests; no current aggregate count is claimed here.
 
 | Area | Tests exist? | Result | Notes |
 |---|---|---|---|
 | API keys (hashing, scopes, rotate, throttle) | ✅ (above) | TBD | |
 | Webhook signing + retry/dead-letter | ✅ (above) | TBD | |
 | Report renderers (pdf/xlsx/csv, en/ar) | ✅ (above) | TBD | |
-| Billing service (start/change/cancel/resume, webhook pipeline idempotency, invoice numbering) | ❌ none yet | TBD | e.g. `test_billing_service.py` |
-| Entitlement resolution + quota/flag gates (incl. pass-through without live subscription) | ❌ none yet | TBD | e.g. `test_entitlements.py` |
-| Sandbox provider (checkout, HMAC verify, stale timestamp) | ❌ none yet | TBD | |
+| Billing service and invoice callback identity | ✅ partial | TBD | Unit identity parsing is in `test_invoice_identity.py`; API/service coverage is in `tests/integration/test_p3_billing_entitlements.py` and `tests/integration/test_invoice_callbacks.py` |
+| Entitlement resolution + quota/flag gates | ✅ partial | TBD | Existing basic gate/quota coverage is in `tests/integration/test_p3_billing_entitlements.py`; comprehensive flag/pass-through unit coverage remains TBD |
+| Sandbox provider (checkout, callback HMAC/stale timestamp, payment simulation) | ✅ partial | TBD | Test-mode simulation and synthetic payment identity are covered; provider adapter edge-case coverage remains TBD |
 | Orgs service (roles, last-owner guard, ownership transfer, invitations) | ❌ none yet | TBD | |
 | Onboarding state machine (required-step skip refusal) | ❌ none yet | TBD | |
 | Notifications service (dedupe, preferences, expiry) | ❌ none yet | TBD | |
@@ -40,14 +40,15 @@ Total existing P3 unit coverage: **68 tests in 3 files**. Everything else in thi
 
 ## 2. Integration tests (backend, `tests/integration/`, real PG+PostGIS)
 
-No P3 integration test file exists today (`tests/integration/` contains none matching
-p3/billing/org/notifications/reports/analytics/webhooks). Planned coverage:
+Billing and entitlement integration coverage exists in
+`tests/integration/test_p3_billing_entitlements.py`; the focused callback regressions are in
+`tests/integration/test_invoice_callbacks.py`. Other planned P3 integration areas remain TBD.
 
 | Scenario | File (suggested) | Result |
 |---|---|---|
 | Migration 0020 up/down/up from clean DB; seeded plan catalog + 13 entitlement keys per plan present | `test_p3_migrations.py` | TBD |
-| Full subscription lifecycle via API: start (trial) → sandbox pay succeeded → change plan → cancel at period end → resume → expire sweep | `test_p3_billing_flow.py` | TBD |
-| Billing webhook: valid HMAC signature processed; bad signature 403; replay → `duplicate`; malformed payload recorded + rejected | `test_p3_billing_flow.py` | TBD |
+| Existing billing coverage: sandbox test-mode payment; start/change/cancel/resume; signed callback success; bad signature rejection; event-ID replay; amount/currency mismatch | `tests/integration/test_p3_billing_entitlements.py` | TBD — existing cases; verification must be rerun on the integrated tree |
+| Invoice-bound callback regressions: overlapping invoices; delayed payment by exact invoice/amount; provider-transaction dedupe across event IDs; stale decline/ended/renewal; atomic rollback after notification flush | `tests/integration/test_invoice_callbacks.py` | Passed in focused remediation/PostGIS suite below; re-run after final integration |
 | 402 paywalls: farm/field creation over `max_farms`/`max_fields` with a subscribed org; reports quota; scenario quota — and pass-through for org-less users (P1/P2 flows unchanged) | `test_p3_entitlements_flow.py` | TBD |
 | Org lifecycle: create → invite (token once) → accept → role change → ownership transfer → remove; 403 matrix for insufficient roles | `test_p3_orgs_flow.py` | TBD |
 | Reports end-to-end: create csv sync (succeeded + download round-trip), pdf queued → scheduler executes → download; Arabic locale PDF; regenerate; schedule recurrence; retention expiry | `test_p3_reports_flow.py` | TBD |
@@ -184,3 +185,20 @@ Postgres recovered via WAL replay; `croptwist_test` dropped and reseeded
 by conftest; caches cleaned (~2 GB). No data loss (demo DB intact; plans
 count verified post-recovery). Operational note: **never kill pytest
 mid-run on this sandbox — always slice suites**.
+
+## 8. Focused remediation verification — 2026-11-14 (standalone correction worktree)
+
+These results belong to `fix/remediation-release-gates` before it was integrated with AI migrations
+0024/0025. They are not the final combined-branch result; the integrated Alembic chain and full suite
+must be rerun before release sign-off.
+
+| Suite | Command | Result | Limitations |
+|---|---|---|---|
+| Database-independent backend tests | `python scripts/run_db_independent_tests.py` | **1084 passed, 12 deselected, 2250 warnings, 8.82s** | Deselections are documented database-bound cases; historical P3-only counts are not additive to this total. |
+| Job ownership, quotas, seats, API-key races/retention, invoice callbacks, raster ownership | `pytest -o addopts='' -q tests/integration/test_job_ownership.py tests/integration/test_quota_reservation.py tests/integration/test_signup_seat_races.py tests/integration/test_api_key_races.py tests/integration/test_invoice_callbacks.py tests/integration/test_raster_job_ownership.py` | **31 passed, 0 failed, 14 warnings, 74.95s** | Dedicated local PostGIS 3.4.2 / PostgreSQL 16.15 disposable database; not the combined AI migration head. |
+| Isolated bounded API-key-retention regression | `pytest -o addopts='' -q tests/integration/test_api_key_races.py::test_purge_helper_deletes_bounded_expired_usage_and_idle_rate_rows` | **1 passed, 0 failed, 14 warnings, 0.11s** | Executed on the same private disposable PostGIS test database after its test-scoped data reset. |
+| Python syntax and whitespace | `python -m compileall -q app migrations tests`; `git diff --check` | **Passed** | Static checks only; do not imply live service connectivity. |
+
+Warnings include existing SQLAlchemy reserved-name deprecations for ORM attributes named `metadata` and
+the existing Starlette/httpx test-client deprecation. These were not hidden or treated as test failures.
+No live provider, SMTP, Earthdata acquisition, production database, or real payment settlement was used.

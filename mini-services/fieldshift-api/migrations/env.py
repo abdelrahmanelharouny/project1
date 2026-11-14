@@ -17,6 +17,7 @@ from app.db.models import Base
 import app.db.models_ai  # noqa: F401  (side-effect: registers AI tables)
 import app.db.models_p2  # noqa: F401  (side-effect: registers P2 tables)
 import app.db.models_p3  # noqa: F401  (side-effect: registers P3 commercial tables)
+import app.db.models_api_rate  # noqa: F401  (side-effect: registers shared API rate windows)
 import app.db.models_orchestration  # noqa: F401  (side-effect: registers AI Core traces)
 
 config = context.config

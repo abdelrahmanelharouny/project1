@@ -427,20 +427,47 @@ def start_scenario_execution(
             dbm.ScenarioExecutionRun.input_fingerprint == fingerprint,
         )
     )
-    if existing is not None:
-        if existing.run_status == exc.RUN_STATUS_FAILED:
-            db.delete(existing)  # failed runs carry no results; retry replaces them
-            db.commit()
-        else:
-            return existing  # idempotent replay of a live/finished run
+    if existing is not None and existing.run_status != exc.RUN_STATUS_FAILED:
+        return existing  # idempotent replay of a live/finished run
 
-    # P3 enforcement gate (Task 3): scenario-run monthly quota. Applies ONLY
-    # when the acting principal's organization context (the farm's org, with
-    # an active membership) has a live subscription — org-less / legacy
-    # personal flows (P1/P2 golden cases, seed/demo users) pass through
-    # untouched. Idempotent replays above return existing runs and are never
-    # re-counted. Policy helper lives in app/scenarios/service.py.
-    quota_org_id = scenario_service.enforce_scenario_run_quota(db, scenario, created_by)
+    # Resolve the active member's organization and lock its row. A missing
+    # organization context retains legacy personal/system behavior; members
+    # without a live subscription use the Free entitlement floor. Repeat the
+    # replay checks under the lock so concurrent duplicate requests return
+    # their winner before consuming quota.
+    quota_org_id = scenario_service.lock_scenario_run_quota(db, scenario, created_by)
+    if quota_org_id is not None:
+        if idempotency_key:
+            winner = db.scalar(
+                select(dbm.ScenarioExecutionRun).where(
+                    dbm.ScenarioExecutionRun.scenario_id == scenario.id,
+                    dbm.ScenarioExecutionRun.idempotency_key == idempotency_key,
+                )
+            )
+            if winner is not None:
+                return winner
+        locked_existing = db.scalar(
+            select(dbm.ScenarioExecutionRun).where(
+                dbm.ScenarioExecutionRun.scenario_id == scenario.id,
+                dbm.ScenarioExecutionRun.input_fingerprint == fingerprint,
+            )
+        )
+        if locked_existing is not None:
+            if locked_existing.run_status == exc.RUN_STATUS_FAILED:
+                # Keep its prior charge; this new admitted retry receives its
+                # own reservation in the upcoming execution-row transaction.
+                db.delete(locked_existing)
+                db.flush()
+            else:
+                return locked_existing
+        # This upsert remains uncommitted until the new run row is committed
+        # below. Failed calculations stay charged because that admission
+        # transaction has already committed before execution starts.
+        scenario_service.reserve_scenario_run_quota(db, quota_org_id)
+    elif existing is not None:
+        # Preserve the legacy retry behavior for runs that have no org quota.
+        db.delete(existing)
+        db.commit()
 
     now = datetime.now(UTC)
     run = dbm.ScenarioExecutionRun(
@@ -480,18 +507,6 @@ def start_scenario_execution(
         if winner is not None:
             return winner
         raise
-
-    # P3 enforcement gate (Task 3): meter the new run against the org's
-    # monthly usage counter (only when the quota gate above applied — i.e.
-    # the org has a live subscription).
-    if quota_org_id is not None:
-        from app.billing import entitlements
-
-        if entitlements.get_live_subscription(db, quota_org_id) is not None:
-            entitlements.increment_usage(
-                db, quota_org_id, entitlements.KEY_SCENARIO_RUNS_PER_MONTH
-            )
-            db.commit()
 
     _execute_run(
         db,
