@@ -36,6 +36,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -117,6 +118,10 @@ class AIRecommendation(Base, TimestampMixin):
         Index("ix_ai_recommendations_field_status", "field_id", "status"),
         Index("ix_ai_recommendations_field", "field_id"),
         Index("ix_ai_recommendations_fingerprint", "fingerprint"),
+        Index(
+            "uq_ai_recommendations_active_fingerprint", "field_id", "fingerprint",
+            unique=True, postgresql_where=text("status = 'active' AND fingerprint IS NOT NULL"),
+        ),
     )
 
 

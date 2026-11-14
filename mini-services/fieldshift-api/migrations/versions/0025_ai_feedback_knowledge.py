@@ -27,6 +27,15 @@ def upgrade() -> None:
             server_default=sa.text("'[]'::jsonb"),
         ),
     )
+    # The ORM/model contract permits model identifiers up to 160 characters;
+    # 0024 created this column at 100 characters.
+    op.alter_column(
+        "ai_execution_traces",
+        "model",
+        existing_type=sa.String(length=100),
+        type_=sa.String(length=160),
+        existing_nullable=True,
+    )
 
     op.create_table(
         "ai_answer_feedback",
@@ -46,11 +55,19 @@ def upgrade() -> None:
         sa.Column("model", sa.String(length=160), nullable=True),
         sa.Column("quality_review_consent", sa.Boolean(), nullable=False),
         sa.Column("consent_version", sa.String(length=40), nullable=False),
+        sa.Column("consented_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("lifecycle_state", sa.String(length=24), nullable=False, server_default="accepted"),
+        sa.Column("lifecycle_updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("lifecycle_updated_by", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("provenance", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column("outcome_verification_label", sa.String(length=32), nullable=False, server_default="unverified_user_reported"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("rating IN ('helpful','needs_improvement')", name="ck_ai_answer_feedback_rating"),
         sa.CheckConstraint("category IS NULL OR category IN ('factual_error','insufficient_evidence','unclear','unsafe','other')", name="ck_ai_answer_feedback_category"),
         sa.CheckConstraint("outcome IS NULL OR outcome IN ('not_observed','no_change','improved','worsened')", name="ck_ai_answer_feedback_outcome"),
+        sa.CheckConstraint("lifecycle_state IN ('accepted','rejected','modified','implemented','outcome_reported')", name="ck_ai_answer_feedback_lifecycle_state"),
+        sa.CheckConstraint("outcome_verification_label = 'unverified_user_reported'", name="ck_ai_answer_feedback_outcome_unverified"),
         sa.CheckConstraint("quality_review_consent IS TRUE", name="ck_ai_answer_feedback_consent"),
     )
     op.create_index("ix_ai_answer_feedback_org_created", "ai_answer_feedback", ["organization_id", "created_at"])
@@ -87,6 +104,7 @@ def upgrade() -> None:
         sa.CheckConstraint("processing_status IN ('pending_embedding','ready','failed')", name="ck_ai_knowledge_document_status"),
         sa.CheckConstraint("character_count > 0", name="ck_ai_knowledge_document_chars"),
         sa.UniqueConstraint("organization_id", "content_hash", "document_version", name="uq_ai_knowledge_document_org_hash_version"),
+        sa.UniqueConstraint("organization_id", "id", name="uq_ai_knowledge_document_org_id"),
     )
     op.create_index("ix_ai_knowledge_documents_org_status", "ai_knowledge_documents", ["organization_id", "processing_status"])
     op.create_index("ix_ai_knowledge_documents_org_language", "ai_knowledge_documents", ["organization_id", "language"])
@@ -95,13 +113,20 @@ def upgrade() -> None:
         "ai_knowledge_chunks",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("document_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("ai_knowledge_documents.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("document_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("chunk_index", sa.Integer(), nullable=False),
         sa.Column("text", sa.Text(), nullable=False),
         sa.Column("text_hash", sa.String(length=64), nullable=False),
         sa.Column("embedding", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("embedding_dimension", sa.Integer(), nullable=True),
+        sa.Column("embedding_updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.ForeignKeyConstraint(
+            ["organization_id", "document_id"],
+            ["ai_knowledge_documents.organization_id", "ai_knowledge_documents.id"],
+            ondelete="CASCADE",
+            name="fk_ai_knowledge_chunk_org_document",
+        ),
         sa.CheckConstraint("chunk_index >= 0", name="ck_ai_knowledge_chunk_index"),
         sa.CheckConstraint("embedding_dimension IS NULL OR embedding_dimension > 0", name="ck_ai_knowledge_embedding_dim"),
         sa.UniqueConstraint("document_id", "chunk_index", name="uq_ai_knowledge_chunk_document_index"),
@@ -122,4 +147,11 @@ def downgrade() -> None:
     op.drop_index("ix_ai_answer_feedback_user_created", table_name="ai_answer_feedback")
     op.drop_index("ix_ai_answer_feedback_org_created", table_name="ai_answer_feedback")
     op.drop_table("ai_answer_feedback")
+    op.alter_column(
+        "ai_execution_traces",
+        "model",
+        existing_type=sa.String(length=160),
+        type_=sa.String(length=100),
+        existing_nullable=True,
+    )
     op.drop_column("ai_execution_traces", "provider_attempts")

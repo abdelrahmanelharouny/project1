@@ -10,6 +10,7 @@ sweeps that must happen over time:
 - notifications: purge expired notifications
 - activity: prune old activity events (per organization)
 - reports retention: purge expired report artifacts
+- AI and public API retention: bounded trace, feedback, conversation, usage and rate-state sweeps
 
 Design rules:
 - Every task opens its own ``SessionLocal`` and is fully error-isolated:
@@ -155,6 +156,18 @@ def _purge_reports(session) -> str:  # type: ignore[no-untyped-def]
     return f"recurring_enqueued={len(copies)} purged={purged}"
 
 
+def _purge_ai_data(session) -> str:  # type: ignore[no-untyped-def]
+    from app.intelligence.orchestration.retention import purge_expired_ai_data
+
+    return str(purge_expired_ai_data(session, batch_size=1000))
+
+
+def _purge_public_api_state(session) -> str:  # type: ignore[no-untyped-def]
+    from app.publicapi.api_keys import purge_api_key_usage
+
+    return str(purge_api_key_usage(session, batch_size=1000))
+
+
 TASKS: tuple[PeriodicTask, ...] = (
     PeriodicTask("reports.execute_queued", 15, _execute_queued_reports),
     PeriodicTask("webhooks.retry_due", 30, _retry_webhooks),
@@ -162,6 +175,8 @@ TASKS: tuple[PeriodicTask, ...] = (
     PeriodicTask("notifications.purge_expired", 300, _purge_notifications),
     PeriodicTask("reports.recurring_and_retention", 300, _purge_reports),
     PeriodicTask("activity.prune", 900, _prune_activity),
+    PeriodicTask("ai.retention", 900, _purge_ai_data),
+    PeriodicTask("public_api.retention", 3600, _purge_public_api_state),
 )
 
 _thread: threading.Thread | None = None

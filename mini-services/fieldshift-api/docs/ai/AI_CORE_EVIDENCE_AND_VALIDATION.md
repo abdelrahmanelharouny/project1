@@ -1,40 +1,56 @@
 # AI Core Evidence and Response Validation
 
-## Source of truth
+**Status:** Describes current source-level behavior. It is not a claim of agronomic accuracy, test completion, live-provider operation, or production approval. Final verification counts belong in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md).
 
-The database and existing deterministic domain services remain the source of truth. The gateway reuses `app.intelligence.evidence.build_field_evidence(db, authorized_field)` and does not invent soil tests, water plans, satellite observations, rankings, or predictions. The evidence pack may contain field profile, latest successful climate/water/soil/rotation/management/vegetation results and `data_gaps`; selected context is filtered before provider use.
+## Evidence source and selected context
 
-Every normalized `EvidenceItem` carries:
+The database and existing deterministic domain services remain the source of truth. The Core reuses `app.intelligence.evidence.build_field_evidence(db, authorized_field)`. It does not create soil tests, water plans, satellite observations, risk scores, forecasts, rankings, or predictions. The current planner workflow first runs `collect_field_evidence`, then passes its schema-validated result to `synthesize_field_answer`.
 
-- Stable `evidence_id` (`field:<field UUID>`, `<domain>:<field UUID>`, or `data_gaps:<field UUID>`).
-- Capability, entity scope/ID, result type and `claim_class`.
-- Domain result value with units preserved by the source contract.
-- Observation period, source kind/ID/provider/acquisition time where discoverable.
-- Spatial resolution, processing version, evidence quality/freshness/cloud flags and limitations when present.
-- `model_confidence`/`recommendation_confidence` only if the source actually supplies them; the language model does not create confidence scores.
-- `status` (`available`, `partial`, `insufficient`, `unavailable`).
+The planner's seven evidence domains are `climate`, `water`, `soil`, `rotation`, `management`, `vegetation`, and `data_gaps`. Evidence selection always retains the authorized `field` profile and explicit data-gap metadata. An optional allowlisted request-domain list can narrow the selected domains but never authorizes the field. Water may include climate; rotation may include soil/climate/water; some explanatory vegetation questions include climate/water/soil/management. The selected pack is limited to 16,000 UTF-8 bytes before use in the provider-backed explanation path.
 
-Source references are discovered from the existing evidence structure, capped at 12 per envelope item. Missing domain entries are represented separately as `claim_class="missing_information"`, `status="insufficient"`; absence is not zero. The small `data_gaps` labels remain available even when the user narrows domain evidence so the response can explain what is missing.
+A normalized `EvidenceItem` carries:
 
-## Claim classes
+- Stable envelope ID and capability/entity scope (`field` plus the authorized field ID).
+- Result type and claim class (`verified_fact`, `derived_result`, `model_prediction`, `recommendation`, `general_knowledge`, `assumption`, or `missing_information`).
+- The source section's value with units preserved when present; no AI-generated confidence is added.
+- Observation period and up to 12 discovered source references when available.
+- Source-derived spatial resolution, processing version, freshness/cloud/evidence-quality indicators and limitations where available.
+- Source-provided `model_confidence`/`recommendation_confidence` only if the underlying service actually supplied it.
+- Status `available`, `partial`, `insufficient`, or `unavailable`.
 
-The response separates `verified_facts` (field-record/profile facts), `derived_results` (stored engine output), `predictions`, `recommendations`, `general_knowledge`, `assumptions`, and `missing_information`. Current AI Core tooling supplies only recorded/derived field evidence. It therefore returns empty prediction/recommendation/general-knowledge arrays. It does not promote LLM prose into a prediction or recommendation. A future result must retain its domain engine's own provenance, confidence semantics, freshness, status and limitations.
+Missing domain evidence is represented separately with `claim_class="missing_information"`, `status="insufficient"`; a missing value is not zero. The provider receives selected source evidence rather than authority to fetch arbitrary resources. Evidence normalization is an envelope, not a replacement source database.
 
-## Validation sequence
+## Claim separation and unsupported classes
 
-1. The advisor sanitizes the question and history, detects injection signals, wraps question/history/evidence/anomaly context as untrusted content, and HTML-escapes delimiter characters so payload text cannot close the wrapper.
-2. The existing structured advisor parser validates the response shape and checks citation labels against the current request evidence. One constrained regeneration is allowed after its validation failure; provider failure or repeated failure uses deterministic fallback behavior.
-3. AI Core adds a stricter gate: each factual sentence must contain inline `[evidence: LABEL]`; the label must belong to the selected evidence pack; cited numeric claims are checked against the corresponding cited section.
-4. The general numeric guard uses explicit dimensional normalization for supported aliases/conversions. Equal values with incompatible dimensions (for example `42.5 mm` and `42.5 kg/ha`) no longer compare as equal. Supported conversions include length (`mm/cm/m`), Celsius/Fahrenheit, percent/fraction, and `kg/ha`↔`Mg/ha`; unknown units are only comparable to the same normalized unit. A z-score magnitude such as `2.35 sigma below` can match a negative `-2.35 z` reference with the textual direction.
-5. The citation-specific numeric gate is intentionally more conservative: each numeric sentence must have exactly one inline evidence label and the number/unit must match a reference in that section without cross-section matching or unit conversion.
-6. When the strict Core check fails, unvalidated model prose is discarded. The service returns a fixed, localized fallback notice with a field citation and marks execution degraded/partial.
+The response separates recorded/profile facts (`verified_facts`) from stored deterministic engine outputs (`derived_results`). It does not promote model prose into domain predictions, recommendations, or cited agricultural knowledge. For the current Core, `predictions`, `recommendations`, and `general_knowledge` response arrays are empty. Model confidence is not calibrated or generated.
 
-## Important limitations
+Soil, water, climate, vegetation, stress/anomaly, spatial, and saved rotation explanations are partial views of existing evidence only. Crop suitability, field risk ranking, scenarios, and report generation are planned and not callable. Agricultural recommendations/prescriptions, yield/other prediction, general agricultural knowledge, and platform action/mutation are unavailable. A limitation or capability descriptor is not evidence that the capability ran.
 
-A citation label such as `[evidence: soil]` identifies a section; the current validators do **not** prove semantic entailment between each sentence and a particular source row, nor do they guarantee the section is the only source of the claim. Labels are not cryptographic references to individual claims. The numerical checker catches unsupported values/units, not false qualitative claims. A syntactically valid model answer can still be agronomically wrong; all operational claims require source data and domain review.
+## Current validation sequence
 
-The current model is instructed to avoid recommendations, predictions, diagnosis and general knowledge. Planner rules route explicit requests for these unsupported capabilities to `unavailable`/`planned`, and the Core response schema keeps those result arrays empty. New domain services must pass deterministic validators and agronomist-reviewed benchmark cases before their descriptors can be marked available.
+1. Existing advisor guards sanitize question/history and mark user text and selected evidence as untrusted, escaping delimiter characters used by prompt wrappers. Recent history is bounded and roles are constrained.
+2. The existing advisor's structured response/citation path validates its expected output and evidence labels; a constrained regeneration may be attempted by that advisor. This is not a provider-native JSON-schema guarantee for every provider or endpoint.
+3. AI Core adds a stricter check: factual sentences need inline `[evidence: LABEL]` citations, and labels must resolve to the current selected evidence pack.
+4. The Core numeric check associates a cited numeric sentence with its cited evidence section and requires the number/unit to match a reference in that section. It is deliberately conservative: no cross-section matching and no unit conversion at this final citation gate.
+5. Existing general numeric guards normalize explicitly supported dimensions/conversions (length, Celsius/Fahrenheit, percent/fraction, and `kg/ha`/`Mg/ha`); equal values with incompatible dimensions are not equal. Anomaly z-score magnitude/direction matching is handled by the existing guard.
+6. If the strict Core check fails, unvalidated model prose is discarded. The service substitutes a localized deterministic notice limited to recorded facts/deterministic results and marks the result degraded/partial. If the provider is blocked/unavailable, a fallback notice may be returned; it is not a provider-generated answer.
 
-## Context, freshness and prompt versioning
+The provider chain is configured in this order by default: Gemini `gemini-3.6-flash` → Groq `openai/gpt-oss-120b` → OpenRouter `nvidia/nemotron-3.5-super-vl:free`. Field data remains gated off by default; enabling Gemini/Groq requires `CROPTWIST_AI_ALLOW_FIELD_DATA_TO_PROVIDERS=true`, and OpenRouter also requires `CROPTWIST_OPENROUTER_ALLOW_FIELD_DATA=true`. Provider status is configuration-only and reports live connectivity unverified. Provider fallback does not bypass evidence validation.
 
-Prompt version is stored as `ai-core-advisor-v1`. Execution traces store a SHA-256 fingerprint of the selected evidence JSON, domain names and source IDs, but not the evidence values or complete prompt/answer. This supports change correlation, not full replay. Source timestamps/periods are carried when present; the Core does not independently decide that stale data are still fit for a specific crop decision. The domain owner must define freshness thresholds and quality rules in the analytical result contract.
+## Citation and semantic limitations
+
+An inline label such as `[evidence: soil]` identifies an evidence section, not an immutable source-row/claim binding. The current checks validate label membership and conservative numeric consistency; they do **not** prove semantic entailment, agronomic correctness, source freshness for a crop-specific decision, or that the labeled section is the only support for a sentence. A qualitative claim can be false while its citation label is valid. Stored data-quality indicators are forwarded where present; the Core does not independently recalculate source quality or define agronomic freshness thresholds.
+
+No citation should be fabricated for knowledge retrieval: the rights-aware knowledge primitives under `.../orchestration/knowledge.py` are separate from advisor synthesis, the embedding registry is empty by default, and no approved corpus/embedding adapter is configured. Retrieval requires same-organization, provider/model/dimension and freshness checks and an explicit embedding-sharing policy. Until source passages are actually retrieved and connected to synthesis, an LLM answer from general agricultural knowledge is unavailable rather than RAG-backed.
+
+## Traceability, history, and prompt version
+
+The current prompt version is `ai-core-advisor-v1`. The execution trace stores a SHA-256 fingerprint of selected evidence JSON, selected context names, source references, validation codes, provider attempts when reported, usage when actually reported, tool outcomes, and safe request/user/field/conversation identifiers. It omits the full prompt, raw question/answer, complete evidence values, and provider secrets. A fingerprint supports correlation but does not provide full replay.
+
+Core history is owner- and field-bounded; model context defaults to six turns and is sanitized/untrusted. Conversation APIs separately expose bounded stored transcripts only to their owner after field authorization. Transcript storage contains user and assistant content and is not the metadata-only trace.
+
+## Verification and promotion criteria
+
+Unit/contract tests should cover allowed evidence labels, missing-data semantics, citation omission, numeric/unit mismatch, cross-section numeric rejection, provider failure and fallback, prompt delimiter attacks, selected-domain filtering, output bounds, and Arabic planning/notice paths. Integration tests should cover field authorization, conversation owner/field isolation, trace metadata, privacy gates, feedback consent, tenant-scoped knowledge, and retention deletion against an isolated disposable database.
+
+Provider reliability tests are being updated by the provider workstream. No tests were executed for this documentation task, and no final suite count or live connectivity is claimed. See the linked integration engineering report for the authoritative completion ledger. Before any domain is marked operational beyond current stored-evidence explanation, its owner must supply source-backed evaluation, documented freshness/quality semantics, agronomist review where relevant, and release approval.

@@ -1,63 +1,64 @@
 # CropTwist AI Tool Registry and Capability Catalog
 
+**Status:** Describes current checked-out backend source. Discovery metadata is not evidence of live provider connectivity or completed release verification. Final verification counts are maintained in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md).
+
 ## Registry rules
 
-Tools are registered in `app/intelligence/orchestration/tools.py` with a unique name, description, Pydantic input/output schema, permission set, category, side-effect classification, timeout, output-byte limit, handler and confirmation flag. `ToolRegistry.execute` accepts only names present in the deterministic server-created plan, checks permissions independently of model output, rejects extra/invalid arguments, validates typed output, enforces the time/result budget and returns a `ToolInvocation` record. No model tool-call result is interpreted as authorization.
+Tools are declared in `app/intelligence/orchestration/tools.py` with a unique name, description, strict Pydantic input/output models, permission set, category, side-effect classification, deadline, output-byte ceiling, handler, normalized error codes, and confirmation flag. `ToolRegistry.execute` accepts a name only when both registered and included in the deterministic server-created plan. It rechecks permissions, rejects extra/invalid arguments, blocks side effects, enforces timeout and output limits, validates output, and returns a typed invocation record. Model prose or provider responses never authorize a tool.
 
-`ToolRegistry.execute_workflow` executes an ordered list of at most three `PlannedToolCall` steps. Each step declares a tool name, server-created arguments, approved context domains and prior-step dependencies. Later handlers receive only prior Pydantic-validated outputs in `AuthorizedAIContext.prior_tool_results`. Dependencies must point to earlier steps. Any failure is normalized to a safe code and the trace keeps completed/failing step outcomes. The response merger only accepts the registered common advisor output contract; conflicts, oversized merged evidence and oversized answers fail closed. Current planner rules emit one step; no multi-step agronomic workflow is registered yet.
+The workflow runner allows at most three ordered steps, validates each dependency as a reference to an earlier step, and passes only Pydantic-validated prior results to the next handler. Current planner rules emit the two-step evidence workflow described below. The registry also retains a one-step `answer_field_question` handler, but current planner output does not call it. The literal current tool name for the second step is `synthesize_field_answer`; there is no `answer_field_context` tool identifier in the checked-out source.
 
-The AI Core is read-only. A `CONTROLLED_ACTION` category or any non-`none` side effect is rejected with `ACTION_CONFIRMATION_REQUIRED` before a handler runs. An action requires a separate audited authorization/confirmation workflow; none exists here.
+The Core is read-only. Any `CONTROLLED_ACTION` category or non-`none` side effect is rejected with `ACTION_CONFIRMATION_REQUIRED` before its handler runs. No mutating or external-action tool is registered. A future action path requires a separate audited authorization and confirmation design.
 
-## Operational tool
+## Registered tools
 
-| Name | Category / effects | Permissions | Input | Output | Limits |
+| Name | Current planner use | Category / side effect | Required permissions | Input and output | Limits |
 |---|---|---|---|---|---|
-| `answer_field_question` | `analytical`, side effect `none` | `field.read`, `field.analysis.read` | `question` (1–2,000 characters), `locale` (`en`/`ar`) | `answer` (1–8,000 chars), `evidence_used` (≤40), `engine`, selected `evidence_pack` | 50 seconds; 64 KB JSON output; one registered call in today's planner. |
+| `collect_field_evidence` | Step 1 of current field explanation plan | `read_only` / `none` | `field.read`, `field.analysis.read` | `FieldAdvisorInput`: `question` (1–2,000 chars), `locale` (`en`/`ar`). `EvidenceCollectionOutput`: selected `evidence_pack` and `selected_domains` (up to 8). | 30-second handler timeout; 32 KB serialized result ceiling; selected evidence pack hard limit 16,000 UTF-8 bytes. |
+| `synthesize_field_answer` | Step 2; depends on step 1 | `analytical` / `none` | `field.read`, `field.analysis.read` | Same `FieldAdvisorInput`; `AdvisorToolOutput`: answer (1–8,000 chars), up to 40 `evidence_used` records, engine metadata, and evidence pack. | 50-second handler timeout; 64 KB serialized result ceiling. |
+| `answer_field_question` | Registered, not emitted by the current planner | `analytical` / `none` | `field.read`, `field.analysis.read` | Same input/output schemas; invokes the existing advisor after collection in a single handler. | 50-second handler timeout; 64 KB serialized result ceiling. |
 
-The handler requires a server-authorized field and provider, builds the existing read-only `build_field_evidence` pack, selects only approved domains (≤16,000 bytes), then calls the existing advisor validation path through the provider adapter. It does not create recommendations, write agronomic records, update a field, or call arbitrary SQL/filesystem/network/code tools.
+Registry-wide ceilings include at most three workflow calls, a 32 KB JSON tool-input limit, no more than 60 seconds per registered handler, and no more than 64 KB per tool output. These ceilings do not mean a three-step domain workflow currently exists.
+
+## Evidence domains used by the workflow
+
+The deterministic planner selects among seven stored evidence domains: `climate`, `water`, `soil`, `rotation`, `management`, `vegetation`, and `data_gaps`. Evidence selection always preserves the `field` profile and explicit data-gap metadata. A request's optional `context_domains` is allowlisted and can narrow the workflow selection; it is not authorization. The server derives the authorized field before reads.
+
+Deterministic context expansion includes climate with water, soil/climate/water with rotation, and climate/water/soil/management for some “why” vegetation questions. The existing evidence builder is the source of truth. Selecting a domain does not run its engine, create a new measurement, or upgrade the capability's availability status.
 
 ## Capability catalog
 
-`GET /api/v1/ai/capabilities` lists domain-level status and public gateway schemas. `GET /api/v1/ai/tools` lists actual tool registrations only, including their Pydantic schemas, timeout, output ceiling, normalized error codes, permissions, category and side-effect classification. These registries are intentionally distinct: a domain can have a planned contract without an executable tool.
+`GET /api/v1/ai/capabilities` returns domain descriptors and gateway schemas. `GET /api/v1/ai/tools` returns actual registered tools only. A planned or unavailable descriptor is not executable; the tool list is the callable registry.
 
-| Capability | Status | Scope/meaning | Critical limitation |
+| Capability | Status | Current meaning | Explicit limit |
 |---|---|---|---|
-| `field_evidence_answer` | available | Cited explanation via existing field evidence/advisor. | Explanation only; no generated actions. |
-| `crop_intelligence` | unavailable | Cited crop knowledge contract. | Curated knowledge is not retrieved by advisor. |
-| `soil_intelligence` | partial | Stored soil, nutrient, carbon and management results. | Does not run a new assessment. |
-| `water_intelligence` | partial | Stored water-plan and relevant climate evidence. | Does not calculate a new irrigation plan. |
-| `climate_intelligence` | partial | Stored feature-run climate metrics. | No live weather forecast. |
-| `vegetation_intelligence` | partial | Stored quality-gated satellite summary. | No disease/pest diagnosis or full raster-history tool. |
-| `stress_anomaly_screening` | partial | Existing statistical/spatial screening signals. | Not a diagnosis or authoritative urgency ranking. |
-| `crop_suitability` | planned | Future field/soil/climate/water/rotation adapter. | Not executable. |
-| `crop_rotation_explanation` | partial | Existing saved rotation result. | No new optimization or creation. |
-| `agricultural_recommendations` | unavailable | Future validated recommendations. | Model memory cannot prescribe an action. |
-| `agricultural_risk_ranking` | planned | Future deterministic cross-field ranking. | No model-generated ranking. |
-| `scenario_simulation` | planned | Future versioned simulation adapter. | No scenario is created or run. |
-| `predictive_analysis` | unavailable | Future validated models. | The LLM is not a predictive model. |
-| `gis_spatial_analytics` | partial | Existing spatial evidence can be explained. | No map rendering, new raster processing or cross-tenant spatial query. |
-| `intelligence_reporting` | planned | Future report-job integration contract. | Use existing report APIs and their confirmation/authorization. |
-| `platform_operations` | unavailable | Future controlled actions. | No mutation tool is registered. |
+| `field_evidence_answer` | `partial` | Deterministic evidence collection followed by validated field explanation when provider/privacy configuration allows it. | Explanation of stored evidence only; no generated actions or guaranteed provider response. |
+| `crop_intelligence` | `unavailable` | A reviewed, cited crop-knowledge contract is described. | No configured approved corpus/embedding adapter is retrieved by the advisor. |
+| `soil_intelligence` | `partial` | Explains stored soil, nutrient, carbon, and management results when present. | Does not run a new soil assessment. |
+| `water_intelligence` | `partial` | Explains an existing stored water plan and related climate evidence. | Does not calculate a new irrigation plan. |
+| `climate_intelligence` | `partial` | Explains stored climate feature-run outputs. | No live weather forecast. |
+| `vegetation_intelligence` | `partial` | Explains the latest stored quality-gated satellite-derived summary. | No disease/pest diagnosis or complete raster-history tool. |
+| `stress_anomaly_screening` | `partial` | Describes existing statistical/spatial screening signals. | Not a diagnosis or authoritative urgency ranking. |
+| `crop_suitability` | `planned` | Reserved adapter contract. | No validated suitability tool is registered. |
+| `crop_rotation_explanation` | `partial` | Explains a saved rotation result when available. | No creation, optimization, or ranking of a new rotation. |
+| `agricultural_recommendations` | `unavailable` | Future domain-owned, validated recommendations. | No prescription/action from model memory. |
+| `agricultural_risk_ranking` | `planned` | Reserved deterministic comparison/ranking contract. | No field or farm risk ranking is registered. |
+| `scenario_simulation` | `planned` | Reserved versioned scenario contract. | No scenario is created or simulated by the AI Core. |
+| `predictive_analysis` | `unavailable` | Future validated, domain-owned predictive model. | Includes yield prediction/forecasting; the LLM is not treated as a yield model. |
+| `gis_spatial_analytics` | `partial` | Explains spatial evidence already present in the field evidence pack. | No new raster processing, map rendering, or cross-field spatial query. |
+| `intelligence_reporting` | `planned` | Reserved report integration contract. | Report generation is not an AI Core tool; use the existing report API. |
+| `platform_operations` | `unavailable` | Future controlled operations. | No data mutation or external action is callable from this Core. |
 
-`partial` means a limited existing stored result can be explained; it does not mean the corresponding analytical engine is available through the AI Core.
+`partial` means a limited stored result can be explained, not that an analytical engine is available through the AI Core. Recommendation, yield/prediction, scenario, report, and action requests are explicitly unavailable or planned as shown; none is a hidden fallback.
 
 ## Future capability integration contract
 
-The Python adapter contract defines a server-only `DomainCapabilityRequest` with a trace ID, capability code, server-derived actor (user/org/role/permissions), authorized entity scope/ID, locale, selected context domains, evidence requirements and domain-specific `parameters`. A domain service returns `AnalyticalResultContract`: result ID, capability, entity/scope, result type, value/unit, observation period, source references, processing version, evidence quality, optional model/recommendation confidence, limitations and status. Public `CapabilityDescriptor.request_schema`/`response_schema` instead describe `AIRequest`/`AIResponse`; internal actor/resource fields are not exposed as client inputs.
+The internal server-only `DomainCapabilityRequest` contains trace ID, capability code, server-derived actor (user/organization/role/permissions), authorized entity scope/ID, locale, selected context domains, required evidence, and capability-specific parameters. `AnalyticalResultContract` defines a result ID, capability/entity/scope, result value/unit, observation period, source references, processing version, evidence quality, optional source-provided confidence, limitations, and status. Public `CapabilityDescriptor` request/response schemas describe the gateway's `AIRequest` and `AIResponse`, not internal actor or resource inputs.
 
-An integrating service must:
-
-1. Be owned by its domain workstream; do not reimplement that domain engine in a prompt.
-2. Provide strict input/output schemas and define freshness, quality, confidence and error semantics.
-3. Resolve/authorize the entity through the existing server identity/service before reading data; never accept model-supplied IDs or tenant scopes.
-4. Supply immutable source IDs/version/date/unit and explicit missing-data/quality flags.
-5. Add an explicit `CapabilityDescriptor` status; only mark it `available` after end-to-end tests pass.
-6. Register a tool with minimum permissions, `side_effect="none"` for read/analysis, bounded timeout/output, and no arbitrary query/network/code access.
-7. Add deterministic planner/evaluation cases, adversarial tests and owner-reviewed evidence-validation tests.
-8. For any write/external operation, keep it out of this read-only registry until a separately reviewed confirmation and audit workflow is implemented.
+A domain integration must remain owned by its domain workstream, authorize scope through existing identity services, define freshness/quality/confidence/error semantics, include immutable source IDs/version/date/unit and explicit gaps, and add planner, contract, adversarial, evidence, and owner-reviewed evaluation coverage. Register only after end-to-end validation; keep writes and external actions outside this registry until a separate confirmation and audit system is reviewed.
 
 ## Failure and trace contracts
 
-Tool invocation statuses are `succeeded`, `failed`, `timed_out`, or `denied`; failures expose only normalized error codes such as `TOOL_TIMEOUT`, `TOOL_INVALID_ARGUMENTS`, `TOOL_INVALID_OUTPUT`, `TOOL_OUTPUT_TOO_LARGE`, `TOOL_PERMISSION_DENIED`, and `ACTION_CONFIRMATION_REQUIRED`. Trace records store step name/category/effect/status/duration/output bytes/error code; they never store raw arguments or handler exceptions.
+Safe normalized tool failures include `TOOL_NOT_ALLOWED`, `TOOL_PERMISSION_DENIED`, `TOOL_INVALID_ARGUMENTS`, `TOOL_INPUT_TOO_LARGE`, `TOOL_TIMEOUT`, `TOOL_EXECUTION_FAILED`, `TOOL_INVALID_OUTPUT`, `TOOL_OUTPUT_TOO_LARGE`, and `ACTION_CONFIRMATION_REQUIRED` (plus workflow-specific safe codes). Trace records retain step name/category/effect/status/duration/output size/error code, not raw arguments or handler exception contents.
 
-Provider failures use the existing bridge's fail-soft behavior. The advisor may use one constrained regeneration and deterministic fallback; the Core never invents a backup provider or retries the same failing model as a claimed fallback.
+Provider errors are separately normalized by provider adapters. Only retryable availability/capacity/transport conditions may advance the application-level provider chain; request/schema, credential, permission, billing, safety, or policy failures do not. After partial provider stream output, the adapter does not append a different provider's answer.

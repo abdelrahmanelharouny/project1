@@ -11,6 +11,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -108,6 +109,21 @@ class AIAnswerFeedback(Base):
     model: Mapped[str | None] = mapped_column(String(160), nullable=True)
     quality_review_consent: Mapped[bool] = mapped_column(Boolean, nullable=False)
     consent_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    consented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="accepted", server_default="accepted"
+    )
+    lifecycle_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    lifecycle_updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    outcome_verification_label: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unverified_user_reported",
+        server_default="unverified_user_reported",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -122,6 +138,14 @@ class AIAnswerFeedback(Base):
         CheckConstraint(
             "outcome IS NULL OR outcome IN ('not_observed','no_change','improved','worsened')",
             name="ck_ai_answer_feedback_outcome",
+        ),
+        CheckConstraint(
+            "lifecycle_state IN ('accepted','rejected','modified','implemented','outcome_reported')",
+            name="ck_ai_answer_feedback_lifecycle_state",
+        ),
+        CheckConstraint(
+            "outcome_verification_label = 'unverified_user_reported'",
+            name="ck_ai_answer_feedback_outcome_unverified",
         ),
         CheckConstraint("quality_review_consent IS TRUE", name="ck_ai_answer_feedback_consent"),
         Index("ix_ai_answer_feedback_org_created", "organization_id", "created_at"),
@@ -179,6 +203,7 @@ class AIKnowledgeDocument(Base):
             "organization_id", "content_hash", "document_version",
             name="uq_ai_knowledge_document_org_hash_version",
         ),
+        UniqueConstraint("organization_id", "id", name="uq_ai_knowledge_document_org_id"),
         Index("ix_ai_knowledge_documents_org_status", "organization_id", "processing_status"),
         Index("ix_ai_knowledge_documents_org_language", "organization_id", "language"),
     )
@@ -193,19 +218,24 @@ class AIKnowledgeChunk(Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ai_knowledge_documents.id", ondelete="CASCADE"), nullable=False
-    )
+    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     embedding_dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "document_id"],
+            ["ai_knowledge_documents.organization_id", "ai_knowledge_documents.id"],
+            ondelete="CASCADE",
+            name="fk_ai_knowledge_chunk_org_document",
+        ),
         CheckConstraint("chunk_index >= 0", name="ck_ai_knowledge_chunk_index"),
         CheckConstraint("embedding_dimension IS NULL OR embedding_dimension > 0", name="ck_ai_knowledge_embedding_dim"),
         UniqueConstraint("document_id", "chunk_index", name="uq_ai_knowledge_chunk_document_index"),

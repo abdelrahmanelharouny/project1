@@ -1,12 +1,15 @@
 # CropTwist AI Core API Contracts
 
+**Status:** Current source-level contract snapshot; not a live-service or release-verification statement. Final test and integration counts are maintained in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md).
+
 - **Base path:** `/api/v1/ai`
-- **Authentication:** existing `get_principal` (Bearer token or existing supported auth cookie). All endpoints are authenticated.
-- **Content type:** `application/json`; no streaming endpoint is provided.
+- **Authentication:** existing authenticated `get_principal` dependency (Bearer token or supported existing auth cookie). Routes below are authenticated.
+- **Content type:** `application/json`, except `/requests/stream`, which returns `text/event-stream`.
+- **Strictness:** request bodies use `extra="forbid"`; identity, tenant, provider, model, tools, permissions, and trace identity are server-controlled.
 
-## `POST /requests`
+## `POST /requests` and `POST /requests/stream`
 
-Submits one explanatory request to the AI lifecycle.
+Both endpoints accept the same `AIRequest` and run the same authorization, planning, tool, response-validation, transcript, and trace lifecycle. The non-stream endpoint returns `AIResponse` JSON. The SSE endpoint finishes execution and commits before response headers/body are sent, then returns `meta`, zero or more `chunk`, and `done` events. Chunks are at most 160 characters and split an already-validated complete answer; this is not first-token live model streaming. If authorization or execution fails before streaming starts, normal HTTP error handling applies.
 
 ### Request
 
@@ -22,102 +25,86 @@ Submits one explanatory request to the AI lifecycle.
 
 | Field | Type | Requirements |
 |---|---|---|
-| `question` | string | Required, nonblank, 1–2,000 characters. User text is untrusted. |
-| `field_id` | UUID or null | Optional in schema; required for supported field-scoped explanation. Authorized server-side before evidence reads. |
-| `conversation_id` | UUID or null | Optional; must refer to a non-expired Core session owned by this user and tied to the same currently authorized field. |
+| `question` | string | Required, whitespace-trimmed, nonblank, 1–2,000 characters. Treated as untrusted text. |
+| `field_id` | UUID or null | Optional in schema; required for supported field explanations. Authorize server-side before evidence access. |
+| `conversation_id` | UUID or null | Optional; must identify a non-expired Core conversation owned by the user and associated with the same currently authorized field. |
 | `locale` | `en` or `ar` | Defaults to `en`. |
-| `context_domains` | array of enum strings | Up to eight unique values among `field`, `climate`, `water`, `soil`, `rotation`, `management`, `vegetation`, `data_gaps`. Defaults to planner-selected context. The server always includes field profile and data-gap metadata. |
+| `context_domains` | array of enum strings | Up to eight unique values from `field`, `climate`, `water`, `soil`, `rotation`, `management`, `vegetation`, `data_gaps`. Empty means planner selection; a supplied allowlisted list can narrow evidence. Field profile and data-gap metadata are retained by evidence selection. |
 
-`user_id`, `organization_id`, `farm_id`, permissions, provider/model, tool names, tenant scope, prompt version, request/trace IDs and tool arguments are not accepted as authoritative request-body fields. Extra fields are rejected. The server derives actor, organization, role and field/farm scope from the authenticated principal and database.
+`user_id`, `organization_id`, `farm_id`, role/permissions, provider/model, tool names, tenant scope, prompt version, request/trace IDs, and tool arguments are not accepted as authoritative body fields. A field selector is not an authorization grant.
 
 ### Response
 
+`AIResponse` contains `request_id`, `conversation_id`, `intent`, `status`, optional `answer`, typed `verified_facts`, `derived_results`, `predictions`, `recommendations`, `general_knowledge`, `assumptions`, `evidence`, `limitations`, `missing_information`, `follow_up_suggestions`, `plan`, and `execution`.
+
+Current field explanations use `plan.required_tools` and `plan.tool_calls` in this exact order:
+
 ```json
 {
-  "request_id": "req-7a2b",
-  "conversation_id": "a30febbf-2fb0-4ded-884c-17c38a445a82",
-  "intent": "soil_intelligence",
-  "status": "partial",
-  "answer": "The stored soil result is available ... [evidence: soil].",
-  "verified_facts": [],
-  "derived_results": [],
-  "predictions": [],
-  "recommendations": [],
-  "general_knowledge": [],
-  "assumptions": [],
-  "evidence": [],
-  "limitations": ["The AI Core explains stored soil outputs only."],
-  "missing_information": ["water"],
-  "follow_up_suggestions": [],
-  "plan": {
-    "intent": "soil_intelligence",
-    "required_entities": ["field_id"],
-    "required_context": ["field", "soil", "management", "data_gaps"],
-    "required_tools": ["answer_field_question"],
-    "tool_calls": [{"name": "answer_field_question", "arguments": {}, "context_domains": ["soil", "management", "data_gaps"], "depends_on": []}],
-    "missing_information": [],
-    "permission_scope": ["field.read", "field.analysis.read"],
-    "clarification_needed": false,
-    "availability": "partial",
-    "expected_output": "grounded_explanation",
-    "limitations": []
-  },
-  "execution": {
-    "trace_id": "a2c38c2c-90ba-4ccc-a122-d18349953e10",
-    "request_id": "req-7a2b",
-    "status": "partial",
-    "provider": "legacy-llm-bridge",
-    "model": null,
-    "token_usage": {"input_tokens": null, "output_tokens": null, "total_tokens": null},
-    "latency_ms": 841,
-    "planned_steps": 1,
-    "tools": [{
-      "name": "answer_field_question",
-      "category": "analytical",
-      "side_effect": "none",
-      "status": "succeeded",
-      "duration_ms": 825,
-      "output_bytes": 1320,
-      "error_code": null
-    }],
-    "degraded": false,
-    "error_category": null
-  }
+  "required_tools": ["collect_field_evidence", "synthesize_field_answer"],
+  "tool_calls": [
+    {"name": "collect_field_evidence", "arguments": {}, "context_domains": ["soil", "management", "data_gaps"], "depends_on": []},
+    {"name": "synthesize_field_answer", "arguments": {}, "context_domains": ["soil", "management", "data_gaps"], "depends_on": [0]}
+  ]
 }
 ```
 
-The example is illustrative; IDs, evidence arrays and model details vary. Each `EvidenceItem` has `evidence_id`, capability, entity scope/ID, result type, `claim_class`, domain-specific `value`, unit, observation period, source references, spatial resolution/processing version when available, quality flags, optional model/recommendation confidence, limitations and `available`/`partial`/`insufficient`/`unavailable` status. Missing-data entries use `claim_class="missing_information"`; a gap is not a zero value. This provider currently reports no token usage or calibrated confidence, so those fields are `null`.
+`answer_field_question` remains in the registry but is not used by current deterministic planner output. The response status is one of `answered`, `partial`, `clarification_required`, `unavailable`, or `failed`. Plan availability is `available`, `partial`, `planned`, or `unavailable`; a `planned` or `unavailable` capability is not executable. For the current Core, prediction, recommendation, and general-knowledge result arrays remain empty.
 
-### Status and intent values
+`execution` contains the trace/request IDs, status, provider/model when known, optional token usage, provider attempts (each with provider/model/status/latency and normalized category), total latency, planned step count, tool invocation metadata, degraded flag, and normalized error category. Missing usage is `null`, not an inferred estimate. A provider failure or unavailable privacy configuration does not create a fabricated provider/model result.
 
-`status`: `answered`, `partial`, `clarification_required`, `unavailable`, `failed`. `availability` in the plan is `available`, `partial`, `planned`, or `unavailable`. `planned` and `unavailable` are never executable by themselves. The intent enum distinguishes agricultural knowledge, farm/field questions, field analysis, satellite/soil/water/climate/vegetation, stress/anomaly, suitability, rotation, agricultural recommendation, risk, scenario, predictive analysis, report, platform operation and ambiguity.
+Each `EvidenceItem` is a provenance wrapper: stable `evidence_id`, capability, field entity, result type, claim class, source-derived value/unit, observation period, source references, optional spatial/processing metadata and source-provided quality/confidence, limitations, and `available`/`partial`/`insufficient`/`unavailable` status. A missing-data entry uses `claim_class="missing_information"`; a gap is not a zero measurement.
 
-- `clarification_required`: a field/resource or intent is missing; no model tool is called.
-- `unavailable`: no registered capability supports the request; no prediction/recommendation/action is fabricated.
-- `partial`: an existing stored output can be explained, or a deterministic fallback was used; limitations are explicit.
-- `failed`: a registered tool failed. `execution.error_category` is a safe code, not an exception string.
+## Intent, availability, and execution semantics
 
-### Conversation behavior
+- `clarification_required`: required field or intent is missing; no tool executes.
+- `unavailable`: the requested capability is not registered; no prediction, recommendation, report, or action is fabricated.
+- `partial`: only stored evidence is explained or a deterministic fallback/notice is returned; limits are included.
+- `answered`: a provider-generated narrative passed validation for a supported path.
+- `failed`: a registered tool/workflow failed; error details are normalized.
 
-Omit `conversation_id` to start a new private field conversation. The response returns its UUID for reuse. The authenticated user is stamped as owner. History is fetched in chronological order with SQL capped to the latest six turns (12 user/assistant messages), then sanitized and treated as untrusted. The service uses `updated_at` for a default 365-day inactivity access expiry; `CROPTWIST_AI_CONVERSATION_RETENTION_DAYS=0` disables expiry. Expiry does not delete transcript rows.
+Crop suitability, cross-field risk ranking, scenario simulation, and report integration are planned. Agricultural recommendation/prescription, yield/other prediction, agricultural-knowledge answering, and platform actions are unavailable. No `planned` descriptor is a callable API operation.
 
-A missing, cross-field, non-owned, legacy-unowned or expired Core conversation returns the same 404. Existing legacy advisor sessions/messages retain the legacy field-scope compatibility behavior; new Core sessions are owner-private. No separate AI Core `GET history` endpoint is added.
+## Discovery and provider status
 
-## Discovery endpoints
+- `GET /capabilities` returns public `CapabilityDescriptor` records: status, request/response schemas, required context/permissions, evidence requirements, confidence/freshness semantics, error contract, and limitations.
+- `GET /tools` returns actually registered tool definitions and input/output schemas, timeout/output bounds, normalized error codes, permissions, category, side-effect classification, and confirmation flag.
+- `GET /providers` returns environment-derived provider order/configuration, model IDs, policy gates, circuit and declared adapter capabilities. It makes no provider request and returns `live_connectivity_verified: false`. API credentials are never returned.
 
-- `GET /capabilities` returns `CapabilityDescriptor` records with status, required context/permissions, evidence requirements, confidence/freshness semantics, schemas, error contract and limitations.
-- `GET /tools` returns only actual registered tool definitions and their input/output JSON Schemas, categories, side effects, permission requirements, timeout/output ceiling, normalized error codes and confirmation flag. Planned capabilities do not appear as tools.
+The default application chain is Gemini `gemini-3.6-flash` → Groq `openai/gpt-oss-120b` → OpenRouter `nvidia/nemotron-3.5-super-vl:free`. Provider keys, model IDs/order, and data-sharing gates are set through `CROPTWIST_` environment settings only; none are accepted in API requests or stored as client-managed preferences. The settings are `CROPTWIST_LLM_PROVIDER_ORDER` (default `gemini,groq,openrouter`), `CROPTWIST_GEMINI_API_KEY` / `CROPTWIST_GEMINI_MODEL`, `CROPTWIST_GROQ_API_KEY` / `CROPTWIST_GROQ_MODEL`, and `CROPTWIST_OPENROUTER_API_KEY` / `CROPTWIST_OPENROUTER_MODEL`. The remote field-data gate defaults off (`CROPTWIST_AI_ALLOW_FIELD_DATA_TO_PROVIDERS=false`); OpenRouter additionally requires `CROPTWIST_OPENROUTER_ALLOW_FIELD_DATA=true`. Keys are not returned by `/providers`; a configured provider is still live-unverified.
 
-## Errors
+The adapters use Gemini `generateContent` at `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` with the `x-goog-api-key` header; Groq Chat Completions at `https://api.groq.com/openai/v1/chat/completions`; and OpenRouter Chat Completions at `https://openrouter.ai/api/v1/chat/completions`. Gemini sends JSON-schema configuration through `generationConfig`; Groq uses strict `response_format.json_schema`; OpenRouter requests `provider.require_parameters=true` when schema output is requested, but that does not guarantee the selected model endpoint supports it. The AI Core does not expose provider credentials, native tool selection, or raw provider SSE to clients.
 
-All HTTP errors use the existing envelope:
+## Conversations
+
+Omit `conversation_id` to create a new private field conversation; the response returns its UUID. Core stamps `owner_user_id` from the authenticated principal. Model context uses the configured recent-turn limit (default six turns, up to 12 messages at six turns), and history is sanitized and treated as untrusted. `CROPTWIST_AI_CONVERSATION_RETENTION_DAYS` defaults to 365; `0` disables access expiry and cleanup for conversations.
+
+- `GET /conversations?field_id=<uuid>`: lists up to 50 unexpired conversations owned by this user after current field authorization.
+- `GET /conversations/{conversation_id}/messages`: returns up to 80 messages for the owned conversation after field authorization; messages may include trace ID, evidence, engine, and creation time.
+- `DELETE /conversations/{conversation_id}`: deletes an owned conversation and its cascading messages.
+
+Missing, cross-field, non-owned, legacy owner-null, and expired Core conversations return the same 404 on request reuse. Legacy advisor routes retain their historical behavior; Core does not reuse owner-null sessions.
+
+## Feedback contracts
+
+`POST /feedback` requires `trace_id`, `rating` (`helpful` or `needs_improvement`), and affirmative `quality_review_consent: true`; it optionally accepts lifecycle state (`accepted` default, `rejected`, `modified`, `implemented`, `outcome_reported`), category, correction, outcome, and comment. `outcome_reported` requires an outcome. The trace must belong to the submitting user, with organization membership and field authorization rechecked. Feedback is explicitly consented and never silently added to automatic model training.
+
+`GET /feedback` lists only the caller's unexpired feedback; `PATCH /feedback/{feedback_id}/lifecycle` permits owner-scoped lifecycle transitions; `DELETE /feedback/{feedback_id}` deletes only the caller's row. Lifecycle state updates do not require manager-only access. Any reported result carries `outcome_verification_label="unverified_user_reported"`; user reports are not agronomic verification. Consent version is currently `ai-feedback-v1`.
+
+## Knowledge APIs
+
+Knowledge routes are organization-manager scoped. `POST /knowledge/documents` accepts `text/plain` or `text/markdown` plus source, publisher, jurisdiction, language, crop/topic, version, license/restrictions, and mandatory `rights_confirmed: true`; ingestion stores text chunks as pending. `POST /knowledge/documents/{document_id}/embed` requires an explicitly registered embedding adapter and the separate `CROPTWIST_AI_KNOWLEDGE_ALLOW_DOCUMENTS_TO_EMBEDDING_PROVIDER` gate. `POST /knowledge/search` requires the query-sharing gate `CROPTWIST_AI_KNOWLEDGE_ALLOW_QUERIES_TO_EMBEDDING_PROVIDER`, an embedding adapter, and organization scoping. Search uses bounded exact cosine over same-organization, same-provider/model, same-dimension and fresh vectors (at most 500 candidates); absent configuration returns unavailable rather than inventing embeddings, lexical semantic matches, or citations. `GET /knowledge/status` reports configuration/counts; `DELETE /knowledge/documents/{document_id}?organization_id=<uuid>` deletes an organization source.
+
+The embedding-provider registry is empty by default and the Core advisor does not yet retrieve this knowledge store. Rights attestation is required at ingestion, but it does not imply an approved global corpus or legal clearance beyond the submitter's attestation.
+
+## Errors and limits
+
+The common API error envelope is:
 
 ```json
 {"error":{"code":"RATE_LIMITED","message":"Too many requests — slow down and try again shortly.","details":[{"retry_after_seconds":12}],"request_id":"req-7a2b"}}
 ```
 
-Common statuses: `401` unauthenticated, `403` field/organization membership denied, `404` field or conversation missing/unauthorized, `422` malformed/unknown/duplicate inputs, `429` shared rate limit with `Retry-After`, and normalized `500` for unexpected backend failures. Tool/provider failure details are not exposed as raw exception text; registered tool failures are represented in the typed execution result when the lifecycle can return a trace.
+Expected status classes include `401` unauthenticated, `403` policy/membership denied, `404` field/conversation/trace not found or not visible, `422` invalid contract, and `429` throttled with `Retry-After`; unexpected internal failures are normalized. Provider/vendor bodies and secrets are not exposed as raw error text.
 
-## Limits and operational notes
-
-The new gateway and existing advisor, insights, and LLM-backed recommendation refresh paths share the existing in-process, one-minute `settings.auth_rate_limit_per_minute` limiter (default 10 requests per key). The key is the authenticated user ID. This is not a production AI quota: the store is process-local and must be replaced behind the same limiter seam for multi-replica deployments. Prompt question is capped at 2,000 characters; selected evidence at 16 KB; history at six turns; workflow at three steps; per-tool output at 64 KB. The Core currently uses the existing bridge; no provider selection, streaming, pricing estimate or native model tool-calling endpoint is exposed.
+AI Core, existing advisor/insights, and LLM-backed recommendation refresh paths use the generic authenticated-user sliding-window limiter (default 10/minute from auth settings). Its store is process-local, bounded to 10,000 active subjects, and prunes expired entries; it is not distributed. Public API-key traffic has its own PostgreSQL-backed budget/rate path and is separate from this limiter. Tool/evidence bounds include 2,000-character questions, at most eight requested context domains, 16 KB selected evidence, at most three workflow steps, 32 KB tool input, 60-second registry-wide per-tool maximum, and at most 64 KB per tool output.

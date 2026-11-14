@@ -85,6 +85,8 @@ class TestOpsHealthAccess:
             "notifications.purge_expired",
             "reports.recurring_and_retention",
             "activity.prune",
+            "ai.retention",
+            "public_api.retention",
         } <= task_names
         for run in body["scheduler"]["last_runs"].values():
             assert isinstance(run, dict)

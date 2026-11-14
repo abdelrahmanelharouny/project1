@@ -398,6 +398,26 @@ def main() -> int:
     r = httpx.get(f"{BASE}/notifications/unread-count", headers=p3_headers, timeout=30)
     check("P3 unread count 200", r.status_code == 200, f"got {r.status_code}")
 
+    # Retain the Free export-denial assertion before changing the plan.
+    r = httpx.post(f"{BASE}/reports", headers=p3_headers, timeout=30,
+                   json={"report_type": "org_executive", "format": "csv", "sync": True})
+    check("P3 free-plan report export denied 403", r.status_code == 403,
+          f"got {r.status_code}")
+    r = httpx.post(f"{BASE}/orgs/{org_id}/invitations", headers=p3_headers, timeout=30,
+                   json={"email": f"free-denied-{stamp}@test.local", "role_code": "viewer"})
+    check("P3 Free owner-only seat cap enforced 402", r.status_code == 402,
+          f"got {r.status_code}")
+    r = httpx.post(f"{BASE}/developer/keys", headers=p3_headers, timeout=30,
+                   json={"name": "Free denied key", "scopes": ["org:read"], "organization_id": org_id})
+    check("P3 Free API issuance disabled 402", r.status_code == 402,
+          f"got {r.status_code}")
+    # Synthetic sandbox subscription transition only: no real charge/send.
+    r = httpx.post(f"{BASE}/billing/subscription/change", headers=p3_headers, timeout=30,
+                   json={"organization_id": org_id, "new_plan_code": "professional",
+                         "billing_period": "monthly"})
+    check("P3 synthetic paid-tier upgrade 200", r.status_code == 200,
+          f"got {r.status_code}")
+
     # team: invite a viewer, member directory reflects it
     r = httpx.post(f"{BASE}/orgs/{org_id}/invitations", headers=p3_headers, timeout=30,
                    json={"email": f"p3-invitee-{stamp}@test.local", "role_code": "viewer"})
@@ -438,11 +458,20 @@ def main() -> int:
             check("P3 cross-tenant farm invisible 404", r.status_code == 404,
                   f"got {r.status_code}")
 
-    # reports: free plan disables exports — structured 403, not a crash
+    # Paid-tier report creation is checked only on synthetic sandbox data.
     r = httpx.post(f"{BASE}/reports", headers=p3_headers, timeout=30,
                    json={"report_type": "org_executive", "format": "csv", "sync": True})
-    check("P3 free-plan report export denied 403", r.status_code == 403,
+    check("P3 synthetic CSV report created 201", r.status_code == 201,
           f"got {r.status_code}")
+    if r.status_code == 201:
+        report = r.json()
+        check("P3 synthetic CSV report succeeded", report.get("status") == "succeeded",
+              str(report.get("error")))
+        report_id = report.get("id")
+        if report_id and report.get("status") == "succeeded":
+            downloaded = httpx.get(f"{BASE}/reports/{report_id}/download", headers=p3_headers, timeout=30)
+            check("P3 synthetic CSV download 200", downloaded.status_code == 200,
+                  f"got {downloaded.status_code}")
 
     # ops health: aggregate surface, authenticated, no secrets
     r = httpx.get(f"{BASE}/ops/health", headers=p3_headers, timeout=30)

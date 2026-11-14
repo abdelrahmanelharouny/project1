@@ -6,6 +6,7 @@ overrides happen BEFORE any app import so cached settings pick them up.
 
 import os
 import sys
+from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -14,6 +15,16 @@ TEST_DB_URL = os.environ.get(
     "CROPTWIST_TEST_DB_URL",
     "postgresql+psycopg2://postgres@127.0.0.1:5433/croptwist_test",
 )
+_test_dsn = urlsplit(TEST_DB_URL)
+_test_db_name = _test_dsn.path.lstrip("/")
+if (
+    _test_dsn.scheme not in {"postgresql", "postgresql+psycopg2"}
+    or _test_dsn.hostname not in {"127.0.0.1", "localhost", "::1"}
+    or not _test_db_name.startswith("croptwist_")
+    or not _test_db_name.endswith("test")
+    or not _test_db_name.replace("_", "").isalnum()
+):
+    raise RuntimeError("Refusing destructive fixtures: use a local disposable croptwist_*test database.")
 os.environ["CROPTWIST_DATABASE_URL"] = TEST_DB_URL
 os.environ["CROPTWIST_ENVIRONMENT"] = "test"
 # Sandbox parity (auth hardening P0-2): registration auto-verifies emails,
@@ -33,14 +44,22 @@ import pytest  # noqa: E402
 
 
 def _ensure_test_database() -> None:
-    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="postgres")
+    from psycopg2 import sql
+
+    connection_options = {
+        "host": _test_dsn.hostname,
+        "port": _test_dsn.port or 5432,
+        "user": _test_dsn.username or "postgres",
+        "password": _test_dsn.password,
+    }
+    conn = psycopg2.connect(**connection_options, dbname="postgres")
     conn.autocommit = True
     cur = conn.cursor()
-    cur.execute("SELECT 1 FROM pg_database WHERE datname = 'croptwist_test'")
+    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (_test_db_name,))
     if cur.fetchone() is None:
-        cur.execute("CREATE DATABASE croptwist_test ENCODING 'UTF8'")
+        cur.execute(sql.SQL("CREATE DATABASE {} ENCODING 'UTF8'").format(sql.Identifier(_test_db_name)))
     conn.close()
-    conn = psycopg2.connect(host="127.0.0.1", port=5433, user="postgres", dbname="croptwist_test")
+    conn = psycopg2.connect(**connection_options, dbname=_test_db_name)
     conn.autocommit = True
     conn.cursor().execute("CREATE EXTENSION IF NOT EXISTS postgis")
     conn.close()
@@ -226,17 +245,11 @@ def client():
 @pytest.fixture(autouse=True)
 def clean_tables():
     yield
-    # Existence-filtered, retrying truncate. Two failure modes observed on
-    # this sandbox (both intermittent, order/timing dependent):
-    #  1. UndefinedTable — Base.metadata can know a table the test DB has not
-    #     got yet (metadata grows as tests lazily import model modules).
-    #     TRUNCATE now references ONLY tables that actually exist.
-    #  2. Deadlock — the single-statement TRUNCATE takes ~81 AccessExclusive
-    #     locks one by one and can cross-lock with a lazy seeder running on
-    #     another pooled connection (load_knowledge -> seed_default_packs).
-    #     PostgreSQL resolves the deadlock in ~1s (deadlock_timeout); the
-    #     victim's transaction aborts, so a short retry on a FRESH
-    #     transaction reliably completes the cleanup.
+    # Keep production immutability triggers enabled. Trigger-protected
+    # result tables use disposable-only TRUNCATE; other tables use FK-ordered
+    # DELETE to avoid regenerating dozens of relation files on every test.
+    from tests.db_cleanup import child_first_tables
+
     postgis_internal = (
         "'alembic_version', 'spatial_ref_sys', 'geography_columns', 'geometry_columns'"
     )
@@ -256,13 +269,8 @@ def clean_tables():
                 names = [row[0] for row in rows]
                 if not names:
                     return
-                # Emptiness probe: one EXISTS (first-row) scan per table.
-                # On this sandbox a full-set TRUNCATE costs ~60s (per-table
-                # smgr unlink dominates), which made the per-test autouse
-                # cleanup the suite bottleneck. Truncating ONLY tables that
-                # actually hold rows is semantically identical (empty tables
-                # need no cleanup) and typically 10-20x faster because most
-                # tests touch a handful of tables.
+                # Probe only actual public tables, preserving PostGIS and
+                # Alembic bookkeeping; empty tables need no row deletion.
                 union_sql = " UNION ALL ".join(
                     f"SELECT '{name}' AS t, EXISTS(SELECT 1 FROM \"{name}\") AS dirty"
                     for name in names
@@ -274,40 +282,39 @@ def clean_tables():
                 ]
                 if not dirty:
                     return
-                # FK closure: TRUNCATE fails (FeatureNotSupported) when a
-                # dirty table is referenced by a table that is empty and
-                # therefore not in the dirty set. Close the set with all
-                # transitive referencing (child) tables from the catalog —
-                # empty children add nothing to clean and only a small
-                # per-table lock/unlink cost.
                 edges = conn.exec_driver_sql(
                     "SELECT confrelid::regclass::text AS parent, "
                     "conrelid::regclass::text AS child FROM pg_constraint "
                     "WHERE contype = 'f'"
                 ).fetchall()
-                children: dict[str, set[str]] = {}
-                for parent, child in edges:
-                    children.setdefault(parent, set()).add(child)
-                closure = set(dirty)
-                frontier = list(dirty)
+                protected = {
+                    row[0] for row in conn.exec_driver_sql(
+                        "SELECT DISTINCT tgrelid::regclass::text FROM pg_trigger "
+                        "WHERE NOT tgisinternal AND POSITION('DELETE' IN pg_get_triggerdef(oid)) > 0"
+                    ).fetchall()
+                }
+                truncate_set = set(dirty) & protected
+                frontier = list(truncate_set)
                 while frontier:
-                    current = frontier.pop()
-                    for child in children.get(current, ()):
-                        if child not in closure:
-                            closure.add(child)
+                    parent = frontier.pop()
+                    for known_parent, child in edges:
+                        if known_parent == parent and child in names and child not in truncate_set:
+                            truncate_set.add(child)
                             frontier.append(child)
-                tables = ", ".join(f'"{name}"' for name in sorted(closure))
-                # One statement for the dirty set: TRUNCATE of the full set
-                # needs no CASCADE (every referencing table that could hold
-                # rows is included) and issues one relation-lock cycle.
-                conn.exec_driver_sql(f"TRUNCATE TABLE {tables}")
+                if truncate_set:
+                    table_sql = ', '.join('"' + name.replace('"', '""') + '"' for name in sorted(truncate_set))
+                    conn.exec_driver_sql(f"TRUNCATE TABLE {table_sql}")
+                for name in child_first_tables(names, list(edges)):
+                    if name in dirty and name not in truncate_set:
+                        quoted = name.replace('"', '""')
+                        conn.exec_driver_sql(f'DELETE FROM "{quoted}"')
             return
         except Exception as exc:  # noqa: BLE001 — any DB error: back off, retry
             last_exc = exc
             import time as _time
 
             _time.sleep(1.0 + attempt)
-    assert last_exc is None, f"clean_tables truncate failed after retries: {last_exc}"
+    assert last_exc is None, f"clean_tables row cleanup failed after retries: {last_exc}"
 
 
 @pytest.fixture(scope="session", autouse=False)

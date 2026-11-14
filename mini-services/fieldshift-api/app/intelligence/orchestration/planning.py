@@ -19,6 +19,38 @@ _DOMAIN_PATTERNS: dict[str, tuple[str, ...]] = {
     "vegetation": (r"\bvegetation\b", r"\bndvi\b", r"\bevi\b", r"\bndmi\b", r"\bndwi\b", r"satellite", r"canopy"),
 }
 
+_AR_DOMAIN_PATTERNS = {
+    "climate": ("مناخ", "طقس", "حرار", "صقيع"),
+    "water": ("ماء", "مياه", "ري", "امطار", "رطوب"),
+    "soil": ("ترب", "مغذيات", "كربون عضوي", "تعرية"),
+    "rotation": ("دورة زراعية", "دوران المحاصيل", "المحصول التالي", "تعاقب"),
+    "management": ("ادارة", "محصول تغطية", "تعرية"),
+    "vegetation": ("نبات", "غطاء", "قمر صناعي", "اقمار صناعية"),
+}
+
+_AR_INTENT_PATTERNS = {
+    AIIntent.PLATFORM_OPERATION: ("احذف", "انشئ", "عدل", "حدث", "احفظ", "نفذ", "ادع مستخدم"),
+    AIIntent.REPORT_GENERATION: ("تقرير", "تقارير", "تصدير"),
+    AIIntent.SCENARIO_COMPARISON: ("سيناريو", "ماذا لو"),
+    AIIntent.PREDICTIVE_ANALYSIS: ("توقع", "تنب", "غدا", "الاسبوع القادم", "الشهر القادم", "الموسم القادم", "العام القادم"),
+    AIIntent.CROP_SUITABILITY: ("ملاءمة", "محصول مناسب", "افضل محصول", "هل يمكنني زراعة"),
+    AIIntent.CROP_ROTATION: _AR_DOMAIN_PATTERNS["rotation"],
+    AIIntent.AGRICULTURAL_RECOMMENDATION: ("توصية", "توصيات", "تنصح", "نصيحة", "ينبغي", "يجب ان"),
+    AIIntent.AGRICULTURAL_RISK: ("مخاطر", "خطر"),
+    AIIntent.SATELLITE_INTERPRETATION: ("قمر صناعي", "اقمار صناعية", "مؤشر الغطاء"),
+    AIIntent.STRESS_ANOMALY: ("اجهاد", "شذوذ", "مرض", "افات", "عاجل"),
+    AIIntent.SOIL_INTELLIGENCE: _AR_DOMAIN_PATTERNS["soil"],
+    AIIntent.WATER_INTELLIGENCE: _AR_DOMAIN_PATTERNS["water"],
+    AIIntent.CLIMATE_INTELLIGENCE: _AR_DOMAIN_PATTERNS["climate"],
+    AIIntent.VEGETATION_INTELLIGENCE: _AR_DOMAIN_PATTERNS["vegetation"],
+    AIIntent.FARM_QUESTION: ("كل حقول", "جميع الحقول", "المزرعة كاملة", "ملخص المزرعة"),
+}
+
+
+def _normalize_question(question: str) -> str:
+    text = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", question.casefold())
+    return text.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا"}))
+
 
 @dataclass(frozen=True)
 class IntentDefinition:
@@ -109,7 +141,7 @@ _DEFINITIONS: dict[AIIntent, IntentDefinition] = {
 
 
 def _matching_intent(question: str, has_field: bool) -> AIIntent:
-    text = question.casefold()
+    text = _normalize_question(question)
     # Explicit workflows/actions outrank mentions of their evidence domains.
     priority = (
         AIIntent.PLATFORM_OPERATION,
@@ -130,9 +162,10 @@ def _matching_intent(question: str, has_field: bool) -> AIIntent:
     )
     for intent in priority:
         definition = _DEFINITIONS[intent]
-        if any(re.search(pattern, text) for pattern in definition.patterns):
+        patterns = (*definition.patterns, *_AR_INTENT_PATTERNS.get(intent, ()))
+        if any(re.search(pattern, text) for pattern in patterns):
             return intent
-    if re.search(r"\b(field analysis|analy[sz]e this field|field condition)\b", text):
+    if re.search(r"\b(field analysis|analy[sz]e this field|field condition)\b|تحليل الحقل|حالة الحقل", text):
         return AIIntent.FIELD_ANALYSIS
     return AIIntent.FIELD_QUESTION if has_field else AIIntent.AGRICULTURAL_KNOWLEDGE
 
@@ -141,12 +174,12 @@ def _selected_context_domains(
     question: str, intent: AIIntent, fallback: tuple[str, ...]
 ) -> tuple[str, ...]:
     """Select all explicitly requested read-only evidence domains deterministically."""
-    text = question.casefold()
+    text = _normalize_question(question)
     selected = set(fallback)
     explicit = {
         domain
         for domain, patterns in _DOMAIN_PATTERNS.items()
-        if any(re.search(pattern, text) for pattern in patterns)
+        if any(re.search(pattern, text) for pattern in (*patterns, *_AR_DOMAIN_PATTERNS.get(domain, ())))
     }
     selected.update(explicit)
     if intent in (AIIntent.FIELD_QUESTION, AIIntent.FIELD_ANALYSIS):
@@ -154,7 +187,7 @@ def _selected_context_domains(
     # Explanatory questions need plausible context, not just the index named by
     # the user. These are source domains already present in the field evidence
     # pack; no new calculation or diagnosis is performed.
-    asks_why = bool(re.search(r"\bwhy\b|declin|changed|change|cause|factor", text))
+    asks_why = bool(re.search(r"\bwhy\b|declin|changed|change|cause|factor|لماذا|تراجع|تغير|سبب", text))
     if asks_why and "vegetation" in selected:
         selected.update({"climate", "water", "soil", "management"})
     if "water" in selected:

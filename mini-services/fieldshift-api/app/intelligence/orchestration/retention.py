@@ -16,7 +16,7 @@ MAX_PURGE_BATCH = 5000
 
 def _ids_before(db: Session, model: Any, column: Any, cutoff: datetime, limit: int) -> list[Any]:
     return list(db.scalars(
-        select(model.id).where(column < cutoff).order_by(column).limit(limit)
+        select(model.id).where(column < cutoff).order_by(column, model.id).limit(limit)
     ).all())
 
 
@@ -30,6 +30,10 @@ def purge_expired_ai_data(
     if not 1 <= batch_size <= MAX_PURGE_BATCH:
         raise ValueError(f"batch_size must be between 1 and {MAX_PURGE_BATCH}")
     current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    else:
+        current = current.astimezone(UTC)
     feedback_ids = list(db.scalars(
         select(AIAnswerFeedback.id)
         .where(AIAnswerFeedback.expires_at <= current)

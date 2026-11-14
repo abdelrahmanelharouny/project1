@@ -6,6 +6,7 @@ but the configured default order is Gemini, Groq, then OpenRouter.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Any, AsyncIterator, Protocol
 
 
@@ -120,14 +121,11 @@ class LegacyBridgeProvider:
         structured_output_mode="unsupported",
     )
 
-    def __init__(self) -> None:
-        from app.intelligence.config import ai_settings
-
-        self._enabled = ai_settings.llm_enabled
-
     @property
     def configured(self) -> bool:
-        return self._enabled
+        from app.intelligence.config import ai_settings
+
+        return ai_settings.llm_enabled
 
     async def generate(
         self,
@@ -207,6 +205,8 @@ class ProviderRegistry:
         self._providers[provider.name] = provider
 
     def get(self, name: str) -> LLMProvider:
+        if self is provider_registry and name in _DEFAULT_PROVIDER_NAMES:
+            _register_default_providers()
         try:
             return self._providers[name]
         except KeyError as exc:
@@ -219,10 +219,22 @@ class ProviderRegistry:
 provider_registry = ProviderRegistry()
 provider_registry.register(LegacyBridgeProvider())
 
-# Registration is local and performs no network I/O. Import at the end to avoid
-# a module cycle while adapters share the contracts above.
-from app.intelligence.orchestration.provider_adapters import (  # noqa: E402
-    register_default_providers,
-)
+_DEFAULT_PROVIDER_NAMES = frozenset({"gemini", "groq", "openrouter"})
+_DEFAULT_PROVIDER_LOCK = Lock()
+_DEFAULT_PROVIDERS_LOADED = False
 
-register_default_providers(provider_registry)
+
+def _register_default_providers() -> None:
+    """Load HTTP adapters only on first registry lookup, without import cycles."""
+    global _DEFAULT_PROVIDERS_LOADED
+    if _DEFAULT_PROVIDERS_LOADED:
+        return
+    with _DEFAULT_PROVIDER_LOCK:
+        if _DEFAULT_PROVIDERS_LOADED:
+            return
+        # provider_adapters imports the contracts above; it intentionally does
+        # not import the registry back at module scope.
+        from app.intelligence.orchestration.provider_adapters import register_default_providers
+
+        register_default_providers(provider_registry)
+        _DEFAULT_PROVIDERS_LOADED = True

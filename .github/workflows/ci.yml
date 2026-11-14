@@ -2,10 +2,9 @@
 #
 # backend: Alembic migrations + full pytest against a real PostGIS 16-3.5
 #   service container (the suite has no SQLite fallback), then an API-level
-#   E2E smoke of the live stack (uvicorn + llm-bridge + scripts/e2e_smoke.py,
-#   happy path — the bridge is up in CI; the rules-only fallback contract is
-#   asserted in scripts/e2e_smoke.py --expect-rules-only, verified locally
-#   and documented in docs/operations/CI_AND_TESTING.md).
+#   deterministic rules-only E2E of uvicorn + scripts/e2e_smoke.py. Provider
+#   transport/failover/stream/schema behavior is verified by mocked Python
+#   tests; live LLM connectivity is a separate credential-gated release check.
 # frontend: dependency install (frozen lockfile), BLOCKING TypeScript check
 #   (next.config.ts sets typescript.ignoreBuildErrors: false since P0 — type
 #   errors fail the build too), ESLint, frontend regression tests, and a production `next build`.
@@ -78,15 +77,7 @@ jobs:
       - name: Run test suite
         run: pytest -q
 
-      # ---------------- live-stack E2E smoke (happy path) ----------------
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install llm-bridge dependencies
-        working-directory: mini-services/llm-bridge
-        run: bun install --frozen-lockfile
-
+      # ---------------- credential-independent runtime E2E ----------------
       - name: Seed demo workspace
         run: |
           python -c "from app.core.database import SessionLocal; \
@@ -94,25 +85,18 @@ jobs:
                      db = SessionLocal(); ensure_demo_workspace(db); \
                      db.commit(); db.close()"
 
-      - name: Start API + bridge, wait for health
+      - name: Start rules-only API, wait for health
         run: |
-          nohup python -m uvicorn app.main:app \
+          CROPTWIST_LLM_ENABLED=false nohup python -m uvicorn app.main:app \
             --host 127.0.0.1 --port 3030 > /tmp/api-ci.log 2>&1 &
-          (cd ../llm-bridge && nohup bun run start \
-            > /tmp/bridge-ci.log 2>&1 &)
           for i in $(seq 1 60); do
             curl -fs http://127.0.0.1:3030/api/v1/health >/dev/null 2>&1 && break
             sleep 2
           done
           curl -fs http://127.0.0.1:3030/api/v1/health
-          for i in $(seq 1 30); do
-            curl -fs http://127.0.0.1:3035/health >/dev/null 2>&1 && break
-            sleep 2
-          done
-          curl -fs http://127.0.0.1:3035/health
 
       - name: E2E smoke (login → insights → recommendations → advisor)
-        run: python scripts/e2e_smoke.py
+        run: python scripts/e2e_smoke.py --expect-rules-only
 
   frontend:
     name: frontend (tsc + eslint + tests + build) + bridge typecheck
@@ -122,7 +106,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.4.4"
 
       - name: Cache bun install
         uses: actions/cache@v4

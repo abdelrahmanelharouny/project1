@@ -1,68 +1,58 @@
-# AI Orchestration Evaluation Foundation
+# AI Orchestration Evaluation and Verification Ledger
+
+**Purpose:** Define what the checked-in offline evaluation can measure and keep implementation, test verification, live-provider verification, and production readiness separate. This document does not claim that current provider reliability tests or the final suite have passed. The provider workstream is updating reliability tests; authoritative final counts and pass/fail records belong in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md), not in a stale historical count here.
 
 ## Evaluation scope
 
-The current benchmark is a deterministic, offline foundation for planner and safety behavior—not a claim of agricultural model accuracy. It intentionally separates (a) deterministic unit assertions, (b) provider-mocked integration cases, and (c) future qualitative/model evaluation. No live model call or production field data is used by the checked-in benchmark.
+The deterministic offline benchmark evaluates planner and safety behavior without live inference or production field data. It is not an agricultural model accuracy benchmark, not a provider connectivity test, and not proof of deployment readiness. The synthetic, version-controlled cases live in `tests/evaluation/ai_core_cases.jsonl`; they exercise supported field explanations, clarification, and explicit planned/unavailable intents such as suitability, prediction/yield, scenario, recommendation, knowledge, and actions. Inspect the current dataset for its exact case set; no stale fixed case/pass count is asserted here.
 
-The synthetic JSONL dataset is `tests/evaluation/ai_core_cases.jsonl`. It contains nine versionable cases covering soil explanation, missing field clarification, crop suitability (planned), yield prediction (unavailable), scenario comparison (planned), climate explanation, blocked platform mutation, recommendation request, and unavailable general knowledge. Each row specifies an ID, question, field-scope presence, expected intent, expected operational tool, availability, and clarification expectation. It is safe, synthetic text and contains no user or farm data.
+Run only the intended unit/offline slice after consulting the current integration test safety guidance. Do not invoke database-backed/full suites against a shared or undeclared database: repository test fixtures can migrate and truncate public tables. A final safe invocation, environment, commit/tree snapshot, and outcome must be recorded by the integration owner in the master report.
 
-Run the plan benchmark:
+## Evaluation layers
 
-```bash
-cd mini-services/fieldshift-api
-PYTHONPATH=. .venv/bin/pytest -c /dev/null --confcutdir=tests/unit \
-  tests/unit/test_ai_core_evaluation.py tests/unit/test_ai_core_orchestration.py -q
-```
+| Layer | What it can establish | What it cannot establish |
+|---|---|---|
+| Static/source inspection | A route, provider adapter, gate, schema, or retention task is present in source. | That migration has been applied, a route works in deployment, or an external provider is reachable. |
+| Deterministic unit/contract tests | Rule-based intent/plan outcomes, strict schemas, evidence filtering, bounds, side-effect rejection, citation/number checks, retention primitives, and mocked adapter behavior covered by those tests. | Agronomic factual accuracy, live provider service, distributed behavior, or production safety. |
+| Mocked integration tests | HTTP/API orchestration, error mapping, ownership/persistence paths, and provider chain behavior for the tested mocks/configuration. | Real provider terms/connectivity, real model quality, or live credentials/account limits. |
+| Live provider smoke check | A time-bounded authenticated request with explicit configuration and policy authorization can reach a named provider/model at the checked time. | Stable availability, general answer accuracy, privacy/legal approval, cost, or production readiness. No live check is claimed by this document. |
+| Domain/qualitative evaluation | With a consented, source-backed, expert-reviewed gold set, estimates quality for that specified sample. | General correctness outside the sample, regions, crops, languages, versions, or time period. No gold-set accuracy figure is currently claimed. |
+| Production readiness review | Operational, security, privacy, database, scale, cost, observability, and support controls after deployment-specific review. | Not established solely by code, unit tests, or passing one integration run. |
 
-The test invokes the same deterministic `create_plan`/`evaluate_plan_case` functions used by the service. Any intent, tool-presence, availability or clarification drift fails the benchmark.
+## Properties to evaluate
 
-## Coverage matrix
-
-| Evaluation property | Deterministic test/evidence |
+| Property | Deterministic evidence to collect |
 |---|---|
-| Intent and tool selection | JSONL plan benchmark; priority regression for crop suitability vs soil keyword; recommendation/prediction/scenario cases. |
-| Required field/clarification | Field-missing planner case; typed request rejects blank questions and extra actor/tenant keys. |
-| Context selection | Allowlist test verifies unsupported domains are discarded, field is retained and data gaps remain explicit. Evidence selection has a 16 KB hard budget. |
-| Tool permission/schema/output | Unplanned tool denied; controlled side-effect handler is never called; sequential workflow test checks validated prior-step context; registry enforces argument/output schemas, timeout, step and byte limits. |
-| Provider capability honesty | Tests ensure legacy bridge adapter does not claim native structured output, model tool calling, streaming or guaranteed token usage; unsupported modes raise. |
-| Grounding/citations | Core validator tests cited facts, uncited factual sentence rejection and allowed-label membership. Unit tests remain deterministic. |
-| Numeric consistency | Existing and new tests cover rounding, supported unit conversion, anomaly z-score magnitude, same-number/wrong-dimension rejection, and kg/ha↔Mg/ha factor. Cited numeric claims must match the same unit in the one cited section. |
-| Prompt injection | Existing sanitization tests plus regressions for escaped `</untrusted_data>`/fake `<system>` payloads in both user input and retrieved evidence/anomaly text. |
-| Session privacy | Database-backed integration test is authored for two users in one organization; not executed in this environment. |
-| Provider route behavior | Database-backed integration test uses a mocked bridge; no live LLM call; not executed here. |
-| Latency | Each invocation records `latency_ms`; `summarize_latency_ms()` computes count/mean/nearest-rank p50/p95/p99. Unit test covers ordering and empty samples. |
-| Success rate | Invocation trace records `answered`, `partial`, `clarification_required`, `unavailable`, or `failed`; aggregate full/partial rates can be computed from trace counts. No public analytics query endpoint is added. |
-| Cost | Trace stores optional token counts only when the adapter reports them. `estimate_provider_cost()` requires both counts and caller-supplied per-million input/output rates; returns `None` when usage or price is missing. Current bridge advertises no guaranteed usage reporting, so current cost is **not measurable from this code**. |
-| Factual accuracy | Core validators score format/label/unit consistency, not semantic truth. No field-owner gold labels, agronomist adjudication set, calibration study or factual-accuracy percentage is available. No accuracy claim is made. |
+| Intent and plan selection | Compare `create_plan` output against JSONL expected intent, ordered tool list, availability, clarification, and explicit supported/unavailable cases. Current supported plan sequence is `collect_field_evidence` then `synthesize_field_answer`. |
+| Field requirement and request strictness | Missing field clarification, blank/oversized question rejection, duplicate/unknown context-domain rejection, and rejection of extra actor/tenant/provider/tool inputs. |
+| Context and evidence bounds | Allowlist behavior; field profile/data-gap retention; seven selected domains; 16 KB evidence ceiling; explicit absent data rather than zero. |
+| Tool security and limits | Unplanned tool denial, permission checks, no side effects, dependency ordering, validated prior-result handling, workflow/tool deadlines and output byte limits. |
+| Provider behavior | Configured default priority and exact model IDs; environment-only credentials; global and OpenRouter-specific privacy gates; only retryable failure advances; no fallback after partial stream output; status endpoint remains non-live. Provider reliability tests are in progress. |
+| Provider schema claims | Adapter contracts and capability declarations should be tested against request/response fixtures. Do not claim every provider/path uses native structured output merely because an adapter exposes it; Core factual narrative validation remains local. |
+| Response grounding | Allowed citation labels, per-factual-sentence citation requirement, deterministic safe fallback after invalid prose, explicit unsupported result arrays. |
+| Numeric consistency | Supported conversions in the general guard, incompatible dimensions rejected, and the final citation-specific comparison restricted to the same cited section and unit. |
+| Prompt injection | Escaped closing delimiters/fake system tags in question, history, and evidence; tests verify guardrails rather than prove semantic immunity. |
+| Session privacy | Database-backed checks for same-organization different-user access, cross-field sessions, owner-null legacy sessions, expiry, and transcript list/history ownership. Use a disposable DB only. |
+| Feedback privacy | Required affirmative consent, user/trace/field scoping, allowed lifecycle transitions, owner-only update/delete, and `unverified_user_reported` outcome label. |
+| Knowledge boundaries | Rights attestation; manager/org scope; document/query provider sharing gates; provider/model/dimension/freshness matching; no lexical fallback or fabricated citation when embedding is not configured. |
+| Retention | Bounded purge of feedback, traces and expired conversations; scheduler registration and operations history; verify settings and cascading transcript deletion in an isolated DB. |
+| Latency, status and cost helpers | `evaluation.py` can summarize latency/outcome rates and estimate cost only when actual input/output usage plus caller-supplied exact rates are available. Current operations endpoint returns `cost_estimate: null`; no live pricing is configured. |
+| Semantic/agronomic accuracy | Requires separate consented, source-backed and domain expert-adjudicated examples with sample, region/crop/language, model/prompt versions and method reported. No accuracy percentage is claimed. |
 
-## What is measured and how
+## Operational measurements and interpretation
 
-For an operational dashboard or offline report, group `ai_execution_traces` by date, intent, provider/model, status and low-cardinality tool name. Use `answered + partial` as “response returned” rate and `answered` as “fully available path” rate; separately report unavailable, clarification and failed counts so success cannot be inflated by hiding unsupported requests. Compute latency percentiles from recorded `latency_ms`. Include only tokens actually returned by the provider; estimate price only with the pricing applicable to the exact provider/model/time. The new trace deliberately omits prompt/answer/evidence values; accuracy evaluation must use a separate protected, consented evaluation harness rather than recover sensitive conversations from operational logs.
+`AIExecutionTrace` stores status, latency, provider/model, attempts when available, optional token counts, plan/tool metadata, evidence fingerprint/references and normalized errors. `/api/v1/ai/operations/status` returns a seven-day summary for the authenticated user's own traces (bounded to recent rows), provider-attempt counts and latency summaries; it reports no cost estimate without live provider pricing. It does not run a live provider check and does not recover prompt/answer/evidence content.
 
-`evaluation.py` supplies pure helpers for intent-case scoring, outcome-rate summaries (`answer_returned_rate`, `fully_answered_rate`, `failure_rate`), latency percentiles and caller-priced token cost. It does not query production traces, fetch provider prices, call an LLM judge, log prompts, or report an unsupported aggregate. This separation avoids claiming cost/quality data the current adapter cannot measure.
+Use separate outcome counts for `answered`, `partial`, `clarification_required`, `unavailable`, and `failed`; do not inflate “success” by hiding unavailable/clarification requests. Latency percentiles should be calculated only from captured request timings and labeled with the source/time window. Tokens are countable only if the adapter returned them. A caller-supplied price rate is not proof of the provider's current price.
 
-## Current test results and execution boundary
+## Current verification boundary
 
-The safe offline AI slice last completed with **63 passed, 13 warnings in 2.81 seconds**:
+This documentation update did not run tests, touch database state, call any provider, or modify test/source code. Provider reliability tests are being actively updated by their owner; interim test records are not final. Do not infer a current pass from source presence, a stale log, a mock-only test, or `/providers` status. The provider-status endpoint explicitly reports `live_connectivity_verified: false` until a separate authorized smoke test is performed.
 
-```bash
-PYTHONPATH=. .venv/bin/pytest -c /dev/null --confcutdir=tests/unit \
-  tests/unit/test_ai_core_orchestration.py \
-  tests/unit/test_ai_core_evaluation.py \
-  tests/unit/test_guard_prompt_injection.py \
-  tests/unit/test_numeric_guard.py \
-  tests/unit/test_structured_response.py \
-  tests/unit/test_bridge_async.py -q
-```
+The checkout contains migration revision files through 0025: 0024 adds session ownership and traces; 0025 adds provider-attempt metadata, feedback and knowledge document/chunk tables. Repository revision presence is distinct from a target database's applied revision. Do not report later integration migrations as applied until the integration owner verifies them after merge/deployment.
 
-The warnings are pre-existing SQLAlchemy reserved-name warnings for model attributes named `metadata`. Python compile checks passed. FastAPI OpenAPI generation registered `/api/v1/ai/requests`, `/api/v1/ai/capabilities`, and `/api/v1/ai/tools`. Alembic recognized `0024_ai_core_orchestration` as head without a database connection.
+## Final reporting and promotion gates
 
-The integration tests in `tests/integration/test_ai_core.py` were **not run**. Repository `tests/conftest.py` connects to `croptwist_test`, upgrades migrations, and has an autouse cleanup that truncates non-internal public tables. No disposable database was designated for this task; running it could alter a shared database. Integration/full-suite execution is a release gate against an isolated PostGIS database.
+The integration owner should record the exact test commands, pass/fail/skip counts, warnings, database isolation, migration revision state, provider mock/live status, source snapshot, and unresolved blockers in [`MASTER_INTEGRATION_ENGINEERING_REPORT.md`](../../../../docs/implementation/MASTER_INTEGRATION_ENGINEERING_REPORT.md). This report is the single final ledger; this page intentionally avoids duplicating interim counts.
 
-## Next benchmark phases
-
-1. Add agronomist-reviewed, source-cited gold examples covering region/crop/season, missing/stale/cloud-contaminated observations, uncertainty and contraindications; store no customer prompts.
-2. Add contract tests for source freshness, versioned engine inputs, units, citation-to-claim association and unavailable/partial semantics per capability.
-3. Add deterministic integration cases for field authorization, same-org owner privacy, 429/`Retry-After`, provider outage, invalid model citations, stale evidence and failed multi-step traces.
-4. Only after privacy approval, run a blinded qualitative model evaluation with domain reviewers. Report sample size, confidence interval, model/prompt versions, regions, languages and adjudication method.
-5. Add telemetry-backed success/latency/cost reports after provider usage/pricing and a shared limiter are available; do not place prompts or farm facts in metric labels.
+Before enabling field data to external models, review exact provider terms and explicitly enable the applicable privacy gates. Before promoting domain capability descriptors, require authorized end-to-end tests and domain-owner freshness/quality/provenance semantics. Before production, separately review distributed rate limits, retention scheduler operation, access policy, monitoring, vendor/contract terms, cost controls, migration rollout/backups, and incident response. Any future recommendation, yield/prediction, suitability, risk ranking, scenario, report-action, or platform mutation requires dedicated domain validation and an explicit release decision.

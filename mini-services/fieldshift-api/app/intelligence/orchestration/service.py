@@ -230,6 +230,11 @@ def _append_messages(db: Session, context: AuthorizedAIContext, payload: AIReque
             "model": response.execution.model,
             "trace_id": str(response.execution.trace_id),
             "prompt_version": PROMPT_VERSION,
+            "request_id": response.request_id,
+            "status": response.status,
+            "limitations": list(response.limitations),
+            "missing_information": list(response.missing_information),
+            "execution": response.execution.model_dump(mode="json"),
         },
     ))
     session_service.touch_session(db, context.session)
@@ -431,12 +436,14 @@ async def execute_ai_request(
                 # more permissive validator accepted the narrative.
                 answer = _fallback_explanation(payload.locale)
                 evidence_items = normalize_evidence(
-                    evidence_pack, field_id=str(context.field.id), cited_labels=["field"]
+                    evidence_pack, field_id=str(context.field.id), cited_labels=list(evidence_pack)
                 )
                 engine = {
                     "mode": "rules",
                     "model": None,
                     "provider": engine.get("provider"),
+                    "provider_attempts": engine.get("provider_attempts", []),
+                    "token_usage": engine.get("token_usage", {}),
                     "validation_errors": list(validation.error_codes),
                 }
         else:
@@ -445,7 +452,7 @@ async def execute_ai_request(
             # explicit, safe fallback rather than misclassify it.
             answer = _fallback_explanation(payload.locale)
             evidence_items = normalize_evidence(
-                evidence_pack, field_id=str(context.field.id), cited_labels=["field"]
+                evidence_pack, field_id=str(context.field.id), cited_labels=list(evidence_pack)
             )
         provider_name = engine.get("provider") if engine.get("mode") == "llm" else None
         model_name = engine.get("model") if engine.get("mode") == "llm" else None

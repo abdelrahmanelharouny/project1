@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import statistics
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
@@ -30,8 +29,10 @@ from app.intelligence.guard import sanitize_text
 from app.intelligence.orchestration.capabilities import list_capabilities
 from app.intelligence.orchestration.contracts import AIRequest, AIResponse, CapabilityDescriptor
 from app.intelligence.orchestration.knowledge import (
+    EmbeddingProviderFailure,
     KnowledgeError,
     create_knowledge_document,
+    embed_query,
     embed_pending_document,
     embedding_provider_registry,
     search_knowledge,
@@ -40,7 +41,6 @@ from app.intelligence.orchestration.provider_adapters import get_provider_status
 from app.intelligence.orchestration.service import execute_ai_request, safe_request_id
 from app.intelligence.orchestration.tools import registry as tool_registry
 
-logger = logging.getLogger("croptwist.api.ai_core")
 router = APIRouter(prefix="/ai", tags=["ai-core"])
 FEEDBACK_CONSENT_VERSION = "ai-feedback-v1"
 MAX_CONVERSATION_MESSAGES = 80
@@ -53,11 +53,17 @@ class StrictRequest(BaseModel):
 class AIFeedbackRequest(StrictRequest):
     trace_id: UUID
     rating: Literal["helpful", "needs_improvement"]
+    lifecycle_state: Literal["accepted", "rejected", "modified", "implemented", "outcome_reported"] = "accepted"
     category: Literal["factual_error", "insufficient_evidence", "unclear", "unsafe", "other"] | None = None
     correction: str | None = Field(default=None, max_length=2000)
     outcome: Literal["not_observed", "no_change", "improved", "worsened"] | None = None
     comment: str | None = Field(default=None, max_length=1000)
     quality_review_consent: Literal[True]
+
+
+class AIFeedbackLifecycleRequest(StrictRequest):
+    lifecycle_state: Literal["accepted", "rejected", "modified", "implemented", "outcome_reported"]
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class KnowledgeIngestRequest(StrictRequest):
@@ -81,12 +87,13 @@ class KnowledgeIngestRequest(StrictRequest):
 
 class KnowledgeEmbeddingRequest(StrictRequest):
     organization_id: UUID
-    provider: str | None = Field(default=None, min_length=1, max_length=80)
+    provider: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class KnowledgeSearchRequest(StrictRequest):
     organization_id: UUID
     query: str = Field(min_length=2, max_length=2000)
+    provider: str | None = Field(default=None, min_length=1, max_length=100)
     language: str | None = Field(default=None, max_length=12)
     jurisdiction: str | None = Field(default=None, max_length=100)
     crop_code: str | None = Field(default=None, max_length=40)
@@ -105,6 +112,7 @@ class ConversationMessage(BaseModel):
     id: UUID
     role: Literal["user", "assistant"]
     text: str
+    trace_id: UUID | None = None
     evidence: list[dict[str, Any]] = Field(default_factory=list)
     engine: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
@@ -197,24 +205,20 @@ async def stream_ai_request(
 ) -> StreamingResponse:
     """Send a validated response as incremental SSE events.
 
-    Provider tokens are buffered through evidence/citation/numeric validation
-    before the first answer chunk is emitted; rejected partial provider text is
-    never exposed to the browser.
+    Execution, authorization, and validation finish before response headers are
+    sent; the DB session is closed before the response body is streamed.
     """
     request_id = _request_id(request)
     check_rate_limit("ai_core", str(principal.id))
+    result = await execute_ai_request(db, principal, payload, request_id=request_id)
+    db.close()
 
     async def events():
         yield _sse("meta", {"request_id": request_id})
-        try:
-            result = await execute_ai_request(db, principal, payload, request_id=request_id)
-            if result.answer:
-                for offset in range(0, len(result.answer), 160):
-                    yield _sse("chunk", {"text": result.answer[offset : offset + 160]})
-            yield _sse("done", result.model_dump(mode="json"))
-        except Exception:  # response headers are already sent; return only a safe category
-            logger.exception("AI Core stream failed after response start")
-            yield _sse("error", {"code": "AI_STREAM_FAILED", "request_id": request_id})
+        if result.answer:
+            for offset in range(0, len(result.answer), 160):
+                yield _sse("chunk", {"text": result.answer[offset : offset + 160]})
+        yield _sse("done", result.model_dump(mode="json"))
 
     return StreamingResponse(
         events(),
@@ -272,17 +276,32 @@ def get_ai_conversation_messages(
         .order_by(AIAdvisorMessage.created_at.desc())
         .limit(MAX_CONVERSATION_MESSAGES)
     ).all()
-    return [
-        ConversationMessage(
+    messages: list[ConversationMessage] = []
+    for row in reversed(rows):
+        engine = dict(row.engine) if isinstance(row.engine, dict) else {}
+        trace_id: UUID | None = None
+        try:
+            if engine.get("trace_id"):
+                trace_id = UUID(str(engine["trace_id"]))
+        except (TypeError, ValueError, AttributeError):
+            trace_id = None
+        evidence = []
+        for item in row.evidence or []:
+            if isinstance(item, dict):
+                item_copy = dict(item)
+                if trace_id is not None:
+                    item_copy.setdefault("trace_id", str(trace_id))
+                evidence.append(item_copy)
+        messages.append(ConversationMessage(
             id=row.id,
             role=row.role,
             text=(row.question if row.role == "user" else row.answer) or "",
-            evidence=row.evidence or [],
-            engine=row.engine or {},
+            trace_id=trace_id,
+            evidence=evidence,
+            engine=engine,
             created_at=row.created_at,
-        )
-        for row in reversed(rows)
-    ]
+        ))
+    return messages
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -310,6 +329,8 @@ def submit_ai_feedback(
 ) -> dict[str, Any]:
     """Record optional answer feedback only after affirmative quality-review consent."""
     check_rate_limit("ai_feedback", str(principal.id))
+    if payload.lifecycle_state == "outcome_reported" and payload.outcome is None:
+        raise ValidationFailed("An outcome report is required for outcome_reported feedback.")
     trace = db.scalar(select(AIExecutionTrace).where(
         AIExecutionTrace.id == payload.trace_id,
         AIExecutionTrace.user_id == principal.id,
@@ -321,6 +342,7 @@ def submit_ai_feedback(
         get_field_for_principal(db, principal, trace.field_id)
     now = datetime.now(UTC)
     expires = now + timedelta(days=ai_settings.ai_feedback_retention_days)
+    request_id = _request_id(request)
     feedback = AIAnswerFeedback(
         trace_id=trace.id,
         user_id=principal.id,
@@ -337,6 +359,21 @@ def submit_ai_feedback(
         model=trace.model,
         quality_review_consent=True,
         consent_version=FEEDBACK_CONSENT_VERSION,
+        consented_at=now,
+        lifecycle_state=payload.lifecycle_state,
+        lifecycle_updated_at=now,
+        lifecycle_updated_by=principal.id,
+        provenance={
+            "source": "authenticated_ai_response_feedback",
+            "trace_id": str(trace.id),
+            "request_id": request_id,
+            "lifecycle_events": [{
+                "state": payload.lifecycle_state,
+                "actor_id": str(principal.id),
+                "recorded_at": now.isoformat(),
+            }],
+        },
+        outcome_verification_label="unverified_user_reported",
         expires_at=expires,
     )
     db.add(feedback)
@@ -347,9 +384,119 @@ def submit_ai_feedback(
         "status": "recorded",
         "quality_review_consent": True,
         "consent_version": FEEDBACK_CONSENT_VERSION,
+        "consented_at": feedback.consented_at,
+        "lifecycle_state": feedback.lifecycle_state,
+        "outcome_verification_label": feedback.outcome_verification_label,
         "expires_at": feedback.expires_at,
-        "request_id": _request_id(request),
+        "request_id": request_id,
     }
+
+
+def _feedback_summary(feedback: AIAnswerFeedback) -> dict[str, Any]:
+    return {
+        "feedback_id": feedback.id,
+        "trace_id": feedback.trace_id,
+        "rating": feedback.rating,
+        "category": feedback.category,
+        "correction": feedback.correction,
+        "outcome": feedback.outcome,
+        "outcome_verification_label": feedback.outcome_verification_label,
+        "comment": feedback.comment,
+        "lifecycle_state": feedback.lifecycle_state,
+        "lifecycle_updated_at": feedback.lifecycle_updated_at,
+        "quality_review_consent": feedback.quality_review_consent,
+        "consent_version": feedback.consent_version,
+        "consented_at": feedback.consented_at,
+        "created_at": feedback.created_at,
+        "expires_at": feedback.expires_at,
+    }
+
+
+@router.get("/feedback")
+def list_own_ai_feedback(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List only unexpired feedback rows submitted by the authenticated user."""
+    now = datetime.now(UTC)
+    rows = db.scalars(
+        select(AIAnswerFeedback)
+        .where(AIAnswerFeedback.user_id == principal.id, AIAnswerFeedback.expires_at > now)
+        .order_by(AIAnswerFeedback.created_at.desc(), AIAnswerFeedback.id)
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return [_feedback_summary(row) for row in rows]
+
+
+@router.patch("/feedback/{feedback_id}/lifecycle")
+def update_ai_feedback_lifecycle(
+    feedback_id: UUID,
+    payload: AIFeedbackLifecycleRequest,
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Record an owner-reported state; it is never a verified agronomic outcome."""
+    feedback = db.scalar(select(AIAnswerFeedback).where(
+        AIAnswerFeedback.id == feedback_id,
+        AIAnswerFeedback.user_id == principal.id,
+        AIAnswerFeedback.expires_at > datetime.now(UTC),
+    ).with_for_update())
+    if feedback is None:
+        raise NotFound("AI feedback not found.")
+    principal.require_member_of(feedback.organization_id)
+    transitions = {
+        "accepted": {"rejected", "modified", "implemented", "outcome_reported"},
+        "rejected": {"accepted"},
+        "modified": {"accepted", "rejected", "implemented", "outcome_reported"},
+        "implemented": {"outcome_reported"},
+        "outcome_reported": {"accepted", "modified", "implemented"},
+    }
+    target = payload.lifecycle_state
+    if target != feedback.lifecycle_state and target not in transitions.get(feedback.lifecycle_state, set()):
+        raise ValidationFailed("AI feedback lifecycle transition is not allowed.")
+    if target == "outcome_reported" and feedback.outcome is None:
+        raise ValidationFailed("An outcome report is required before this lifecycle transition.")
+    now = datetime.now(UTC)
+    previous = feedback.lifecycle_state
+    feedback.lifecycle_state = target
+    feedback.lifecycle_updated_at = now
+    feedback.lifecycle_updated_by = principal.id
+    provenance = dict(feedback.provenance or {})
+    events = list(provenance.get("lifecycle_events", []))
+    event: dict[str, Any] = {
+        "from_state": previous,
+        "state": target,
+        "actor_id": str(principal.id),
+        "recorded_at": now.isoformat(),
+    }
+    if payload.reason:
+        event["reason"] = sanitize_text(payload.reason, max_chars=1000)
+    events.append(event)
+    provenance["lifecycle_events"] = events[-100:]
+    feedback.provenance = provenance
+    db.commit()
+    db.refresh(feedback)
+    return _feedback_summary(feedback)
+
+
+@router.delete("/feedback/{feedback_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_own_ai_feedback(
+    feedback_id: UUID,
+    principal: Any = Depends(get_principal),
+    db: Session = Depends(get_db),
+) -> None:
+    """Permanently delete only the authenticated user's feedback row."""
+    feedback = db.scalar(select(AIAnswerFeedback).where(
+        AIAnswerFeedback.id == feedback_id,
+        AIAnswerFeedback.user_id == principal.id,
+    ))
+    if feedback is None:
+        raise NotFound("AI feedback not found.")
+    db.delete(feedback)
+    db.commit()
 
 
 @router.get("/operations/status")
@@ -526,25 +673,30 @@ async def search_ai_knowledge(
     check_rate_limit("ai_knowledge_search", str(principal.id))
     if not ai_settings.ai_knowledge_allow_queries_to_embedding_provider:
         raise Forbidden("Query-text sharing with embedding providers is disabled by policy.")
-    provider = _knowledge_provider(None)
+    provider = _knowledge_provider(payload.provider)
     if provider is None:
         raise HTTPException(
             status_code=503,
             detail={"code": "EMBEDDING_PROVIDER_UNAVAILABLE", "message": "Semantic retrieval is not configured; no lexical substitute was used."},
         )
     try:
-        vectors = await provider.embed([payload.query])
-        if len(vectors) != 1:
-            raise KnowledgeError("embedding provider returned an unexpected vector count")
+        query_embedding = await embed_query(payload.query, provider=provider)
         passages = search_knowledge(
             db,
             organization_id=payload.organization_id,
-            query_embedding=vectors[0],
+            query_embedding=query_embedding,
+            embedding_provider=provider.name,
+            embedding_model=provider.model,
             language=payload.language,
             jurisdiction=payload.jurisdiction,
             crop_code=payload.crop_code,
             top_k=min(payload.top_k, ai_settings.ai_knowledge_max_results),
         )
+    except EmbeddingProviderFailure as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "EMBEDDING_FAILED", "message": str(exc)},
+        ) from exc
     except KnowledgeError as exc:
         raise ValidationFailed(str(exc)) from exc
     return {
@@ -572,4 +724,3 @@ def delete_ai_knowledge_document(
         raise NotFound("Knowledge document not found.")
     db.delete(document)
     db.commit()
-

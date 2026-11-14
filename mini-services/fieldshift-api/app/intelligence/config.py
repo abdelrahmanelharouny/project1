@@ -50,6 +50,11 @@ class AISettings(BaseSettings):
     ai_provider_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     ai_provider_max_retries: int = Field(default=1, ge=0, le=3)
     ai_provider_max_concurrent: int = Field(default=4, ge=1, le=64)
+    # Leave at least one second below the AI tool's hard 50-second deadline.
+    ai_provider_chain_timeout_seconds: float = Field(default=45.0, gt=0, le=49)
+    ai_provider_max_response_bytes: int = Field(default=2_000_000, ge=1024, le=8_000_000)
+    ai_provider_max_stream_frame_bytes: int = Field(default=262_144, ge=256, le=1_000_000)
+    ai_provider_max_output_chars: int = Field(default=64_000, ge=1, le=2_000_000)
     ai_provider_cb_failure_threshold: int = Field(default=3, ge=1, le=20)
     ai_provider_cb_recovery_seconds: float = Field(default=30.0, gt=0, le=3600)
     ai_provider_max_backoff_seconds: float = Field(default=2.0, ge=0, le=10)

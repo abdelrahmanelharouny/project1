@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.errors import TooManyRequests
 
 _WINDOW_SECONDS = 60.0
+_MAX_BUCKETS = 10_000
 
 # (bucket, key) -> deque[timestamps] (monotonic seconds, ascending)
 _store: dict[tuple[str, str], deque[float]] = {}
@@ -31,8 +32,19 @@ def check(bucket: str, key: str) -> None:
         return
     now = time.monotonic()
     with _lock:
-        timestamps = _store.setdefault((bucket, key), deque())
+        # Idle entries are removed rather than accumulating indefinitely.
+        # At capacity fail closed for new subjects; never evict an active
+        # budget and thereby permit a client to reset its allowance.
         cutoff = now - _WINDOW_SECONDS
+        for stored_key, stored_times in list(_store.items()):
+            if not stored_times or stored_times[-1] <= cutoff:
+                _store.pop(stored_key, None)
+        if (bucket, key) not in _store and len(_store) >= _MAX_BUCKETS:
+            raise TooManyRequests(
+                "Rate-limit capacity exhausted — try again shortly.",
+                retry_after_seconds=60,
+            )
+        timestamps = _store.setdefault((bucket, key), deque())
         while timestamps and timestamps[0] <= cutoff:
             timestamps.popleft()
         if len(timestamps) >= limit:

@@ -8,21 +8,23 @@ from tests.conftest import client, farm_with_field  # noqa: F401
 
 
 def _mock_structured_bridge(monkeypatch):
-    from app.intelligence import bridge
+    from app.intelligence.orchestration import service
+    from app.intelligence.orchestration.provider import ProviderGeneration, ProviderCapabilities
 
-    async def scripted(messages, temperature=None, max_tokens=None):
-        return {
-            "content": json.dumps({
+    class ScriptedProvider:
+        name = "test-provider"
+        capabilities = ProviderCapabilities()
+
+        async def generate(self, messages, **kwargs):
+            return ProviderGeneration(content=json.dumps({
                 "answer": "The field profile is available in the recorded evidence [evidence: field].",
                 "citations": ["field"],
                 "limitations": [],
                 "uncertainty_notes": [],
                 "follow_up_suggestions": [],
-            }),
-            "model": "test-model",
-        }
+            }), provider=self.name, model="test-model")
 
-    monkeypatch.setattr(bridge, "achat_detail", scripted)
+    monkeypatch.setattr(service, "get_provider_chain", lambda **kwargs: ScriptedProvider())
 
 
 def test_ai_request_returns_grounded_typed_response_and_session_owner(
@@ -38,9 +40,11 @@ def test_ai_request_returns_grounded_typed_response_and_session_owner(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["status"] == "answered"
+    assert body["status"] == "partial"
     assert body["conversation_id"]
-    assert body["execution"]["provider"] == "legacy-llm-bridge"
+    assert body["execution"]["provider"] == "test-provider"
+    assert body["execution"]["degraded"] is False
+    assert body["execution"]["planned_steps"] == 2
     assert body["predictions"] == []
     assert body["recommendations"] == []
     assert body["verified_facts"]
