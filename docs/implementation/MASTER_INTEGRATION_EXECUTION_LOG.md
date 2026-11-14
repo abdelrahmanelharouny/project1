@@ -41,3 +41,29 @@ The first full run's 42 failures were grouped by concrete tracebacks rather than
 The final focused database-backed command exercised `TestEmailVerification`, all of `test_p07_map_analytics_reports.py`, and `TestVegetationRecommendations` on `croptwist_final_test`: **32 passed, 0 failed** in 37.65s. The additional pure vegetation regression passed within that run's expected backend scope. The final database-independent runner (`python scripts/run_db_independent_tests.py`) completed **1,188 passed, 15 deselected, 0 failed** in 12.93s. The deselected cases are explicitly listed by the runner and require the guarded database fixture.
 
 The final full integration run is captured at `/home/ubuntu/reports/mission-tests/backend-integration-final2.log`; do not promote it to a passing result until its complete terminal summary and failed-test list have been reviewed.
+
+
+## Final verification and delivery snapshot — 2026-11-14 05:39 +02:00
+
+This close-out supersedes the earlier “in progress” statements above. The full combined-tree PostGIS run was stopped at 88% after the request to wrap up; its log has no final pytest summary. It is **incomplete, not a pass**. The earlier diagnostic run (42 failed, 604 passed, 1 skipped) also remains diagnostic only.
+
+### Git delivery
+
+The reviewed remediation merge is `ff96b8fa476be14adb8102106c7f83a4d68572bf`. The implementation/fix checkpoint is `5a3116770a9ca033d09fa6cf9523957d4c0ca0a3`. The feature branch `feature/ai-complete-integration` was pushed normally and verified at the same remote SHA. Remote `main` remained `998f7a5885e4ee0c9defe28671736560fb1b8762`; it was not changed. No PR or deployment was created. The close-out report and this final log update are documentation follow-ups.
+
+### Final completed local checks
+
+- `python scripts/run_db_independent_tests.py`: **1,198 passed, 15 explicitly deselected, 0 failed** in 11.75s. The runner emitted 2,250 warnings, mainly existing SQLAlchemy reserved-name and CHIRPS/Shapely deprecations.
+- `bun test tests/frontend`: **138 passed, 0 failed**, 613 assertions across six files. Frontend TypeScript, ESLint, and `npm run build` passed.
+- The bridge-local frozen install and TypeScript check passed.
+- A disposable PostgreSQL/PostGIS database successfully upgraded through `0028_api_key_rate_windows`, downgraded to `0023_p07_field_reports`, re-upgraded, and passed local `alembic check` with “No new upgrade operations detected.” Current local Alembic head is `0028_api_key_rate_windows`.
+- A focused four-module PostGIS run initially reported 20 passed and two API-key failures. The rotation test had bypassed only one entitlement check but still lacked a real API-enabled plan; its fixture now creates a synthetic eligible plan. The purge helper exceeded a one-row request because a limited locking SELECT was nested in DELETE; the code now materializes the bounded locked IDs before deletion. The two exact affected integration tests then passed **2/2** in 0.51s. This is a targeted rerun, not a single clean rerun of all 22 tests. The quota, signup-seat and AI Core cases passed in the initial 20.
+- Synthetic browser verification exercised all nine existing destinations, authenticated Copilot, Map & Satellite, Reports, EN/AR RTL, and the 390×844 mobile layout with no horizontal overflow. The screenshot is `docs/implementation/screenshots/croptwist-copilot-mobile-390x844.png`.
+
+### Remote CI result and remaining release gates
+
+GitHub Actions run `43552364021` completed with backend **failure** at “Verify migrations are idempotent at head + no model drift.” The remote PostGIS 16-3.5 catalog exposed TIGER geocoder objects such as `faces`, `zip_lookup_base`, and `pagc_gaz` as `remove_table` / `remove_index` candidates. The backend pytest/E2E steps did not run. The frontend/bridge job succeeded. Local PostGIS 3.4.2 did not reproduce those catalog objects, so local drift-check success does not clear this remote failure. Fix by excluding only positively identified extension-owned catalog objects or normalizing the CI test service, then rerun backend CI; do not broadly suppress application-table drift.
+
+The provider suite used mocks only. No live Gemini/Groq/OpenRouter call, SMTP delivery, authenticated NASA HLS asset acquisition, real payment settlement, or production storage operation occurred. The browser path did issue read-only public environmental/catalog GETs and sent a synthetic coordinate to Open-Meteo; document user/operator disclosure and coordinate handling before production. Knowledge ingestion interfaces exist, but no approved corpus or embedding provider is configured, so semantic retrieval is not ready. Production database/storage/worker configuration and multi-replica shared rate/circuit state remain deployment requirements.
+
+The detailed status, exact limitations, verification table, CI link, and deployment go/no-go are in [`MASTER_INTEGRATION_FINAL_REPORT_2026-11-14.md`](MASTER_INTEGRATION_FINAL_REPORT_2026-11-14.md).

@@ -56,9 +56,15 @@ the initial four-module run had 20 passes and two failures, then the two
 affected tests passed on rerun. Frontend tests passed **138/138**; TypeScript,
 ESLint and the production build passed. The bridge typecheck (after its own
 frozen install) and disposable migration round-trip also passed locally.
-Per-command evidence and limitations are in the master integration report.
-GitHub-hosted runs have not yet been observed; remote CI remains unverified
-until the authorized feature-branch push and Actions completion.
+GitHub Actions run `43552364021` completed with a **failed** backend job at
+the Alembic model-drift check: the PostGIS 16-3.5 service exposed TIGER
+geocoder catalog objects (including `faces`, `zip_lookup_base` and `pagc_gaz`)
+as apparent removals. Backend pytest/E2E did not run in that job. Its
+frontend/bridge job succeeded. The remote failure is not negated by the local
+migration check, which used a different PostGIS setup. Inspect and safely
+exclude only extension-owned catalog objects or normalize CI initialization,
+then rerun the full workflow before deployment. A later report-only push may
+start a follow-up Actions run; no green remote backend result is claimed.
 
 ## Test layers
 
