@@ -37,12 +37,12 @@ export function LocaleSwitcher() {
     >
       <SelectTrigger
         aria-label={t('locale')}
-        className="h-10 w-[124px] gap-1.5 border-stone-300 bg-white px-2.5 text-xs text-stone-700"
+        className="h-11 w-11 justify-center border-stone-300 bg-white p-0 text-xs text-stone-700 sm:h-10 sm:w-[124px] sm:justify-start sm:gap-1.5 sm:px-2.5"
       >
         <span className="flex items-center gap-1.5 text-stone-500">
           <Languages className="h-3.5 w-3.5" aria-hidden />
         </span>
-        <span className="truncate">{LOCALE_LABELS[locale as Locale] ?? locale}</span>
+        <span className="hidden truncate sm:inline">{LOCALE_LABELS[locale as Locale] ?? locale}</span>
       </SelectTrigger>
       <SelectContent>
         {locales.map((value) => (

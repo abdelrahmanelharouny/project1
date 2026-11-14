@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import {
-  backend,
   clearSessionCookies,
   errorResponse,
   REFRESH_COOKIE,
   setSessionCookies,
+  backend,
   type BackendSession,
 } from '../_lib'
 
@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
   if (!refresh) {
     return clearSessionCookies(
       errorResponse(request, 401, { code: 'UNAUTHORIZED', message: 'No active session to refresh.' }),
+      request,
     )
   }
 
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
   if (!result.ok || !result.payload) {
     const status = result.status === 0 ? 502 : result.status
     const response = errorResponse(request, status, result.error)
-    if (status === 401 || status === 423) clearSessionCookies(response)
+    if (status === 401 || status === 423) clearSessionCookies(response, request)
     return response
   }
 

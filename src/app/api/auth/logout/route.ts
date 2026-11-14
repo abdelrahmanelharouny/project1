@@ -11,5 +11,5 @@ export async function POST(request: NextRequest) {
       headers: { Authorization: `Bearer ${token}` },
     })
   }
-  return clearSessionCookies(NextResponse.json({ ok: true }))
+  return clearSessionCookies(NextResponse.json({ ok: true }), request)
 }
