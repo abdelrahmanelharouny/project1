@@ -2,46 +2,47 @@
 
 **Status:** Partial implementation checkpoint — the redesign is not complete.<br>
 **Repository:** `https://github.com/abdelrahmanelharouny/project1`<br>
+**Figma reference:** [FieldShift design board](https://www.figma.com/design/T614Zo8hWuEbNgM4cEhpzg/Untitled--Copy-?node-id=3-3&t=diAJIa3pneiEOnie-1)<br>
 **Branch:** `feature/croptwist-ui-ux-redesign`<br>
 **Base / initial branch SHA:** `38f8891696f6c27e79e25ddf65b33549f4a51397` (`feature/ai-complete-integration`)<br>
-**Implementation commit / push:** `851ae78b0f232df6e9be911ee17f25039db6fd88` pushed to `origin/feature/croptwist-ui-ux-redesign`; remote SHA matches. Remote `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`.
+**Latest code commit / push:** `482f266f86d42cc391cf2263ff303a4c810cf8e0` pushed to `origin/feature/croptwist-ui-ux-redesign`; remote SHA matches. Remote `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`.
+
+The design file is titled “FieldShift — Data, Planning & Decision Intelligence”; the implementation remains the existing CropTwist product and repository.
 
 ## Figma-to-product mapping
 
-| Figma reference | CropTwist destination | Implemented in this checkpoint | Remaining scope |
+| Figma reference | CropTwist destination | Implemented in the current checkpoint | Remaining scope |
 |---|---|---|---|
-| Group A — Data Intelligence, Feature Availability / Feature Specification | Data Hub → Features (`/?tab=datahub&sub=features`) | Dark shared presentation, selected-field/catalog-version context, “No calculated features yet” empty state, real “Review observations” navigation, and explicit loading, error, retry, and empty catalog states. Content continues to come from the existing feature API/catalog. | The Figma availability matrix/specification composition is only partially legible in the public canvas; a complete frame-level layout match and authenticated screenshot remain pending. |
-| B1 — Crop Rotation Overview | Crop Intelligence → Rotation (`/?tab=cropintel&sub=rotation`) | Shared dark tokens, card/table/form surfaces, and shell styling. Existing crop-history, candidate, optimizer, evidence, and knowledge workflows remain mounted. | Frame-specific overview/sequence composition, selectors, note/disclaimer comparison, and authenticated screenshot are not yet implemented/verified. |
-| B2 — Rotation Planner | Crop Intelligence → Plan (`/?tab=cropintel&sub=plan`) | Shared theme/shell only; existing PlanPage remains in place. | Simple/Expert planner composition, review-before-save state, frame-specific responsive design, and authenticated screenshot remain open. |
-| Group C — Decision Intelligence | Decision Center and its existing scenario/sensitivity/robust/decision/twin views | Shared sidebar grouping and global theme only; existing route and API model retained. | Dedicated Group C frames were not legible in the accessible Figma view; no frame-specific design is asserted or verified. |
-| Other CropTwist destinations | Overview; Farms & Fields; Map & Satellite; AI Copilot; Reports & Analytics; Workspace & Settings | Shared token/surface layer applies across the existing screens; nine-destination route architecture, URL state, and existing content mounting remain intact. | Per-destination redesign, responsive state comparison, full functional workflows, and authenticated visual evidence remain open. |
+| Group A — Data Intelligence, Feature Availability / Feature Specification | Data Hub → Features (`/?tab=datahub&sub=features`) | Dark shared presentation, selected-field/catalog-version context, “No calculated features yet” state, actual “Review observations” navigation, and explicit loading/error/retry/empty-catalog states. Content remains API/catalog-backed. | The feature availability matrix and specification composition are only partly legible in the public canvas; authenticated screenshots and complete frame-level visual comparison remain open. |
+| B1 — Crop Rotation Overview | Crop Intelligence → Crop Rotation Overview (`/?tab=cropintel&sub=rotation-overview`) | New additive view uses recorded crop-history API results only, with a period filter derived from dates actually in those records, source/evidence columns, filtered export, loading/error/retry/empty states, a history-only disclaimer, and navigation to the Planner. Illustrative future sequence cards are deliberately not shown as farm data. | The authenticated Figma comparison and responsive dashboard screenshots remain blocked by the missing API/session. |
+| B2 — Rotation Planner | Crop Intelligence → Rotation Planner (`/?tab=cropintel&sub=rotation-planner`) | New additive Simple/Expert view reuses the existing editable-season, candidate-generation, constraint optimizer, and knowledge/evidence flows. The UI states that optimizer output is analysis only; no unsupported Save/Approve control is shown. | No API exists to persist or approve a future rotation. A save/approval workflow requires a real backend contract; authenticated visual comparison remains open. |
+| Existing rotation and management routes | Existing `cropintel:rotation` optimizer and `cropintel:plan` management page | Both remain separately accessible and retain their original components. The permanent legacy `?tab=rotation` redirect and Crop Intelligence default still resolve to the existing optimizer. | No old route IDs or management behavior were repurposed. |
+| Group C — Decision Intelligence | Existing Decision Center sub-pages | Shared sidebar grouping and forest theme are applied; existing route, business logic, and API model are retained. | Dedicated Group C frames were not legible in the accessible Figma view, so no frame-specific design is asserted or verified. |
+| Other CropTwist destinations | Overview; Farms & Fields; Map & Satellite; AI Copilot; Reports & Analytics; Workspace & Settings | Shared theme/surfaces and the responsive nine-destination workspace shell apply across existing views. | Detailed page-by-page redesign, authenticated workflow verification, and screenshot comparison remain open. |
 
-The Figma board is accessible in a read-only public canvas, but editable style properties, exact measurements, several frame details, Group C layouts, and mobile-specific frames were not available at readable scale. The estimated palette and limits are documented in [`FIGMA_REDESIGN_AUDIT.md`](../audits/FIGMA_REDESIGN_AUDIT.md). No pixel-perfect match is claimed.
+The Figma canvas is read-only. Exact Figma measurements, font metadata, component properties, several small labels, Group C layouts, and mobile-specific frames were not available at readable scale. No pixel-perfect match is claimed; visual estimates and limitations are documented in [`FIGMA_REDESIGN_AUDIT.md`](../audits/FIGMA_REDESIGN_AUDIT.md).
 
-## Implemented in this checkpoint
+## Implemented in the current checkpoint
 
-- Added a CropTwist-branded, grouped desktop workspace sidebar for all nine canonical destinations and their existing subpages. The authenticated shell now mounts it while preserving URL/store synchronization and the existing destination components.
-- Applied a centralized forest/charcoal palette, mint actions, semantic status colors, consistent card/form/table surfaces, restrained borders, focus styling, and map control surfaces. Existing Geist typography is retained because the Figma’s font metadata is not accessible.
-- Refined the mobile navigation sheet with logical RTL alignment/indentation, a right-side opening edge for Arabic, 44px navigation targets, mobile access to onboarding, and continued access to the existing command palette. The locale selector becomes an accessible icon-sized control on narrow widths; share remains reachable from the mobile command palette.
-- Updated the Data Hub Features screen with a backend-driven no-results state, an actual route to Data Hub observations, and loading/unavailable/retry states. No feature values, availability status, or farm metrics are fabricated.
-- Updated HTTPS authentication cookie handling for embedded Preview: `Secure; HttpOnly; SameSite=None` for forwarded HTTPS, while plain-HTTP local development remains `SameSite=Lax`; deletion uses matching attributes. No API endpoint or data contract was changed.
-- Added English/Arabic copy for the new Data Hub states and unit coverage for the HTTPS and local cookie behavior.
-- Replaced the inherited external ChatGLM favicon and “First vertical slice” description with a local static CropTwist sprout mark and factual product metadata.
-
-## Product-preservation notes
-
-The nine-destination architecture, existing URL query parameters, deep-link/legacy routing model, command palette, contextual farm/field state, component mounts, data hooks, APIs, business logic, GIS algorithms, AI orchestration, permissions, and database models were not replaced. No changes were made to `app/db/models_ai.py`, the active AI/GIS source branches, or `main`. No demo workspace seed was run and no backend/database mutation was performed. The AI provider order and data provenance remain owned by existing services; this UI checkpoint makes no provider-readiness or GIS-availability claims.
+- Added a grouped CropTwist workspace sidebar for all nine canonical destinations and their nested routes, while retaining the existing URL/store synchronization and destination components.
+- Applied forest/charcoal design tokens, mint actions, semantic status colors, shared card/form/table surfaces, restrained borders, focus styling, and map-control surfaces. Existing Geist typography remains because font metadata is not accessible.
+- Refined mobile navigation with logical RTL alignment, an RTL-aware sheet, 44px targets, onboarding access, compact locale selection, and access to the existing command palette/share action.
+- Updated Data Hub Features with actual API-backed loading, empty, error, retry, and observation-navigation states; no feature values, availability, or farm metrics are fabricated.
+- Added B1/B2 as two additive Crop Intelligence routes. Overview filters and exports actual crop-history records and exposes source/evidence provenance. Planner’s Simple/Expert toggle reveals existing operations; no fake future sequence, saved plan, or approval state is introduced.
+- Preserved the prior `cropintel:rotation`, `?tab=rotation`, and `cropintel:plan` route semantics. No backend endpoint, agronomic algorithm, database model, GIS algorithm, or AI-provider contract was changed.
+- Replaced the inherited external ChatGLM favicon and “First vertical slice” metadata with a local static CropTwist sprout mark and factual product metadata.
+- Updated HTTPS Preview session cookies to `Secure; HttpOnly; SameSite=None` when forwarded HTTPS is detected; plain-HTTP local sessions remain `SameSite=Lax`, and logout clears matching attributes. English/Arabic strings and unit coverage were added.
 
 ## Verification summary
 
-- `npx --yes --package bun@1.4.4 bun test tests/frontend` — 142 passed, 0 failed.
+- `npx --yes --package bun@1.4.4 bun test tests/frontend` — **146 passed, 0 failed** across 8 files.
 - `npx --yes --package bun@1.4.4 bun run lint` — passed.
 - `npx --yes --package bun@1.4.4 bun x tsc --noEmit` — passed.
-- `npx --yes --package bun@1.4.4 bun run build` — passed.
-- All locale JSON files parse; the English and Arabic Features catalogs have matching 79-key sets.
-- `GET /` and `GET /manus-routes.json` both return HTTP 200; the existing manifest declares 10 route states.
-- Chromium screenshots are available for the sign-in page only: [1440×900](../audits/visual/crop-login-1440.png), [390×844](../audits/visual/crop-login-390.png), and [360×800](../audits/visual/crop-login-360.png). The sign-in card fits those viewports without horizontal overflow.
+- `npx --yes --package bun@1.4.4 bun run build` — passed after the B1/B2 changes.
+- All locale JSON files parse. English/Arabic key sets match for destinations (33 subpage labels), rotation (119 keys), and Data Hub features (79 keys).
+- `public/manus-routes.json` contains 12 unique route states, including both new Crop Rotation query routes. The root, both new query routes, route manifest, and local `/logo.svg` returned HTTP 200 on the local development server.
+- Chromium screenshots are available for the sign-in page only: [1440×900](../audits/visual/crop-login-1440.png), [390×844](../audits/visual/crop-login-390.png), and [360×800](../audits/visual/crop-login-360.png). The sign-in card fits those widths without visible horizontal overflow; these are not authenticated dashboard screenshots.
 
 ## Remaining blockers and next work
 
-The frontend’s `/api/v1/me` and `/api/v1/health/ready` requests proxy to `127.0.0.1:3030`; no backend listener is running, so the sign-in screen reports the backend as unreachable and the authenticated workspace cannot be opened. No safe test credentials were available. The demo-workspace action is deliberately uninvoked because it reaches a demo-seed endpoint that may write sample records to the backend/database. Consequently, authenticated screenshots for all nine destinations, API workflow verification, actual mobile-shell overflow checks, and authenticated Arabic/RTL review are pending. Continue destination-level Figma work once a safe test backend/session and any needed unreadable Figma frames are available; do not treat this checkpoint as complete or release-ready.
+The frontend’s `/api/v1/me` and `/api/v1/health/ready` requests proxy to `127.0.0.1:3030`; no backend listener is available, so the authenticated workspace cannot be opened. No safe test credentials were available. The demo-workspace action was deliberately not invoked because it reaches a demo-seed endpoint that could write sample records to an unverified database. As a result, authenticated screenshots for all nine destinations, interactive API workflow verification, actual mobile-shell overflow checks, and authenticated Arabic/RTL review remain pending. Full screen coverage and authenticated Figma comparison are not complete or release-ready.

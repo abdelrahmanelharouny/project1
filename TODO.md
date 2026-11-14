@@ -228,3 +228,13 @@ External production gates also remain: live provider credentials/approval, SMTP,
 - Authenticated visual and workflow checks remain blocked because the frontend's `/api/v1/me` and `/api/v1/health/ready` requests proxy to `127.0.0.1:3030`, where no backend is listening (`ECONNREFUSED`). No test credentials were available. The demo-workspace action was not invoked because it would use the demo-seed path and could write sample data to an unverified backend/database. Do not mark the per-destination visual QA, backend/GIS/AI workflow, or complete redesign outcomes done until those dependencies are available and tested.
 - Replaced the inherited external ChatGLM favicon and “First vertical slice” metadata with a local CropTwist sprout SVG and factual product description.
 - First code checkpoint `851ae78b0f232df6e9be911ee17f25039db6fd88` is pushed to `origin/feature/croptwist-ui-ux-redesign`; the remote ref was verified to match, the worktree is clean at that checkpoint, and remote `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`. No PR or merge was created.
+
+
+### Progress evidence — Crop Rotation Figma views (2026-11-14)
+
+- Added the additive `cropintel:rotation-overview` and `cropintel:rotation-planner` routes for Figma B1/B2. The Overview filters and exports only API-returned crop-history records and includes provenance plus loading/error/retry/empty states. The Planner reuses existing season, candidate, optimizer, and evidence operations; it explicitly says outputs are not saved or approved. No synthetic crop sequence or unsupported save action was added.
+- Preserved the original `cropintel:rotation` default and legacy `?tab=rotation` optimizer resolution, and kept `cropintel:plan` as the existing management-plan view.
+- `npx --yes --package bun@1.4.4 bun test tests/frontend` — **146 passed, 0 failed across 8 files**; lint, TypeScript no-emit, production build, locale parity, and `git diff --check` passed.
+- English/Arabic destination labels match at **33** keys and rotation copy at **119** keys; the public route manifest contains **12 unique states**. Local HTTP checks returned 200 for `/`, both new rotation query routes, `/manus-routes.json`, and `/logo.svg`.
+- Code commit `482f266f86d42cc391cf2263ff303a4c810cf8e0` is pushed to `origin/feature/croptwist-ui-ux-redesign`; the remote branch matched and `main` remains `998f7a5885e4ee0c9defe28671736560fb1b8762`. No PR or merge was made.
+- Authenticated per-destination screenshots and API workflow checks remain open because `127.0.0.1:3030` has no listener (`ECONNREFUSED`) and no test account was available. The demo seed was not invoked to avoid unverified database writes; the redesign is still partial and not release-ready.
