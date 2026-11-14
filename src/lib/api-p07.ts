@@ -1,8 +1,8 @@
 /**
  * P07 API client — advanced map experience, spatial analytics and exports.
  *
- * Follows the established api.ts conventions: relative paths only, the
- * gateway port query is appended automatically, session cookies ride along
+ * Follows the established api.ts conventions: relative paths only, Next.js
+ * owns the server-side API rewrite, and session cookies ride along
  * (HttpOnly, never readable by JS), one 401 refresh retry, honest error
  * surfacing through ApiError-like messages. Binary endpoints (CSV export)
  * stream to a Blob; tile URLs are returned as TEMPLATE STRINGS for MapLibre
@@ -20,13 +20,6 @@ import type {
   P07ZonePolygons,
 } from './types-p07'
 
-const PORT_QUERY = 'XTransformPort=3030'
-
-function withPort(path: string): string {
-  const joiner = path.includes('?') ? '&' : '?'
-  return `${path}${joiner}${PORT_QUERY}`
-}
-
 export class ApiP07Error extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -37,7 +30,7 @@ export class ApiP07Error extends Error {
 }
 
 async function p07Request<T>(path: string, init?: RequestInit): Promise<T> {
-  let response = await fetch(withPort(path), {
+  let response = await fetch(path, {
     ...init,
     headers: { ...(init?.headers ?? {}) },
     credentials: 'same-origin',
@@ -46,7 +39,7 @@ async function p07Request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 401) {
     const { refreshSession } = await import('./api')
     await refreshSession()
-    response = await fetch(withPort(path), {
+    response = await fetch(path, {
       ...init,
       credentials: 'same-origin',
       cache: 'no-store',
@@ -122,24 +115,22 @@ export function getProductDistribution(
 }
 
 /**
- * XYZ tile URL template for MapLibre raster sources. The template keeps the
- * gateway port query; MapLibre substitutes {z}/{x}/{y} and sends the
- * session cookies itself (same-origin). Tiles are rendered server-side from
+ * XYZ tile URL template for MapLibre raster sources. MapLibre substitutes
+ * {z}/{x}/{y} and sends the session cookies itself (same-origin). Tiles are
+ * rendered server-side from
  * the stored COG — the browser never sees object-store keys or signed URLs.
  */
 export function productTileUrlTemplate(
   fieldId: string,
   assetId: string,
 ): string {
-  return withPort(
-    `/api/v1/fields/${fieldId}/satellite/products/${assetId}/tiles/{z}/{x}/{y}.png`,
-  )
+  return `/api/v1/fields/${fieldId}/satellite/products/${assetId}/tiles/{z}/{x}/{y}.png`
 }
 
 // ------------------------------------------------------------------ exports
 export async function exportFieldBoundaryGeoJSON(fieldId: string): Promise<Blob> {
   const response = await fetch(
-    withPort(`/api/v1/fields/${fieldId}/boundary.geojson`),
+    `/api/v1/fields/${fieldId}/boundary.geojson`,
     { credentials: 'same-origin', cache: 'no-store' },
   )
   if (!response.ok) throw new ApiP07Error(response.status, `HTTP_${response.status}`)
@@ -148,7 +139,7 @@ export async function exportFieldBoundaryGeoJSON(fieldId: string): Promise<Blob>
 
 export async function exportFarmFieldsGeoJSON(farmId: string): Promise<Blob> {
   const response = await fetch(
-    withPort(`/api/v1/farms/${farmId}/fields.geojson`),
+    `/api/v1/farms/${farmId}/fields.geojson`,
     { credentials: 'same-origin', cache: 'no-store' },
   )
   if (!response.ok) throw new ApiP07Error(response.status, `HTTP_${response.status}`)
@@ -163,7 +154,7 @@ export async function exportSatelliteTimelineCSV(
   if (index) qs.set('index', index)
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
   const response = await fetch(
-    withPort(`/api/v1/fields/${fieldId}/satellite/timeline.csv${suffix}`),
+    `/api/v1/fields/${fieldId}/satellite/timeline.csv${suffix}`,
     { credentials: 'same-origin', cache: 'no-store' },
   )
   if (!response.ok) throw new ApiP07Error(response.status, `HTTP_${response.status}`)

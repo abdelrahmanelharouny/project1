@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
 from app.api.v1.router import api_router
@@ -71,7 +72,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    origins = [o for o in settings.cors_allow_origins.split(",") if o]
+    origins = settings.cors_origins
     if origins:
         app.add_middleware(
             CORSMiddleware,
@@ -80,6 +81,10 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    trusted_hosts = settings.trusted_host_list
+    if trusted_hosts != ["*"]:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):

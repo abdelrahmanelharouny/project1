@@ -6,8 +6,42 @@ Production deployments must provide real values via their secret manager
 """
 
 from functools import lru_cache
+import re
+from urllib.parse import urlsplit
 
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_SAFE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _csv_items(value: str, *, field_name: str, allow_empty: bool = False) -> list[str]:
+    """Split a comma-separated setting and reject blank entries."""
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a comma-separated string")
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    if not items and not allow_empty:
+        raise ValueError(f"{field_name} must contain at least one value")
+    return items
+
+
+def parse_search_path(value: str) -> list[str]:
+    """Return safe PostgreSQL schema identifiers for ``search_path``.
+
+    Search paths are passed to libpq as a connection option.  Only plain
+    identifiers (plus PostgreSQL's ``$user`` token) are accepted so an
+    operator cannot inject arbitrary SQL through a deployment environment
+    variable.  Quoted identifiers are intentionally not supported.
+    """
+    items = _csv_items(value, field_name="database_search_path")
+    for item in items:
+        if item != "$user" and not _SAFE_IDENTIFIER.fullmatch(item):
+            raise ValueError(
+                "database_search_path entries must be simple SQL identifiers "
+                "or $user"
+            )
+    return items
 
 
 class Settings(BaseSettings):
@@ -20,6 +54,17 @@ class Settings(BaseSettings):
 
     # Database (PostgreSQL + PostGIS). Conda-forge user-space cluster in the sandbox.
     database_url: str = "postgresql+psycopg2://postgres@127.0.0.1:5433/croptwist"
+    # libpq/SQLAlchemy deployment knobs. Empty SSL values preserve the local
+    # sandbox behavior; hosted deployments should set verify-full and a CA.
+    database_sslmode: str = ""
+    database_sslrootcert: str = ""
+    database_connect_timeout_seconds: int = 5
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
+    database_pool_timeout_seconds: int = 10
+    database_pool_recycle_seconds: int = 300
+    database_health_timeout_seconds: int = 3
+    database_search_path: str = "public,extensions"
     db_pgdata_dir: str = "/home/z/my-project/db/pgdata"
     db_port: int = 5433
     db_socket_dir: str = "/tmp"
@@ -70,6 +115,13 @@ class Settings(BaseSettings):
     # CORS: the frontend is served behind the same gateway in the sandbox; in
     # production this must be restricted to approved origins only.
     cors_allow_origins: str = ""
+    # Host allowlist. ``*`` preserves local/test behavior; hosted deployments
+    # should provide explicit hostnames (for example, api.example.com).
+    trusted_hosts: str = "*"
+    # Staging and production are secure-by-default. The explicit flag can
+    # apply the same safety checks to other environment labels; it is not
+    # an opt-out for hosted environments.
+    enforce_production_safety: bool = False
 
     # External providers (Milestone 3). Base URL overridable for testing/proxying.
     open_meteo_base_url: str = "https://archive-api.open-meteo.com/v1/archive"
@@ -163,6 +215,99 @@ class Settings(BaseSettings):
     reports_dir: str = "/home/z/my-project/mini-services/fieldshift-api/reports_storage"
     report_retention_days: int = 30
     report_max_per_month_free: int = 3
+
+    @field_validator("database_sslmode")
+    @classmethod
+    def validate_database_sslmode(cls, value: str) -> str:
+        value = value.strip().lower()
+        allowed = {"", "disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+        if value not in allowed:
+            raise ValueError("database_sslmode must be a supported libpq sslmode")
+        return value
+
+    @field_validator("database_search_path")
+    @classmethod
+    def validate_database_search_path(cls, value: str) -> str:
+        return ",".join(parse_search_path(value))
+
+    @field_validator("cors_allow_origins")
+    @classmethod
+    def validate_cors_allow_origins(cls, value: str) -> str:
+        origins = _csv_items(value, field_name="cors_allow_origins", allow_empty=True)
+        for origin in origins:
+            if "*" in origin:
+                raise ValueError(
+                    "cors_allow_origins must list explicit origins; '*' is not "
+                    "allowed when credentials are enabled"
+                )
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ValueError(
+                    "cors_allow_origins entries must be explicit http(s) origins "
+                    "without paths, queries, fragments, or credentials"
+                )
+            try:
+                parsed.port
+            except ValueError as exc:
+                raise ValueError("cors_allow_origins contains an invalid port") from exc
+        return ",".join(origins)
+
+    @field_validator("trusted_hosts")
+    @classmethod
+    def validate_trusted_hosts(cls, value: str) -> str:
+        hosts = _csv_items(value, field_name="trusted_hosts")
+        for host in hosts:
+            if host == "*" or host.startswith("*."):
+                continue
+            if (
+                any(character.isspace() for character in host)
+                or "/" in host
+                or "\\" in host
+                or host.startswith(".")
+                or host.endswith(".")
+            ):
+                raise ValueError("trusted_hosts entries must be hostnames or IP addresses")
+        return ",".join(hosts)
+
+    @model_validator(mode="after")
+    def validate_deployment_safety(self) -> "Settings":
+        environment = self.environment.strip().lower()
+        enforce = self.enforce_production_safety or environment in {"staging", "production"}
+        if enforce and self.dev_mode:
+            raise ValueError("dev_mode must be false for staging/hosted production")
+        if enforce and any("*" in host for host in self.trusted_host_list):
+            raise ValueError("trusted_hosts must be explicit for staging/hosted production")
+        if enforce:
+            if self.database_sslmode != "verify-full" or not self.database_sslrootcert:
+                raise ValueError("hosted databases require verify-full and a trusted CA certificate")
+            if any(not origin.startswith("https://") for origin in self.cors_origins):
+                raise ValueError("hosted CORS origins must use HTTPS")
+        if self.database_pool_size < 1 or self.database_max_overflow < 0:
+            raise ValueError("database pool size must be positive and overflow bounded")
+        if min(self.database_pool_timeout_seconds, self.database_connect_timeout_seconds,
+               self.database_health_timeout_seconds) <= 0:
+            raise ValueError("database timeouts must be positive")
+        return self
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return _csv_items(self.cors_allow_origins, field_name="cors_allow_origins", allow_empty=True)
+
+    @property
+    def trusted_host_list(self) -> list[str]:
+        return _csv_items(self.trusted_hosts, field_name="trusted_hosts")
+
+    @property
+    def search_path_list(self) -> list[str]:
+        return parse_search_path(self.database_search_path)
 
 
 @lru_cache
