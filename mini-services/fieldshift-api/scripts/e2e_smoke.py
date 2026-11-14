@@ -405,12 +405,38 @@ def main() -> int:
           f"got {r.status_code}")
     r = httpx.post(f"{BASE}/orgs/{org_id}/invitations", headers=p3_headers, timeout=30,
                    json={"email": f"free-denied-{stamp}@test.local", "role_code": "viewer"})
-    check("P3 Free owner-only seat cap enforced 402", r.status_code == 402,
+    check("P3 Free pending invitation created", r.status_code == 201,
           f"got {r.status_code}")
+    if r.status_code == 201:
+        invitation_token = r.json().get("token")
+        invitee = httpx.post(
+            f"{BASE}/auth/register",
+            json={"email": f"free-denied-{stamp}@test.local",
+                  "password": "free-invitee-password-1",
+                  "display_name": "Free seat-limit invitee"},
+            timeout=30,
+        )
+        check("P3 Free invitee registration 201", invitee.status_code == 201,
+              f"got {invitee.status_code}")
+        if invitee.status_code == 201 and invitation_token:
+            accepted = httpx.post(
+                f"{BASE}/invitations/accept",
+                headers={"Authorization": f"Bearer {invitee.json()['token']}"},
+                json={"token": invitation_token},
+                timeout=30,
+            )
+            check("P3 Free seat cap blocks invite acceptance 402",
+                  accepted.status_code == 402, f"got {accepted.status_code}")
+            if accepted.status_code == 402:
+                check("P3 invite denial names max_org_members",
+                      "max_org_members" in accepted.json()["error"]["message"])
     r = httpx.post(f"{BASE}/developer/keys", headers=p3_headers, timeout=30,
                    json={"name": "Free denied key", "scopes": ["org:read"], "organization_id": org_id})
-    check("P3 Free API issuance disabled 402", r.status_code == 402,
+    check("P3 Free API issuance denied 403", r.status_code == 403,
           f"got {r.status_code}")
+    if r.status_code == 403:
+        check("P3 API denial names disabled plan feature",
+              "not part of your current plan" in r.json()["error"]["message"])
     # Synthetic sandbox subscription transition only: no real charge/send.
     r = httpx.post(f"{BASE}/billing/subscription/change", headers=p3_headers, timeout=30,
                    json={"organization_id": org_id, "new_plan_code": "professional",

@@ -87,7 +87,11 @@ jobs:
 
       - name: Start rules-only API, wait for health
         run: |
-          CROPTWIST_LLM_ENABLED=false nohup python -m uvicorn app.main:app \
+          # This is the isolated CI API: dev mode auto-verifies synthetic E2E
+          # registrations because this job intentionally configures no SMTP.
+          mkdir -p /tmp/croptwist-ci-reports
+          CROPTWIST_DEV_MODE=true CROPTWIST_LLM_ENABLED=false \
+            CROPTWIST_REPORTS_DIR=/tmp/croptwist-ci-reports nohup python -m uvicorn app.main:app \
             --host 127.0.0.1 --port 3030 > /tmp/api-ci.log 2>&1 &
           for i in $(seq 1 60); do
             curl -fs http://127.0.0.1:3030/api/v1/health >/dev/null 2>&1 && break
