@@ -3,18 +3,27 @@
 The ``background_jobs`` table is the durable source of truth. Each process
 maintains only a local wake-up queue; workers poll the table so submissions
 from an API process are visible to standalone workers without a broker.
+
+A worker owns a job only while both its persisted (owner, fencing token, lease)
+and a PostgreSQL session advisory lock are valid. The independent heartbeat
+keeps long-running jobs live even when executors report no user-facing progress.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import queue
 import threading
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Iterator
+
+from sqlalchemy import func, or_, select, text, update
 
 from app.core.config import settings
 
@@ -34,6 +43,23 @@ _queued_ids: set[uuid.UUID] = set()
 _poll_lock = threading.Lock()
 _last_poll_at = 0.0
 _MAX_RECOVERY_ATTEMPTS = 3
+_JOB_LEASE_SECONDS = 120
+_JOB_HEARTBEAT_SECONDS = 20
+_TERMINAL_DOMAIN_STATUSES = {"succeeded", "failed", "cancelled", "expired"}
+_TERMINAL_BACKGROUND_STATUSES = ("succeeded", "failed", "cancelled")
+_current_execution: ContextVar[tuple[uuid.UUID, uuid.UUID, int] | None] = ContextVar(
+    "current_background_job_execution", default=None
+)
+
+
+def current_job_execution() -> tuple[uuid.UUID, uuid.UUID, int] | None:
+    """Return (job ID, owner ID, fencing token) for this executor thread, if any.
+
+    Executors use this identity to fence domain writes against the persisted
+    BackgroundJob lease. The context is scoped to the executor call and is not
+    propagated to independent heartbeat threads.
+    """
+    return _current_execution.get()
 
 
 def _queue_job_id(job_id: uuid.UUID) -> None:
@@ -150,26 +176,33 @@ def shutdown_workers() -> None:
     _threads.clear()
 
 
-def _domain_job(db: Any, job: Any) -> Any | None:
-    """Load the domain row referenced by a generic background job."""
+def _domain_model(job: Any) -> Any | None:
+    """Return the mapped class for the domain row referenced by a job."""
     if job.ref_id is None:
         return None
     if job.ref_kind == "ingestion":
         from app.db.models import IngestionJob
 
-        return db.get(IngestionJob, job.ref_id)
+        return IngestionJob
     if job.ref_kind == "raster_processing":
         from app.db.models_p2 import RasterProcessingJob
 
-        return db.get(RasterProcessingJob, job.ref_id)
+        return RasterProcessingJob
     if job.ref_kind == "report":
         from app.db.models_p3 import ReportJob
 
-        return db.get(ReportJob, job.ref_id)
+        return ReportJob
     return None
 
 
+def _domain_job(db: Any, job: Any) -> Any | None:
+    """Load the domain row referenced by a generic background job."""
+    model = _domain_model(job)
+    return db.get(model, job.ref_id) if model is not None else None
+
+
 def _reset_domain_for_replay(domain: Any) -> None:
+    """Reset only explicitly replayable, nonterminal domain work."""
     domain.status = "queued"
     for field in ("error", "error_summary", "finished_at", "completed_at", "started_at"):
         if hasattr(domain, field):
@@ -177,80 +210,347 @@ def _reset_domain_for_replay(domain: Any) -> None:
     if hasattr(domain, "progress"):
         domain.progress = 0
     if hasattr(domain, "stage"):
-        domain.stage = "recovered after stale worker"
+        domain.stage = "recovered after expired worker lease"
+
+
+def _background_terminal_status(domain_status: str) -> str | None:
+    """Map terminal domain states onto the unified background-job contract."""
+    return {
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "expired": "cancelled",
+    }.get(domain_status)
+
+
+def _replay_is_safe(job: Any, domain: Any) -> bool:
+    """Allow only registered, known-idempotent domain replay paths."""
+    if domain is None or domain.status not in {"queued", "running"}:
+        return False
+    if job.kind == "ingestion" and job.ref_kind == "ingestion":
+        # Provider reads are repeatable; observations use a natural-key unique
+        # constraint and scene provenance is upsert/idempotent.
+        return True
+    if job.kind == "raster_processing" and job.ref_kind == "raster_processing":
+        # Raster assets overwrite deterministic keys; registries/observations
+        # use natural keys and the processing service's replay path is queued-only.
+        return True
+    if job.kind == "report_generation" and job.ref_kind == "report":
+        # Report rendering is replayed only if it never entered execution.
+        # A 'running' report may have emitted/metered side effects before a
+        # crash, so it fails closed rather than risking a duplicate.
+        return domain.status == "queued"
+    return False
+
+
+def _lock_key(job_id: uuid.UUID) -> int:
+    """Derive a stable signed int64 advisory-lock key from a UUID."""
+    digest = hashlib.blake2b(job_id.bytes, digest_size=8, person=b"job-lock").digest()
+    return int.from_bytes(digest, byteorder="big", signed=True)
+
+
+@contextmanager
+def _job_advisory_lock(job_id: uuid.UUID) -> Iterator[bool]:
+    """Hold a PostgreSQL session lock for an entire execution/recovery action.
+
+    The lock is session-scoped (not transaction-scoped), so committing heartbeats
+    and executor work cannot release it. A lock miss means another live actor
+    owns the job and this caller must not claim or recover it.
+    """
+    from app.core.database import engine
+
+    connection = None
+    acquired = False
+    lock_key = _lock_key(job_id)
+    try:
+        connection = engine.connect()
+        if connection.dialect.name != "postgresql":
+            logger.error("background job ownership requires PostgreSQL advisory locks")
+            yield False
+            return
+        acquired = bool(
+            connection.execute(
+                text("SELECT pg_try_advisory_lock(:lock_key)"), {"lock_key": lock_key}
+            ).scalar_one()
+        )
+        connection.commit()
+        yield acquired
+    finally:
+        if connection is not None:
+            if acquired:
+                try:
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(:lock_key)"),
+                        {"lock_key": lock_key},
+                    )
+                    connection.commit()
+                except Exception:  # noqa: BLE001 — never return a possibly locked connection to pool
+                    connection.invalidate()
+            connection.close()
+
+
+def _stale_candidate_ids(stale_before: datetime) -> list[uuid.UUID]:
+    """Read candidate IDs; every row is rechecked under its advisory lock."""
+    from app.core.database import SessionLocal
+    from app.db.models import BackgroundJob
+
+    with SessionLocal() as db:
+        return list(
+            db.scalars(
+                select(BackgroundJob.id).where(
+                    BackgroundJob.status == "running",
+                    or_(
+                        BackgroundJob.lease_expires_at <= func.clock_timestamp(),
+                        (
+                            BackgroundJob.lease_expires_at.is_(None)
+                            & (BackgroundJob.updated_at < stale_before)
+                        ),
+                    ),
+                )
+            ).all()
+        )
+
+
+def _update_recovered_row(
+    db: Any,
+    job: Any,
+    *,
+    stale_before: datetime,
+    values: dict[str, Any],
+) -> bool:
+    """CAS a stale running row using its observed fencing generation."""
+    from app.db.models import BackgroundJob
+
+    predicates = [
+        BackgroundJob.id == job.id,
+        BackgroundJob.status == "running",
+        BackgroundJob.fencing_token == job.fencing_token,
+    ]
+    if job.owner_id is None:
+        predicates.extend(
+            [
+                BackgroundJob.owner_id.is_(None),
+                BackgroundJob.lease_expires_at.is_(None),
+                BackgroundJob.updated_at < stale_before,
+            ]
+        )
+    elif job.lease_expires_at is None:
+        predicates.extend(
+            [
+                BackgroundJob.owner_id == job.owner_id,
+                BackgroundJob.lease_expires_at.is_(None),
+                BackgroundJob.updated_at < stale_before,
+            ]
+        )
+    else:
+        predicates.extend(
+            [
+                BackgroundJob.owner_id == job.owner_id,
+                BackgroundJob.lease_expires_at <= func.clock_timestamp(),
+            ]
+        )
+    result = db.execute(update(BackgroundJob).where(*predicates).values(**values))
+    return result.rowcount == 1
+
+
+def _reconcile_terminal_result(job: Any, domain: Any) -> dict[str, Any] | None:
+    """Preserve useful executor result details when completing a crashed job."""
+    result = dict(job.result or {}) if isinstance(job.result, dict) else {}
+    if job.ref_kind == "report":
+        result.update(
+            {
+                "report_job_id": str(domain.id),
+                "report_type": domain.report_type,
+                "format": domain.output_format,
+            }
+        )
+    elif job.ref_kind == "raster_processing":
+        result.update(
+            {
+                "derived_indices": list(domain.indices or []),
+                "scene_id": domain.scene_id,
+                "processing_version": domain.processing_version,
+            }
+        )
+    elif not result:
+        result["domain_status"] = str(domain.status)
+    return result or None
+
+
+def _recover_one(job_id: uuid.UUID, now: datetime, stale_before: datetime) -> str:
+    """Recover one candidate while holding its advisory lock and row locks."""
+    from app.core.database import SessionLocal
+    from app.db.models import BackgroundJob
+
+    retry = False
+    outcome = "unchanged"
+    with SessionLocal() as db:
+        job = db.scalar(
+            select(BackgroundJob)
+            .where(BackgroundJob.id == job_id)
+            .with_for_update()
+        )
+        if job is None or job.status != "running":
+            return outcome
+        database_now = db.scalar(select(func.clock_timestamp()))
+        if job.owner_id is None or job.lease_expires_at is None:
+            if job.updated_at >= stale_before:
+                return outcome
+        elif job.lease_expires_at > database_now:
+            return outcome
+
+        model = _domain_model(job)
+        domain = None
+        if model is not None:
+            domain = db.scalar(
+                select(model).where(model.id == job.ref_id).with_for_update()
+            )
+
+        # A domain commit can win just before the worker crashes while the
+        # unified row remains running. Reconcile; never reset or execute it.
+        terminal = _background_terminal_status(str(domain.status)) if domain is not None else None
+        if terminal is not None:
+            error = getattr(domain, "error", None) or getattr(domain, "error_summary", None)
+            values: dict[str, Any] = {
+                "status": terminal,
+                "owner_id": None,
+                "lease_expires_at": None,
+                "finished_at": now,
+                "error": error if terminal == "failed" else None,
+                "result": _reconcile_terminal_result(job, domain),
+            }
+            if terminal == "succeeded":
+                values.update(progress=100, stage="completed")
+            if _update_recovered_row(db, job, stale_before=stale_before, values=values):
+                db.commit()
+                outcome = "reconciled"
+            else:
+                db.rollback()
+            return outcome
+
+        # Legacy running rows without a persisted owner have no fencing proof.
+        # Likewise, report rows already marked running might have completed a
+        # usage/event side effect before a process crash. Fail closed.
+        executors = set(_kind_executors)
+        safe = (
+            domain is not None
+            and job.kind in executors
+            and _replay_is_safe(job, domain)
+        )
+        attempts = int((job.result or {}).get("_recovery_attempts", 0)) if isinstance(job.result, dict) else 0
+        has_valid_expired_owner = job.owner_id is not None and job.lease_expires_at is not None
+        if safe and has_valid_expired_owner and attempts < _MAX_RECOVERY_ATTEMPTS:
+            _reset_domain_for_replay(domain)
+            result = dict(job.result or {}) if isinstance(job.result, dict) else {}
+            result["_recovery_attempts"] = attempts + 1
+            values = {
+                "status": "queued",
+                "owner_id": None,
+                "lease_expires_at": None,
+                "fencing_token": job.fencing_token + 1,
+                "started_at": None,
+                "finished_at": None,
+                "error": None,
+                "progress": 0,
+                "stage": "recovered after expired worker lease",
+                "result": result,
+            }
+            if _update_recovered_row(db, job, stale_before=stale_before, values=values):
+                db.commit()
+                retry = True
+                outcome = "requeued"
+            else:
+                db.rollback()
+        else:
+            if not has_valid_expired_owner:
+                reason = "stale running job has no valid owner lease; replay refused"
+            elif domain is None:
+                reason = "interrupted by worker restart; domain job missing or unsupported"
+            elif job.kind == "report_generation" and domain.status == "running":
+                reason = "report was already running; recovery refused to repeat side effects"
+            elif job.kind not in executors:
+                reason = "interrupted by worker restart; no registered replay executor"
+            elif attempts >= _MAX_RECOVERY_ATTEMPTS:
+                reason = "interrupted by worker restart; recovery attempts exhausted"
+            else:
+                reason = f"interrupted by worker restart; replay unsafe for domain status '{domain.status}'"
+            values = {
+                "status": "failed",
+                "owner_id": None,
+                "lease_expires_at": None,
+                "fencing_token": job.fencing_token + 1,
+                "finished_at": now,
+                "error": reason,
+            }
+            if _update_recovered_row(db, job, stale_before=stale_before, values=values):
+                db.commit()
+                outcome = "failed"
+            else:
+                db.rollback()
+
+    if retry:
+        _queue_job_id(job_id)
+    return outcome
 
 
 def _recover_orphans() -> None:
-    """Requeue queued jobs and boundedly recover genuinely stale running jobs."""
-    from sqlalchemy import select
-
+    """Requeue queued work and safely recover expired, fenced worker leases."""
     from app.core.database import SessionLocal
     from app.db.models import BackgroundJob
 
     now = datetime.now(UTC)
     stale_before = now - timedelta(seconds=max(settings.job_stale_after_seconds, 60))
-    retry_ids: list[uuid.UUID] = []
-    discovered = requeued = recovered = failed = 0
+    queued_ids: list[uuid.UUID] = []
     with SessionLocal() as db:
-        queued = db.scalars(
-            select(BackgroundJob).where(BackgroundJob.status == "queued")
-        ).all()
-        discovered += len(queued)
-        for job in queued:
-            if job.kind in _kind_executors:
-                _queue_job_id(job.id)
-                requeued += 1
-
-        stale = db.scalars(
-            select(BackgroundJob).where(
-                BackgroundJob.status == "running",
-                BackgroundJob.updated_at < stale_before,
-            )
-        ).all()
-        for job in stale:
-            domain = _domain_job(db, job)
-            attempts = int((job.result or {}).get("_recovery_attempts", 0))
-            if domain is not None and attempts < _MAX_RECOVERY_ATTEMPTS and job.kind in _kind_executors:
-                _reset_domain_for_replay(domain)
-                job.status = "queued"
-                job.started_at = None
-                job.finished_at = None
-                job.error = None
-                job.progress = 0
-                job.result = {**(job.result or {}), "_recovery_attempts": attempts + 1}
-                retry_ids.append(job.id)
-                recovered += 1
-            else:
-                job.status = "failed"
-                job.error = (
-                    "interrupted by worker restart; recovery attempts exhausted"
-                    if domain is not None
-                    else "interrupted by worker restart; domain job missing or unsupported"
+        queued_ids = list(
+            db.scalars(
+                select(BackgroundJob.id).where(BackgroundJob.status == "queued")
+            ).all()
+        )
+    discovered = len(queued_ids)
+    requeued = 0
+    with _registry_lock:
+        kinds = set(_kind_executors)
+    for job_id in queued_ids:
+        # _run_job performs the authoritative atomic claim. Queue only durable
+        # kinds with a registered process-local executor for cross-process work.
+        with SessionLocal() as db:
+            job_kind = db.scalar(
+                select(BackgroundJob.kind).where(
+                    BackgroundJob.id == job_id,
+                    BackgroundJob.status == "queued",
                 )
-                job.finished_at = now
-                if domain is not None:
-                    domain.status = "failed"
-                    if hasattr(domain, "error"):
-                        domain.error = job.error
-                    elif hasattr(domain, "error_summary"):
-                        domain.error_summary = job.error
-                    if hasattr(domain, "finished_at"):
-                        domain.finished_at = now
-                    elif hasattr(domain, "completed_at"):
-                        domain.completed_at = now
-                failed += 1
-        if queued or stale:
-            db.commit()
+            )
+        if job_kind in kinds:
+            _queue_job_id(job_id)
+            requeued += 1
 
-    for job_id in retry_ids:
-        _queue_job_id(job_id)
-    if discovered or stale:
+    recovered = failed = reconciled = locked = 0
+    for job_id in _stale_candidate_ids(stale_before):
+        try:
+            with _job_advisory_lock(job_id) as acquired:
+                if not acquired:
+                    locked += 1
+                    continue
+                outcome = _recover_one(job_id, now, stale_before)
+        except Exception:  # noqa: BLE001 — one damaged row must not block startup
+            logger.exception("background job recovery failed for %s", job_id)
+            failed += 1
+            continue
+        recovered += outcome == "requeued"
+        failed += outcome == "failed"
+        reconciled += outcome == "reconciled"
+
+    if discovered or recovered or failed or reconciled or locked:
         logger.warning(
-            "background job recovery: discovered=%d queued=%d retried=%d failed=%d",
+            "background job recovery: discovered=%d queued=%d retried=%d "
+            "reconciled=%d failed=%d live_locks=%d",
             discovered,
             requeued,
             recovered,
+            reconciled,
             failed,
+            locked,
         )
 
 
@@ -268,8 +568,6 @@ def _poll_queued_jobs() -> None:
             kinds = tuple(_kind_executors)
         if not kinds:
             return
-        from sqlalchemy import select
-
         from app.core.database import SessionLocal
         from app.db.models import BackgroundJob
 
@@ -286,6 +584,165 @@ def _poll_queued_jobs() -> None:
         logger.exception("durable background-job poll failed")
     finally:
         _poll_lock.release()
+
+
+def _claim_job(job_id: uuid.UUID, owner_id: uuid.UUID) -> int | None:
+    """Atomically claim queued work and advance the fencing generation."""
+    from app.core.database import SessionLocal
+    from app.db.models import BackgroundJob
+
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        result = db.execute(
+            update(BackgroundJob)
+            .where(BackgroundJob.id == job_id, BackgroundJob.status == "queued")
+            .values(
+                status="running",
+                owner_id=owner_id,
+                fencing_token=BackgroundJob.fencing_token + 1,
+                lease_expires_at=func.clock_timestamp() + timedelta(seconds=_JOB_LEASE_SECONDS),
+                started_at=now,
+                finished_at=None,
+                error=None,
+                progress=0,
+            )
+            .returning(BackgroundJob.fencing_token)
+        )
+        token = result.scalar_one_or_none()
+        db.commit()
+        return int(token) if token is not None else None
+
+
+def _heartbeat_once(job_id: uuid.UUID, owner_id: uuid.UUID, fencing_token: int) -> bool:
+    """Extend a lease only while this exact owner/generation remains current."""
+    from app.core.database import SessionLocal
+    from app.db.models import BackgroundJob
+
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        result = db.execute(
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.id == job_id,
+                BackgroundJob.status == "running",
+                BackgroundJob.owner_id == owner_id,
+                BackgroundJob.fencing_token == fencing_token,
+                BackgroundJob.lease_expires_at > now,
+            )
+            .values(lease_expires_at=now + timedelta(seconds=_JOB_LEASE_SECONDS))
+        )
+        db.commit()
+        return result.rowcount == 1
+
+
+def _heartbeat_loop(
+    job_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    fencing_token: int,
+    stop: threading.Event,
+    ownership_lost: threading.Event,
+) -> None:
+    """Renew leases in independent sessions while executors block or compute."""
+    while not stop.wait(_JOB_HEARTBEAT_SECONDS):
+        try:
+            if not _heartbeat_once(job_id, owner_id, fencing_token):
+                ownership_lost.set()
+                return
+        except Exception:  # noqa: BLE001 — retry transient DB failures before lease expiry
+            logger.exception("background job heartbeat failed for %s", job_id)
+
+
+def _write_progress(
+    job_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    fencing_token: int,
+    pct: int,
+    stage: str | None,
+) -> bool:
+    """Persist progress/lease only if the exact live owner still holds the fence."""
+    from app.core.database import SessionLocal
+    from app.db.models import BackgroundJob
+
+    now = datetime.now(UTC)
+    values: dict[str, Any] = {
+        "progress": max(0, min(int(pct), 100)),
+        "lease_expires_at": now + timedelta(seconds=_JOB_LEASE_SECONDS),
+    }
+    if stage:
+        values["stage"] = stage[:200]
+    with SessionLocal() as db:
+        result = db.execute(
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.id == job_id,
+                BackgroundJob.status == "running",
+                BackgroundJob.owner_id == owner_id,
+                BackgroundJob.fencing_token == fencing_token,
+                BackgroundJob.lease_expires_at > now,
+            )
+            .values(**values)
+        )
+        db.commit()
+        return result.rowcount == 1
+
+
+def _finalize_job(
+    job_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    fencing_token: int,
+    *,
+    error: str | None,
+) -> bool:
+    """Fenced finalization; also clear leases after owned executors finalize directly."""
+    from app.core.database import SessionLocal
+    from app.db.models import BackgroundJob
+
+    now = datetime.now(UTC)
+    status = "failed" if error is not None else "succeeded"
+    values: dict[str, Any] = {
+        "status": status,
+        "owner_id": None,
+        "lease_expires_at": None,
+        "finished_at": now,
+        "error": error[:2000] if error is not None else None,
+    }
+    if error is None:
+        values.update(progress=100, stage="completed")
+    with SessionLocal() as db:
+        result = db.execute(
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.id == job_id,
+                BackgroundJob.status == "running",
+                BackgroundJob.owner_id == owner_id,
+                BackgroundJob.fencing_token == fencing_token,
+                BackgroundJob.lease_expires_at > now,
+            )
+            .values(**values)
+        )
+        if result.rowcount == 1:
+            db.commit()
+            return True
+
+        # Built-in report/raster executors historically write their terminal
+        # background status inside their domain transaction. Do not overwrite
+        # that result, but clear the still-matching owner's lease metadata.
+        cleanup = db.execute(
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.id == job_id,
+                BackgroundJob.status.in_(_TERMINAL_BACKGROUND_STATUSES),
+                BackgroundJob.owner_id == owner_id,
+                BackgroundJob.fencing_token == fencing_token,
+            )
+            .values(
+                owner_id=None,
+                lease_expires_at=None,
+                finished_at=func.coalesce(BackgroundJob.finished_at, now),
+            )
+        )
+        db.commit()
+        return cleanup.rowcount == 1
 
 
 def _worker_loop() -> None:
@@ -309,63 +766,74 @@ def _worker_loop() -> None:
 
 
 def _run_job(job_id: uuid.UUID) -> None:
-    """Atomically claim and execute one durable job."""
-    from sqlalchemy import select
-
-    from app.core.database import SessionLocal
-    from app.db.models import BackgroundJob
-
-    with _registry_lock:
-        fn = _pending_fns.pop(job_id, None)
-
-    with SessionLocal() as db:
-        job = db.scalar(
-            select(BackgroundJob)
-            .where(BackgroundJob.id == job_id, BackgroundJob.status == "queued")
-            .with_for_update(skip_locked=True)
-        )
-        if job is None:
+    """Acquire a cross-process lock, atomically claim, heartbeat, and execute."""
+    with _job_advisory_lock(job_id) as acquired:
+        if not acquired:
             return
+
+        with _registry_lock:
+            fn = _pending_fns.pop(job_id, None)
         if fn is None:
-            fn = _kind_executors.get(job.kind)
-        job.status = "running"
-        job.started_at = datetime.now(UTC)
-        job.progress = 0
-        db.commit()
+            # Resolve a registered executor only after loading the durable kind.
+            from app.core.database import SessionLocal
+            from app.db.models import BackgroundJob
+
+            with SessionLocal() as db:
+                kind = db.scalar(
+                    select(BackgroundJob.kind).where(
+                        BackgroundJob.id == job_id,
+                        BackgroundJob.status == "queued",
+                    )
+                )
+            with _registry_lock:
+                fn = _kind_executors.get(kind) if kind is not None else None
+
+        owner_id = uuid.uuid4()
+        fencing_token = _claim_job(job_id, owner_id)
+        if fencing_token is None:
+            return
+
+        heartbeat_stop = threading.Event()
+        ownership_lost = threading.Event()
+        heartbeat = threading.Thread(
+            target=_heartbeat_loop,
+            args=(job_id, owner_id, fencing_token, heartbeat_stop, ownership_lost),
+            name=f"croptwist-job-heartbeat-{job_id}",
+            daemon=True,
+        )
+        heartbeat.start()
+        execution_error: str | None = None
 
         def progress(pct: int, stage: str | None = None) -> None:
-            job.progress = max(0, min(int(pct), 100))
-            if stage:
-                job.stage = stage[:200]
-            db.commit()
+            if ownership_lost.is_set():
+                return
+            if not _write_progress(job_id, owner_id, fencing_token, pct, stage):
+                ownership_lost.set()
 
+        context_token = _current_execution.set((job_id, owner_id, fencing_token))
         try:
             if fn is None:
-                raise RuntimeError(f"no executor available for background job kind '{job.kind}'")
-            fn(job.id, progress)
-            db.refresh(job)
-            if job.status == "running":
-                job.status = "succeeded"
-                job.progress = 100
+                raise RuntimeError("no executor available for durable background job kind")
+            fn(job_id, progress)
         except Exception as exc:
-            db.refresh(job)
-            if job.status == "running":
-                job.status = "failed"
-                job.error = f"{type(exc).__name__}: {exc}"[:2000]
+            execution_error = f"{type(exc).__name__}: {exc}"[:2000]
             logger.warning(
-                "background job failed", extra={"job_id": str(job.id), "error": str(exc)}
+                "background job failed", extra={"job_id": str(job_id), "error": str(exc)}
             )
         finally:
-            db.refresh(job)
-            if job.status in ("succeeded", "failed", "cancelled") and job.finished_at is None:
-                job.finished_at = datetime.now(UTC)
-            db.commit()
+            _current_execution.reset(context_token)
+            heartbeat_stop.set()
+            heartbeat.join(timeout=max(_JOB_HEARTBEAT_SECONDS, 1) + 1)
+            if ownership_lost.is_set():
+                logger.warning(
+                    "background job owner lost its fencing lease",
+                    extra={"job_id": str(job_id), "owner_id": str(owner_id), "fencing_token": fencing_token},
+                )
+            _finalize_job(job_id, owner_id, fencing_token, error=execution_error)
 
 
 def wait_for_job(job_id: uuid.UUID, timeout: float = 30.0, interval: float = 0.05) -> Any:
     """Block until a job reaches a terminal state (test/ops helper)."""
-    from sqlalchemy import select
-
     from app.core.database import SessionLocal
     from app.db.models import BackgroundJob
 
@@ -373,7 +841,7 @@ def wait_for_job(job_id: uuid.UUID, timeout: float = 30.0, interval: float = 0.0
     while time.monotonic() < deadline:
         with SessionLocal() as db:
             job = db.scalar(select(BackgroundJob).where(BackgroundJob.id == job_id))
-            if job is not None and job.status in ("succeeded", "failed", "cancelled"):
+            if job is not None and job.status in _TERMINAL_BACKGROUND_STATUSES:
                 return job
         time.sleep(interval)
     raise TimeoutError(f"background job {job_id} did not finish within {timeout}s")

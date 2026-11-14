@@ -177,8 +177,8 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
             content={
                 "status": "verification_required",
                 "message": (
-                    "Account created. No session is available until email verification "
-                    "is complete; email delivery must be configured for this deployment."
+                    "Account created. A verification email has been sent. No session is "
+                    "available until email verification is complete."
                 ),
                 "user": {"id": str(user.id), "email": user.email},
             },
@@ -241,10 +241,17 @@ def password_reset(payload: PasswordResetRequest, request: Request, db: Session 
     a sandbox/testing convenience (documented); production delivers it
     out-of-band via email."""
     _limit_auth(request)
-    body: dict[str, str] = {
-        "status": "queued",
-        "message": "If the account exists, a password reset has been initiated.",
-    }
+    body: dict[str, str] = (
+        {
+            "status": "queued",
+            "message": "If the account exists, a password reset has been initiated.",
+        }
+        if settings.dev_mode
+        else {
+            "status": "accepted",
+            "message": "If the account exists, password-reset instructions will be sent by email.",
+        }
+    )
     reset_token = request_password_reset(db, payload.email)
     if settings.dev_mode and reset_token is not None:
         body["reset_token"] = reset_token
@@ -266,10 +273,17 @@ def verify_email_request(
     """Request an email verification challenge (generic response shape; in
     dev_mode the plaintext token is included as a sandbox convenience)."""
     _limit_auth(request)
-    body: dict[str, str] = {
-        "status": "queued",
-        "message": "If the account exists, an email verification has been initiated.",
-    }
+    body: dict[str, str] = (
+        {
+            "status": "queued",
+            "message": "If the account exists, an email verification has been initiated.",
+        }
+        if settings.dev_mode
+        else {
+            "status": "accepted",
+            "message": "If the account exists, verification instructions will be sent by email.",
+        }
+    )
     verification_token = request_email_verification(db, payload.email)
     if settings.dev_mode and verification_token is not None:
         body["verification_token"] = verification_token

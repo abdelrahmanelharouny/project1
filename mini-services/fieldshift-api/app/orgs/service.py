@@ -49,6 +49,15 @@ def _require_owner(principal: Principal, organization_id: uuid.UUID) -> Membersh
     return principal.require_owner(organization_id)
 
 
+def _lock_organization_for_membership_change(db: Session, organization_id: uuid.UUID) -> None:
+    """Acquire the shared first lock for invitation and membership writes."""
+    organization = db.scalar(
+        select(Organization).where(Organization.id == organization_id).with_for_update()
+    )
+    if organization is None:
+        raise NotFound("Organization not found.")
+
+
 # ------------------------------------------------------------- invitations
 def create_invitation(
     db: Session,
@@ -74,6 +83,9 @@ def create_invitation(
             details=[{"field": "role_code", "reason": role_code}],
         )
     email_normalized = email.strip().lower()
+    # All invitation creation/acceptance/direct-add paths lock the organization
+    # first, then inspect invitation and membership rows in a stable order.
+    _lock_organization_for_membership_change(db, organization_id)
     # Cannot invite someone who is already an active member.
     existing_user = db.scalar(select(User).where(func.lower(User.email) == email_normalized))
     if existing_user is not None:
@@ -86,17 +98,23 @@ def create_invitation(
         )
         if already is not None:
             raise Conflict("This user is already a member of this organization.")
-    # One pending invitation per (org, email).
-    pending = db.scalar(
-        select(Invitation).where(
+    # One live pending invitation per (org, email). Expired rows are marked
+    # expired while holding the organization lock so stale `pending` states do
+    # not accumulate beside a new usable invite.
+    now = datetime.now(UTC)
+    pending_rows = db.scalars(
+        select(Invitation)
+        .where(
             Invitation.organization_id == organization_id,
             func.lower(Invitation.email) == email_normalized,
             Invitation.status == "pending",
-            Invitation.expires_at > datetime.now(UTC),
         )
-    )
-    if pending is not None:
-        raise Conflict("A pending invitation for this email already exists.")
+        .with_for_update()
+    ).all()
+    for pending in pending_rows:
+        if pending.expires_at > now:
+            raise Conflict("A pending invitation for this email already exists.")
+        pending.status = "expired"
 
     plain, token_hash, _ = generate_token(ttl_seconds=INVITATION_TTL_SECONDS)
     invitation = Invitation(
@@ -160,10 +178,13 @@ def revoke_invitation(
     db: Session, principal: Principal, *, organization_id: uuid.UUID, invitation_id: uuid.UUID
 ) -> Invitation:
     _require_org_admin(db, principal, organization_id)
+    _lock_organization_for_membership_change(db, organization_id)
     invitation = db.scalar(
-        select(Invitation).where(
+        select(Invitation)
+        .where(
             Invitation.id == invitation_id, Invitation.organization_id == organization_id
         )
+        .with_for_update()
     )
     if invitation is None:
         raise NotFound("Invitation not found.")
@@ -188,65 +209,65 @@ def revoke_invitation(
 def accept_invitation(db: Session, principal: Principal, *, token: str) -> Membership:
     """Accept a pending invitation as the AUTHENTICATED user.
 
-    The invite email must match the caller's account email — invitation
-    tokens are not transferable credentials (they only authorize joining as
-    the invited address).
+    Locks in the common order: organization row first, invitation row second.
+    The token lookup first reveals only the organization id; the invitation is
+    then reloaded under lock so simultaneous acceptances re-check its latest
+    status rather than racing into a membership uniqueness error.
     """
     from app.core.security import hash_token
 
     token_hash = hash_token(token)
-    invitation = db.scalar(select(Invitation).where(Invitation.token_hash == token_hash))
+    organization_id = db.scalar(
+        select(Invitation.organization_id).where(Invitation.token_hash == token_hash)
+    )
+    if organization_id is None:
+        raise NotFound("Invitation not found.")
+    _lock_organization_for_membership_change(db, organization_id)
+    invitation = db.scalar(
+        select(Invitation)
+        .where(Invitation.token_hash == token_hash)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if invitation is None:
         raise NotFound("Invitation not found.")
     if invitation.status != "pending":
         raise Conflict(f"Invitation is {invitation.status}.")
-    if invitation.expires_at < datetime.now(UTC):
+    now = datetime.now(UTC)
+    if invitation.expires_at < now:
         invitation.status = "expired"
         db.commit()
         raise Conflict("Invitation has expired.")
     if principal.user.email.strip().lower() != invitation.email:
         raise Forbidden("This invitation was issued to a different email address.")
+
     already = db.scalar(
         select(Membership).where(
             Membership.organization_id == invitation.organization_id,
             Membership.user_id == principal.id,
         )
     )
-    if already is not None:
-        if already.status == "active":
-            raise Conflict("You are already a member of this organization.")
-        active_members = int(
-            db.scalar(
-                select(func.count())
-                .select_from(Membership)
-                .where(
-                    Membership.organization_id == invitation.organization_id,
-                    Membership.status == "active",
-                )
+    if already is not None and already.status == "active":
+        raise Conflict("You are already a member of this organization.")
+    active_members = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Membership)
+            .where(
+                Membership.organization_id == invitation.organization_id,
+                Membership.status == "active",
             )
-            or 0
         )
-        entitlements.assert_within_limit(
-            db, invitation.organization_id, entitlements.KEY_MAX_ORG_MEMBERS, active_members
-        )
+        or 0
+    )
+    entitlements.assert_within_limit(
+        db, invitation.organization_id, entitlements.KEY_MAX_ORG_MEMBERS, active_members
+    )
+    if already is not None:
         already.status = "active"
         already.role_code = invitation.role_code
         membership = already
     else:
-        active_members = int(
-            db.scalar(
-                select(func.count())
-                .select_from(Membership)
-                .where(
-                    Membership.organization_id == invitation.organization_id,
-                    Membership.status == "active",
-                )
-            )
-            or 0
-        )
-        entitlements.assert_within_limit(
-            db, invitation.organization_id, entitlements.KEY_MAX_ORG_MEMBERS, active_members
-        )
         membership = Membership(
             organization_id=invitation.organization_id,
             user_id=principal.id,
@@ -254,8 +275,10 @@ def accept_invitation(db: Session, principal: Principal, *, token: str) -> Membe
             status="active",
         )
         db.add(membership)
+
     invitation.status = "accepted"
-    invitation.accepted_at = datetime.now(UTC)
+    invitation.accepted_at = now
+    db.flush()
     record_auth_audit(
         db,
         actor_id=principal.id,
@@ -277,7 +300,6 @@ def accept_invitation(db: Session, principal: Principal, *, token: str) -> Membe
     db.commit()
     db.refresh(membership)
     return membership
-
 
 # ------------------------------------------------------- members (org level)
 def list_org_members(

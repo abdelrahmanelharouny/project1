@@ -1148,15 +1148,14 @@ def capabilities_payload() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# P3 entitlement enforcement (Task 3) — scenario-run quota
+# Scenario-run quota resolution and transaction-scoped reservation
 # ---------------------------------------------------------------------------
 # The scenario RUN (execution) is created by
 # app/scenario_execution/service.start_scenario_execution; these helpers keep
-# the entitlement policy in one place. CONSTRAINT (Task 3): gates apply ONLY
-# when the acting principal's organization context has a live subscription —
-# users/flows without an organization (legacy personal accounts, P1/P2
-# golden cases, seed/demo users) pass through untouched so existing behavior
-# is 100% preserved.
+# the entitlement policy in one place. A member's organization is metered
+# against its live plan, or the Free-plan floor when there is no subscription.
+# Personal/system flows without an active organization membership remain
+# outside organization quota accounting.
 
 def quota_organization_for_run(
     db: Session,
@@ -1187,20 +1186,31 @@ def quota_organization_for_run(
     return farm.organization_id if membership is not None else None
 
 
-def enforce_scenario_run_quota(
+def lock_scenario_run_quota(
     db: Session,
     scenario: dbm.Scenario,
     created_by: Any,
 ) -> uuid_mod.UUID | None:
-    """Raise PaymentRequired when the acting organization's plan quota for
-    scenario runs is exhausted. Returns the gated organization id (callers
-    increment the usage counter against it after persisting a NEW run), or
-    None when no gate applies (no acting user, no org context, or the
-    organization has no organization context)."""
+    """Resolve and lock the billed organization before the final replay check.
+
+    Locking before that check serializes concurrent new runs while allowing a
+    concurrent replay to observe and return the winning run without reserving
+    a second unit. No organization membership means no quota reservation.
+    """
     from app.billing import entitlements
 
     org_id = quota_organization_for_run(db, scenario, created_by)
-    if org_id is None:
-        return None
-    entitlements.check_quota(db, org_id, entitlements.KEY_SCENARIO_RUNS_PER_MONTH)
+    if org_id is not None:
+        entitlements.lock_organization_for_quota(db, org_id)
     return org_id
+
+
+def reserve_scenario_run_quota(db: Session, organization_id: uuid_mod.UUID) -> int:
+    """Reserve one unit while the organization's row lock is held.
+
+    The caller must commit this transaction together with its new execution
+    row; the reservation is intentionally retained for failed admitted runs.
+    """
+    from app.billing import entitlements
+
+    return entitlements.reserve_scenario_run(db, organization_id, organization_locked=True)

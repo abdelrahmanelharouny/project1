@@ -249,77 +249,123 @@ def execute_report_job(
     *,
     now: datetime | None = None,
 ) -> tuple[bool, str | None]:
-    """Render one queued (or failed) report job. Returns (success, error).
+    """Render one report under a report-id advisory fence; return (success,error).
 
-    Never raises for data problems — a section that cannot be gathered is
-    rendered with ``provenance: "missing"`` and a note. Only infrastructural
-    failures (renderer crash, unwritable storage) mark the job failed.
+    The scheduler, inline entry points, and background worker all converge
+    here. A PostgreSQL session advisory lock serializes them across processes;
+    status is re-read after acquiring it, so a caller waiting behind a completed
+    render observes ``succeeded`` and cannot meter usage or emit ``report.ready``
+    again. A legacy ``running`` row fails closed because its effects are unknown.
     """
-    job = session.get(ReportJob, job_id)
-    if job is None:
-        raise NotFound("Report job not found.")
-    if job.status == contracts.REPORT_STATUS_RUNNING:
-        raise Conflict("Report job is already running.")
-    if job.status == contracts.REPORT_STATUS_EXPIRED:
-        raise Conflict("Report job has expired; regenerate it first.")
+    import hashlib
 
-    now = now or datetime.now(UTC)
-    job.status = contracts.REPORT_STATUS_RUNNING
-    job.error = None
-    session.commit()
+    from sqlalchemy import text
 
+    from app.core.database import engine
+
+    lock_key = int.from_bytes(
+        hashlib.blake2b(job_id.bytes, digest_size=8, person=b"report-exec").digest(),
+        byteorder="big",
+        signed=True,
+    )
+    connection = engine.connect()
+    acquired = False
     try:
-        spec = contracts.get_report_type(job.report_type)
-        payload = _build_payload(session, job, spec, now)
-        blob = renderers.render(payload, job.output_format, job.locale)
-        artifact_path = _write_artifact(job, blob)
-        job.file_path = str(artifact_path)
-        job.file_size_bytes = len(blob)
-        job.status = contracts.REPORT_STATUS_SUCCEEDED
-        job.error = None
-        job.retention_until = contracts.retention_until_for(now)
-        # Meter against the same resolved plan (including the Free plan) that
-        # was checked when this report was requested.
-        entitlements.increment_usage(
-            session, job.organization_id, entitlements.KEY_REPORTS_PER_MONTH
+        if connection.dialect.name != "postgresql":
+            return False, "report execution requires PostgreSQL advisory locking"
+        connection.execute(
+            text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": lock_key}
         )
-        session.commit()
-        if payload.get("rendering_notes"):
-            logger.info(
-                "report %s rendering notes: %s", job.id, payload["rendering_notes"]
-            )
-        # P3 W6: notify external systems (webhook deliveries are signed and
-        # dispatched by the retry sweep; emission here must never fail the job).
-        try:
-            from app.publicapi.emitters import emit_event
+        connection.commit()
+        acquired = True
 
-            emit_event(
-                session,
-                job.organization_id,
-                "report.ready",
-                payload_id=str(job.id),
-                data={
-                    "report_job_id": str(job.id),
-                    "report_type": job.report_type,
-                    "format": job.output_format,
-                    "locale": job.locale,
-                },
+        # Lock the domain row after obtaining the cross-process fence and force
+        # a fresh read: callers may have loaded a queued identity-map object
+        # before waiting for another executor to finish.
+        job = session.scalar(
+            select(ReportJob).where(ReportJob.id == job_id).with_for_update()
+        )
+        if job is None:
+            raise NotFound("Report job not found.")
+        session.refresh(job)
+        if job.status == contracts.REPORT_STATUS_SUCCEEDED:
+            return True, None
+        if job.status == contracts.REPORT_STATUS_EXPIRED:
+            return False, "Report job has expired; regenerate it first."
+        if job.status == contracts.REPORT_STATUS_RUNNING:
+            return False, "Report job is already running; replay refused."
+
+        now = now or datetime.now(UTC)
+        job.status = contracts.REPORT_STATUS_RUNNING
+        job.error = None
+        session.commit()
+
+        try:
+            spec = contracts.get_report_type(job.report_type)
+            payload = _build_payload(session, job, spec, now)
+            blob = renderers.render(payload, job.output_format, job.locale)
+            artifact_path = _write_artifact(job, blob)
+            job.file_path = str(artifact_path)
+            job.file_size_bytes = len(blob)
+            job.status = contracts.REPORT_STATUS_SUCCEEDED
+            job.error = None
+            job.retention_until = contracts.retention_until_for(now)
+            # The report terminal state and meter increment share one commit.
+            # Re-entry observes succeeded before any later side effect.
+            entitlements.increment_usage(
+                session, job.organization_id, entitlements.KEY_REPORTS_PER_MONTH
             )
             session.commit()
-        except Exception:  # noqa: BLE001
+            if payload.get("rendering_notes"):
+                logger.info(
+                    "report %s rendering notes: %s", job.id, payload["rendering_notes"]
+                )
+            # Event emission is intentionally after the terminal/meter commit.
+            # A crash can leave a missing ready event, but a retry will never
+            # duplicate it or charge usage again.
+            try:
+                from app.publicapi.emitters import emit_event
+
+                emit_event(
+                    session,
+                    job.organization_id,
+                    "report.ready",
+                    payload_id=str(job.id),
+                    data={
+                        "report_job_id": str(job.id),
+                        "report_type": job.report_type,
+                        "format": job.output_format,
+                        "locale": job.locale,
+                    },
+                )
+                session.commit()
+            except Exception:  # noqa: BLE001 — notification delivery is best-effort
+                session.rollback()
+            return True, None
+        except Exception as exc:  # noqa: BLE001 — job failure must never raise
             session.rollback()
-        return True, None
-    except Exception as exc:  # noqa: BLE001 — job failure must never raise
-        session.rollback()
-        job = session.get(ReportJob, job_id)
-        if job is None:  # pragma: no cover — row deleted mid-flight
-            return False, str(exc)
-        job.status = contracts.REPORT_STATUS_FAILED
-        job.error = _safe_error(exc)
-        job.retention_until = contracts.retention_until_for(now, contracts.FAILED_JOB_RETENTION_DAYS)
-        session.commit()
-        logger.warning("report job %s failed: %s", job_id, job.error)
-        return False, job.error
+            job = session.get(ReportJob, job_id)
+            if job is None:  # pragma: no cover — row deleted mid-flight
+                return False, str(exc)
+            job.status = contracts.REPORT_STATUS_FAILED
+            job.error = _safe_error(exc)
+            job.retention_until = contracts.retention_until_for(
+                now, contracts.FAILED_JOB_RETENTION_DAYS
+            )
+            session.commit()
+            logger.warning("report job %s failed: %s", job_id, job.error)
+            return False, job.error
+    finally:
+        if acquired:
+            try:
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(:lock_key)"),
+                    {"lock_key": lock_key},
+                )
+                connection.commit()
+            except Exception:  # noqa: BLE001 — don't return a potentially locked connection
+                connection.invalidate()
+        connection.close()
 
 
 def _safe_error(exc: Exception) -> str:

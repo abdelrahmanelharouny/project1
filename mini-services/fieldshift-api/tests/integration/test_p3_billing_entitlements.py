@@ -25,10 +25,10 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.db.models_p3 import BillingEvent, Invoice
+from app.db.models_p3 import BillingEvent, Invoice, Notification, Subscription
 
 WEBHOOK_URL = "/api/v1/billing/webhook"
 
@@ -293,18 +293,47 @@ class TestEntitlementEnforcement:
 
 
 class TestSandboxPaymentSimulation:
-    def test_sandbox_pay_processes_through_webhook_pipeline(self, client, auth_headers):
+    def test_sandbox_pay_processes_through_webhook_pipeline(self, client, auth_headers, db):
         headers, user = auth_headers
-        _start_subscription(client, headers, _org_id(user), "starter")
+        org = _org_id(user)
+        _start_subscription(client, headers, org, "starter")
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
+        invoice = Invoice(
+            organization_id=uuid.UUID(org),
+            subscription_id=subscription.id,
+            number=f"CT-TEST-{uuid.uuid4().hex[:8]}",
+            status="open",
+            amount_cents=1900,
+            currency_code="USD",
+            period_start=subscription.current_period_start.date(),
+            period_end=subscription.current_period_end.date(),
+            issued_at=datetime.now(UTC),
+            provider_ref=subscription.provider_subscription_ref,
+            provider_invoice_ref=f"inv_test_{uuid.uuid4().hex}",
+        )
+        db.add(invoice)
+        db.commit()
         resp = client.post(
             "/api/v1/billing/sandbox/pay",
             headers=headers,
-            json={"organization_id": _org_id(user), "outcome": "succeeded"},
+            json={"organization_id": org, "outcome": "succeeded"},
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["status"] == "processed"
         assert body["outcome"] == "succeeded"
+        snapshot = client.get(
+            "/api/v1/billing/subscription", headers=headers, params={"organization_id": org}
+        ).json()
+        assert snapshot["subscription"]["provider"] == "sandbox"
+        assert snapshot["subscription"]["provider_mode"] == "test"
+        event = db.get(BillingEvent, uuid.UUID(body["billing_event_id"]))
+        assert event.provider == "sandbox"
+        assert event.invoice_id == invoice.id
+        assert event.provider_transaction_id.startswith("txn_sandbox_")
+        assert event.provider_subscription_ref == subscription.provider_subscription_ref
         # the simulated provider payment also produced the billing notification
         notifs = client.get("/api/v1/notifications", headers=headers).json()
         assert any(
@@ -326,7 +355,7 @@ class TestSandboxPaymentSimulation:
 
 
 class TestBillingWebhookReceiver:
-    def _org_with_open_invoice(self, client, auth_headers) -> tuple[dict, str]:
+    def _org_with_open_invoice(self, client, auth_headers, db) -> tuple[dict, str]:
         """free (active, $0 invoice) -> change to starter -> renewal_due
         webhook creates an OPEN invoice for 1900 cents."""
         headers, user = auth_headers
@@ -340,10 +369,15 @@ class TestBillingWebhookReceiver:
             ).status_code
             == 200
         )
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
         renewal = {
             "event_type": "subscription.renewal_due",
             "event_id": f"evt_renew_{uuid.uuid4().hex}",
             "organization_id": org,
+            "provider_subscription_ref": subscription.provider_subscription_ref,
+            "period_start": subscription.current_period_end.isoformat(),
         }
         raw, sig_headers = _signed_webhook(renewal)
         resp = client.post(WEBHOOK_URL, content=raw, headers=sig_headers)
@@ -354,13 +388,17 @@ class TestBillingWebhookReceiver:
     def test_valid_signature_processes_payment_and_marks_invoice_paid(
         self, client, auth_headers, db
     ):
-        headers, org = self._org_with_open_invoice(client, auth_headers)
+        headers, org = self._org_with_open_invoice(client, auth_headers, db)
         before = client.get(
             "/api/v1/billing/invoices", headers=headers, params={"organization_id": org}
         ).json()
         open_invoices = [i for i in before["items"] if i["status"] == "open"]
         assert len(open_invoices) == 1
         assert open_invoices[0]["amount_cents"] == 1900
+        invoice = db.get(Invoice, uuid.UUID(open_invoices[0]["id"]))
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
 
         event_id = f"evt_pay_{uuid.uuid4().hex}"
         raw, sig_headers = _signed_webhook(
@@ -368,6 +406,10 @@ class TestBillingWebhookReceiver:
                 "event_type": "payment.succeeded",
                 "event_id": event_id,
                 "organization_id": org,
+                "provider_subscription_ref": subscription.provider_subscription_ref,
+                "invoice_id": str(invoice.id),
+                "provider_invoice_ref": invoice.provider_invoice_ref,
+                "provider_transaction_id": f"txn_pay_{uuid.uuid4().hex}",
                 "amount_cents": 1900,
                 "currency": "USD",
             }
@@ -434,12 +476,24 @@ class TestBillingWebhookReceiver:
         assert rows[0].payload == {}
 
     def test_duplicate_provider_event_id_is_idempotent(self, client, auth_headers, db):
-        headers, org = self._org_with_open_invoice(client, auth_headers)
+        headers, org = self._org_with_open_invoice(client, auth_headers, db)
+        invoice = db.scalar(
+            select(Invoice).where(
+                Invoice.organization_id == uuid.UUID(org), Invoice.status == "open"
+            )
+        )
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
         event_id = f"evt_dup_{uuid.uuid4().hex}"
         payload = {
             "event_type": "payment.succeeded",
             "event_id": event_id,
             "organization_id": org,
+            "provider_subscription_ref": subscription.provider_subscription_ref,
+            "invoice_id": str(invoice.id),
+            "provider_invoice_ref": invoice.provider_invoice_ref,
+            "provider_transaction_id": f"txn_dup_{uuid.uuid4().hex}",
             "amount_cents": 1900,
             "currency": "USD",
         }
@@ -468,15 +522,36 @@ class TestBillingWebhookReceiver:
         assert rows[0].status == "duplicate"
 
     def test_payment_amount_or_currency_mismatch_cannot_settle_invoice(
-        self, client, auth_headers
+        self, client, auth_headers, db
     ):
-        headers, org = self._org_with_open_invoice(client, auth_headers)
+        headers, org = self._org_with_open_invoice(client, auth_headers, db)
+        invoice = db.scalar(
+            select(Invoice).where(
+                Invoice.organization_id == uuid.UUID(org), Invoice.status == "open"
+            )
+        )
+        subscription = db.scalar(
+            select(Subscription).where(Subscription.organization_id == uuid.UUID(org))
+        )
+        status_before = subscription.status
+        notifications_before = int(
+            db.scalar(
+                select(func.count()).select_from(Notification).where(
+                    Notification.organization_id == uuid.UUID(org),
+                    Notification.category == "billing",
+                )
+            )
+        )
         for amount, currency in ((1899, "USD"), (1900, "EUR")):
             raw, sig_headers = _signed_webhook(
                 {
                     "event_type": "payment.succeeded",
                     "event_id": f"evt_mismatch_{uuid.uuid4().hex}",
                     "organization_id": org,
+                    "provider_subscription_ref": subscription.provider_subscription_ref,
+                    "invoice_id": str(invoice.id),
+                    "provider_invoice_ref": invoice.provider_invoice_ref,
+                    "provider_transaction_id": f"txn_mismatch_{uuid.uuid4().hex}",
                     "amount_cents": amount,
                     "currency": currency,
                 }
@@ -487,6 +562,18 @@ class TestBillingWebhookReceiver:
             "/api/v1/billing/invoices", headers=headers, params={"organization_id": org}
         ).json()
         assert any(invoice["status"] == "open" for invoice in invoices["items"])
+        db.expire_all()
+        assert db.get(Invoice, invoice.id).status == "open"
+        assert db.get(Subscription, subscription.id).status == status_before
+        notifications_after = int(
+            db.scalar(
+                select(func.count()).select_from(Notification).where(
+                    Notification.organization_id == uuid.UUID(org),
+                    Notification.category == "billing",
+                )
+            )
+        )
+        assert notifications_after == notifications_before
 
     def test_unparsable_body_rejected(self, client, db):
         """A non-JSON body is recorded as an invalid event and rejected. The

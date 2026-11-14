@@ -39,6 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy import or_ as sa_or
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -76,6 +77,63 @@ class ProcessingRequestError(Exception):
 
 class SceneNotProcessableError(Exception):
     """Scene cannot be processed (validation rejection)."""
+
+
+class ProcessingOwnershipLostError(RuntimeError):
+    """The raster executor no longer holds its persisted background-job fence."""
+
+
+def _assert_processing_job_owner(db: Session, rp: RasterProcessingJob) -> None:
+    """Lock and validate the live owner row before raster DB or artifact writes.
+
+    The lock serializes this transaction against lease recovery/takeover. The
+    queued/unowned branch is limited to legacy synchronous invocations (used
+    by local/dev callers); actual background workers always carry core context.
+    """
+    if rp.background_job_id is None:
+        raise ProcessingOwnershipLostError("raster job has no background ownership row")
+
+    from app.core.jobs import current_job_execution
+
+    execution = current_job_execution()
+    if execution is None:
+        # Keep explicit synchronous invocations usable only before any worker
+        # has claimed the queued row and in-process workers are disabled. A
+        # running/expired/replayed job fails closed.
+        if settings.job_workers > 0:
+            raise ProcessingOwnershipLostError("raster executor has no active worker context")
+        queued = db.scalar(
+            select(BackgroundJob.id)
+            .where(
+                BackgroundJob.id == rp.background_job_id,
+                BackgroundJob.status == "queued",
+                BackgroundJob.owner_id.is_(None),
+                BackgroundJob.lease_expires_at.is_(None),
+            )
+            .with_for_update()
+        )
+        if queued is not None:
+            return
+        raise ProcessingOwnershipLostError("raster executor has no active worker context")
+
+    job_id, owner_id, fencing_token = execution
+    if job_id != rp.background_job_id:
+        raise ProcessingOwnershipLostError("executor context belongs to a different job")
+    current = db.scalar(
+        select(BackgroundJob.id)
+        .where(
+            BackgroundJob.id == rp.background_job_id,
+            BackgroundJob.status == "running",
+            BackgroundJob.owner_id == owner_id,
+            BackgroundJob.fencing_token == fencing_token,
+            BackgroundJob.lease_expires_at > func.clock_timestamp(),
+        )
+        .with_for_update()
+    )
+    if current is None:
+        raise ProcessingOwnershipLostError(
+            "raster owner, fencing generation, or lease is no longer current"
+        )
 
 
 def indices_digest(indices: list[str]) -> str:
@@ -263,11 +321,18 @@ def execute_processing_job(rp_job_id: uuid.UUID, progress: Any) -> None:
             return  # cancelled/unknown/duplicate — do not execute
         try:
             _run_processing(db, rp, progress)
+        except ProcessingOwnershipLostError:
+            db.rollback()
+            logger.info(
+                "raster executor stopped after ownership loss",
+                extra={"job_id": str(rp_job_id)},
+            )
         except Exception as exc:
             db.rollback()
             rp = db.get(RasterProcessingJob, rp_job_id)
             if rp is None:
                 return
+            _assert_processing_job_owner(db, rp)
             rp.status = "failed"
             rp.error = f"{type(exc).__name__}: {exc}"[:2000]
             rp.finished_at = datetime.now(UTC)
@@ -286,6 +351,7 @@ def execute_processing_job(rp_job_id: uuid.UUID, progress: Any) -> None:
 
 
 def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None:
+    _assert_processing_job_owner(db, rp)
     rp.status = "running"
     rp.started_at = datetime.now(UTC)
     rp.progress = 5
@@ -300,6 +366,7 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
     db.commit()
 
     def _prog(pct: int, stage: str) -> None:
+        _assert_processing_job_owner(db, rp)
         rp.progress = max(0, min(int(pct), 100))
         rp.stage = stage[:200]
         db.add(rp)
@@ -405,8 +472,8 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
                 path=cog_path,
             )
             data = Path(cog_path).read_bytes()
-            stored_obj = _put_asset(
-                storage, key, data, "image/tiff", allow_overwrite=True
+            stored_obj = _put_asset_owned(
+                db, rp, storage, key, data, "image/tiff", allow_overwrite=True
             )
             preview_name = f"{rp.scene_id}_{product.index_code}.png"
             preview_key = raster_key(
@@ -424,8 +491,8 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
                 index_code=product.index_code,
                 max_px=settings.raster_preview_max_px,
             )
-            preview_obj = _put_asset(
-                storage, preview_key, png, "image/png", allow_overwrite=True
+            preview_obj = _put_asset_owned(
+                db, rp, storage, preview_key, png, "image/png", allow_overwrite=True
             )
 
         bbox_wgs84 = _window_bounds_wgs84(reading.crs, reading.window_bounds)
@@ -489,6 +556,7 @@ def _run_processing(db: Session, rp: RasterProcessingJob, progress: Any) -> None
     )
     all_warnings.extend(warnings_obs)
 
+    _assert_processing_job_owner(db, rp)
     rp.status = "succeeded"
     rp.progress = 100
     rp.stage = "completed"
@@ -529,6 +597,27 @@ def _put_asset(storage: Any, key: str, data: bytes, content_type: str, *, allow_
         return storage.put_bytes(key, data, content_type=content_type, overwrite=True)
 
 
+def _put_asset_owned(
+    db: Session,
+    rp: RasterProcessingJob,
+    storage: Any,
+    key: str,
+    data: bytes,
+    content_type: str,
+    *,
+    allow_overwrite: bool,
+) -> Any:
+    """Check ownership immediately before an external artifact write.
+
+    The persisted-row lock is held through the put and released immediately
+    afterward; external storage itself has no transactional fencing primitive.
+    """
+    _assert_processing_job_owner(db, rp)
+    stored = _put_asset(storage, key, data, content_type, allow_overwrite=allow_overwrite)
+    db.commit()
+    return stored
+
+
 # ------------------------------------------------------------ persistence
 def _persist_products(
     db: Session,
@@ -541,6 +630,7 @@ def _persist_products(
     boundary_version: int | None,
 ) -> None:
     """Insert raster_assets rows (idempotent per natural key)."""
+    _assert_processing_job_owner(db, rp)
     for s in stored:
         key = s["key"]
         existing = db.scalar(
@@ -641,6 +731,7 @@ def _persist_observations(
       the previous value + version kept in the provenance chain.
     - Valid row from the SAME processing version -> kept (idempotent).
     """
+    _assert_processing_job_owner(db, rp)
     from app.data_platform.ingestion.service import _product_for_provider
     from app.data_platform.providers.nasa_hls.registry_info import (
         HLS_SPATIAL_RESOLUTION_M,

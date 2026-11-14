@@ -14,7 +14,7 @@ exists; the allocation constraint uses the most precise evaluable demand.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from app.rotation.problem import (
@@ -80,6 +80,7 @@ def _window_planting_overlap(
     """Overlap of the recurring (MM-DD) planting window with the season,
     handling year-wrapping windows (start > end)."""
     y0, y1 = season.start_date.year, season.end_date.year
+    overlaps: list[tuple[date, date]] = []
     for base_year in (y0, y0 - 1, y0 + 1):
         try:
             ws = _mmdd_to_date(base_year, planting_start)
@@ -93,8 +94,8 @@ def _window_planting_overlap(
         lo = max(ws, season.start_date)
         hi = min(we, season.end_date)
         if lo <= hi:
-            return lo, hi
-    return None
+            overlaps.append((lo, hi))
+    return min(overlaps, key=lambda item: item[0]) if overlaps else None
 
 
 def _windows_for_field(crop: KnowledgeCrop, hemisphere: str, country_code: str):
@@ -313,14 +314,23 @@ def assess_crop(
         window_matched = None
         overlap = None
     else:
-        window_matched = None
-        overlap = None
-        for w in windows:
-            ov = _window_planting_overlap(season, w.planting_start, w.planting_end)
-            if ov is not None:
-                window_matched = w
-                overlap = ov
-                break
+        matches = [
+            (ov[0], w, ov)
+            for w in windows
+            if (ov := _window_planting_overlap(season, w.planting_start, w.planting_end))
+            is not None
+        ]
+        if matches:
+            _planting_date, window_matched, overlap = min(
+                matches,
+                key=lambda item: (
+                    item[0], item[1].planting_start, item[1].planting_end,
+                    item[1].source_key,
+                ),
+            )
+        else:
+            window_matched = None
+            overlap = None
         if window_matched is None:
             return CandidateAssessment(
                 crop_code=crop.crop_code,
@@ -351,22 +361,33 @@ def assess_crop(
     duration = crop.numeric_trait("duration_days_total", country)
     duration_trait = crop.resolve_trait("duration_days_total", country)
     if duration is not None and window_matched is not None:
-        overflow = int(duration) - season.length_days
-        if overflow <= 0:
+        # The crop matures from a feasible planting date, not automatically
+        # from the season start. Use the earliest date admitted by any matching
+        # window (the most favorable feasible planting date).
+        planting_date = overlap[0]
+        maturity_date = planting_date + timedelta(days=max(0, int(duration) - 1))
+        overflow = max(0, (maturity_date - season.end_date).days)
+        if maturity_date <= season.end_date:
             reasons.append(
                 _reason(
                     "crop_calendar",
                     "duration_fits",
-                    f"Crop duration {int(duration)} d fits the {season.length_days}-d season.",
+                    f"Crop duration {int(duration)} d from the earliest feasible planting "
+                    f"date {planting_date.isoformat()} matures on {maturity_date.isoformat()}, "
+                    f"within the season ending {season.end_date.isoformat()}.",
                     source_refs=[_trait_ref(duration_trait)] if duration_trait else None,
                 )
             )
-        elif overflow <= DURATION_SPILL_TOLERANCE_DAYS:
+        elif maturity_date <= season.end_date + timedelta(
+            days=DURATION_SPILL_TOLERANCE_DAYS
+        ):
             reasons.append(
                 _reason(
                     "crop_calendar",
                     "duration_spills",
-                    f"Crop duration {int(duration)} d exceeds the season by {overflow} d "
+                    f"Crop duration {int(duration)} d from the earliest feasible planting "
+                    f"date {planting_date.isoformat()} matures on {maturity_date.isoformat()}, "
+                    f"{overflow} d after the season ends "
                     f"(within the {DURATION_SPILL_TOLERANCE_DAYS}-d harvest-spill tolerance) "
                     "— conditionally eligible.",
                     severity="conditional",
@@ -381,8 +402,10 @@ def assess_crop(
                     _reason(
                         "crop_calendar",
                         "duration_exceeds_season",
-                        f"Crop duration {int(duration)} d exceeds the {season.length_days}-d "
-                        f"season by {overflow} d (beyond tolerance).",
+                        f"Crop duration {int(duration)} d from the earliest feasible planting "
+                        f"date {planting_date.isoformat()} matures on {maturity_date.isoformat()}, "
+                        f"{overflow} d after the season ends (beyond the "
+                        f"{DURATION_SPILL_TOLERANCE_DAYS}-d harvest-spill tolerance).",
                         severity="hard",
                         source_refs=[_trait_ref(duration_trait)] if duration_trait else None,
                     ),

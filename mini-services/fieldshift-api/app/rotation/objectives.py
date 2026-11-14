@@ -247,28 +247,29 @@ def criterion_diversity(
 def criterion_resilience(
     problem: RotationProblem, assignment: dict[str, str | None]
 ) -> CriterionResult:
-    """Fraction of seasons whose temperature evidence fell WITHIN the crop's
-    sourced optimum (evaluated during candidate generation). Seasons without
-    temperature evaluation are listed as missing, never zero."""
+    """Temperature-fit screen: fraction of evaluated seasons inside the crop's
+    sourced optimum. Missing temperature evidence is excluded from the
+    denominator and listed; this is not a crop-yield forecast."""
     good = 0
     missing: list[str] = []
-    total = 0
+    evaluated = 0
     for season, crop_code in _assigned(problem, assignment):
         if crop_code is None:
             continue
-        total += 1
         assessment = problem.candidates.get(season.label, {}).get(crop_code)
         if assessment is None:
             missing.append(f"{season.label}: unevaluated candidate '{crop_code}'")
             continue
         codes = {r["code"] for r in assessment.reasons}
         if "temperature_within_optimum" in codes:
+            evaluated += 1
             good += 1
         elif any(c.startswith("temperature_") for c in codes):
+            evaluated += 1
             pass  # evaluated but outside optimum → contributes 0
         else:
             missing.append(f"{season.label}: temperature not evaluated for '{crop_code}'")
-    if not total or (good == 0 and missing):
+    if not evaluated:
         return CriterionResult(
             criterion_code="climate_resilience_index",
             raw_value=None,
@@ -278,18 +279,20 @@ def criterion_resilience(
             evaluable=False,
             missing_evidence=tuple(missing) or ("no seasons assigned",),
             derivation="Fraction of seasons with temperature evidence inside the crop's "
-            "sourced optimum range (candidate-generation outcome).",
+            "sourced optimum range (candidate-generation outcome); a temperature-fit "
+            "screen, not a crop-yield forecast.",
         )
     return CriterionResult(
         criterion_code="climate_resilience_index",
-        raw_value=round(good / total, 4),
+        raw_value=round(good / evaluated, 4),
         unit="fraction 0..1",
         direction="maximize",
         normalized=None,
         evaluable=True,
         missing_evidence=tuple(missing),
         derivation="Fraction of seasons with temperature evidence inside the crop's "
-        "sourced optimum range (candidate-generation outcome).",
+        "sourced optimum range among seasons with temperature evidence "
+        "(candidate-generation outcome); a temperature-fit screen, not a crop-yield forecast.",
         source_refs=_refs_for_traits(problem, assignment, "temp_opt_min_degC"),
     )
 
@@ -498,12 +501,14 @@ def weighted_objective(solution: StrategySolution) -> tuple[float | None, dict[s
     criteria; skipped weights are reported with reasons (never silently dropped)."""
     weights = solution.profile_weights
     evaluable = {c.criterion_code: c for c in solution.criteria if c.evaluable and c.normalized is not None}
-    skipped: dict[str, str] = {}
+    # Keep per-season score omissions from the optimizer visible even if other
+    # seasons supplied enough evidence for the criterion to remain in use.
+    skipped: dict[str, str] = dict(solution.skipped_weights)
     total_w = 0.0
     effective: dict[str, float] = {}
     for code, w in weights.items():
         if w <= 0:
-            skipped[code] = "weight is zero"
+            skipped.setdefault(code, "weight is zero")
             continue
         crit = evaluable.get(code)
         if crit is None:
@@ -513,7 +518,7 @@ def weighted_objective(solution: StrategySolution) -> tuple[float | None, dict[s
             reason = "criterion not evaluable from available evidence"
             if missing is not None and missing.missing_evidence:
                 reason += f": {missing.missing_evidence[0]}"
-            skipped[code] = reason
+            skipped.setdefault(code, reason)
             continue
         effective[code] = w
         total_w += w

@@ -114,7 +114,14 @@ class SandboxBillingProvider(BillingProvider):
 
     # -- payment simulation (sandbox only) -----------------------------------
     def simulate_payment(
-        self, *, outcome: str, subscription_ref: str, amount_cents: int, currency: str
+        self,
+        *,
+        outcome: str,
+        subscription_ref: str,
+        invoice_id: str,
+        provider_invoice_ref: str,
+        amount_cents: int,
+        currency: str,
     ) -> PaymentResult:
         if outcome not in ("succeeded", "declined"):
             raise ValidationFailed("outcome must be 'succeeded' or 'declined'.")
@@ -124,6 +131,9 @@ class SandboxBillingProvider(BillingProvider):
             provider_event_id=event_id,
             details={
                 "provider_subscription_ref": subscription_ref,
+                "invoice_id": invoice_id,
+                "provider_invoice_ref": provider_invoice_ref,
+                "provider_transaction_id": f"txn_sandbox_{uuid.uuid4().hex}",
                 "amount_cents": amount_cents,
                 "currency": currency,
                 "simulated_at": datetime.now(UTC).isoformat(),
